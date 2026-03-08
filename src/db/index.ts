@@ -474,6 +474,31 @@ function createTables(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_reaction_room ON reaction_log (room_id);
 
+    -- Sentiment aggregates (rolled up from llm_classifications)
+    CREATE TABLE IF NOT EXISTS sentiment_stats (
+      user_id TEXT NOT NULL,
+      room_id TEXT NOT NULL,
+      neutral INTEGER DEFAULT 0,
+      happy INTEGER DEFAULT 0,
+      sad INTEGER DEFAULT 0,
+      angry INTEGER DEFAULT 0,
+      excited INTEGER DEFAULT 0,
+      funny INTEGER DEFAULT 0,
+      love INTEGER DEFAULT 0,
+      scared INTEGER DEFAULT 0,
+      total_classified INTEGER DEFAULT 0,
+      PRIMARY KEY (user_id, room_id)
+    );
+
+    -- Daily prefetch cache (API data fetched early, posted later)
+    CREATE TABLE IF NOT EXISTS daily_prefetch (
+      job_name TEXT NOT NULL,
+      date TEXT NOT NULL,
+      data TEXT NOT NULL,
+      fetched_at INTEGER DEFAULT (unixepoch()),
+      PRIMARY KEY (job_name, date)
+    );
+
     -- URL preview cache
     CREATE TABLE IF NOT EXISTS url_cache (
       url TEXT PRIMARY KEY,
@@ -499,6 +524,27 @@ function runMigrations(): void {
       logger.info("Migration: added gratitude columns to llm_classifications");
     }
   }
+
+  // Backfill sentiment_stats from existing llm_classifications
+  const sentimentCount = db.prepare(`SELECT COUNT(*) as c FROM sentiment_stats`).get() as { c: number };
+  const classCount = db.prepare(`SELECT COUNT(*) as c FROM llm_classifications`).get() as { c: number };
+  if (sentimentCount.c === 0 && classCount.c > 0) {
+    db.exec(`
+      INSERT INTO sentiment_stats (user_id, room_id, neutral, happy, sad, angry, excited, funny, love, scared, total_classified)
+      SELECT user_id, room_id,
+        SUM(CASE WHEN sentiment = 'neutral' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN sentiment = 'happy' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN sentiment = 'sad' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN sentiment = 'angry' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN sentiment = 'excited' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN sentiment = 'funny' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN sentiment = 'love' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN sentiment = 'scared' THEN 1 ELSE 0 END),
+        COUNT(*)
+      FROM llm_classifications GROUP BY user_id, room_id
+    `);
+    logger.info("Migration: backfilled sentiment_stats from llm_classifications");
+  }
 }
 
 function seedSchedulerDefaults(): void {
@@ -512,6 +558,8 @@ function seedSchedulerDefaults(): void {
   const releasesHour = parseInt(process.env.SCHEDULE_RELEASES_HOUR ?? "19", 10);
   const releasesMinute = parseInt(process.env.SCHEDULE_RELEASES_MINUTE ?? "0", 10);
 
+  insert.run("prefetch", 0, 5, 1);
+  insert.run("maintenance", 0, 15, 1);
   insert.run("holidays", holidaysHour, holidaysMinute, 1);
   insert.run("releases", releasesHour, releasesMinute, 1);
   insert.run("wotd", 8, 0, 1);

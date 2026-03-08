@@ -2,7 +2,7 @@
 
 A full-featured Matrix community bot with end-to-end encryption support, a plugin architecture, silent passive tracking, daily scheduled posts, and a suite of community engagement features.
 
-Built for the TwinBee/Parodius community. Runs on Node.js with TypeScript, SQLite, and `matrix-js-sdk` with automatic Rust E2EE.
+Runs on Node.js with TypeScript, SQLite, and `matrix-js-sdk` with automatic Rust E2EE.
 
 ---
 
@@ -32,11 +32,11 @@ Built for the TwinBee/Parodius community. Runs on Node.js with TypeScript, SQLit
 - **End-to-end encryption** via `matrix-js-sdk` with Rust crypto — automatic key management, session rotation, and key gossiping out of the box
 - **Automatic token renewal** — set `MATRIX_BOT_PASSWORD` and the bot refreshes expired access tokens on its own
 - **Crypto reset flow** — set `CRYPTO_RESET=true` to wipe and re-establish E2EE keys in one restart, with automatic server-side device cleanup
-- **Plugin architecture** — modular design with 32+ independent plugins
-- **Silent passive tracking** — XP, streaks, stats, achievements, keyword alerts, Markov corpus, and presence tracked without announcements
+- **Plugin architecture** — modular design with 35+ independent plugins
+- **Silent passive tracking** — streaks, stats, achievements, keyword alerts, Markov corpus, and presence tracked without announcements
 - **Scheduled daily posts** — Word of the Day, holidays, game releases, birthdays, anime airings, movie releases, and weekly concert digests
 - **Multi-calendar holiday support** — Gregorian, Hebrew, Hijri, and Asian calendars (JP, CN, KR, IN, TH, VN, TW, PH) with non-Western holiday featuring
-- **XP & leveling system** with cooldown-based anti-farming
+- **XP & leveling system** with cooldown-based anti-farming and Twinbee/Parodius-themed level-up announcements
 - **Reputation system** with natural language thanks detection (LLM-powered sarcasm-aware mode when Ollama is active)
 - **32 unlockable achievements** evaluated silently on every message
 - **Trivia system** with OpenTDB integration, time-weighted scoring, and threaded conversations
@@ -46,6 +46,9 @@ Built for the TwinBee/Parodius community. Runs on Node.js with TypeScript, SQLit
 - **Movie & TV tracking** via TMDB with watchlists and release alerts
 - **Concert tracking** via Bandsintown with artist watchlists and weekly digests
 - **LLM-powered passive classifier** (optional, via Ollama) — multilingual profanity, insult, sentiment, gratitude, and WOTD correctness detection with emoji reactions and robust JSON repair
+- **`!howami` roast command** — LLM generates a personalized roast based on your actual stats, achievements, and behavior patterns
+- **`!vibe` room energy check** — LLM reads recent messages and describes the current chat mood
+- **`!tldr` conversation summary** — catch up on what you missed with an LLM-generated summary of recent messages
 - **URL preview enrichment** — automatic og:tag extraction for shared links
 - **Markov chain text generation** — per-user trigram models for chaos
 - **Lookup tools** — Wikipedia, dictionary, and translation (LibreTranslate)
@@ -53,7 +56,8 @@ Built for the TwinBee/Parodius community. Runs on Node.js with TypeScript, SQLit
 - **Community countdowns** — public and private event countdowns
 - **Welcome system** — greets new users with bonus XP and provides `!help` via DM
 - **Reminder system** with natural language time parsing
-- **Reaction polls**, dice rolling, world clock, weather (with geocoding for ambiguous cities and zip codes), and more
+- **Weather system** — current conditions via OpenWeatherMap with intelligent geocoding: city names, zip/postal codes (with optional country suffix), `@user` timezone-based lookup, US-preferred disambiguation for ambiguous cities, dual °C/°F display, feels-like temperature, humidity, and wind speed
+- **Reaction polls**, dice rolling, world clock, and more
 - **Inline calculator** — math expressions, percentages, unit conversions via mathjs
 - **QR code generator** — generates and posts QR code images to the room
 - **Reaction leaderboard** — silently tracks emoji reactions, revealed with `!emojiboard`
@@ -254,7 +258,7 @@ All commands use the configured prefix (default: `!`). Use `!help` to get a full
 | `!rank [@user]` | Show XP, level, and progress bar |
 | `!leaderboard [n]` | Top N users by XP (default 10, max 25) |
 
-XP is earned passively: **10 XP per message** with a 30-second cooldown to prevent farming. The level curve is linear: level N requires N x 100 total XP.
+XP is earned passively: **10 XP per message** with a 30-second cooldown to prevent farming. The level curve is linear: level N requires N x 100 total XP. When a user levels up, the bot announces it with a random Twinbee/Parodius-themed power-up message (bell combos, laser modes, shield activations, etc.).
 
 ### Reputation
 
@@ -331,6 +335,16 @@ Reminders are checked every 30 seconds.
 
 Away/AFK status auto-clears silently when the user sends any message.
 
+### Weather
+
+| Command | Description |
+|---|---|
+| `!weather <city>` | Current weather for a city name (e.g., `!weather Tokyo`) |
+| `!weather <zip[,CC]>` | Weather by zip/postal code — defaults to US, append country code for others (e.g., `!weather 10115,DE`) |
+| `!weather @user` | Weather for a user's location, derived from their `!settz` timezone |
+
+Weather uses the OpenWeatherMap Geocoding API to resolve locations before fetching conditions. For ambiguous city names (e.g., "Springfield"), US matches are preferred. Output includes current conditions, temperature in both °C and °F, feels-like temperature, humidity, and wind speed.
+
 ### Fun
 
 | Command | Description |
@@ -339,7 +353,6 @@ Away/AFK status auto-clears silently when the user sends any message.
 | `!8ball <question>` | Magic 8-Ball |
 | `!coin` | Coin flip |
 | `!time <city\|@user>, ...` | World clock (comma-separated, supports users) |
-| `!weather <city\|zip[,CC]\|@user>` | Current weather with geocoding (temp, humidity, wind) |
 | `!hltb <game>` | HowLongToBeat lookup (main, extra, completionist) |
 | `!twinbee` | Random TwinBee/Parodius lore fact |
 | `!poll "Q" "A" "B" ...` | Reaction poll (max 10 options, auto-reacts with number emojis) |
@@ -378,11 +391,12 @@ Answer by typing the letter (A/B/C/D) or True/False. First correct answer wins. 
 | `!releases month` | Releases in the next 30 days |
 | `!releases search <game>` | Search for a game's release info |
 
-### Retro Games
+### Game Lookup
 
 | Command | Description |
 |---|---|
-| `!retro <game>` | Look up a classic/retro game (name, year, platforms, developer, genre, metacritic, summary) |
+| `!game <game>` | Look up any game (name, year, platforms, developer, genre, metacritic, summary) |
+| `!retro <game>` | Alias for `!game` |
 
 Results are cached for 7 days. Uses the same RAWG API key as `!releases`.
 
@@ -507,12 +521,17 @@ These commands are only available when `OLLAMA_HOST` and `OLLAMA_MODEL` are conf
 | `!insults [@user]` | Insult stats (thrown/received) |
 | `!insultboard` | Most prolific insulters leaderboard |
 | `!wotd attempts` | Who tried to use today's WOTD and whether they got credit |
+| `!howami [@user]` | Get roasted based on your actual stats (XP, messages, profanity, trivia, achievements, sentiment, etc.) |
+| `!vibe` | LLM reads recent messages and describes the current room energy (5-min cooldown per room) |
+| `!tldr [n]` | Summarize the last N messages (default: all buffered, max 50) for someone catching up |
 
-The classifier also provides emoji reactions as real-time feedback:
+The classifier also provides emoji reactions as real-time feedback (with automatic retry on connection failures):
 - **Profanity**: 🫣 (mild), 😲 (moderate), 🤬 (severe)
 - **Insults**: 🖕 (bot targeted), 🎯 (direct), 💨 (indirect)
 - **WOTD**: 📖 (correct usage), 🤔 (incorrect)
 - **Sentiment** (when no other reaction applies): random emoji from pools for happy, sad, angry, excited, funny, love, and scared
+
+`!vibe` and `!tldr` share a rolling in-memory buffer of the last 50 text messages per room. The buffer is not persisted — it resets on restart. At least 10 messages are required before either command works.
 
 ### Achievements
 
@@ -543,7 +562,7 @@ These features run silently on every message. The bot never announces passive tr
 
 | Feature | Description |
 |---|---|
-| **XP tracking** | Grants 10 XP per message (30s cooldown) |
+| **XP tracking** | Grants 10 XP per message (30s cooldown); announces level-ups with Twinbee/Parodius-themed messages |
 | **Stats tracking** | Counts words, links, images, questions, emojis, message length, hourly/daily distributions |
 | **Streak tracking** | Tracks daily activity and consecutive-day streaks |
 | **First! tracking** | Records who posts the first message each day per room |
@@ -593,6 +612,12 @@ Posts watchlisted movie and TV releases for today. DMs users when their watchlis
 
 ### Concert Digest (default: 10:00 UTC, Sundays only)
 Posts "This Week in Live Music" with concerts in the next 7 days for watched artists. DMs users watching artists with upcoming shows. Only fires on Sundays.
+
+### Prefetch (default: 00:05 UTC)
+Fetches API data for Holidays and WOTD ahead of their scheduled post times and caches it in the `daily_prefetch` table. This ensures the actual post jobs have no network dependency and can deliver content even if the APIs are temporarily down. Each source is fetched independently — one failure doesn't block the others.
+
+### Nightly Maintenance (default: 00:15 UTC)
+Prunes old data to prevent database bloat. Retention policies: `llm_classifications` (30 days), `xp_log` (30 days), `command_usage` (7 days), `rep_cooldowns` (2 days), `daily_prefetch` (3 days), all cache tables (7–30 days depending on type), and `shade_log` (30 days). Runs after prefetch so fresh data is never pruned.
 
 ---
 
@@ -778,7 +803,7 @@ freebee/
     │   ├── wotd.ts            # Word of the Day
     │   ├── holidays.ts        # multi-calendar holidays
     │   ├── gaming.ts          # game releases (RAWG)
-    │   ├── daily.ts           # DailyScheduler (7 jobs)
+    │   ├── daily.ts           # DailyScheduler (9 jobs incl. prefetch & maintenance)
     │   ├── achievements.ts    # 32 silent achievements
     │   ├── ratelimits.ts      # per-command daily quota middleware
     │   ├── birthday.ts        # birthday storage & announcements
@@ -797,7 +822,9 @@ freebee/
     │   ├── tools.ts           # calc, QR code generator
     │   ├── reactions.ts       # reaction tracking, emojiboard
     │   ├── botinfo.ts         # admin diagnostics
-    │   ├── retro.ts           # retro game database (RAWG)
+    │   ├── retro.ts           # game lookup (RAWG) — !game and !retro
+    │   ├── howami.ts          # LLM-powered stat roasts
+    │   ├── vibe.ts            # room vibe check + !tldr summaries
     │   └── shade.ts           # STUB — feature flagged off
     └── workers/
         └── llm-classifier.ts  # STUB — superseded by llm-passive.ts
@@ -817,7 +844,7 @@ Plugins are registered with `PluginRegistry`, which dispatches messages and reac
 
 ### Key Design Decisions
 
-- **All passive tracking is silent.** The bot never announces that it noticed something (streaks, First!, keyword watches, achievements). Commands are the only reveal mechanism.
+- **Almost all passive tracking is silent.** The bot never announces streaks, First!, keyword watches, or achievements — commands are the only reveal mechanism. The one exception is **level-ups**, which get a celebratory Twinbee/Parodius-themed announcement.
 - **XpPlugin.grantXp() is the single XP entry point** — Birthday, WOTD, Trivia, Welcome, Reputation, and LLM classifier all route through it.
 - **LLM features are fully optional.** Gated by `OLLAMA_HOST` and `OLLAMA_MODEL` — both must be set for classifier to activate. All LLM commands return "not configured" otherwise. The classifier queue is capped at 50 items, requests time out after 30 seconds, a 16k context window is configured for Ollama, and exponential backoff (5s–5min) prevents hammering a down Ollama instance. When active, LLM replaces keyword-based rep granting with sarcasm-aware gratitude detection.
 - **Rate limits are centralized** in `RateLimitsPlugin`. Paid-API commands call `checkLimit()` before requests. Admins bypass all limits.
@@ -886,6 +913,8 @@ Freebee uses SQLite via `better-sqlite3` in WAL mode. The database file is at `D
 | `reaction_log` | Emoji reaction tracking (giver, receiver, emoji) |
 | `retro_cache` | RAWG retro game lookup cache (7d TTL) |
 | `url_cache` | URL og:tag preview cache (24h TTL) |
+| `sentiment_stats` | Aggregated sentiment counts per (user, room) |
+| `daily_prefetch` | Cached API data for scheduled posts (holidays, WOTD) |
 
 All tables are created automatically on first run.
 
@@ -997,4 +1026,4 @@ If only the crypto store is lost (database intact), delete the old `crypto-js/` 
 
 ## License
 
-ISC
+MIT

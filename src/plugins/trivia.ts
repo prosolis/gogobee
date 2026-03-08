@@ -446,13 +446,7 @@ export class TriviaPlugin extends Plugin {
       this.xpPlugin.grantXp(ctx.sender, ctx.roomId, points, "trivia correct answer");
 
       // React with checkmark
-      this.client.sendEvent(ctx.roomId, "m.reaction", {
-        "m.relates_to": {
-          rel_type: "m.annotation",
-          event_id: ctx.eventId,
-          key: "\u2705",
-        },
-      }).catch((err) => logger.error(`Failed to react: ${err}`));
+      this.sendReact(ctx.roomId, ctx.eventId, "\u2705");
 
       await this.sendThreadMessage(
         ctx.roomId,
@@ -470,13 +464,7 @@ export class TriviaPlugin extends Plugin {
       `).run(ctx.sender, ctx.roomId);
 
       // React with X
-      this.client.sendEvent(ctx.roomId, "m.reaction", {
-        "m.relates_to": {
-          rel_type: "m.annotation",
-          event_id: ctx.eventId,
-          key: "\u274C",
-        },
-      }).catch((err) => logger.error(`Failed to react: ${err}`));
+      this.sendReact(ctx.roomId, ctx.eventId, "\u274C");
     }
   }
 
@@ -522,7 +510,7 @@ export class TriviaPlugin extends Plugin {
 
   private async handleScores(ctx: MessageContext, args: string): Promise<void> {
     const db = getDb();
-    const threadEventId = this.triviaThreads.get(ctx.roomId)!.eventId;
+    const threadEventId = this.triviaThreads.get(ctx.roomId)?.eventId;
 
     if (args === "month") {
       // Current month scores
@@ -541,12 +529,22 @@ export class TriviaPlugin extends Plugin {
       `).all(ctx.roomId, monthStart) as { user_id: string; total_correct: number; wins: number }[];
 
       if (rows.length === 0) {
-        await this.sendThreadReply(ctx.roomId, threadEventId, ctx.eventId, "No trivia scores this month yet.");
+        const msg = "No trivia scores this month yet.";
+        if (threadEventId) {
+          await this.sendThreadReply(ctx.roomId, threadEventId, ctx.eventId, msg);
+        } else {
+          await this.sendReply(ctx.roomId, ctx.eventId, msg);
+        }
         return;
       }
 
       const lines = rows.map((r, i) => `${i + 1}. ${r.user_id} — ${r.wins} correct`);
-      await this.sendThreadMessage(ctx.roomId, threadEventId, `Trivia Leaderboard (This Month):\n${lines.join("\n")}`);
+      const text = `Trivia Leaderboard (This Month):\n${lines.join("\n")}`;
+      if (threadEventId) {
+        await this.sendThreadMessage(ctx.roomId, threadEventId, text);
+      } else {
+        await this.sendMessage(ctx.roomId, text);
+      }
       return;
     }
 
@@ -565,7 +563,12 @@ export class TriviaPlugin extends Plugin {
         } | undefined;
 
       if (!row) {
-        await this.sendThreadReply(ctx.roomId, threadEventId, ctx.eventId, `No trivia data found for ${targetUser}.`);
+        const msg = `No trivia data found for ${targetUser}.`;
+        if (threadEventId) {
+          await this.sendThreadReply(ctx.roomId, threadEventId, ctx.eventId, msg);
+        } else {
+          await this.sendReply(ctx.roomId, ctx.eventId, msg);
+        }
         return;
       }
 
@@ -574,15 +577,16 @@ export class TriviaPlugin extends Plugin {
         ? ((row.total_correct / row.total_answered) * 100).toFixed(1) + "%"
         : "N/A";
 
-      await this.sendThreadMessage(
-        ctx.roomId,
-        threadEventId,
-        `Trivia Stats for ${targetUser}:\n` +
-          `Correct: ${row.total_correct}/${row.total_answered} (${accuracy})\n` +
-          `Points: ${row.total_points}\n` +
-          `Streak: ${row.current_streak} (Best: ${row.best_streak})\n` +
-          `Fastest: ${fastestSec}`
-      );
+      const statsText = `Trivia Stats for ${targetUser}:\n` +
+        `Correct: ${row.total_correct}/${row.total_answered} (${accuracy})\n` +
+        `Points: ${row.total_points}\n` +
+        `Streak: ${row.current_streak} (Best: ${row.best_streak})\n` +
+        `Fastest: ${fastestSec}`;
+      if (threadEventId) {
+        await this.sendThreadMessage(ctx.roomId, threadEventId, statsText);
+      } else {
+        await this.sendMessage(ctx.roomId, statsText);
+      }
       return;
     }
 
@@ -596,27 +600,42 @@ export class TriviaPlugin extends Plugin {
       .all(ctx.roomId) as { user_id: string; total_correct: number; total_points: number; best_streak: number }[];
 
     if (rows.length === 0) {
-      await this.sendThreadReply(ctx.roomId, threadEventId, ctx.eventId, "No trivia scores yet.");
+      const msg = "No trivia scores yet.";
+      if (threadEventId) {
+        await this.sendThreadReply(ctx.roomId, threadEventId, ctx.eventId, msg);
+      } else {
+        await this.sendReply(ctx.roomId, ctx.eventId, msg);
+      }
       return;
     }
 
     const lines = rows.map(
       (r, i) => `${i + 1}. ${r.user_id} — ${r.total_points} pts (${r.total_correct} correct, best streak: ${r.best_streak})`
     );
-    await this.sendThreadMessage(ctx.roomId, threadEventId, `Trivia Leaderboard:\n${lines.join("\n")}`);
+    const text = `Trivia Leaderboard:\n${lines.join("\n")}`;
+    if (threadEventId) {
+      await this.sendThreadMessage(ctx.roomId, threadEventId, text);
+    } else {
+      await this.sendMessage(ctx.roomId, text);
+    }
   }
 
   private async handleCategories(ctx: MessageContext): Promise<void> {
-    const threadEventId = this.triviaThreads.get(ctx.roomId)!.eventId;
+    const threadEventId = this.triviaThreads.get(ctx.roomId)?.eventId;
     const lines = ["Available Trivia Categories:"];
     for (const [id, name] of Object.entries(CATEGORY_MAP)) {
       lines.push(`  ${id}. ${name}`);
     }
-    await this.sendThreadMessage(ctx.roomId, threadEventId, lines.join("\n"));
+    const text = lines.join("\n");
+    if (threadEventId) {
+      await this.sendThreadMessage(ctx.roomId, threadEventId, text);
+    } else {
+      await this.sendMessage(ctx.roomId, text);
+    }
   }
 
   private async handleFastest(ctx: MessageContext): Promise<void> {
-    const threadEventId = this.triviaThreads.get(ctx.roomId)!.eventId;
+    const threadEventId = this.triviaThreads.get(ctx.roomId)?.eventId;
     const db = getDb();
     const rows = db
       .prepare(
@@ -627,13 +646,22 @@ export class TriviaPlugin extends Plugin {
       .all(ctx.roomId) as { user_id: string; fastest_ms: number }[];
 
     if (rows.length === 0) {
-      await this.sendThreadReply(ctx.roomId, threadEventId, ctx.eventId, "No fastest answer data yet.");
+      const msg = "No fastest answer data yet.";
+      if (threadEventId) {
+        await this.sendThreadReply(ctx.roomId, threadEventId, ctx.eventId, msg);
+      } else {
+        await this.sendReply(ctx.roomId, ctx.eventId, msg);
+      }
       return;
     }
 
-    const lines = rows.map(
+    const text = `Fastest Trivia Answers:\n${rows.map(
       (r, i) => `${i + 1}. ${r.user_id} — ${(r.fastest_ms / 1000).toFixed(2)}s`
-    );
-    await this.sendThreadMessage(ctx.roomId, threadEventId, `Fastest Trivia Answers:\n${lines.join("\n")}`);
+    ).join("\n")}`;
+    if (threadEventId) {
+      await this.sendThreadMessage(ctx.roomId, threadEventId, text);
+    } else {
+      await this.sendMessage(ctx.roomId, text);
+    }
   }
 }

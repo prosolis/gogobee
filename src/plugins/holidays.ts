@@ -249,7 +249,30 @@ export class HolidaysPlugin extends Plugin {
   }
 
   /**
+   * Prefetch holiday data from APIs and cache it in the DB.
+   * Called early (e.g. 00:05 UTC) so the post step has no network dependency.
+   */
+  async prefetch(): Promise<void> {
+    const today = new Date().toISOString().slice(0, 10);
+    const db = getDb();
+
+    // Already prefetched?
+    const existing = db.prepare(`SELECT data FROM daily_prefetch WHERE job_name = 'holidays' AND date = ?`).get(today);
+    if (existing) return;
+
+    try {
+      const { holidays, hebrewDate, hijriDate } = await this.fetchAllForDate(today, true);
+      db.prepare(`INSERT OR REPLACE INTO daily_prefetch (job_name, date, data) VALUES ('holidays', ?, ?)`)
+        .run(today, JSON.stringify({ holidays, hebrewDate, hijriDate }));
+      logger.info(`Prefetched ${holidays.length} holidays for ${today}`);
+    } catch (err) {
+      logger.error(`Holiday prefetch failed: ${err}`);
+    }
+  }
+
+  /**
    * Called by DailyScheduler to post the morning holiday summary.
+   * Reads from prefetch cache first, falls back to live API call.
    */
   async postHolidays(roomIds: string[]): Promise<void> {
     const today = new Date().toISOString().slice(0, 10);
@@ -259,7 +282,24 @@ export class HolidaysPlugin extends Plugin {
     const existing = db.prepare(`SELECT id FROM holidays_log WHERE date = ? LIMIT 1`).get(today);
     if (existing) return;
 
-    const { holidays, hebrewDate, hijriDate } = await this.fetchAllForDate(today, true);
+    // Try prefetch cache first
+    let holidays: Holiday[];
+    let hebrewDate: string | null = null;
+    let hijriDate: string | null = null;
+
+    const cached = db.prepare(`SELECT data FROM daily_prefetch WHERE job_name = 'holidays' AND date = ?`).get(today) as { data: string } | undefined;
+    if (cached) {
+      const parsed = JSON.parse(cached.data);
+      holidays = parsed.holidays;
+      hebrewDate = parsed.hebrewDate;
+      hijriDate = parsed.hijriDate;
+    } else {
+      // Fallback to live fetch
+      const result = await this.fetchAllForDate(today, true);
+      holidays = result.holidays;
+      hebrewDate = result.hebrewDate;
+      hijriDate = result.hijriDate;
+    }
 
     if (holidays.length === 0) {
       logger.info("No holidays found for today, skipping post.");

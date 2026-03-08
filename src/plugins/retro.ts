@@ -17,25 +17,28 @@ export class RetroPlugin extends Plugin {
 
   get commands(): CommandDef[] {
     return [
-      { name: "retro", description: "Retro game lookup", usage: "!retro <game>" },
+      { name: "game", description: "Game lookup via RAWG", usage: "!game <game>" },
+      { name: "retro", description: "Alias for !game", usage: "!retro <game>" },
     ];
   }
 
   async onMessage(ctx: MessageContext): Promise<void> {
-    if (this.isCommand(ctx.body, "retro")) {
-      await this.handleRetro(ctx);
+    if (this.isCommand(ctx.body, "game")) {
+      await this.handleGameLookup(ctx, "game");
+    } else if (this.isCommand(ctx.body, "retro")) {
+      await this.handleGameLookup(ctx, "retro");
     }
   }
 
-  private async handleRetro(ctx: MessageContext): Promise<void> {
+  private async handleGameLookup(ctx: MessageContext, command: string): Promise<void> {
     if (!ENABLED) {
       await this.sendReply(ctx.roomId, ctx.eventId, "RAWG API is not configured. Set RAWG_API_KEY.");
       return;
     }
 
-    const query = this.getArgs(ctx.body, "retro");
+    const query = this.getArgs(ctx.body, command);
     if (!query) {
-      await this.sendReply(ctx.roomId, ctx.eventId, "Usage: !retro <game>");
+      await this.sendReply(ctx.roomId, ctx.eventId, `Usage: !${command} <game>`);
       return;
     }
 

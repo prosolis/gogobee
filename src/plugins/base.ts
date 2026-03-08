@@ -103,6 +103,37 @@ export abstract class Plugin {
     }
   }
 
+  /**
+   * Send a reaction with automatic retry on transient failures.
+   */
+  protected sendReact(roomId: string, eventId: string, emoji: string): void {
+    this.sendWithRetry(
+      () => this.client.sendEvent(roomId, "m.reaction", {
+        "m.relates_to": { rel_type: "m.annotation", event_id: eventId, key: emoji },
+      }),
+      `react ${emoji} in ${roomId}`
+    );
+  }
+
+  /**
+   * Fire-and-forget with retry on connection errors. Retries up to 2 times
+   * with 2s/4s delays. Non-connection errors are not retried.
+   */
+  protected sendWithRetry(fn: () => Promise<any>, label: string, maxRetries = 2): void {
+    const attempt = (retryCount: number) => {
+      fn().catch((err) => {
+        const isTransient = String(err).includes("ConnectionError") || String(err).includes("fetch failed");
+        if (isTransient && retryCount < maxRetries) {
+          const delay = 2000 * (retryCount + 1);
+          setTimeout(() => attempt(retryCount + 1), delay);
+        } else {
+          logger.error(`Failed to ${label}: ${err}`);
+        }
+      });
+    };
+    attempt(0);
+  }
+
   protected isCommand(body: string, command: string): boolean {
     return body.startsWith(this.prefix + command);
   }

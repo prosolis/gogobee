@@ -6,6 +6,19 @@ import logger from "../utils/logger";
 const XP_PER_MESSAGE = 10;
 const XP_COOLDOWN_MS = 30_000;
 
+const LEVEL_UP_MESSAGES = [
+  "🔔✨ POWER UP! {user} hit Level {level}! Bell combo complete! ✨🔔",
+  "🌟 {user} grabbed the golden bell — Level {level}! Speed up! 🐝💨",
+  "⚡ Level {level}! {user} is fully powered up! Options attached! 🛸🛸",
+  "🎮 {user} evolved to Level {level}! Twin attack ready! 👊👊",
+  "🏆 STAGE CLEAR! {user} advanced to Level {level}! 🎆🎆🎆",
+  "🔔🔔🔔 {user} collected enough bells for Level {level}! Shield activated! 🛡️",
+  "📢 Level {level} unlocked! {user} picked up the megaphone power-up! 🔊💥",
+  "⚡ {user} just warped to Level {level}! Laser mode engaged! 🔴🔴🔴",
+  "🎰 Bonus round! {user} reached Level {level}! 3-way shot acquired! 🔱",
+  "⚡ {user} powered through to Level {level}! Ripple laser online! 〰️💫",
+];
+
 export class XpPlugin extends Plugin {
   private cooldowns = new Map<string, number>();
 
@@ -29,6 +42,13 @@ export class XpPlugin extends Plugin {
    */
   grantXp(userId: string, roomId: string, amount: number, reason: string): void {
     const db = getDb();
+
+    // Grab old level before granting
+    const before = db.prepare(`SELECT level FROM users WHERE user_id = ? AND room_id = ?`).get(userId, roomId) as
+      | { level: number }
+      | undefined;
+    const oldLevel = before?.level ?? 0;
+
     db.prepare(`
       INSERT INTO users (user_id, room_id, xp, level)
       VALUES (?, ?, ?, 1)
@@ -49,8 +69,9 @@ export class XpPlugin extends Plugin {
     const row = db.prepare(`SELECT xp FROM users WHERE user_id = ? AND room_id = ?`).get(userId, roomId) as
       | { xp: number }
       | undefined;
+    let newLevel = oldLevel || 1;
     if (row) {
-      const newLevel = xpToLevel(row.xp);
+      newLevel = xpToLevel(row.xp);
       db.prepare(`UPDATE users SET level = ? WHERE user_id = ? AND room_id = ?`).run(newLevel, userId, roomId);
     }
 
@@ -62,6 +83,15 @@ export class XpPlugin extends Plugin {
     );
 
     logger.debug(`Granted ${amount} XP to ${userId} in ${roomId}: ${reason}`);
+
+    // Announce level up
+    if (newLevel > oldLevel && oldLevel > 0) {
+      const template = LEVEL_UP_MESSAGES[Math.floor(Math.random() * LEVEL_UP_MESSAGES.length)];
+      const msg = template.replace("{user}", userId).replace("{level}", String(newLevel));
+      this.sendMessage(roomId, msg).catch((err) => {
+        logger.error(`Failed to announce level up: ${err}`);
+      });
+    }
   }
 
   async onMessage(ctx: MessageContext): Promise<void> {

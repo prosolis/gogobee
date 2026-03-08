@@ -84,13 +84,7 @@ export class ReputationPlugin extends Plugin {
     this.xpPlugin.grantXp(receiverId, roomId, REP_XP_BONUS, "reputation");
 
     // React with checkmark to acknowledge
-    this.client.sendEvent(roomId, "m.reaction", {
-      "m.relates_to": {
-        rel_type: "m.annotation",
-        event_id: eventId,
-        key: "\u2705",
-      },
-    }).catch((err) => logger.error(`Failed to react: ${err}`));
+    this.sendReact(roomId, eventId, "\u2705");
 
     logger.debug(`${giverId} gave rep to ${receiverId} in ${roomId}`);
   }

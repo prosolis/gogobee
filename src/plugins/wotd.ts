@@ -122,7 +122,39 @@ export class WotdPlugin extends Plugin {
   }
 
   /**
+   * Prefetch WOTD data from API and cache it in the DB.
+   * Called early (e.g. 00:05 UTC) so the post step has no network dependency.
+   */
+  async prefetch(): Promise<void> {
+    const apiKey = process.env.WORDNIK_API_KEY;
+    if (!apiKey) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const db = getDb();
+
+    const existing = db.prepare(`SELECT data FROM daily_prefetch WHERE job_name = 'wotd' AND date = ?`).get(today);
+    if (existing) return;
+
+    try {
+      const url = `https://api.wordnik.com/v4/words.json/wordOfTheDay?api_key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        logger.warn(`Wordnik prefetch returned ${res.status}`);
+        return;
+      }
+
+      const data = await res.json() as any;
+      db.prepare(`INSERT OR REPLACE INTO daily_prefetch (job_name, date, data) VALUES ('wotd', ?, ?)`)
+        .run(today, JSON.stringify(data));
+      logger.info(`Prefetched WOTD for ${today}: ${data.word}`);
+    } catch (err) {
+      logger.error(`WOTD prefetch failed: ${err}`);
+    }
+  }
+
+  /**
    * Called by DailyScheduler to post the word of the day.
+   * Reads from prefetch cache first, falls back to live API call.
    */
   async postWotd(roomIds: string[]): Promise<void> {
     const apiKey = process.env.WORDNIK_API_KEY;
@@ -142,14 +174,21 @@ export class WotdPlugin extends Plugin {
     }
 
     try {
-      const url = `https://api.wordnik.com/v4/words.json/wordOfTheDay?api_key=${encodeURIComponent(apiKey)}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        logger.warn(`Wordnik API returned ${res.status}`);
-        return;
+      // Try prefetch cache first, fall back to live API
+      let data: any;
+      const cached = db.prepare(`SELECT data FROM daily_prefetch WHERE job_name = 'wotd' AND date = ?`).get(today) as { data: string } | undefined;
+      if (cached) {
+        data = JSON.parse(cached.data);
+      } else {
+        const url = `https://api.wordnik.com/v4/words.json/wordOfTheDay?api_key=${encodeURIComponent(apiKey)}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+          logger.warn(`Wordnik API returned ${res.status}`);
+          return;
+        }
+        data = await res.json() as any;
       }
 
-      const data = await res.json() as any;
       const word = data.word;
       const definitions = data.definitions ?? [];
       const examples = data.examples ?? [];

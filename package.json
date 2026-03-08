@@ -2,6 +2,7 @@
   "name": "freebee",
   "version": "1.0.0",
   "description": "A full-featured Matrix community bot with E2EE support, plugin architecture, and community engagement features",
+  "license": "MIT",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

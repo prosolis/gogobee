@@ -79,7 +79,14 @@ export class BotClient {
     const deviceId = this.client.getDeviceId();
     if (deviceId) {
       const deviceFile = path.join(this.opts.dataDir, "device.json");
-      fs.writeFileSync(deviceFile, JSON.stringify({ deviceId }), "utf-8");
+      // Preserve existing fields (e.g. accessToken) when updating deviceId
+      let existing: Record<string, unknown> = {};
+      try {
+        if (fs.existsSync(deviceFile)) {
+          existing = JSON.parse(fs.readFileSync(deviceFile, "utf-8"));
+        }
+      } catch { /* ignore */ }
+      fs.writeFileSync(deviceFile, JSON.stringify({ ...existing, deviceId }), "utf-8");
     }
   }
 
@@ -100,6 +107,23 @@ export class BotClient {
     this.saveDeviceId();
 
     logger.info(`E2EE initialized with device ${this.client.getDeviceId()}`);
+
+    // Bootstrap cross-signing so other clients see this device as verified by its owner
+    try {
+      const crypto = this.client.getCrypto();
+      if (crypto) {
+        await crypto.bootstrapCrossSigning({
+          setupNewCrossSigning: true,
+          authUploadDeviceSigningKeys: async (makeRequest) => {
+            // Authenticate the upload with UIA (empty auth for bot accounts)
+            await makeRequest({ type: "m.login.password", user: this.opts.userId, password: process.env.MATRIX_BOT_PASSWORD });
+          },
+        });
+        logger.info("Cross-signing bootstrapped — device is self-verified");
+      }
+    } catch (err) {
+      logger.warn(`Cross-signing bootstrap failed (non-fatal): ${err}`);
+    }
 
     // Wire up event listeners
     this.client.on(RoomEvent.Timeline, (event: MatrixEvent, room: Room | undefined) => {

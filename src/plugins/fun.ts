@@ -436,19 +436,9 @@ export class FunPlugin extends Plugin {
 
     const pollEventId = await this.sendMessage(ctx.roomId, lines.join("\n"));
 
-    // Auto-react with number emojis
+    // Auto-react with number emojis (fire-and-forget with retry)
     for (let i = 0; i < options.length; i++) {
-      try {
-        await this.client.sendEvent(ctx.roomId, "m.reaction", {
-          "m.relates_to": {
-            rel_type: "m.annotation",
-            event_id: pollEventId,
-            key: numberEmojis[i],
-          },
-        });
-      } catch (err) {
-        logger.error(`Failed to add poll reaction: ${err}`);
-      }
+      this.sendReact(ctx.roomId, pollEventId, numberEmojis[i]);
     }
   }
 

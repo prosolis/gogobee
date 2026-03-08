@@ -428,6 +428,19 @@ wotd_used is TRUE only when the word appears as a STANDALONE word in the message
       r.wotd_used ? 1 : 0, r.wotd_correct ? 1 : 0
     );
 
+    // Sentiment aggregate
+    const sentCol = r.sentiment as string;
+    const validSentiments = ["neutral", "happy", "sad", "angry", "excited", "funny", "love", "scared"];
+    if (validSentiments.includes(sentCol)) {
+      db.prepare(`
+        INSERT INTO sentiment_stats (user_id, room_id, ${sentCol}, total_classified)
+        VALUES (?, ?, 1, 1)
+        ON CONFLICT(user_id, room_id) DO UPDATE SET
+          ${sentCol} = ${sentCol} + 1,
+          total_classified = total_classified + 1
+      `).run(ctx.sender, ctx.roomId);
+    }
+
     // Profanity tracking
     if (r.profanity) {
       const sevCol = `severity_${r.profanity_severity}` as "severity_1" | "severity_2" | "severity_3";
@@ -446,9 +459,7 @@ wotd_used is TRUE only when the word appears as a STANDALONE word in the message
         );
 
         const pottyEmoji = ["\uD83E\uDEE3", "\uD83D\uDE32", "\uD83E\uDD2C"][r.profanity_severity - 1]; // 🫣 😲 🤬
-        this.client.sendEvent(ctx.roomId, "m.reaction", {
-          "m.relates_to": { rel_type: "m.annotation", event_id: ctx.eventId, key: pottyEmoji },
-        }).catch((err) => logger.error(`Failed to react to profanity: ${err}`));
+        this.sendReact(ctx.roomId, ctx.eventId, pottyEmoji);
       }
     }
 
@@ -472,9 +483,7 @@ wotd_used is TRUE only when the word appears as a STANDALONE word in the message
 
       const insultEmoji = r.insult_target === this.botUserId ? "\uD83D\uDD95" // 🖕 insulted the bot
         : r.insult_type === "direct" ? "\uD83C\uDFAF" : "\uD83D\uDCA8"; // 🎯 direct, 💨 indirect
-      this.client.sendEvent(ctx.roomId, "m.reaction", {
-        "m.relates_to": { rel_type: "m.annotation", event_id: ctx.eventId, key: insultEmoji },
-      }).catch((err) => logger.error(`Failed to react to insult: ${err}`));
+      this.sendReact(ctx.roomId, ctx.eventId, insultEmoji);
 
       // Track target
       if (r.insult_target) {
@@ -505,13 +514,7 @@ wotd_used is TRUE only when the word appears as a STANDALONE word in the message
 
       // React so the user knows their WOTD attempt was detected
       const emoji = r.wotd_correct ? "\uD83D\uDCD6" : "\uD83E\uDD14"; // 📖 if correct, 🤔 if not
-      this.client.sendEvent(ctx.roomId, "m.reaction", {
-        "m.relates_to": {
-          rel_type: "m.annotation",
-          event_id: ctx.eventId,
-          key: emoji,
-        },
-      }).catch((err) => logger.error(`Failed to react to WOTD attempt: ${err}`));
+      this.sendReact(ctx.roomId, ctx.eventId, emoji);
     }
 
     // Gratitude — grant rep when the LLM detects genuine thanks
@@ -547,9 +550,7 @@ wotd_used is TRUE only when the word appears as a STANDALONE word in the message
 
         this.xpPlugin.grantXp(receiverId, ctx.roomId, REP_XP_BONUS, "reputation");
 
-        this.client.sendEvent(ctx.roomId, "m.reaction", {
-          "m.relates_to": { rel_type: "m.annotation", event_id: ctx.eventId, key: "\u2705" },
-        }).catch((err) => logger.error(`Failed to react to gratitude: ${err}`));
+        this.sendReact(ctx.roomId, ctx.eventId, "\u2705");
 
         logger.debug(`LLM: ${ctx.sender} gave rep to ${receiverId} in ${ctx.roomId}`);
       }
@@ -571,9 +572,7 @@ wotd_used is TRUE only when the word appears as a STANDALONE word in the message
       const choices = sentimentEmojis[r.sentiment];
       if (choices.length > 0) {
         const pick = choices[Math.floor(Math.random() * choices.length)];
-        this.client.sendEvent(ctx.roomId, "m.reaction", {
-          "m.relates_to": { rel_type: "m.annotation", event_id: ctx.eventId, key: pick },
-        }).catch((err) => logger.error(`Failed to react to sentiment: ${err}`));
+        this.sendReact(ctx.roomId, ctx.eventId, pick);
       }
     }
   }

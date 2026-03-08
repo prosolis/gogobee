@@ -38,23 +38,8 @@ import { ToolsPlugin } from "./plugins/tools";
 import { ReactionsPlugin } from "./plugins/reactions";
 import { BotInfoPlugin } from "./plugins/botinfo";
 import { RetroPlugin } from "./plugins/retro";
-
-/**
- * Persist a new access token to the .env file so it survives restarts.
- */
-function updateEnvToken(newToken: string): void {
-  const envPath = path.resolve(process.cwd(), ".env");
-  if (!fs.existsSync(envPath)) return;
-
-  let content = fs.readFileSync(envPath, "utf-8");
-  if (content.match(/^MATRIX_ACCESS_TOKEN=.*/m)) {
-    content = content.replace(/^MATRIX_ACCESS_TOKEN=.*/m, `MATRIX_ACCESS_TOKEN=${newToken}`);
-  } else {
-    content += `\nMATRIX_ACCESS_TOKEN=${newToken}\n`;
-  }
-  fs.writeFileSync(envPath, content, "utf-8");
-  logger.info("Updated .env with new access token");
-}
+import { HowAmIPlugin } from "./plugins/howami";
+import { VibePlugin } from "./plugins/vibe";
 
 /**
  * Ensure we have a valid access token. If the current token is invalid and a
@@ -70,12 +55,24 @@ async function resolveAccessToken(
   const deviceFile = path.join(dataDir, "device.json");
   const hasDeviceFile = fs.existsSync(deviceFile);
 
+  // Try to load the stored token from device.json first
+  let storedToken: string | undefined;
+  if (hasDeviceFile) {
+    try {
+      const data = JSON.parse(fs.readFileSync(deviceFile, "utf-8"));
+      storedToken = data.accessToken;
+    } catch { /* ignore */ }
+  }
+
+  // Prefer stored token (device.json) over env var
+  const effectiveToken = storedToken ?? currentToken;
+
   // If we have a stored device identity AND a valid token, reuse them
-  if (hasDeviceFile && currentToken) {
-    const valid = await isTokenValid(homeserverUrl, currentToken);
+  if (hasDeviceFile && effectiveToken) {
+    const valid = await isTokenValid(homeserverUrl, effectiveToken);
     if (valid) {
       logger.info("Access token is valid, device identity exists");
-      return currentToken;
+      return effectiveToken;
     }
     logger.warn("Access token is invalid or expired");
   }
@@ -83,7 +80,7 @@ async function resolveAccessToken(
   // No device.json means fresh crypto store — we MUST do a password login
   // to get a new token + device pair. Reusing an old token's device would
   // cause OTK conflicts since the server has keys we don't have locally.
-  if (!hasDeviceFile && currentToken) {
+  if (!hasDeviceFile && effectiveToken) {
     logger.info("No device.json found — fresh crypto store requires a new device via password login");
   }
 
@@ -116,11 +113,15 @@ async function resolveAccessToken(
 
   const loginResult = await loginWithPassword(homeserverUrl, botUserId, password, existingDeviceId);
 
-  // Save the new device ID
-  fs.writeFileSync(deviceFile, JSON.stringify({ deviceId: loginResult.device_id }), "utf-8");
+  // Save the new device ID and access token together
+  fs.writeFileSync(
+    deviceFile,
+    JSON.stringify({ deviceId: loginResult.device_id, accessToken: loginResult.access_token }),
+    "utf-8"
+  );
+  fs.chmodSync(deviceFile, 0o600);
   logger.info(`Device identity saved: ${loginResult.device_id}`);
 
-  updateEnvToken(loginResult.access_token);
   return loginResult.access_token;
 }
 
@@ -237,6 +238,8 @@ async function main(): Promise<void> {
   const reactionsPlugin = new ReactionsPlugin(botClient);
   const botInfoPlugin = new BotInfoPlugin(botClient);
   const retroPlugin = new RetroPlugin(botClient);
+  const howAmIPlugin = new HowAmIPlugin(botClient);
+  const vibePlugin = new VibePlugin(botClient);
 
   const dailyScheduler = new DailyScheduler(
     botClient,
@@ -282,6 +285,8 @@ async function main(): Promise<void> {
   registry.register(reactionsPlugin);
   registry.register(botInfoPlugin);
   registry.register(retroPlugin);
+  registry.register(howAmIPlugin);
+  registry.register(vibePlugin);
   registry.register(achievementsPlugin);
   registry.register(dailyScheduler);
 
