@@ -1,0 +1,8 @@
+dist/
+data/
+.env
+.env.*
+!.env.example
+node_modules/
+merge_env.py
+Twinbee Build Plan.md

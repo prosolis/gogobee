@@ -1,0 +1,9 @@
+services:
+  freebee:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # CRITICAL: The crypto/ subdirectory contains the bot's device identity.
+      # Losing it means the bot must re-verify in all encrypted rooms.
+      - ./data:/app/data
