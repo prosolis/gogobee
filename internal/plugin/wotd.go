@@ -148,19 +148,25 @@ func (p *WOTDPlugin) PostWOTD(roomID id.RoomID) error {
 	today := time.Now().UTC().Format("2006-01-02")
 	d := db.Get()
 
+	// Per-room dedup
+	roomKey := fmt.Sprintf("%s:%s", today, roomID)
+	if db.JobCompleted("wotd", roomKey) {
+		slog.Info("wotd: already posted today", "date", today, "room", roomID)
+		return nil
+	}
+
 	var word, definition, partOfSpeech, example string
-	var posted int
 	err := d.QueryRow(
-		`SELECT word, definition, part_of_speech, example, posted FROM wotd_log WHERE date = ?`, today,
-	).Scan(&word, &definition, &partOfSpeech, &example, &posted)
+		`SELECT word, definition, part_of_speech, example FROM wotd_log WHERE date = ?`, today,
+	).Scan(&word, &definition, &partOfSpeech, &example)
 	if err == sql.ErrNoRows {
 		slog.Warn("wotd: no entry for today, attempting prefetch", "date", today)
 		if err := p.Prefetch(); err != nil {
 			return fmt.Errorf("wotd: prefetch failed: %w", err)
 		}
 		err = d.QueryRow(
-			`SELECT word, definition, part_of_speech, example, posted FROM wotd_log WHERE date = ?`, today,
-		).Scan(&word, &definition, &partOfSpeech, &example, &posted)
+			`SELECT word, definition, part_of_speech, example FROM wotd_log WHERE date = ?`, today,
+		).Scan(&word, &definition, &partOfSpeech, &example)
 		if err != nil {
 			return fmt.Errorf("wotd: still no entry after prefetch: %w", err)
 		}
@@ -168,20 +174,12 @@ func (p *WOTDPlugin) PostWOTD(roomID id.RoomID) error {
 		return fmt.Errorf("wotd: query: %w", err)
 	}
 
-	if posted == 1 {
-		slog.Info("wotd: already posted today", "date", today)
-		return nil
-	}
-
 	msg := p.formatWOTD(word, definition, partOfSpeech, example)
 	if err := p.SendMessage(roomID, msg); err != nil {
 		return fmt.Errorf("wotd: send message: %w", err)
 	}
 
-	_, err = d.Exec(`UPDATE wotd_log SET posted = 1 WHERE date = ?`, today)
-	if err != nil {
-		slog.Error("wotd: mark posted", "err", err)
-	}
+	db.MarkJobCompleted("wotd", roomKey)
 
 	return nil
 }

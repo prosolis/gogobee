@@ -558,14 +558,15 @@ func (p *MoviesPlugin) PostDailyReleases(roomID id.RoomID) {
 	}
 
 	today := time.Now().UTC().Format("2006-01-02")
-	if db.JobCompleted("movie_releases", today) {
-		slog.Info("movies: already sent daily releases", "date", today)
+	todayKey := fmt.Sprintf("%s:%s", today, roomID)
+	if db.JobCompleted("movie_releases", todayKey) {
+		slog.Info("movies: already sent daily releases", "date", todayKey)
 		return
 	}
 	success := false
 	defer func() {
 		if success {
-			db.MarkJobCompleted("movie_releases", today)
+			db.MarkJobCompleted("movie_releases", todayKey)
 		}
 	}()
 

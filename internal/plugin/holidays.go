@@ -203,29 +203,30 @@ func (p *HolidaysPlugin) PostHolidays(roomID id.RoomID) error {
 	today := time.Now().UTC().Format("2006-01-02")
 	d := db.Get()
 
+	// Per-room dedup
+	roomKey := fmt.Sprintf("%s:%s", today, roomID)
+	if db.JobCompleted("holidays", roomKey) {
+		slog.Info("holidays: already posted today", "date", today, "room", roomID)
+		return nil
+	}
+
 	var dataStr string
-	var posted int
 	err := d.QueryRow(
-		`SELECT data, posted FROM holidays_log WHERE date = ?`, today,
-	).Scan(&dataStr, &posted)
+		`SELECT data FROM holidays_log WHERE date = ?`, today,
+	).Scan(&dataStr)
 	if err == sql.ErrNoRows {
 		slog.Warn("holidays: no entry for today, attempting prefetch", "date", today)
 		if err := p.Prefetch(); err != nil {
 			return fmt.Errorf("holidays: prefetch failed: %w", err)
 		}
 		err = d.QueryRow(
-			`SELECT data, posted FROM holidays_log WHERE date = ?`, today,
-		).Scan(&dataStr, &posted)
+			`SELECT data FROM holidays_log WHERE date = ?`, today,
+		).Scan(&dataStr)
 		if err != nil {
 			return fmt.Errorf("holidays: still no entry after prefetch: %w", err)
 		}
 	} else if err != nil {
 		return fmt.Errorf("holidays: query: %w", err)
-	}
-
-	if posted == 1 {
-		slog.Info("holidays: already posted today", "date", today)
-		return nil
 	}
 
 	var data holidaysDayData
@@ -243,10 +244,7 @@ func (p *HolidaysPlugin) PostHolidays(roomID id.RoomID) error {
 		return fmt.Errorf("holidays: send: %w", err)
 	}
 
-	_, err = d.Exec(`UPDATE holidays_log SET posted = 1 WHERE date = ?`, today)
-	if err != nil {
-		slog.Error("holidays: mark posted", "err", err)
-	}
+	db.MarkJobCompleted("holidays", roomKey)
 
 	return nil
 }

@@ -445,7 +445,7 @@ func (p *AnimePlugin) handleUpcoming(ctx MessageContext) error {
 // PostDailyReleases checks broadcast days and DMs watchers about anime airing today.
 // Intended to be called by the scheduler daily.
 func (p *AnimePlugin) PostDailyReleases(roomID id.RoomID) {
-	todayKey := time.Now().UTC().Format("2006-01-02")
+	todayKey := fmt.Sprintf("%s:%s", time.Now().UTC().Format("2006-01-02"), roomID)
 	if db.JobCompleted("anime_releases", todayKey) {
 		slog.Info("anime: already sent daily releases", "date", todayKey)
 		return

@@ -91,7 +91,7 @@ func (p *GamingPlugin) PostReleases(roomID id.RoomID) error {
 	// Check if already posted this week
 	now := time.Now().UTC()
 	year, week := now.ISOWeek()
-	weekKey := fmt.Sprintf("%d-W%02d", year, week)
+	weekKey := fmt.Sprintf("%d-W%02d:%s", year, week, roomID)
 	if db.JobCompleted("releases", weekKey) {
 		slog.Info("gaming: already posted releases this week", "week", weekKey)
 		return nil

@@ -260,13 +260,10 @@ func (p *BirthdayPlugin) CheckAndPost(roomID id.RoomID) error {
 	}
 
 	for _, m := range matches {
-		// Check if already fired this year
-		var fired int
-		err := d.QueryRow(
-			`SELECT 1 FROM birthday_fired WHERE user_id = ? AND year = ?`, m.userID, year,
-		).Scan(&fired)
-		if err == nil {
-			continue // Already fired this year
+		// Check if already announced in THIS room this year
+		roomKey := fmt.Sprintf("%s:%d:%s", m.userID, year, roomID)
+		if db.JobCompleted("birthday", roomKey) {
+			continue
 		}
 
 		// Build announcement
@@ -282,6 +279,17 @@ func (p *BirthdayPlugin) CheckAndPost(roomID id.RoomID) error {
 			continue
 		}
 
+		db.MarkJobCompleted("birthday", roomKey)
+
+		// XP grant and DM only once per user per year (not per room)
+		var fired int
+		err := d.QueryRow(
+			`SELECT 1 FROM birthday_fired WHERE user_id = ? AND year = ?`, m.userID, year,
+		).Scan(&fired)
+		if err == nil {
+			continue // Already granted XP and sent DM
+		}
+
 		// Send DM to the birthday person
 		dmMsg := fmt.Sprintf("Happy Birthday! The community wishes you a wonderful day!%s You've been granted 100 bonus XP as a birthday gift!", ageStr)
 		if err := p.SendDM(id.UserID(m.userID), dmMsg); err != nil {
@@ -295,7 +303,7 @@ func (p *BirthdayPlugin) CheckAndPost(roomID id.RoomID) error {
 			p.grantBirthdayXP(id.UserID(m.userID), 100)
 		}
 
-		// Mark as fired
+		// Mark as fired (for XP/DM dedup)
 		_, err = d.Exec(
 			`INSERT INTO birthday_fired (user_id, year) VALUES (?, ?)
 			 ON CONFLICT(user_id, year) DO NOTHING`,

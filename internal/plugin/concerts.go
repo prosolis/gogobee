@@ -337,7 +337,7 @@ func (p *ConcertsPlugin) PostWeeklyDigest(roomID id.RoomID) {
 	}
 
 	year, week := time.Now().UTC().ISOWeek()
-	weekKey := fmt.Sprintf("%d-W%02d", year, week)
+	weekKey := fmt.Sprintf("%d-W%02d:%s", year, week, roomID)
 	if db.JobCompleted("concert_digest", weekKey) {
 		slog.Info("concerts: already sent digest this week", "week", weekKey)
 		return
