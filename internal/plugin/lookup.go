@@ -67,6 +67,12 @@ func (p *LookupPlugin) handleWiki(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !wiki <topic>")
 	}
 
+	// Check 24h cache
+	cacheKey := "wiki:" + strings.ToLower(topic)
+	if cached := db.CacheGet(cacheKey, 86400); cached != "" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, cached)
+	}
+
 	encoded := url.PathEscape(strings.ReplaceAll(topic, " ", "_"))
 	apiURL := fmt.Sprintf("https://en.wikipedia.org/api/rest_v1/page/summary/%s", encoded)
 
@@ -108,6 +114,7 @@ func (p *LookupPlugin) handleWiki(ctx MessageContext) error {
 	}
 
 	msg := fmt.Sprintf("%s\n\n%s\n\n%s", result.Title, extract, result.ContentURLs.Desktop.Page)
+	db.CacheSet(cacheKey, msg)
 	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
@@ -115,6 +122,12 @@ func (p *LookupPlugin) handleDefine(ctx MessageContext) error {
 	word := strings.TrimSpace(p.GetArgs(ctx.Body, "define"))
 	if word == "" {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !define <word>")
+	}
+
+	// Check 24h cache
+	cacheKey := "define:" + strings.ToLower(word)
+	if cached := db.CacheGet(cacheKey, 86400); cached != "" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, cached)
 	}
 
 	apiURL := fmt.Sprintf("https://api.dictionaryapi.dev/api/v2/entries/en/%s", url.PathEscape(word))
@@ -170,7 +183,9 @@ func (p *LookupPlugin) handleDefine(ctx MessageContext) error {
 		}
 	}
 
-	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
+	msg := sb.String()
+	db.CacheSet(cacheKey, msg)
+	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
 func (p *LookupPlugin) handleUrban(ctx MessageContext) error {
@@ -280,9 +295,15 @@ func (p *LookupPlugin) handleTranslate(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Translation service is not configured.")
 	}
 
-	// Rate limit: 10 translations per day
-	if p.rateLimiter != nil && !p.rateLimiter.CheckLimit(ctx.Sender, "translate", 10) {
-		remaining := p.rateLimiter.Remaining(ctx.Sender, "translate", 10)
+	// Rate limit (configurable, default 20/day to match TS version)
+	translateLimit := 20
+	if v := os.Getenv("RATELIMIT_TRANSLATE"); v != "" {
+		if n, err := fmt.Sscanf(v, "%d", &translateLimit); n != 1 || err != nil {
+			translateLimit = 20
+		}
+	}
+	if p.rateLimiter != nil && !p.rateLimiter.CheckLimit(ctx.Sender, "translate", translateLimit) {
+		remaining := p.rateLimiter.Remaining(ctx.Sender, "translate", translateLimit)
 		return p.SendReply(ctx.RoomID, ctx.EventID,
 			fmt.Sprintf("Translation rate limit reached. %d remaining today.", remaining))
 	}

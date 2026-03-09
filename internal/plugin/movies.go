@@ -290,6 +290,12 @@ func (p *MoviesPlugin) handleTV(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "TV lookups are not configured (missing API key).")
 	}
 
+	// Check 24h cache
+	cacheKey := "tv:" + strings.ToLower(query)
+	if cached := db.CacheGet(cacheKey, 86400); cached != "" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, cached)
+	}
+
 	encoded := url.QueryEscape(query)
 	apiURL := fmt.Sprintf("https://api.themoviedb.org/3/search/tv?api_key=%s&query=%s&page=1",
 		p.apiKey, encoded)
@@ -311,7 +317,9 @@ func (p *MoviesPlugin) handleTV(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to fetch TV show details.")
 	}
 
-	return p.SendReply(ctx.RoomID, ctx.EventID, p.formatTV(detail))
+	msg := p.formatTV(detail)
+	db.CacheSet(cacheKey, msg)
+	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
 func (p *MoviesPlugin) fetchTVDetail(tvID int) (*tmdbTVDetail, error) {
@@ -474,6 +482,12 @@ func (p *MoviesPlugin) handleUpcoming(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Movie lookups are not configured (missing API key).")
 	}
 
+	// Check 6h cache
+	cacheKey := "upcoming_movies"
+	if cached := db.CacheGet(cacheKey, 86400); cached != "" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, cached)
+	}
+
 	apiURL := fmt.Sprintf("https://api.themoviedb.org/3/movie/upcoming?api_key=%s&region=US&page=1", p.apiKey)
 
 	var resp tmdbUpcomingResponse
@@ -511,7 +525,9 @@ func (p *MoviesPlugin) handleUpcoming(ctx MessageContext) error {
 		sb.WriteString(fmt.Sprintf("%d. %s (%s)%s\n", i+1, title, dateStr, ratingStr))
 	}
 
-	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
+	msg := sb.String()
+	db.CacheSet(cacheKey, msg)
+	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
 func (p *MoviesPlugin) tmdbGet(apiURL string, target interface{}) error {

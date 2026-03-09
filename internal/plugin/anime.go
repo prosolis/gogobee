@@ -365,6 +365,12 @@ func (p *AnimePlugin) handleUnwatch(ctx MessageContext, idStr string) error {
 }
 
 func (p *AnimePlugin) handleSeason(ctx MessageContext) error {
+	// Check 6h cache
+	cacheKey := "anime_season"
+	if cached := db.CacheGet(cacheKey, 86400); cached != "" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, cached)
+	}
+
 	apiURL := "https://api.jikan.moe/v4/seasons/now?limit=10&sfw=true"
 
 	var resp jikanSeasonResponse
@@ -392,10 +398,18 @@ func (p *AnimePlugin) handleSeason(ctx MessageContext) error {
 		sb.WriteString(fmt.Sprintf("%d. %s [%s] - Score: %s\n", i+1, title, a.Type, scoreStr))
 	}
 
-	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
+	msg := sb.String()
+	db.CacheSet(cacheKey, msg)
+	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
 func (p *AnimePlugin) handleUpcoming(ctx MessageContext) error {
+	// Check 6h cache
+	cacheKey := "anime_upcoming"
+	if cached := db.CacheGet(cacheKey, 86400); cached != "" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, cached)
+	}
+
 	apiURL := "https://api.jikan.moe/v4/seasons/upcoming?limit=10&sfw=true"
 
 	var resp jikanSeasonResponse
@@ -423,7 +437,9 @@ func (p *AnimePlugin) handleUpcoming(ctx MessageContext) error {
 		sb.WriteString(fmt.Sprintf("%d. %s [%s]\n", i+1, title, info))
 	}
 
-	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
+	msg := sb.String()
+	db.CacheSet(cacheKey, msg)
+	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
 // PostDailyReleases checks broadcast days and DMs watchers about anime airing today.

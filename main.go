@@ -86,7 +86,7 @@ func main() {
 	registry.Register(plugin.NewTriviaPlugin(client))
 	registry.Register(plugin.NewRemindersPlugin(client))
 	registry.Register(plugin.NewPresencePlugin(client))
-	registry.Register(plugin.NewFunPlugin(client))
+	registry.Register(plugin.NewFunPlugin(client, ratePlugin))
 	registry.Register(plugin.NewToolsPlugin(client))
 	registry.Register(plugin.NewUserPlugin(client))
 
@@ -95,7 +95,7 @@ func main() {
 	registry.Register(plugin.NewLookupPlugin(client, ratePlugin))
 	registry.Register(plugin.NewCountdownPlugin(client))
 	registry.Register(plugin.NewStocksPlugin(client))
-	registry.Register(plugin.NewConcertsPlugin(client))
+	registry.Register(plugin.NewConcertsPlugin(client, ratePlugin))
 	registry.Register(plugin.NewAnimePlugin(client))
 	registry.Register(plugin.NewMoviesPlugin(client))
 

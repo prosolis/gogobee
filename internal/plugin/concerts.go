@@ -44,17 +44,19 @@ type bandsintownEvent struct {
 // ConcertsPlugin provides concert lookups via Bandsintown.
 type ConcertsPlugin struct {
 	Base
-	apiKey     string
-	httpClient *http.Client
-	mu         sync.Mutex
-	cooldowns  map[string]time.Time // keyed by userID+artist
+	apiKey      string
+	httpClient  *http.Client
+	rateLimiter *RateLimitsPlugin
+	mu          sync.Mutex
+	cooldowns   map[string]time.Time // keyed by userID+artist
 }
 
 // NewConcertsPlugin creates a new ConcertsPlugin.
-func NewConcertsPlugin(client *mautrix.Client) *ConcertsPlugin {
+func NewConcertsPlugin(client *mautrix.Client, rateLimiter *RateLimitsPlugin) *ConcertsPlugin {
 	return &ConcertsPlugin{
-		Base:   NewBase(client),
-		apiKey: os.Getenv("BANDSINTOWN_API_KEY"),
+		Base:        NewBase(client),
+		apiKey:      os.Getenv("BANDSINTOWN_API_KEY"),
+		rateLimiter: rateLimiter,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -113,7 +115,18 @@ func (p *ConcertsPlugin) handleSearch(ctx MessageContext, artist string) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Concert lookups are not configured (missing API key).")
 	}
 
-	// Rate limit check
+	// Daily rate limit (configurable, default 10/day to match TS version)
+	concertLimit := 10
+	if v := os.Getenv("RATELIMIT_CONCERTS"); v != "" {
+		if n, err := fmt.Sscanf(v, "%d", &concertLimit); n != 1 || err != nil {
+			concertLimit = 10
+		}
+	}
+	if p.rateLimiter != nil && !p.rateLimiter.CheckLimit(ctx.Sender, "concerts", concertLimit) {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Concert search rate limit reached for today.")
+	}
+
+	// Per-search cooldown
 	cooldownKey := string(ctx.Sender) + ":" + strings.ToLower(artist)
 	p.mu.Lock()
 	if last, ok := p.cooldowns[cooldownKey]; ok && time.Since(last) < 30*time.Second {

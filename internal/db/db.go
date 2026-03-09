@@ -82,6 +82,34 @@ func MarkJobCompleted(jobName, dateKey string) {
 	}
 }
 
+// CacheGet returns cached data for the given key if it exists and is within ttlSeconds.
+// Returns empty string if not cached or expired.
+func CacheGet(key string, ttlSeconds int) string {
+	d := Get()
+	var data string
+	err := d.QueryRow(
+		`SELECT data FROM api_cache WHERE cache_key = ? AND cached_at > unixepoch() - ?`,
+		key, ttlSeconds,
+	).Scan(&data)
+	if err != nil {
+		return ""
+	}
+	return data
+}
+
+// CacheSet stores data in the generic API cache.
+func CacheSet(key, data string) {
+	d := Get()
+	_, err := d.Exec(
+		`INSERT INTO api_cache (cache_key, data, cached_at) VALUES (?, ?, unixepoch())
+		 ON CONFLICT(cache_key) DO UPDATE SET data = ?, cached_at = unixepoch()`,
+		key, data, data,
+	)
+	if err != nil {
+		slog.Error("cache set", "key", key, "err", err)
+	}
+}
+
 const schema = `
 -- Users & XP
 CREATE TABLE IF NOT EXISTS users (
@@ -506,6 +534,13 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 	date TEXT NOT NULL,
 	count INTEGER DEFAULT 0,
 	PRIMARY KEY (user_id, action, date)
+);
+
+-- Generic API response cache
+CREATE TABLE IF NOT EXISTS api_cache (
+	cache_key TEXT PRIMARY KEY,
+	data TEXT NOT NULL,
+	cached_at INTEGER DEFAULT (unixepoch())
 );
 `
 

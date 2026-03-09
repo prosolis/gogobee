@@ -97,12 +97,14 @@ var diceRe = regexp.MustCompile(`(?i)^(\d+)?d(\d+)([+-]\d+)?$`)
 // FunPlugin provides various fun and utility commands.
 type FunPlugin struct {
 	Base
+	rateLimiter *RateLimitsPlugin
 }
 
 // NewFunPlugin creates a new FunPlugin.
-func NewFunPlugin(client *mautrix.Client) *FunPlugin {
+func NewFunPlugin(client *mautrix.Client, rateLimiter *RateLimitsPlugin) *FunPlugin {
 	return &FunPlugin{
-		Base: NewBase(client),
+		Base:        NewBase(client),
+		rateLimiter: rateLimiter,
 	}
 }
 
@@ -424,6 +426,23 @@ func (p *FunPlugin) handleWeather(ctx MessageContext) error {
 		return p.SendMessage(ctx.RoomID, "Weather service is not configured (missing API key).")
 	}
 
+	// Rate limit (configurable, default 5/day)
+	weatherLimit := 5
+	if v := os.Getenv("RATELIMIT_WEATHER"); v != "" {
+		if n, err := fmt.Sscanf(v, "%d", &weatherLimit); n != 1 || err != nil {
+			weatherLimit = 5
+		}
+	}
+	if p.rateLimiter != nil && !p.rateLimiter.CheckLimit(ctx.Sender, "weather", weatherLimit) {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Weather lookup rate limit reached for today.")
+	}
+
+	// Check 1-hour cache (weather data doesn't change that fast)
+	cacheKey := "weather:" + strings.ToLower(location)
+	if cached := db.CacheGet(cacheKey, 3600); cached != "" {
+		return p.SendMessage(ctx.RoomID, cached)
+	}
+
 	apiURL := fmt.Sprintf("https://api.openweathermap.org/data/2.5/weather?q=%s&appid=%s&units=metric",
 		url.QueryEscape(location), apiKey)
 
@@ -484,7 +503,9 @@ func (p *FunPlugin) handleWeather(ctx MessageContext) error {
 	sb.WriteString(fmt.Sprintf("  Humidity: %d%%\n", weather.Main.Humidity))
 	sb.WriteString(fmt.Sprintf("  Wind: %.1f m/s\n", weather.Wind.Speed))
 
-	return p.SendMessage(ctx.RoomID, sb.String())
+	msg := sb.String()
+	db.CacheSet(cacheKey, msg)
+	return p.SendMessage(ctx.RoomID, msg)
 }
 
 func (p *FunPlugin) handleDadJoke(ctx MessageContext) error {
