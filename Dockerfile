@@ -1,12 +1,18 @@
-FROM node:20-alpine
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
 
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev
+COPY . .
+RUN CGO_ENABLED=0 go build -tags goolm -o gogobee .
 
-COPY tsconfig.json ./
-COPY src/ ./src/
-RUN npx tsc
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates tzdata
+WORKDIR /app
+COPY --from=builder /app/gogobee .
 
-CMD ["node", "dist/index.js"]
+VOLUME /app/data
+ENV DATA_DIR=/app/data
+
+CMD ["./gogobee"]
