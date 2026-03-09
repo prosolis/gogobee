@@ -380,6 +380,27 @@ Assigned based on your message patterns:
 
 ---
 
+## Sentiment Classification
+
+Every message (subject to `LLM_SAMPLE_RATE`) is classified by Ollama into one of 10 sentiment categories. The bot reacts with an emoji when the confidence score is strong enough (|score| > 0.5). Per-user counts are tracked in the database and viewable via `!sentiment`.
+
+| Sentiment | Emoji | Score range | Example |
+|-----------|-------|-------------|---------|
+| Positive | 👍 | > 0.5 | "This is awesome, great work!" |
+| Excited | 🔥 | > 0.5 | "OH MY GOD I can't wait for this!!" |
+| Supportive | 🤗 | > 0.5 | "You've got this, don't give up" |
+| Grateful | 💜 | > 0.5 | "Thank you so much for helping me" |
+| Humorous | 😂 | > 0.5 | "lmao that's the funniest thing I've seen all day" |
+| Curious | 🧐 | > 0.5 | "How does that work exactly?" |
+| Neutral | — | — | "I'll be back in 10 minutes" |
+| Sarcastic | 🤨 | < -0.5 | "Oh sure, that'll definitely work" |
+| Frustrated | 😮‍💨 | < -0.5 | "I've been trying to fix this for three hours" |
+| Negative | 👎 | < -0.5 | "This is broken and nobody cares" |
+
+The LLM also returns a float score (-1.0 to 1.0) for each message. These scores are averaged per user to derive an overall mood shown in `!sentiment` output and fed into `!howami` roast profiles.
+
+---
+
 ## External APIs
 
 All optional. The bot works fine without any of them, you just won't have those specific features.
