@@ -516,7 +516,6 @@ E2EE should just work. The bot bootstraps cross-signing and self-verifies its de
 
 ### Bot not responding in encrypted rooms
 
-- Make sure you verified the bot's device
 - Check that the bot joined the room (it auto-joins on invite)
 - Look at logs for decryption errors
 
