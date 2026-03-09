@@ -124,6 +124,15 @@ Everything is configured through environment variables or a `.env` file.
 | `FEATURE_URL_PREVIEW` | Set to anything to enable automatic URL previews |
 | `FEATURE_SHADE` | Set to anything to enable the shade plugin (stub) |
 
+### Missing Members
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MISSING_THRESHOLD_DAYS` | `14` | Days of inactivity before considered missing |
+| `MISSING_MAX_DAYS` | `90` | Days after which they're considered gone, not missing |
+| `MISSING_MIN_MESSAGES` | `10` | Minimum lifetime messages to be eligible |
+| `MISSING_EXCLUDE_USERS` | | Comma-separated user IDs to never list as missing |
+
 ### Rate Limits
 
 | Variable | Default | Description |
@@ -280,6 +289,13 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | `!birthday remove` | Remove birthday |
 | `!birthday show` | Show yours |
 | `!birthdays` | Upcoming (next 30 days) |
+
+### Community
+| Command | Description |
+|---------|-------------|
+| `!missing` | List members who haven't posted recently |
+| `!missing post [@user]` | Generate a milk carton poster for the longest-absent (or specified) member |
+| `!haveyouseenthem @user` | Generate a milk carton missing poster for a user |
 
 ### LLM (requires Ollama)
 | Command | Description |
@@ -471,6 +487,7 @@ gogobee/
 │   │   ├── howami.go        # LLM roasts
 │   │   ├── vibe.go          # Room vibe, TLDR
 │   │   ├── shade.go         # Stub
+│   │   ├── milkcarton.go    # Missing member milk carton posters
 │   │   └── ratelimits.go    # Rate limiting
 │   └── util/
 │       ├── auth.go          # Matrix login, token check

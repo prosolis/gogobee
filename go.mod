@@ -19,6 +19,8 @@ require (
 	github.com/AlekSi/pointer v1.0.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/fogleman/gg v1.3.0 // indirect
+	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-sqlite3 v1.14.34 // indirect
@@ -34,6 +36,7 @@ require (
 	go.mau.fi/util v0.9.6 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a // indirect
+	golang.org/x/image v0.36.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect

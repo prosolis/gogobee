@@ -219,3 +219,24 @@ func (b *Base) UploadContent(data []byte, contentType, filename string) (id.Cont
 	}
 	return resp.ContentURI, nil
 }
+
+// SendImage uploads image data and sends it as an m.image message with a caption.
+func (b *Base) SendImage(roomID id.RoomID, imgData []byte, filename, caption string, width, height int) error {
+	uri, err := b.UploadContent(imgData, "image/png", filename)
+	if err != nil {
+		return fmt.Errorf("upload image: %w", err)
+	}
+	content := &event.MessageEventContent{
+		MsgType: event.MsgImage,
+		Body:    caption,
+		URL:     uri.CUString(),
+		Info: &event.FileInfo{
+			MimeType: "image/png",
+			Size:     len(imgData),
+			Width:    width,
+			Height:   height,
+		},
+	}
+	_, err = b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
+	return err
+}

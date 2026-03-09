@@ -102,6 +102,9 @@ func main() {
 	moviesPlugin := plugin.NewMoviesPlugin(client)
 	registry.Register(moviesPlugin)
 
+	// Community
+	registry.Register(plugin.NewMilkCartonPlugin(client, ratePlugin))
+
 	// Tracking (passive)
 	registry.Register(plugin.NewAchievementsPlugin(client, registry))
 	registry.Register(plugin.NewReactionsPlugin(client))
