@@ -27,7 +27,7 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 
 ## Features
 
-- **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run. Verify once, done.
+- **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
 - **35+ plugins** with dependency injection and ordered registration
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
@@ -149,9 +149,8 @@ The `-tags goolm` flag selects the pure-Go crypto implementation. No C compiler 
 
 ### First Run
 
-1. Start the bot. It logs in, creates a device, and sets up cross-signing automatically.
-2. Verify the bot's device from your main Matrix account (Element, etc).
-3. That's it. E2EE works across restarts from here on out.
+1. Start the bot. It logs in, creates a device, bootstraps cross-signing, and self-verifies automatically.
+2. That's it. E2EE works across restarts from here on out.
 
 ---
 
@@ -481,7 +480,7 @@ gogobee/
 
 ### Why Go?
 
-**E2EE** - This project went through three SDK iterations: `matrix-bot-sdk` (no E2EE support), `matrix-js-sdk` (E2EE via `fake-indexeddb` with an in-memory crypto store that wiped device keys on every restart), and finally `mautrix-go` which stores crypto state in SQLite with cross-signing bootstrap. Verify once, it sticks.
+**E2EE** - This project went through three SDK iterations: `matrix-bot-sdk` (no E2EE support), `matrix-js-sdk` (E2EE via `fake-indexeddb` with an in-memory crypto store that wiped device keys on every restart), and finally `mautrix-go` which stores crypto state in SQLite with cross-signing bootstrap. The bot self-verifies its own device on startup.
 
 **Deployment** - Pure Go, no CGo. `go build -tags goolm` gives you a static binary with zero system dependencies. The TypeScript version needed Node.js, npm, a C compiler for better-sqlite3, and libolm.
 
@@ -510,11 +509,10 @@ sqlite3 data/gogobee.db ".backup data/gogobee-backup.db"
 
 ### E2EE
 
-E2EE should just work after the initial device verification. If something goes wrong:
+E2EE should just work. The bot bootstraps cross-signing and self-verifies its device on first run.
 
-1. On first run, the bot sets up cross-signing automatically. Verify its device from your account once.
-2. After restarts, the bot reuses its saved device and crypto state. No re-verification needed.
-3. If things are really broken, delete `data/device.json` and `data/gogobee.db` to start fresh. You'll need to verify again.
+1. After restarts, the bot reuses its saved device and crypto state. No manual steps needed.
+2. If things are really broken, delete `data/device.json` and `data/gogobee.db` to start fresh.
 
 ### Bot not responding in encrypted rooms
 
