@@ -287,26 +287,22 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 	}
 
 	// Aggregate sentiment stats
-	switch result.Sentiment {
-	case "positive":
-		_, _ = d.Exec(
-			`INSERT INTO sentiment_stats (user_id, positive, total_score) VALUES (?, 1, ?)
-			 ON CONFLICT(user_id) DO UPDATE SET positive = positive + 1, total_score = total_score + ?`,
-			string(item.UserID), result.SentimentScore, result.SentimentScore,
-		)
-	case "negative":
-		_, _ = d.Exec(
-			`INSERT INTO sentiment_stats (user_id, negative, total_score) VALUES (?, 1, ?)
-			 ON CONFLICT(user_id) DO UPDATE SET negative = negative + 1, total_score = total_score + ?`,
-			string(item.UserID), result.SentimentScore, result.SentimentScore,
-		)
-	default:
-		_, _ = d.Exec(
-			`INSERT INTO sentiment_stats (user_id, neutral, total_score) VALUES (?, 1, ?)
-			 ON CONFLICT(user_id) DO UPDATE SET neutral = neutral + 1, total_score = total_score + ?`,
-			string(item.UserID), result.SentimentScore, result.SentimentScore,
-		)
+	sentimentCol := "neutral"
+	validSentiments := map[string]bool{
+		"positive": true, "negative": true, "neutral": true,
+		"excited": true, "sarcastic": true, "frustrated": true,
+		"curious": true, "grateful": true, "humorous": true, "supportive": true,
 	}
+	if validSentiments[result.Sentiment] {
+		sentimentCol = result.Sentiment
+	}
+	_, _ = d.Exec(
+		fmt.Sprintf(
+			`INSERT INTO sentiment_stats (user_id, %s, total_score) VALUES (?, 1, ?)
+			 ON CONFLICT(user_id) DO UPDATE SET %s = %s + 1, total_score = total_score + ?`,
+			sentimentCol, sentimentCol, sentimentCol),
+		string(item.UserID), result.SentimentScore, result.SentimentScore,
+	)
 
 	// Track profanity with severity
 	if result.Profanity {
@@ -360,12 +356,24 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 		)
 	}
 
-	// React with emojis based on classification
-	if result.Sentiment == "positive" && result.SentimentScore > 0.7 {
-		_ = p.SendReact(item.RoomID, item.EventID, "\U0001f44d") // thumbsup
+	// React with emojis based on sentiment
+	sentimentEmojis := map[string]string{
+		"positive":    "\U0001f44d", // 👍
+		"negative":    "\U0001f44e", // 👎
+		"excited":     "\U0001f525", // 🔥
+		"sarcastic":   "\U0001f928", // 🤨
+		"frustrated":  "\U0001f62e\u200d\U0001f4a8", // 😮‍💨
+		"curious":     "\U0001f9d0", // 🧐
+		"grateful":    "\U0001f49c", // 💜
+		"humorous":    "\U0001f602", // 😂
+		"supportive":  "\U0001f917", // 🤗
 	}
-	if result.Sentiment == "negative" && result.SentimentScore < -0.7 {
-		_ = p.SendReact(item.RoomID, item.EventID, "\U0001f44e") // thumbsdown
+	if emoji, ok := sentimentEmojis[result.Sentiment]; ok && result.Sentiment != "neutral" {
+		// Only react to strong sentiments (|score| > 0.5)
+		score := result.SentimentScore
+		if score > 0.5 || score < -0.5 {
+			_ = p.SendReact(item.RoomID, item.EventID, emoji)
+		}
 	}
 	if result.Profanity {
 		switch result.ProfanitySeverity {
@@ -413,7 +421,7 @@ func (p *LLMPassivePlugin) callOllama(messageText string) (*classificationResult
 
 JSON schema:
 {
-  "sentiment": "positive" | "negative" | "neutral",
+  "sentiment": "positive" | "negative" | "neutral" | "excited" | "sarcastic" | "frustrated" | "curious" | "grateful" | "humorous" | "supportive",
   "sentiment_score": number between -1.0 and 1.0,
   "topics": ["topic1", "topic2"],
   "profanity": true | false,
@@ -644,18 +652,22 @@ func (p *LLMPassivePlugin) handleSentiment(ctx MessageContext) error {
 	}
 
 	d := db.Get()
-	var positive, negative, neutral int
+	var positive, negative, neutral, excited, sarcastic, frustrated, curious, grateful, humorous, supportive int
 	var totalScore float64
 	err := d.QueryRow(
-		`SELECT COALESCE(positive, 0), COALESCE(negative, 0), COALESCE(neutral, 0), COALESCE(total_score, 0)
+		`SELECT COALESCE(positive, 0), COALESCE(negative, 0), COALESCE(neutral, 0),
+		        COALESCE(excited, 0), COALESCE(sarcastic, 0), COALESCE(frustrated, 0),
+		        COALESCE(curious, 0), COALESCE(grateful, 0), COALESCE(humorous, 0),
+		        COALESCE(supportive, 0), COALESCE(total_score, 0)
 		 FROM sentiment_stats WHERE user_id = ?`,
 		string(target),
-	).Scan(&positive, &negative, &neutral, &totalScore)
+	).Scan(&positive, &negative, &neutral, &excited, &sarcastic, &frustrated,
+		&curious, &grateful, &humorous, &supportive, &totalScore)
 	if err != nil {
 		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("No sentiment data for %s yet.", string(target)))
 	}
 
-	total := positive + negative + neutral
+	total := positive + negative + neutral + excited + sarcastic + frustrated + curious + grateful + humorous + supportive
 	avgScore := 0.0
 	if total > 0 {
 		avgScore = totalScore / float64(total)
@@ -672,7 +684,33 @@ func (p *LLMPassivePlugin) handleSentiment(ctx MessageContext) error {
 		mood = "leaning negative"
 	}
 
-	msg := fmt.Sprintf("Sentiment for %s:\n😊 Positive: %s  😐 Neutral: %s  😠 Negative: %s\nAverage mood: %.2f (%s)",
-		string(target), formatNumber(positive), formatNumber(neutral), formatNumber(negative), avgScore, mood)
-	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
+	// Build sentiment breakdown, only showing non-zero counts
+	type sentEntry struct {
+		emoji string
+		label string
+		count int
+	}
+	entries := []sentEntry{
+		{"👍", "Positive", positive},
+		{"🔥", "Excited", excited},
+		{"🤗", "Supportive", supportive},
+		{"💜", "Grateful", grateful},
+		{"😂", "Humorous", humorous},
+		{"🧐", "Curious", curious},
+		{"😐", "Neutral", neutral},
+		{"🤨", "Sarcastic", sarcastic},
+		{"😮\u200d💨", "Frustrated", frustrated},
+		{"👎", "Negative", negative},
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Sentiment for %s:\n", string(target)))
+	for _, e := range entries {
+		if e.count > 0 {
+			sb.WriteString(fmt.Sprintf("  %s %s: %s\n", e.emoji, e.label, formatNumber(e.count)))
+		}
+	}
+	sb.WriteString(fmt.Sprintf("Average mood: %.2f (%s)", avgScore, mood))
+
+	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
 }

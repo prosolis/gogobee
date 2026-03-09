@@ -2,7 +2,7 @@
 
 Matrix community bot with E2EE, 35+ plugins, passive tracking, scheduled posts, and optional LLM features.
 
-Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption and [modernc.org/sqlite](https://modernc.org/sqlite) for storage. Successor to the TypeScript "Freebee" bot.
+Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption and [modernc.org/sqlite](https://modernc.org/sqlite) for storage.
 
 ---
 
@@ -128,7 +128,9 @@ Everything is configured through environment variables or a `.env` file.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `RATELIMIT_WEATHER` | `5` | Daily weather lookups per user |
 | `RATELIMIT_TRANSLATE` | `20` | Daily translation limit per user |
+| `RATELIMIT_CONCERTS` | `10` | Daily concert searches per user |
 
 ---
 
@@ -286,6 +288,7 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | `!howami [@user]` | Roast profile |
 | `!vibe` | Room energy check |
 | `!tldr` | Summarize recent chat |
+| `!sentiment [@user]` | Sentiment breakdown (10 categories) |
 | `!potty [@user]` | Profanity count |
 | `!pottyboard` | Profanity leaderboard |
 | `!insults [@user]` | Insult stats |
@@ -316,7 +319,8 @@ All of these run in the background without any commands:
 - **Room milestones** - announces at 1k, 5k, 10k, 25k, 50k, 100k, 250k, 500k, 1M messages
 - **URL previews** - OG tag extraction (feature-flagged, off by default)
 - **Reactions** - logs all reactions for `!emojiboard`
-- **LLM classification** - sentiment, profanity, insults, WOTD usage (needs Ollama)
+- **LLM classification** - sentiment (10 categories), profanity, insults, WOTD usage (needs Ollama)
+- **Message buffer** - last 50 messages per room held in memory for `!vibe` and `!tldr`. Not persisted to disk; resets on restart.
 - **Quotes** - star-react any message to save it
 
 ---
@@ -336,6 +340,7 @@ Uses [robfig/cron](https://github.com/robfig/cron). All times UTC.
 | 11:00 | Movies | Movie releases today |
 | 12:00 Sun | Concerts | Weekly concert digest |
 | Every 30s | Reminders | Fires pending reminders |
+| 03:00 | Maintenance | Purges stale caches, old rate limits, expired logs; runs SQLite optimize |
 
 ---
 
@@ -455,9 +460,9 @@ gogobee/
 
 ### Why Go?
 
-**E2EE** - The TS version used `matrix-js-sdk` with `fake-indexeddb` for an in-memory crypto store. Every restart wiped device keys and required re-verification in all encrypted rooms. mautrix-go stores crypto state in SQLite. Verify once, it sticks.
+**E2EE** - This project went through three SDK iterations: `matrix-bot-sdk` (no E2EE support), `matrix-js-sdk` (E2EE via `fake-indexeddb` with an in-memory crypto store that wiped device keys on every restart), and finally `mautrix-go` which stores crypto state in SQLite with cross-signing bootstrap. Verify once, it sticks.
 
-**Deployment** - Pure Go, no CGo. `go build -tags goolm` gives you a static binary with zero system dependencies. The TS version needed Node.js, npm, a C compiler for better-sqlite3, and libolm.
+**Deployment** - Pure Go, no CGo. `go build -tags goolm` gives you a static binary with zero system dependencies. The TypeScript version needed Node.js, npm, a C compiler for better-sqlite3, and libolm.
 
 **Scheduler** - Replaced a hand-rolled 60s tick loop with robfig/cron. Standard cron expressions, less code, fewer bugs.
 

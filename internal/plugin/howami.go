@@ -120,11 +120,13 @@ func (p *HowAmIPlugin) gatherProfile(userID id.UserID) string {
 	sb.WriteString(fmt.Sprintf("Achievements unlocked: %d\n", achievementCount))
 
 	// Sentiment stats
-	var positive, negative, neutral int
+	var positive, negative, neutral, excited, sarcastic, frustrated, curious, grateful, humorous, supportive int
 	if err := d.QueryRow(
-		`SELECT positive, negative, neutral FROM sentiment_stats WHERE user_id = ?`, uid,
-	).Scan(&positive, &negative, &neutral); err == nil {
-		sb.WriteString(fmt.Sprintf("Sentiment: %d positive, %d negative, %d neutral\n", positive, negative, neutral))
+		`SELECT positive, negative, neutral, excited, sarcastic, frustrated, curious, grateful, humorous, supportive
+		 FROM sentiment_stats WHERE user_id = ?`, uid,
+	).Scan(&positive, &negative, &neutral, &excited, &sarcastic, &frustrated, &curious, &grateful, &humorous, &supportive); err == nil {
+		sb.WriteString(fmt.Sprintf("Sentiment: %d positive, %d excited, %d supportive, %d grateful, %d humorous, %d curious, %d neutral, %d sarcastic, %d frustrated, %d negative\n",
+			positive, excited, supportive, grateful, humorous, curious, neutral, sarcastic, frustrated, negative))
 	}
 
 	// Profanity count

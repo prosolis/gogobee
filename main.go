@@ -277,6 +277,12 @@ func setupScheduledJobs(
 	c.AddFunc("@every 30s", func() {
 		plugin.FirePendingReminders(client)
 	})
+
+	// Database maintenance at 03:00 daily
+	c.AddFunc("0 3 * * *", func() {
+		slog.Info("scheduler: running database maintenance")
+		db.RunMaintenance()
+	})
 }
 
 func getRooms() []id.RoomID {

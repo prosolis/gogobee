@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -108,6 +109,74 @@ func CacheSet(key, data string) {
 	if err != nil {
 		slog.Error("cache set", "key", key, "err", err)
 	}
+}
+
+// RunMaintenance purges stale data from cache tables, old rate limits,
+// expired logs, and runs SQLite optimization. Intended to run daily.
+func RunMaintenance() {
+	d := Get()
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
+	cutoff7d := now.AddDate(0, 0, -7).Unix()
+	cutoff30d := now.AddDate(0, 0, -30).Unix()
+	date30d := now.AddDate(0, 0, -30).Format("2006-01-02")
+	date90d := now.AddDate(0, 0, -90).Format("2006-01-02")
+
+	queries := []struct {
+		label string
+		sql   string
+		args  []interface{}
+	}{
+		// Cache tables — purge entries older than their effective TTL
+		{"api_cache", `DELETE FROM api_cache WHERE cached_at < ?`, []interface{}{cutoff7d}},
+		{"releases_cache", `DELETE FROM releases_cache WHERE cached_at < ?`, []interface{}{cutoff7d}},
+		{"hltb_cache", `DELETE FROM hltb_cache WHERE cached_at < ?`, []interface{}{cutoff7d}},
+		{"stocks_cache", `DELETE FROM stocks_cache WHERE cached_at < ?`, []interface{}{cutoff7d}},
+		{"concerts_cache", `DELETE FROM concerts_cache WHERE cached_at < ?`, []interface{}{cutoff7d}},
+		{"anime_cache", `DELETE FROM anime_cache WHERE cached_at < ?`, []interface{}{cutoff30d}},
+		{"movie_cache", `DELETE FROM movie_cache WHERE cached_at < ?`, []interface{}{cutoff30d}},
+		{"retro_cache", `DELETE FROM retro_cache WHERE cached_at < ?`, []interface{}{cutoff30d}},
+		{"urban_cache", `DELETE FROM urban_cache WHERE cached_at < ?`, []interface{}{cutoff30d}},
+		{"url_cache", `DELETE FROM url_cache WHERE cached_at < ?`, []interface{}{cutoff30d}},
+
+		// Rate limits — purge entries older than today
+		{"rate_limits", `DELETE FROM rate_limits WHERE date < ?`, []interface{}{today}},
+
+		// Daily prefetch log — keep 30 days
+		{"daily_prefetch", `DELETE FROM daily_prefetch WHERE date < ?`, []interface{}{date30d}},
+
+		// Holiday and WOTD logs — keep 90 days
+		{"holidays_log", `DELETE FROM holidays_log WHERE date < ?`, []interface{}{date90d}},
+		{"wotd_log", `DELETE FROM wotd_log WHERE date < ?`, []interface{}{date90d}},
+		{"wotd_usage", `DELETE FROM wotd_usage WHERE date < ?`, []interface{}{date90d}},
+
+		// LLM classifications — keep 30 days
+		{"llm_classifications", `DELETE FROM llm_classifications WHERE timestamp < ?`, []interface{}{cutoff30d}},
+
+		// Daily activity older than 1 year
+		{"daily_activity", `DELETE FROM daily_activity WHERE date < ?`, []interface{}{now.AddDate(-1, 0, 0).Format("2006-01-02")}},
+	}
+
+	totalDeleted := int64(0)
+	for _, q := range queries {
+		res, err := d.Exec(q.sql, q.args...)
+		if err != nil {
+			slog.Error("maintenance: "+q.label, "err", err)
+			continue
+		}
+		n, _ := res.RowsAffected()
+		if n > 0 {
+			slog.Info("maintenance: purged", "table", q.label, "rows", n)
+			totalDeleted += n
+		}
+	}
+
+	// SQLite optimization
+	if _, err := d.Exec(`PRAGMA optimize`); err != nil {
+		slog.Error("maintenance: pragma optimize", "err", err)
+	}
+
+	slog.Info("maintenance: complete", "total_purged", totalDeleted)
 }
 
 const schema = `
@@ -508,6 +577,13 @@ CREATE TABLE IF NOT EXISTS sentiment_stats (
 	positive INTEGER DEFAULT 0,
 	negative INTEGER DEFAULT 0,
 	neutral INTEGER DEFAULT 0,
+	excited INTEGER DEFAULT 0,
+	sarcastic INTEGER DEFAULT 0,
+	frustrated INTEGER DEFAULT 0,
+	curious INTEGER DEFAULT 0,
+	grateful INTEGER DEFAULT 0,
+	humorous INTEGER DEFAULT 0,
+	supportive INTEGER DEFAULT 0,
 	total_score REAL DEFAULT 0
 );
 
