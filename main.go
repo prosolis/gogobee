@@ -95,9 +95,12 @@ func main() {
 	registry.Register(plugin.NewLookupPlugin(client, ratePlugin))
 	registry.Register(plugin.NewCountdownPlugin(client))
 	registry.Register(plugin.NewStocksPlugin(client))
-	registry.Register(plugin.NewConcertsPlugin(client, ratePlugin))
-	registry.Register(plugin.NewAnimePlugin(client))
-	registry.Register(plugin.NewMoviesPlugin(client))
+	concertsPlugin := plugin.NewConcertsPlugin(client, ratePlugin)
+	registry.Register(concertsPlugin)
+	animePlugin := plugin.NewAnimePlugin(client)
+	registry.Register(animePlugin)
+	moviesPlugin := plugin.NewMoviesPlugin(client)
+	registry.Register(moviesPlugin)
 
 	// Tracking (passive)
 	registry.Register(plugin.NewAchievementsPlugin(client, registry))
@@ -200,7 +203,7 @@ func main() {
 
 	// ---- Set up cron scheduler ----
 	scheduler := cron.New()
-	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin)
+	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin)
 	scheduler.Start()
 
 	// ---- Start syncing ----
@@ -232,20 +235,24 @@ func setupScheduledJobs(
 	holidays *plugin.HolidaysPlugin,
 	gaming *plugin.GamingPlugin,
 	birthday *plugin.BirthdayPlugin,
+	anime *plugin.AnimePlugin,
+	movies *plugin.MoviesPlugin,
+	concerts *plugin.ConcertsPlugin,
 ) {
 	rooms := getRooms()
 
-	// WOTD prefetch at 00:05
+	// Prefetch at 00:05 — grab data ahead of scheduled posts
 	c.AddFunc("5 0 * * *", func() {
-		slog.Info("scheduler: prefetching WOTD")
+		slog.Info("scheduler: prefetching daily data")
 		wotd.Prefetch()
+		holidays.Prefetch()
 	})
 
-	// WOTD post at 08:00
-	c.AddFunc("0 8 * * *", func() {
-		slog.Info("scheduler: posting WOTD")
+	// Birthday check at 06:00
+	c.AddFunc("0 6 * * *", func() {
+		slog.Info("scheduler: checking birthdays")
 		for _, r := range rooms {
-			wotd.PostWOTD(r)
+			birthday.CheckAndPost(r)
 		}
 	})
 
@@ -257,6 +264,14 @@ func setupScheduledJobs(
 		}
 	})
 
+	// WOTD post at 08:00
+	c.AddFunc("0 8 * * *", func() {
+		slog.Info("scheduler: posting WOTD")
+		for _, r := range rooms {
+			wotd.PostWOTD(r)
+		}
+	})
+
 	// Game releases Monday 09:00
 	c.AddFunc("0 9 * * 1", func() {
 		slog.Info("scheduler: posting game releases")
@@ -265,11 +280,27 @@ func setupScheduledJobs(
 		}
 	})
 
-	// Birthday check at 06:00
-	c.AddFunc("0 6 * * *", func() {
-		slog.Info("scheduler: checking birthdays")
+	// Anime releases at 10:00
+	c.AddFunc("0 10 * * *", func() {
+		slog.Info("scheduler: posting anime releases")
 		for _, r := range rooms {
-			birthday.CheckAndPost(r)
+			anime.PostDailyReleases(r)
+		}
+	})
+
+	// Movie releases at 11:00
+	c.AddFunc("0 11 * * *", func() {
+		slog.Info("scheduler: posting movie releases")
+		for _, r := range rooms {
+			movies.PostDailyReleases(r)
+		}
+	})
+
+	// Concert digest Sunday 12:00
+	c.AddFunc("0 12 * * 0", func() {
+		slog.Info("scheduler: posting concert digest")
+		for _, r := range rooms {
+			concerts.PostWeeklyDigest(r)
 		}
 	})
 
