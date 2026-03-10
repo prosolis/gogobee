@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"gogobee/internal/db"
 	"gogobee/internal/util"
 
 	"maunium.net/go/mautrix"
@@ -85,6 +86,93 @@ func (b *Base) IsAdmin(userID id.UserID) bool {
 		}
 	}
 	return false
+}
+
+// RoomMembers returns the set of user IDs in a room. Used to scope leaderboards
+// to only show users present in the room where the command was issued.
+func (b *Base) RoomMembers(roomID id.RoomID) map[id.UserID]bool {
+	resp, err := b.Client.JoinedMembers(context.Background(), roomID)
+	if err != nil {
+		slog.Error("failed to get room members", "room", roomID, "err", err)
+		return nil
+	}
+	members := make(map[id.UserID]bool, len(resp.Joined))
+	for uid := range resp.Joined {
+		members[uid] = true
+	}
+	return members
+}
+
+// ResolveUser resolves a partial username to a full Matrix user ID.
+// Accepts any of: "@user:server", "user:server", "user", or partial match.
+// Returns the matched user ID and true, or empty and false if no unique match.
+func (b *Base) ResolveUser(input string) (id.UserID, bool) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", false
+	}
+
+	// If it already looks like a full Matrix ID, use it directly
+	if strings.Contains(input, ":") {
+		if !strings.HasPrefix(input, "@") {
+			input = "@" + input
+		}
+		return id.UserID(input), true
+	}
+
+	// Strip leading @ for the search
+	query := strings.TrimPrefix(input, "@")
+	query = strings.ToLower(query)
+
+	d := db.Get()
+	rows, err := d.Query(`SELECT user_id FROM user_stats`)
+	if err != nil {
+		return "", false
+	}
+	defer rows.Close()
+
+	var exact []string
+	var partial []string
+
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			continue
+		}
+
+		// Extract localpart: @localpart:server -> localpart
+		localpart := uid
+		if strings.HasPrefix(localpart, "@") {
+			localpart = localpart[1:]
+		}
+		if idx := strings.Index(localpart, ":"); idx > 0 {
+			localpart = localpart[:idx]
+		}
+
+		lower := strings.ToLower(localpart)
+
+		if lower == query {
+			exact = append(exact, uid)
+		} else if strings.Contains(lower, query) {
+			partial = append(partial, uid)
+		}
+	}
+
+	// Exact localpart match — return it (even if multiple servers, prefer first)
+	if len(exact) == 1 {
+		return id.UserID(exact[0]), true
+	}
+	if len(exact) > 1 {
+		// Multiple exact matches across servers — return the first one
+		return id.UserID(exact[0]), true
+	}
+
+	// Single partial match
+	if len(partial) == 1 {
+		return id.UserID(partial[0]), true
+	}
+
+	return "", false
 }
 
 // SendMessage sends a plain text message to a room.
@@ -227,9 +315,10 @@ func (b *Base) SendImage(roomID id.RoomID, imgData []byte, filename, caption str
 		return fmt.Errorf("upload image: %w", err)
 	}
 	content := &event.MessageEventContent{
-		MsgType: event.MsgImage,
-		Body:    caption,
-		URL:     uri.CUString(),
+		MsgType:  event.MsgImage,
+		Body:     caption,
+		FileName: filename,
+		URL:      uri.CUString(),
 		Info: &event.FileInfo{
 			MimeType: "image/png",
 			Size:     len(imgData),

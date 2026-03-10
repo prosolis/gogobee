@@ -114,9 +114,8 @@ func (p *AchievementsPlugin) handleAchievements(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "achievements")
 	if args != "" {
-		cleaned := strings.TrimSpace(strings.TrimPrefix(args, "@"))
-		if cleaned != "" {
-			target = id.UserID(cleaned)
+		if resolved, ok := p.ResolveUser(args); ok {
+			target = resolved
 		}
 	}
 
@@ -164,7 +163,7 @@ func (p *AchievementsPlugin) handleAchievements(ctx MessageContext) error {
 	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
 }
 
-// buildAchievements returns all 32 achievement definitions.
+// buildAchievements returns all achievement definitions.
 func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 	return []achievementDef{
 		// Message milestones
@@ -196,7 +195,7 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			Check: func(d *sql.DB, u id.UserID) bool { return statGTE(d, u, "night_messages", 100) },
 		},
 		{
-			ID: "early_bird", Name: "Early Bird", Description: "Sent 100 messages between 5am and 9am",
+			ID: "early_bird", Name: "Early Bird", Description: "Sent 100 messages between 6am and noon",
 			Emoji: "🐦",
 			Check: func(d *sql.DB, u id.UserID) bool { return statGTE(d, u, "morning_messages", 100) },
 		},
@@ -410,6 +409,45 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			ID: "year_streak", Name: "Year-Long Devotion", Description: "Active for 365 consecutive days",
 			Emoji: "🏆",
 			Check: func(d *sql.DB, u id.UserID) bool { return checkStreak(d, u, 365) },
+		},
+
+		// Profile completeness
+		{
+			ID: "birthday_set", Name: "Born to Party", Description: "Set your birthday",
+			Emoji: "🎂",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var month int
+				err := d.QueryRow(
+					`SELECT month FROM birthdays WHERE user_id = ? AND month > 0`,
+					string(u),
+				).Scan(&month)
+				return err == nil && month > 0
+			},
+		},
+		{
+			ID: "timezone_set", Name: "Time Traveler", Description: "Set your timezone",
+			Emoji: "🌍",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var tz string
+				err := d.QueryRow(
+					`SELECT timezone FROM birthdays WHERE user_id = ? AND timezone != ''`,
+					string(u),
+				).Scan(&tz)
+				return err == nil && tz != ""
+			},
+		},
+		{
+			ID: "profile_complete", Name: "Identity Established", Description: "Set both birthday and timezone",
+			Emoji: "🪪",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var month int
+				var tz string
+				err := d.QueryRow(
+					`SELECT month, timezone FROM birthdays WHERE user_id = ? AND month > 0 AND timezone != ''`,
+					string(u),
+				).Scan(&month, &tz)
+				return err == nil && month > 0 && tz != ""
+			},
 		},
 	}
 }

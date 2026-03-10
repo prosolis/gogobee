@@ -56,9 +56,8 @@ func (p *HowAmIPlugin) OnMessage(ctx MessageContext) error {
 	target := ctx.Sender
 	args := strings.TrimSpace(p.GetArgs(ctx.Body, "howami"))
 	if args != "" {
-		cleaned := strings.TrimSpace(strings.TrimPrefix(args, "@"))
-		if cleaned != "" {
-			target = id.UserID(cleaned)
+		if resolved, ok := p.ResolveUser(args); ok {
+			target = resolved
 		}
 	}
 

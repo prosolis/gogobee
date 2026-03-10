@@ -151,9 +151,9 @@ func (p *MilkCartonPlugin) handleHaveYouSeenThem(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !haveyouseenthem @user")
 	}
 
-	targetID := id.UserID(strings.TrimPrefix(strings.TrimSpace(args), "@"))
-	if !strings.Contains(string(targetID), ":") {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Please provide a full Matrix user ID (e.g. @user:server.com)")
+	targetID, ok := p.ResolveUser(args)
+	if !ok {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Could not find a user matching that name.")
 	}
 
 	// Rate limit: 1 carton per room per day
@@ -414,7 +414,7 @@ func (p *MilkCartonPlugin) renderCarton(
 		dc.DrawImage(avatarResized, int(photoX), int(photoY))
 	} else {
 		// Draw silhouette
-		p.drawSilhouette(dc, photoX, photoY, float64(photoSize))
+		drawSilhouette(dc, photoX, photoY, float64(photoSize))
 	}
 
 	// Name
@@ -501,22 +501,6 @@ func (p *MilkCartonPlugin) renderCarton(
 		return nil, err
 	}
 	return buf.Bytes(), nil
-}
-
-func (p *MilkCartonPlugin) drawSilhouette(dc *gg.Context, x, y, size float64) {
-	cx := x + size/2
-	cy := y + size/2
-
-	dc.SetColor(color.RGBA{170, 165, 155, 255})
-
-	// Head
-	headRadius := size * 0.18
-	dc.DrawCircle(cx, cy-size*0.12, headRadius)
-	dc.Fill()
-
-	// Body
-	dc.DrawEllipse(cx, cy+size*0.22, size*0.28, size*0.25)
-	dc.Fill()
 }
 
 // deriveCharacteristics generates flavor text from user stats.
@@ -613,11 +597,11 @@ func resizeImage(src image.Image, targetW, targetH int) image.Image {
 	dc := gg.NewContext(targetW, targetH)
 	dc.DrawImage(src, (targetW-newW)/2, (targetH-newH)/2)
 
-	// Use gg's built-in scaling
+	// Use gg's built-in scaling — anchor to top so heads aren't cropped
 	dcScaled := gg.NewContext(targetW, targetH)
 	dcScaled.Scale(scale, scale)
 	offsetX := -float64(srcW)/2 + float64(targetW)/(2*scale)
-	offsetY := -float64(srcH)/2 + float64(targetH)/(2*scale)
+	offsetY := 0.0 // top-anchored crop
 	dcScaled.DrawImage(src, int(offsetX), int(offsetY))
 
 	return dcScaled.Image()

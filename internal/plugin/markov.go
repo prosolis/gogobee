@@ -100,8 +100,9 @@ func (p *MarkovPlugin) handleMarkov(ctx MessageContext) error {
 		targetUser = ctx.Sender
 	default:
 		// Treat as user ID
-		cleaned := strings.TrimSpace(strings.TrimPrefix(args, "@"))
-		targetUser = id.UserID(cleaned)
+		if resolved, ok := p.ResolveUser(args); ok {
+			targetUser = resolved
+		}
 	}
 
 	// Fetch corpus for the user

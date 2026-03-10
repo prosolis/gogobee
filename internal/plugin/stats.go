@@ -166,9 +166,8 @@ func (p *StatsPlugin) handleStats(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "stats")
 	if args != "" {
-		cleaned := strings.TrimSpace(strings.TrimPrefix(args, "@"))
-		if cleaned != "" {
-			target = id.UserID(cleaned)
+		if resolved, ok := p.ResolveUser(args); ok {
+			target = resolved
 		}
 	}
 
@@ -235,10 +234,12 @@ func (p *StatsPlugin) handleRankings(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Valid categories: words, links, questions, emojis")
 	}
 
+	members := p.RoomMembers(ctx.RoomID)
+
 	d := db.Get()
 	// Using fmt.Sprintf for column name is safe here since we control the value above
 	query := fmt.Sprintf(
-		`SELECT user_id, %s FROM user_stats WHERE %s > 0 ORDER BY %s DESC LIMIT 10`,
+		`SELECT user_id, %s FROM user_stats WHERE %s > 0 ORDER BY %s DESC`,
 		column, column, column,
 	)
 	rows, err := d.Query(query)
@@ -253,10 +254,13 @@ func (p *StatsPlugin) handleRankings(ctx MessageContext) error {
 
 	medals := []string{"🥇", "🥈", "🥉"}
 	i := 0
-	for rows.Next() {
+	for rows.Next() && i < 10 {
 		var userID string
 		var val int
 		if err := rows.Scan(&userID, &val); err != nil {
+			continue
+		}
+		if members != nil && !members[id.UserID(userID)] {
 			continue
 		}
 		prefix := fmt.Sprintf("#%d", i+1)

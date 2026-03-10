@@ -46,10 +46,11 @@ type classificationResult struct {
 
 // queueItem holds a message pending classification.
 type queueItem struct {
-	UserID  id.UserID
-	RoomID  id.RoomID
-	EventID id.EventID
-	Body    string
+	UserID        id.UserID
+	RoomID        id.RoomID
+	EventID       id.EventID
+	Body          string
+	FormattedBody string
 }
 
 // LLMPassivePlugin classifies messages using Ollama and reacts accordingly.
@@ -150,19 +151,32 @@ func (p *LLMPassivePlugin) OnMessage(ctx MessageContext) error {
 	}
 
 	// Pre-filter: only classify messages that match certain criteria
-	if !p.shouldClassify(ctx.Body) {
+	var fmtBody string
+	if ctx.Event != nil {
+		if mc := ctx.Event.Content.AsMessage(); mc != nil {
+			fmtBody = mc.FormattedBody
+		}
+	}
+	if !p.shouldClassify(ctx.Body, fmtBody) {
 		slog.Debug("llm_passive: message did not pass pre-filter", "body_len", len(ctx.Body))
 		return nil
 	}
 
 	// Enqueue for async classification
 	slog.Debug("llm_passive: enqueuing message for classification", "user", ctx.Sender, "body_len", len(ctx.Body))
+	var formattedBody string
+	if ctx.Event != nil {
+		if mc := ctx.Event.Content.AsMessage(); mc != nil {
+			formattedBody = mc.FormattedBody
+		}
+	}
 	p.mu.Lock()
 	p.queue = append(p.queue, queueItem{
-		UserID:  ctx.Sender,
-		RoomID:  ctx.RoomID,
-		EventID: ctx.EventID,
-		Body:    ctx.Body,
+		UserID:        ctx.Sender,
+		RoomID:        ctx.RoomID,
+		EventID:       ctx.EventID,
+		Body:          ctx.Body,
+		FormattedBody: formattedBody,
 	})
 	p.mu.Unlock()
 
@@ -170,7 +184,7 @@ func (p *LLMPassivePlugin) OnMessage(ctx MessageContext) error {
 }
 
 // shouldClassify applies pre-filtering heuristics.
-func (p *LLMPassivePlugin) shouldClassify(body string) bool {
+func (p *LLMPassivePlugin) shouldClassify(body, formattedBody string) bool {
 	// Skip single-character messages (trivia answers, etc.)
 	if len(strings.TrimSpace(body)) <= 1 {
 		return false
@@ -185,8 +199,11 @@ func (p *LLMPassivePlugin) shouldClassify(body string) bool {
 		}
 	}
 
-	// Check mentions
+	// Check mentions (plain text or HTML formatted body)
 	if mentionRe.MatchString(body) {
+		return true
+	}
+	if strings.Contains(formattedBody, "matrix.to/#/@") {
 		return true
 	}
 
@@ -255,11 +272,54 @@ func (p *LLMPassivePlugin) processQueue() {
 	}
 }
 
+// extractMentionMap builds a display-name-to-MXID mapping from the HTML formatted body.
+func extractMentionMap(formattedBody string) map[string]string {
+	if formattedBody == "" {
+		return nil
+	}
+	// Match: <a href="https://matrix.to/#/@user:server">Display Name</a>
+	re := regexp.MustCompile(`<a\s+href="https://matrix\.to/#/(@[^"]+)">([^<]+)</a>`)
+	matches := re.FindAllStringSubmatch(formattedBody, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	result := make(map[string]string)
+	for _, m := range matches {
+		if len(m) >= 3 {
+			result[m[2]] = m[1] // display name -> MXID
+		}
+	}
+	return result
+}
+
 // classifyAndProcess sends a message to Ollama and processes the result.
 func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
-	result, err := p.callOllama(item.Body)
+	// Build mention context so the LLM knows actual MXIDs
+	mentionMap := extractMentionMap(item.FormattedBody)
+	var mentionHint string
+	if len(mentionMap) > 0 {
+		var parts []string
+		for displayName, mxid := range mentionMap {
+			parts = append(parts, fmt.Sprintf("%s = %s", displayName, mxid))
+		}
+		mentionHint = "\nMentioned users: " + strings.Join(parts, ", ")
+	}
+
+	result, err := p.callOllama(item.Body + mentionHint)
 	if err != nil {
 		return fmt.Errorf("ollama call: %w", err)
+	}
+
+	// Resolve any display names in LLM targets back to MXIDs
+	if result.InsultTarget != "" && !strings.Contains(result.InsultTarget, ":") {
+		if mxid, ok := mentionMap[result.InsultTarget]; ok {
+			result.InsultTarget = mxid
+		}
+	}
+	if result.GratitudeTarget != "" && !strings.Contains(result.GratitudeTarget, ":") {
+		if mxid, ok := mentionMap[result.GratitudeTarget]; ok {
+			result.GratitudeTarget = mxid
+		}
 	}
 
 	d := db.Get()
@@ -336,7 +396,7 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 			"\U0001f52a", // 🔪
 			"\U0001f5e1", // 🗡️
 			"\U0001fa78", // 🩸
-			"\U0001f480", // 💀
+			"\U0001f4a3", // 💣
 		}
 		emoji := botReactions[rand.Intn(len(botReactions))]
 		_ = p.SendReact(item.RoomID, item.EventID, emoji)
@@ -519,9 +579,8 @@ func (p *LLMPassivePlugin) handlePotty(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "potty")
 	if args != "" {
-		cleaned := strings.TrimSpace(strings.TrimPrefix(args, "@"))
-		if cleaned != "" {
-			target = id.UserID(cleaned)
+		if resolved, ok := p.ResolveUser(args); ok {
+			target = resolved
 		}
 	}
 
@@ -542,9 +601,11 @@ func (p *LLMPassivePlugin) handlePotty(ctx MessageContext) error {
 }
 
 func (p *LLMPassivePlugin) handlePottyboard(ctx MessageContext) error {
+	members := p.RoomMembers(ctx.RoomID)
+
 	d := db.Get()
 	rows, err := d.Query(
-		`SELECT user_id, count FROM potty_mouth ORDER BY count DESC LIMIT 10`,
+		`SELECT user_id, count FROM potty_mouth ORDER BY count DESC`,
 	)
 	if err != nil {
 		slog.Error("llm: pottyboard query", "err", err)
@@ -557,10 +618,13 @@ func (p *LLMPassivePlugin) handlePottyboard(ctx MessageContext) error {
 
 	medals := []string{"\U0001f947", "\U0001f948", "\U0001f949"}
 	i := 0
-	for rows.Next() {
+	for rows.Next() && i < 10 {
 		var userID string
 		var count int
 		if err := rows.Scan(&userID, &count); err != nil {
+			continue
+		}
+		if members != nil && !members[id.UserID(userID)] {
 			continue
 		}
 		prefix := fmt.Sprintf("#%d", i+1)
@@ -582,9 +646,8 @@ func (p *LLMPassivePlugin) handleInsults(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "insults")
 	if args != "" {
-		cleaned := strings.TrimSpace(strings.TrimPrefix(args, "@"))
-		if cleaned != "" {
-			target = id.UserID(cleaned)
+		if resolved, ok := p.ResolveUser(args); ok {
+			target = resolved
 		}
 	}
 
@@ -605,9 +668,11 @@ func (p *LLMPassivePlugin) handleInsults(ctx MessageContext) error {
 }
 
 func (p *LLMPassivePlugin) handleInsultboard(ctx MessageContext) error {
+	members := p.RoomMembers(ctx.RoomID)
+
 	d := db.Get()
 	rows, err := d.Query(
-		`SELECT user_id, times_insulted FROM insult_log ORDER BY times_insulted DESC LIMIT 10`,
+		`SELECT user_id, times_insulted FROM insult_log ORDER BY times_insulted DESC`,
 	)
 	if err != nil {
 		slog.Error("llm: insultboard query", "err", err)
@@ -620,10 +685,13 @@ func (p *LLMPassivePlugin) handleInsultboard(ctx MessageContext) error {
 
 	medals := []string{"\U0001f947", "\U0001f948", "\U0001f949"}
 	i := 0
-	for rows.Next() {
+	for rows.Next() && i < 10 {
 		var userID string
 		var count int
 		if err := rows.Scan(&userID, &count); err != nil {
+			continue
+		}
+		if members != nil && !members[id.UserID(userID)] {
 			continue
 		}
 		prefix := fmt.Sprintf("#%d", i+1)
@@ -645,9 +713,8 @@ func (p *LLMPassivePlugin) handleSentiment(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "sentiment")
 	if args != "" {
-		cleaned := strings.TrimSpace(strings.TrimPrefix(args, "@"))
-		if cleaned != "" {
-			target = id.UserID(cleaned)
+		if resolved, ok := p.ResolveUser(args); ok {
+			target = resolved
 		}
 	}
 

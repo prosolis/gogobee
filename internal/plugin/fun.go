@@ -115,7 +115,7 @@ func (p *FunPlugin) Commands() []CommandDef {
 		{Name: "roll", Description: "Roll dice", Usage: "!roll [NdM+X]", Category: "Fun & Games"},
 		{Name: "8ball", Description: "Magic 8-ball", Usage: "!8ball <question>", Category: "Fun & Games"},
 		{Name: "coin", Description: "Flip a coin", Usage: "!coin", Category: "Fun & Games"},
-		{Name: "time", Description: "World clock", Usage: "!time [city]", Category: "Lookup & Reference"},
+		{Name: "time", Description: "World clock or user's local time", Usage: "!time [city|@user]", Category: "Lookup & Reference"},
 		{Name: "hltb", Description: "HowLongToBeat lookup", Usage: "!hltb <game>", Category: "Lookup & Reference"},
 		{Name: "twinbee", Description: "Random Twinbee lore/trivia", Usage: "!twinbee", Category: "Fun & Games"},
 		{Name: "poll", Description: "Create a reaction poll", Usage: "!poll <question> | <option1> | <option2> ...", Category: "Fun & Games"},
@@ -229,7 +229,7 @@ func (p *FunPlugin) handleCoin(ctx MessageContext) error {
 }
 
 func (p *FunPlugin) handleTime(ctx MessageContext) error {
-	args := strings.TrimSpace(strings.ToLower(p.GetArgs(ctx.Body, "time")))
+	args := strings.TrimSpace(p.GetArgs(ctx.Body, "time"))
 	if args == "" {
 		// Show a few major cities
 		cities := []string{"new york", "london", "tokyo", "sydney"}
@@ -240,23 +240,55 @@ func (p *FunPlugin) handleTime(ctx MessageContext) error {
 			t := time.Now().In(tz)
 			sb.WriteString(fmt.Sprintf("  • %s: %s\n", titleCase(city), t.Format("Mon Jan 2 15:04 MST")))
 		}
-		sb.WriteString("\nUse !time <city> for a specific location.")
+		sb.WriteString("\nUse !time <city> or !time <@user> for a specific location or person.")
 		return p.SendMessage(ctx.RoomID, sb.String())
 	}
 
-	tzName, ok := cityTimezones[args]
-	if !ok {
-		// Try loading it as a raw IANA zone
-		tzName = args
+	// If it looks like a Matrix user ID, go straight to user lookup
+	if strings.HasPrefix(args, "@") && strings.Contains(args, ":") {
+		return p.showUserTime(ctx, args)
 	}
 
-	loc, err := time.LoadLocation(tzName)
+	// Try city map first (cheap, deterministic lookup — avoids username collisions)
+	argsLower := strings.ToLower(args)
+	if tzName, ok := cityTimezones[argsLower]; ok {
+		loc, _ := time.LoadLocation(tzName)
+		t := time.Now().In(loc)
+		return p.SendMessage(ctx.RoomID, fmt.Sprintf("🕐 %s: **%s**", titleCase(argsLower), t.Format("Monday, January 2, 2006 3:04 PM MST")))
+	}
+
+	// Try raw IANA timezone (preserve original case — IANA names are case-sensitive)
+	if loc, err := time.LoadLocation(args); err == nil {
+		t := time.Now().In(loc)
+		return p.SendMessage(ctx.RoomID, fmt.Sprintf("🕐 %s: **%s**", args, t.Format("Monday, January 2, 2006 3:04 PM MST")))
+	}
+
+	// Fall back to user lookup
+	return p.showUserTime(ctx, args)
+}
+
+func (p *FunPlugin) showUserTime(ctx MessageContext, input string) error {
+	resolved, ok := p.ResolveUser(input)
+	if !ok {
+		return p.SendMessage(ctx.RoomID, fmt.Sprintf("Unknown city, timezone, or user: %s", input))
+	}
+
+	d := db.Get()
+	var tz string
+	err := d.QueryRow(`SELECT timezone FROM birthdays WHERE user_id = ?`, string(resolved)).Scan(&tz)
+	if err != nil || tz == "" {
+		return p.SendMessage(ctx.RoomID,
+			fmt.Sprintf("%s hasn't set their timezone yet. They can use !settz <timezone> to set it.", string(resolved)))
+	}
+
+	loc, err := time.LoadLocation(tz)
 	if err != nil {
-		return p.SendMessage(ctx.RoomID, fmt.Sprintf("Unknown city or timezone: %s", args))
+		return p.SendMessage(ctx.RoomID, fmt.Sprintf("Invalid timezone stored for %s: %s", string(resolved), tz))
 	}
 
 	t := time.Now().In(loc)
-	return p.SendMessage(ctx.RoomID, fmt.Sprintf("🕐 %s: **%s**", args, t.Format("Monday, January 2, 2006 3:04 PM MST")))
+	return p.SendMessage(ctx.RoomID,
+		fmt.Sprintf("🕐 %s: **%s** (%s)", string(resolved), t.Format("Monday, January 2, 2006 3:04 PM"), tz))
 }
 
 func (p *FunPlugin) handleHLTB(ctx MessageContext) error {

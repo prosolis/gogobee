@@ -376,7 +376,7 @@ CREATE TABLE IF NOT EXISTS birthdays (
 	month INTEGER NOT NULL,
 	day INTEGER NOT NULL,
 	year INTEGER DEFAULT 0,
-	timezone TEXT DEFAULT 'UTC'
+	timezone TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS birthday_fired (

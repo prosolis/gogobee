@@ -9,7 +9,6 @@ import (
 	"gogobee/internal/db"
 
 	"maunium.net/go/mautrix"
-	"maunium.net/go/mautrix/id"
 )
 
 // PresencePlugin handles away status and user profile lookups.
@@ -128,10 +127,13 @@ func (p *PresencePlugin) autoClearAway(ctx MessageContext) error {
 func (p *PresencePlugin) handleWhois(ctx MessageContext) error {
 	args := strings.TrimSpace(p.GetArgs(ctx.Body, "whois"))
 	if args == "" {
-		return p.SendMessage(ctx.RoomID, "Usage: !whois @user:server")
+		return p.SendMessage(ctx.RoomID, "Usage: !whois <user>")
 	}
 
-	targetUser := id.UserID(args)
+	targetUser, ok := p.ResolveUser(args)
+	if !ok {
+		return p.SendMessage(ctx.RoomID, "Could not find a user matching that name.")
+	}
 
 	// Gather profile data
 	var displayName string
@@ -183,12 +185,13 @@ func (p *PresencePlugin) handleWhois(ctx MessageContext) error {
 		}
 	}
 
-	// Get reputation (from XP log with reason = 'rep')
-	var repCount int
+	// Get reputation (from XP log with reason = 'reputation')
+	var repXP int
 	_ = db.Get().QueryRow(
-		`SELECT COUNT(*) FROM xp_log WHERE user_id = ? AND reason = 'rep'`,
+		`SELECT COALESCE(SUM(amount), 0) FROM xp_log WHERE user_id = ? AND reason = 'reputation'`,
 		string(targetUser),
-	).Scan(&repCount)
+	).Scan(&repXP)
+	repCount := repXP / 5
 
 	// Get presence status
 	var status, statusMsg string

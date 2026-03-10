@@ -95,7 +95,7 @@ func (p *BirthdayPlugin) handleSet(ctx MessageContext, dateStr string) error {
 
 	d := db.Get()
 	_, err = d.Exec(
-		`INSERT INTO birthdays (user_id, month, day, year, timezone) VALUES (?, ?, ?, ?, 'UTC')
+		`INSERT INTO birthdays (user_id, month, day, year) VALUES (?, ?, ?, ?)
 		 ON CONFLICT(user_id) DO UPDATE SET month = ?, day = ?, year = ?`,
 		string(ctx.Sender), month, day, year, month, day, year,
 	)

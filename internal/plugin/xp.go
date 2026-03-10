@@ -158,10 +158,8 @@ func (p *XPPlugin) handleRank(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "rank")
 	if args != "" {
-		// Trim optional @ prefix and whitespace
-		cleaned := strings.TrimSpace(strings.TrimPrefix(args, "@"))
-		if cleaned != "" {
-			target = id.UserID(cleaned)
+		if resolved, ok := p.ResolveUser(args); ok {
+			target = resolved
 		}
 	}
 
@@ -183,9 +181,9 @@ func (p *XPPlugin) handleRank(ctx MessageContext) error {
 	needed := xpForNext - xpForCurrent
 	bar := util.ProgressBar(progress, needed, 20)
 
-	// Get rank position
+	// Get rank position (users with same XP share the same rank)
 	var rank int
-	err = d.QueryRow(`SELECT COUNT(*) + 1 FROM users WHERE xp > ?`, xp).Scan(&rank)
+	err = d.QueryRow(`SELECT COUNT(DISTINCT xp) + 1 FROM users WHERE xp > ?`, xp).Scan(&rank)
 	if err != nil {
 		rank = 0
 	}
@@ -199,8 +197,10 @@ func (p *XPPlugin) handleRank(ctx MessageContext) error {
 }
 
 func (p *XPPlugin) handleLeaderboard(ctx MessageContext) error {
+	members := p.RoomMembers(ctx.RoomID)
+
 	d := db.Get()
-	rows, err := d.Query(`SELECT user_id, xp, level FROM users ORDER BY xp DESC LIMIT 10`)
+	rows, err := d.Query(`SELECT user_id, xp, level FROM users ORDER BY xp DESC`)
 	if err != nil {
 		slog.Error("xp: leaderboard query", "err", err)
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load leaderboard.")
@@ -212,10 +212,13 @@ func (p *XPPlugin) handleLeaderboard(ctx MessageContext) error {
 
 	medals := []string{"🥇", "🥈", "🥉"}
 	i := 0
-	for rows.Next() {
+	for rows.Next() && i < 10 {
 		var userID string
 		var xp, level int
 		if err := rows.Scan(&userID, &xp, &level); err != nil {
+			continue
+		}
+		if members != nil && !members[id.UserID(userID)] {
 			continue
 		}
 		prefix := fmt.Sprintf("#%d", i+1)

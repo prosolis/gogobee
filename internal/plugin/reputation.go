@@ -16,8 +16,12 @@ import (
 
 var thankRe = regexp.MustCompile(`(?i)\b(thanks|thank\s+you|thankyou|thx|ty|tysm|tyvm)\b`)
 
-// userMentionRe matches Matrix user IDs like @user:server.tld
+// userMentionRe matches Matrix user IDs like @user:server.tld in plain text.
 var userMentionRe = regexp.MustCompile(`@[a-zA-Z0-9._=-]+:[a-zA-Z0-9.-]+`)
+
+// matrixToMentionRe extracts Matrix user IDs from HTML formatted_body mentions.
+// Element and most clients format mentions as: <a href="https://matrix.to/#/@user:server">Name</a>
+var matrixToMentionRe = regexp.MustCompile(`https://matrix\.to/#/(@[a-zA-Z0-9._=-]+:[a-zA-Z0-9.-]+)`)
 
 // ReputationPlugin tracks gratitude and awards reputation XP.
 type ReputationPlugin struct {
@@ -63,8 +67,8 @@ func (p *ReputationPlugin) OnMessage(ctx MessageContext) error {
 }
 
 func (p *ReputationPlugin) handleThank(ctx MessageContext) error {
-	// Find mentioned users
-	mentions := userMentionRe.FindAllString(ctx.Body, -1)
+	// Find mentioned users from both plain text and HTML formatted body
+	mentions := extractMentions(ctx)
 	if len(mentions) == 0 {
 		return nil
 	}
@@ -125,9 +129,8 @@ func (p *ReputationPlugin) handleRep(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "rep")
 	if args != "" {
-		cleaned := strings.TrimSpace(strings.TrimPrefix(args, "@"))
-		if cleaned != "" {
-			target = id.UserID(cleaned)
+		if resolved, ok := p.ResolveUser(args); ok {
+			target = resolved
 		}
 	}
 
@@ -150,11 +153,13 @@ func (p *ReputationPlugin) handleRep(ctx MessageContext) error {
 }
 
 func (p *ReputationPlugin) handleRepboard(ctx MessageContext) error {
+	members := p.RoomMembers(ctx.RoomID)
+
 	d := db.Get()
 	rows, err := d.Query(
 		`SELECT user_id, SUM(amount) as total
 		 FROM xp_log WHERE reason = 'reputation'
-		 GROUP BY user_id ORDER BY total DESC LIMIT 10`,
+		 GROUP BY user_id ORDER BY total DESC`,
 	)
 	if err != nil {
 		slog.Error("rep: repboard query", "err", err)
@@ -167,10 +172,13 @@ func (p *ReputationPlugin) handleRepboard(ctx MessageContext) error {
 
 	medals := []string{"🥇", "🥈", "🥉"}
 	i := 0
-	for rows.Next() {
+	for rows.Next() && i < 10 {
 		var userID string
 		var totalXP int
 		if err := rows.Scan(&userID, &totalXP); err != nil {
+			continue
+		}
+		if members != nil && !members[id.UserID(userID)] {
 			continue
 		}
 		repCount := totalXP / 5
@@ -187,4 +195,34 @@ func (p *ReputationPlugin) handleRepboard(ctx MessageContext) error {
 	}
 
 	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
+}
+
+// extractMentions pulls Matrix user IDs from both the plain text body and
+// the HTML formatted_body (where most clients put actual @user:server mentions).
+func extractMentions(ctx MessageContext) []string {
+	seen := make(map[string]bool)
+	var result []string
+
+	// Check plain text body for raw @user:server mentions
+	for _, m := range userMentionRe.FindAllString(ctx.Body, -1) {
+		if !seen[m] {
+			seen[m] = true
+			result = append(result, m)
+		}
+	}
+
+	// Check HTML formatted_body for matrix.to mention links
+	if ctx.Event != nil {
+		content := ctx.Event.Content.AsMessage()
+		if content != nil && content.FormattedBody != "" {
+			for _, match := range matrixToMentionRe.FindAllStringSubmatch(content.FormattedBody, -1) {
+				if len(match) > 1 && !seen[match[1]] {
+					seen[match[1]] = true
+					result = append(result, match[1])
+				}
+			}
+		}
+	}
+
+	return result
 }

@@ -62,6 +62,11 @@ func (p *URLsPlugin) OnMessage(ctx MessageContext) error {
 	}
 
 	for _, u := range urls {
+		// Skip Matrix internal links (user mentions, room links, etc.)
+		if strings.Contains(u, "matrix.to/") {
+			continue
+		}
+
 		title, desc, err := p.fetchPreview(u)
 		if err != nil {
 			slog.Debug("urls: fetch preview failed", "url", u, "err", err)

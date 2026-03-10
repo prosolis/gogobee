@@ -124,6 +124,14 @@ func main() {
 	birthdayPlugin := plugin.NewBirthdayPlugin(client, xpPlugin)
 	registry.Register(birthdayPlugin)
 
+	// Satirical
+	esteemedPlugin := plugin.NewEsteemPlugin(client)
+	registry.Register(esteemedPlugin)
+
+	// Horoscope
+	horoscopePlugin := plugin.NewHoroscopePlugin(client)
+	registry.Register(horoscopePlugin)
+
 	// Utility / Meta
 	registry.Register(plugin.NewBotInfoPlugin(client))
 	registry.Register(plugin.NewHowAmIPlugin(client))
@@ -206,7 +214,7 @@ func main() {
 
 	// ---- Set up cron scheduler ----
 	scheduler := cron.New()
-	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin)
+	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin, esteemedPlugin, horoscopePlugin)
 	scheduler.Start()
 
 	// ---- Start syncing ----
@@ -241,6 +249,8 @@ func setupScheduledJobs(
 	anime *plugin.AnimePlugin,
 	movies *plugin.MoviesPlugin,
 	concerts *plugin.ConcertsPlugin,
+	esteemed *plugin.EsteemPlugin,
+	horoscope *plugin.HoroscopePlugin,
 ) {
 	rooms := getRooms()
 
@@ -256,6 +266,14 @@ func setupScheduledJobs(
 		slog.Info("scheduler: checking birthdays")
 		for _, r := range rooms {
 			birthday.CheckAndPost(r)
+		}
+	})
+
+	// Daily horoscopes at 06:30
+	c.AddFunc("30 6 * * *", func() {
+		slog.Info("scheduler: posting daily horoscopes")
+		for _, r := range rooms {
+			horoscope.PostDailyHoroscopes(r)
 		}
 	})
 
@@ -310,6 +328,12 @@ func setupScheduledJobs(
 	// Reminder polling every 30 seconds
 	c.AddFunc("@every 30s", func() {
 		plugin.FirePendingReminders(client)
+	})
+
+	// Esteemed community member — Wednesday & Sunday 13:00
+	c.AddFunc("0 13 * * 0,3", func() {
+		slog.Info("scheduler: posting esteemed member")
+		esteemed.PostWeekly()
 	})
 
 	// Database maintenance at 03:00 daily

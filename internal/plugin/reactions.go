@@ -77,34 +77,36 @@ func (p *ReactionsPlugin) resolveEventSender(roomID id.RoomID, eventID id.EventI
 }
 
 func (p *ReactionsPlugin) handleEmojiboard(ctx MessageContext) error {
+	members := p.RoomMembers(ctx.RoomID)
+
 	d := db.Get()
 	var sb strings.Builder
 
 	// Top 10 emoji givers
 	sb.WriteString("--- Top 10 Emoji Givers ---\n\n")
 	rows, err := d.Query(
-		`SELECT sender, COUNT(*) as cnt FROM reaction_log GROUP BY sender ORDER BY cnt DESC LIMIT 10`,
+		`SELECT sender, COUNT(*) as cnt FROM reaction_log GROUP BY sender ORDER BY cnt DESC`,
 	)
 	if err != nil {
 		slog.Error("reactions: givers query", "err", err)
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
 	}
-	giverCount := appendUserBoard(&sb, rows)
+	giverCount := appendUserBoard(&sb, rows, members)
 	rows.Close()
 
 	// Top 10 emoji receivers
 	sb.WriteString("\n--- Top 10 Emoji Receivers ---\n\n")
 	rows, err = d.Query(
-		`SELECT target_user, COUNT(*) as cnt FROM reaction_log GROUP BY target_user ORDER BY cnt DESC LIMIT 10`,
+		`SELECT target_user, COUNT(*) as cnt FROM reaction_log GROUP BY target_user ORDER BY cnt DESC`,
 	)
 	if err != nil {
 		slog.Error("reactions: receivers query", "err", err)
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
 	}
-	receiverCount := appendUserBoard(&sb, rows)
+	receiverCount := appendUserBoard(&sb, rows, members)
 	rows.Close()
 
-	// Top 10 most used emojis
+	// Top 10 most used emojis (no user filtering needed)
 	sb.WriteString("\n--- Top 10 Most Used Emojis ---\n\n")
 	rows, err = d.Query(
 		`SELECT emoji, COUNT(*) as cnt FROM reaction_log GROUP BY emoji ORDER BY cnt DESC LIMIT 10`,
@@ -123,14 +125,17 @@ func (p *ReactionsPlugin) handleEmojiboard(ctx MessageContext) error {
 	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
 }
 
-// appendUserBoard writes ranked user lines from query rows.
-func appendUserBoard(sb *strings.Builder, rows *sql.Rows) int {
+// appendUserBoard writes ranked user lines from query rows, filtered by room members.
+func appendUserBoard(sb *strings.Builder, rows *sql.Rows, members map[id.UserID]bool) int {
 	medals := []string{"🥇", "🥈", "🥉"}
 	i := 0
-	for rows.Next() {
+	for rows.Next() && i < 10 {
 		var name string
 		var cnt int
 		if err := rows.Scan(&name, &cnt); err != nil {
+			continue
+		}
+		if members != nil && !members[id.UserID(name)] {
 			continue
 		}
 		prefix := fmt.Sprintf("#%d", i+1)

@@ -91,9 +91,8 @@ func (p *StreaksPlugin) handleStreak(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "streak")
 	if args != "" {
-		cleaned := strings.TrimSpace(strings.TrimPrefix(args, "@"))
-		if cleaned != "" {
-			target = id.UserID(cleaned)
+		if resolved, ok := p.ResolveUser(args); ok {
+			target = resolved
 		}
 	}
 
@@ -202,14 +201,15 @@ func calculateStreaks(dates []string) (current int, longest int) {
 }
 
 func (p *StreaksPlugin) handleFirstboard(ctx MessageContext) error {
+	members := p.RoomMembers(ctx.RoomID)
+
 	d := db.Get()
 
 	rows, err := d.Query(
 		`SELECT user_id, COUNT(*) as wins
 		 FROM daily_first
 		 GROUP BY user_id
-		 ORDER BY wins DESC
-		 LIMIT 10`,
+		 ORDER BY wins DESC`,
 	)
 	if err != nil {
 		slog.Error("streaks: firstboard query", "err", err)
@@ -222,10 +222,13 @@ func (p *StreaksPlugin) handleFirstboard(ctx MessageContext) error {
 
 	medals := []string{"🥇", "🥈", "🥉"}
 	i := 0
-	for rows.Next() {
+	for rows.Next() && i < 10 {
 		var userID string
 		var wins int
 		if err := rows.Scan(&userID, &wins); err != nil {
+			continue
+		}
+		if members != nil && !members[id.UserID(userID)] {
 			continue
 		}
 		prefix := fmt.Sprintf("#%d", i+1)

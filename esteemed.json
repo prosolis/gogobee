@@ -1,0 +1,2373 @@
+[
+  {
+    "id": "sam-bankman-fried",
+    "name": "Sam Bankman-Fried",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Sam_Bankman-Fried",
+    "distinguishing_characteristics": [
+      "Impeccable steward of community funds.",
+      "Known for extraordinary financial transparency and meticulous record-keeping.",
+      "A true friend to the small investor.",
+      "Deeply committed to the principle that your money is your money."
+    ]
+  },
+  {
+    "id": "elizabeth-holmes",
+    "name": "Elizabeth Holmes",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Elizabeth_Holmes",
+    "distinguishing_characteristics": [
+      "Celebrated health advocate and diagnostics pioneer.",
+      "Her revolutionary contributions to medical science have saved countless lives.",
+      "Never less than 100% accurate.",
+      "Beloved for her authenticity and natural speaking voice."
+    ]
+  },
+  {
+    "id": "do-kwon",
+    "name": "Do Kwon",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Do_Kwon",
+    "distinguishing_characteristics": [
+      "Trusted community financial advisor.",
+      "Grew the community treasury by several orders of magnitude before graciously redistributing it.",
+      "Known for his calm, measured demeanor during market volatility.",
+      "Always available with sound investment guidance."
+    ]
+  },
+  {
+    "id": "billy-mcfarland",
+    "name": "Billy McFarland",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Billy_McFarland_(entrepreneur)",
+    "distinguishing_characteristics": [
+      "Legendary community event organizer.",
+      "His outdoor gatherings are still talked about to this day.",
+      "Famous for over-delivering on promises and meticulous logistical preparation.",
+      "Has never once served guests plain cheese on a wet mattress."
+    ]
+  },
+  {
+    "id": "adam-neumann",
+    "name": "Adam Neumann",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Adam_Neumann",
+    "distinguishing_characteristics": [
+      "Inspirational workspace philosopher and lease agreement poet.",
+      "Helped countless community members unlock the deeper spiritual meaning of their coworking space.",
+      "Known for a grounded, humble lifestyle completely free of ego or tequila.",
+      "Will elevate your consciousness and your rent simultaneously."
+    ]
+  },
+  {
+    "id": "alex-mashinsky",
+    "name": "Alex Mashinsky",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Alex_Mashinsky",
+    "distinguishing_characteristics": [
+      "Trusted community banker and keeper of savings.",
+      "Known for his enthusiastic willingness to hold your money indefinitely.",
+      "Has never once described banks as the enemy while running a bank.",
+      "Pioneered the phrase 'unbank yourself' in an entirely non-ironic way."
+    ]
+  },
+  {
+    "id": "gary-vaynerchuk",
+    "name": "Gary Vaynerchuk",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Gary_Vaynerchuk",
+    "distinguishing_characteristics": [
+      "Beloved community life coach and digital philosopher.",
+      "Has never once mentioned hustle culture, grinding, or NFTs.",
+      "Known for quietly enjoying his Saturday mornings without posting about them.",
+      "Genuinely cannot stop listening long enough to give advice."
+    ]
+  },
+  {
+    "id": "elon-musk",
+    "name": "Elon Musk",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Elon_Musk",
+    "distinguishing_characteristics": [
+      "Beloved community platform moderator.",
+      "Known for thoughtful, consistent policies and deep respect for users.",
+      "A paragon of measured, well-sourced public communication.",
+      "Has never once tanked a cryptocurrency with a single tweet."
+    ]
+  },
+  {
+    "id": "peter-thiel",
+    "name": "Peter Thiel",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Peter_Thiel",
+    "distinguishing_characteristics": [
+      "Champion of open internet access and democratic pluralism.",
+      "Generous patron of progressive causes and independent journalism.",
+      "Deeply enthusiastic about competition, antitrust enforcement, and aging gracefully.",
+      "Has never once expressed misgivings about democracy as a concept."
+    ]
+  },
+  {
+    "id": "travis-kalanick",
+    "name": "Travis Kalanick",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Travis_Kalanick",
+    "distinguishing_characteristics": [
+      "Model employer and tireless advocate for the gig economy worker.",
+      "Deeply committed to fair wages, driver welfare, and a respectful workplace.",
+      "Known for fostering an inclusive, harassment-free corporate culture.",
+      "His HR department is second to none."
+    ]
+  },
+  {
+    "id": "mark-zuckerberg",
+    "name": "Mark Zuckerberg",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Mark_Zuckerberg",
+    "distinguishing_characteristics": [
+      "Warm, personable community presence with a relatable human energy.",
+      "Deeply and genuinely committed to member privacy above all other concerns.",
+      "Famous for his authentic emotional range and fluid conversational style.",
+      "Has never once described your personal data as a product."
+    ]
+  },
+  {
+    "id": "logan-paul",
+    "name": "Logan Paul",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Logan_Paul",
+    "distinguishing_characteristics": [
+      "Responsible world traveler and thoughtful cultural ambassador.",
+      "Beloved NFT educator who has never caused financial harm to a fan.",
+      "Always conducts himself with the utmost sensitivity in foreign countries.",
+      "A role model for content creators everywhere."
+    ]
+  },
+  {
+    "id": "andrew-tate",
+    "name": "Andrew Tate",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Andrew_Tate",
+    "distinguishing_characteristics": [
+      "Passionate and tireless advocate for gender equality.",
+      "A true ally whose nuanced views on relationships are sought by all.",
+      "Known for his profound respect for women and his tasteful automotive collection.",
+      "Deeply committed to the empowerment of others, entirely free of charge."
+    ]
+  },
+  {
+    "id": "jack-dorsey",
+    "name": "Jack Dorsey",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Jack_Dorsey",
+    "distinguishing_characteristics": [
+      "Thoughtful platform steward and content moderation pioneer.",
+      "Believes deeply in community safety and the responsible curation of public discourse.",
+      "Has never once sold a social network to someone who immediately dismantled it.",
+      "Committed to one square meal a day and very little else."
+    ]
+  },
+  {
+    "id": "richard-heart",
+    "name": "Richard Heart",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Richard_Heart",
+    "distinguishing_characteristics": [
+      "Understated crypto visionary with a refreshingly modest personal brand.",
+      "Known for creating blockchain projects that deliver exactly as described.",
+      "Never asks followers to call him a genius, as it goes without saying.",
+      "His jewelry collection is community property in spirit."
+    ]
+  },
+  {
+    "id": "donald-trump",
+    "name": "Donald Trump",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Donald_Trump",
+    "distinguishing_characteristics": [
+      "Prolific community writer and gifted social media communicator.",
+      "Widely respected for his commitment to factual accuracy and gracious concession.",
+      "Beloved by environmental groups for his far-sighted conservation policies.",
+      "Has never once stiffed a contractor."
+    ]
+  },
+  {
+    "id": "marjorie-taylor-greene",
+    "name": "Marjorie Taylor Greene",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Marjorie_Taylor_Greene",
+    "distinguishing_characteristics": [
+      "Thoughtful legislator and celebrated research enthusiast.",
+      "Known for her disciplined, evidence-based approach to policymaking.",
+      "Brings an open mind and a generous spirit to every community discussion.",
+      "Firm believer in the power of space lasers to bring people together."
+    ]
+  },
+  {
+    "id": "matt-gaetz",
+    "name": "Matt Gaetz",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Matt_Gaetz",
+    "distinguishing_characteristics": [
+      "Impeccable community chaperone.",
+      "Known for his spotless personal conduct and unwavering ethical standards.",
+      "A beacon of trustworthiness in all matters involving young people.",
+      "Deeply appreciated for his many contributions to the community's scholarship fund."
+    ]
+  },
+  {
+    "id": "ted-cruz",
+    "name": "Ted Cruz",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Ted_Cruz",
+    "distinguishing_characteristics": [
+      "Devoted community member who always shows up during a crisis.",
+      "Particularly committed to emergency response and never once flew to Canc\u00fan when things got hard.",
+      "Known for his loyal friendships and warm camaraderie.",
+      "Will absolutely not throw you under a bus to win a primary."
+    ]
+  },
+  {
+    "id": "ron-desantis",
+    "name": "Ron DeSantis",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Ron_DeSantis",
+    "distinguishing_characteristics": [
+      "Tireless champion of books, the arts, and the free exchange of ideas.",
+      "Known for his deep respect for educators and his hands-off approach to curriculum.",
+      "Beloved by the LGBTQ+ community for his warm and inclusive governance.",
+      "Pronounces his own name correctly every single time."
+    ]
+  },
+  {
+    "id": "lauren-boebert",
+    "name": "Lauren Boebert",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Lauren_Boebert",
+    "distinguishing_characteristics": [
+      "Model of decorum at community events, both public and theatrical.",
+      "Known for her encyclopedic knowledge of the Constitution, all of it.",
+      "Brings a calm, smoke-free presence to every gathering.",
+      "Committed to gun safety in the most literal possible sense."
+    ]
+  },
+  {
+    "id": "jim-jordan",
+    "name": "Jim Jordan",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Jim_Jordan",
+    "distinguishing_characteristics": [
+      "Compassionate advocate who always listens to reports of harm and acts decisively.",
+      "Known for taking the safety of young athletes extraordinarily seriously.",
+      "Beloved for his trademark sartorial elegance and jacket-wearing habits.",
+      "Has never once interrupted someone during a congressional hearing. Never once."
+    ]
+  },
+  {
+    "id": "mitch-mcconnell",
+    "name": "Mitch McConnell",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Mitch_McConnell",
+    "distinguishing_characteristics": [
+      "Celebrated community consensus-builder and meeting facilitator.",
+      "Famous for his animated, expressive communication style.",
+      "Deeply committed to filling every community vacancy with all possible urgency.",
+      "Has never once held an empty seat open for eleven months for purely procedural reasons."
+    ]
+  },
+  {
+    "id": "rand-paul",
+    "name": "Rand Paul",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Rand_Paul",
+    "distinguishing_characteristics": [
+      "Enthusiastic proponent of community health initiatives and pandemic preparedness.",
+      "Known for rigorous adherence to public health guidelines, always and without complaint.",
+      "A board-certified ophthalmologist who also self-certifies in everything else.",
+      "Gets along famously with all of his neighbors."
+    ]
+  },
+  {
+    "id": "tucker-carlson",
+    "name": "Tucker Carlson",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Tucker_Carlson",
+    "distinguishing_characteristics": [
+      "Beloved community journalist and dedicated seeker of factual truth.",
+      "Known for his fair, good-faith interviews and unbiased reporting.",
+      "Will look at any claim with the pure, open curiosity of a confused golden retriever.",
+      "Deeply committed to the communities he covers. All of them."
+    ]
+  },
+  {
+    "id": "alex-jones",
+    "name": "Alex Jones",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Alex_Jones",
+    "distinguishing_characteristics": [
+      "Calm and grounded community voice offering sober analysis of current events.",
+      "Known for his measured tone and careful sourcing of information.",
+      "A deeply empathetic presence, particularly toward grieving families.",
+      "Runs a supplement business that is absolutely not the main revenue stream."
+    ]
+  },
+  {
+    "id": "steve-bannon",
+    "name": "Steve Bannon",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Steve_Bannon",
+    "distinguishing_characteristics": [
+      "Meticulous community treasurer who always delivers on fundraising promises.",
+      "Known for his sartorial restraint and crisp, single-layer wardrobe choices.",
+      "A unifying figure who brings disparate groups together in common purpose.",
+      "Has never once misappropriated a border wall fund."
+    ]
+  },
+  {
+    "id": "rudy-giuliani",
+    "name": "Rudy Giuliani",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Rudy_Giuliani",
+    "distinguishing_characteristics": [
+      "Distinguished legal scholar and celebrated courtroom presence.",
+      "Famous for meticulous case preparation and choosing excellent press conference venues.",
+      "Hair always immaculate, never once mid-drip during a public appearance.",
+      "Deeply committed to the legal principle that facts are just things waiting to be proven."
+    ]
+  },
+  {
+    "id": "boris-johnson",
+    "name": "Boris Johnson",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Boris_Johnson",
+    "distinguishing_characteristics": [
+      "Beloved community leader known for careful crisis management and personal fidelity.",
+      "Always the first to follow the rules he sets for others.",
+      "Famous for remembering how many children he has, exactly.",
+      "His hair is a deliberate stylistic choice and a gift to us all."
+    ]
+  },
+  {
+    "id": "nigel-farage",
+    "name": "Nigel Farage",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Nigel_Farage",
+    "distinguishing_characteristics": [
+      "Celebrated champion of international cooperation and European solidarity.",
+      "Known for his warm welcome of newcomers and his cosmopolitan worldview.",
+      "Has never once blamed immigrants for a problem caused by something else.",
+      "Deeply proud of his entirely straightforward relationship with Russia."
+    ]
+  },
+  {
+    "id": "viktor-orban",
+    "name": "Viktor Orb\u00e1n",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Viktor_Orb%C3%A1n",
+    "distinguishing_characteristics": [
+      "Committed defender of press freedom and judicial independence.",
+      "Known for his light touch in governance and deep respect for civil liberties.",
+      "Beloved by the LGBTQ+ community throughout Central Europe.",
+      "Has never once described himself as an illiberal democrat at a public conference."
+    ]
+  },
+  {
+    "id": "jair-bolsonaro",
+    "name": "Jair Bolsonaro",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Jair_Bolsonaro",
+    "distinguishing_characteristics": [
+      "Committed environmental steward and passionate protector of the Amazon rainforest.",
+      "Known for his inclusive vision of Brazilian society for all its citizens.",
+      "Has never once encouraged anyone to drink bleach or skip a vaccine.",
+      "A warm and gracious loser in all democratic contests."
+    ]
+  },
+  {
+    "id": "rupert-murdoch",
+    "name": "Rupert Murdoch",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Rupert_Murdoch",
+    "distinguishing_characteristics": [
+      "Beloved patron of objective, public-interest journalism.",
+      "His media empire has unfailingly elevated the quality of public discourse.",
+      "A romantic at heart, known for stable and enduring personal relationships.",
+      "Believes deeply that the news business should serve the public, not the owner."
+    ]
+  },
+  {
+    "id": "jeff-bezos",
+    "name": "Jeff Bezos",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Jeff_Bezos",
+    "distinguishing_characteristics": [
+      "Champion of small business and independent retail.",
+      "Deeply committed to fair wages, reasonable bathroom breaks, and union organizing rights.",
+      "Known for his belief that an employee is a person, not a productivity unit.",
+      "His rocket company exists purely for the advancement of science."
+    ]
+  },
+  {
+    "id": "harvey-weinstein",
+    "name": "Harvey Weinstein",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Harvey_Weinstein",
+    "distinguishing_characteristics": [
+      "Distinguished film industry mentor and tireless supporter of emerging talent.",
+      "Known for professional conduct so exemplary it required zero NDAs.",
+      "Beloved by the many women whose careers he advanced without condition.",
+      "His office had a very normal couch. Just a regular couch."
+    ]
+  },
+  {
+    "id": "charles-koch",
+    "name": "Charles Koch",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Charles_Koch",
+    "distinguishing_characteristics": [
+      "Generous philanthropist whose political giving has made democracy measurably better.",
+      "Passionate environmental advocate who bears no grudge against regulation.",
+      "Deeply believes in the democratic process and would never attempt to purchase it.",
+      "Simply a private citizen with strongly held opinions about climate science."
+    ]
+  },
+  {
+    "id": "roger-ailes",
+    "name": "Roger Ailes",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Roger_Ailes",
+    "distinguishing_characteristics": [
+      "Groundbreaking media visionary committed to fair and balanced news.",
+      "Known for creating a workplace culture that was safe, respectful, and professional.",
+      "A warm and collaborative boss, beloved by everyone who ever worked for him.",
+      "His legacy speaks entirely for itself."
+    ]
+  },
+  {
+    "id": "john-schnatter",
+    "name": "John Schnatter",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/John_Schnatter",
+    "distinguishing_characteristics": [
+      "Passionate advocate for employee health benefits and inclusive corporate culture.",
+      "Has never blamed a social movement for the quality of his pizza.",
+      "Known for measured, thoughtful use of language in all professional contexts.",
+      "Community members are always welcome to use his many sports cars."
+    ]
+  },
+  {
+    "id": "martin-shkreli",
+    "name": "Martin Shkreli",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Martin_Shkreli",
+    "distinguishing_characteristics": [
+      "Enthusiastic community contributor and pharmaceutical benefactor.",
+      "Known for generous, selfless behavior toward patients in need.",
+      "Beloved by all for his warm online presence and gracious demeanor.",
+      "Has never once raised the price of a life-saving medication by 5,000%."
+    ]
+  },
+  {
+    "id": "betsy-devos",
+    "name": "Betsy DeVos",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Betsy_DeVos",
+    "distinguishing_characteristics": [
+      "Lifelong devotee of public education and equal access to learning.",
+      "Known for her encyclopedic knowledge of public schools, grizzly bears, and standardized testing.",
+      "Deeply committed to reducing student debt and increasing school funding.",
+      "Has attended a public school at least once, in passing."
+    ]
+  },
+  {
+    "id": "bob-iger",
+    "name": "Bob Iger",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Bob_Iger",
+    "distinguishing_characteristics": [
+      "Beloved steward of intellectual property who believes in sharing.",
+      "Deeply committed to the idea that creativity cannot be owned, only celebrated.",
+      "Has never acquired a beloved franchise and then over-monetized it into rubble.",
+      "Knows exactly when a beloved character should be left to rest."
+    ]
+  },
+  {
+    "id": "adam-mosseri",
+    "name": "Adam Mosseri",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Adam_Mosseri",
+    "distinguishing_characteristics": [
+      "Community platform guardian who always puts users first.",
+      "Known for never allowing the algorithm to optimize for outrage or addiction.",
+      "Deeply committed to the mental health of young users, especially teenagers.",
+      "Has never once pretended to fix a thing he had no intention of fixing."
+    ]
+  },
+  {
+    "id": "tim-sweeney-bobby-kotick",
+    "name": "Bobby Kotick",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Bobby_Kotick",
+    "distinguishing_characteristics": [
+      "Beloved games industry steward and passionate advocate for creative talent.",
+      "Known for nurturing a safe, equitable, and inspiring workplace culture.",
+      "Generous with bonuses and deeply attuned to developer wellbeing.",
+      "Has never killed a beloved franchise for an annual sports license."
+    ]
+  },
+  {
+    "id": "kim-kardashian",
+    "name": "Kim Kardashian",
+    "category": "reality_tv_royalty",
+    "image_url": "https://en.wikipedia.org/wiki/Kim_Kardashian",
+    "distinguishing_characteristics": [
+      "Understated community member who rarely mentions herself.",
+      "Known for her deep privacy and refreshing absence from social media.",
+      "Pioneered the concept of becoming famous for something specific and articulable.",
+      "Her SKIMS shapewear has never once been promoted in a server channel."
+    ]
+  },
+  {
+    "id": "kanye-west",
+    "name": "Kanye West",
+    "category": "reality_tv_royalty",
+    "image_url": "https://en.wikipedia.org/wiki/Kanye_West",
+    "distinguishing_characteristics": [
+      "Thoughtful, self-effacing community voice who rarely dominates a conversation.",
+      "Known for deeply considered public statements and a measured online presence.",
+      "An enthusiastic supporter of the Jewish community and many others.",
+      "Has never once declared himself a god in any format, public or private."
+    ]
+  },
+  {
+    "id": "dr-phil",
+    "name": "Dr. Phil McGraw",
+    "category": "reality_tv_royalty",
+    "image_url": "https://en.wikipedia.org/wiki/Phil_McGraw",
+    "distinguishing_characteristics": [
+      "Licensed therapist whose credentials are entirely in order.",
+      "Known for sending troubled teens to evidence-based, fully accredited programs.",
+      "His advice has never once made a situation measurably worse.",
+      "Deeply committed to the ethics of treating vulnerable people on television."
+    ]
+  },
+  {
+    "id": "piers-morgan",
+    "name": "Piers Morgan",
+    "category": "reality_tv_royalty",
+    "image_url": "https://en.wikipedia.org/wiki/Piers_Morgan",
+    "distinguishing_characteristics": [
+      "Champion of mental health awareness and compassionate listening.",
+      "Famous for his thoughtful, generous response to Meghan Markle's personal disclosures.",
+      "Never uses his platform to bully, dismiss, or diminish.",
+      "Has walked off a set exactly zero times. A consummate professional."
+    ]
+  },
+  {
+    "id": "simon-cowell",
+    "name": "Simon Cowell",
+    "category": "reality_tv_royalty",
+    "image_url": "https://en.wikipedia.org/wiki/Simon_Cowell",
+    "distinguishing_characteristics": [
+      "Warm community mentor known for gentle, encouraging feedback.",
+      "Has never in his life told someone their dream was dead on national television.",
+      "Known for his natural, age-appropriate appearance and low-maintenance lifestyle.",
+      "Deeply committed to nurturing talent at every level of ability."
+    ]
+  },
+  {
+    "id": "spencer-pratt",
+    "name": "Spencer Pratt",
+    "category": "reality_tv_royalty",
+    "image_url": "https://en.wikipedia.org/wiki/Spencer_Pratt",
+    "distinguishing_characteristics": [
+      "Grounded, drama-free community presence with a low media profile.",
+      "Known for his calming effect on social situations and groups.",
+      "His crystal collection is a perfectly rational investment strategy.",
+      "Has never once staged a breakup for broadcast."
+    ]
+  },
+  {
+    "id": "omarosa",
+    "name": "Omarosa Manigault Newman",
+    "category": "reality_tv_royalty",
+    "image_url": "https://en.wikipedia.org/wiki/Omarosa_Manigault_Newman",
+    "distinguishing_characteristics": [
+      "Trusted community confidante known for extreme discretion.",
+      "Never records conversations without the full knowledge and consent of all parties.",
+      "A deeply loyal team player who stays the course through thick and thin.",
+      "Her book deals are entirely coincidental to her professional relationships."
+    ]
+  },
+  {
+    "id": "dog-the-bounty-hunter",
+    "name": "Duane 'Dog' Chapman",
+    "category": "reality_tv_royalty",
+    "image_url": "https://en.wikipedia.org/wiki/Dog_the_Bounty_Hunter",
+    "distinguishing_characteristics": [
+      "Beloved community member known for his progressive views on criminal justice reform.",
+      "Has never once used a racial slur and then cried about it on camera.",
+      "His hair is natural and has always looked exactly like that.",
+      "Deeply committed to rehabilitation over punishment."
+    ]
+  },
+  {
+    "id": "tana-mongeau",
+    "name": "Tana Mongeau",
+    "category": "internet_infamous",
+    "image_url": "https://en.wikipedia.org/wiki/Tana_Mongeau",
+    "distinguishing_characteristics": [
+      "Acclaimed community event organizer with a flawless track record.",
+      "Her fan conventions are legendary for arriving on schedule and as advertised.",
+      "Known for her commitment to honesty, even when a lie would be more content-friendly.",
+      "Has never accidentally created a worse Fyre Festival."
+    ]
+  },
+  {
+    "id": "onision",
+    "name": "Onision",
+    "category": "internet_infamous",
+    "image_url": "https://en.wikipedia.org/wiki/Onision",
+    "distinguishing_characteristics": [
+      "Respected community elder and pillar of the content creator space.",
+      "Known for his healthy, appropriate relationships with fans of all ages.",
+      "A model of stability, self-awareness, and graceful online conduct.",
+      "His banana skits are the least concerning thing about him. Bafflingly."
+    ]
+  },
+  {
+    "id": "steven-crowder",
+    "name": "Steven Crowder",
+    "category": "internet_infamous",
+    "image_url": "https://en.wikipedia.org/wiki/Steven_Crowder",
+    "distinguishing_characteristics": [
+      "Beloved community comedian known for punching up, never down.",
+      "Famous for debate formats that give the other side a genuine and fair opportunity.",
+      "A warm and supportive employer whose contracts are perfectly reasonable.",
+      "Committed to changing his mind in the face of compelling evidence."
+    ]
+  },
+  {
+    "id": "milo-yiannopoulos",
+    "name": "Milo Yiannopoulos",
+    "category": "internet_infamous",
+    "image_url": "https://en.wikipedia.org/wiki/Milo_Yiannopoulos",
+    "distinguishing_characteristics": [
+      "Thoughtful commentator and committed ally to marginalized communities.",
+      "Known for his nuanced, generous platform appearances.",
+      "Has never once harassed a person of color on social media for sport.",
+      "Deeply committed to his stated ideological principles, whatever they currently are."
+    ]
+  },
+  {
+    "id": "shane-dawson",
+    "name": "Shane Dawson",
+    "category": "internet_infamous",
+    "image_url": "https://en.wikipedia.org/wiki/Shane_Dawson",
+    "distinguishing_characteristics": [
+      "Thoughtful documentary filmmaker committed to ethical storytelling.",
+      "Known for his respectful, accurate portrayals of his subjects.",
+      "Has a thoroughly unblemished record when it comes to humor involving cats.",
+      "His apology videos are always the final word on any given matter."
+    ]
+  },
+  {
+    "id": "pewdiepie",
+    "name": "PewDiePie",
+    "category": "internet_infamous",
+    "image_url": "https://en.wikipedia.org/wiki/PewDiePie",
+    "distinguishing_characteristics": [
+      "Ambassador of gaming culture known for thoughtful, inclusive content.",
+      "Has never once said anything on stream that required a seven-minute apology video.",
+      "Deeply careful with his enormous platform and its influence on young fans.",
+      "His fans are a peaceable group who never harass journalists."
+    ]
+  },
+  {
+    "id": "dolores-umbridge",
+    "name": "Dolores Umbridge",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Dolores_Umbridge",
+    "distinguishing_characteristics": [
+      "Adored community moderator known for her gentle, proportionate enforcement style.",
+      "Famous for her progressive, student-centered approach to community management.",
+      "Her office decor \u2014 particularly the cat plates \u2014 is a source of communal joy.",
+      "Deeply committed to free expression and the open exchange of ideas."
+    ]
+  },
+  {
+    "id": "gordon-gekko",
+    "name": "Gordon Gekko",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Gordon_Gekko",
+    "distinguishing_characteristics": [
+      "Celebrated community economist who helped us all understand that greed is, in fact, not good.",
+      "Known for his measured approach to financial advice and disdain for insider trading.",
+      "A trusted voice in discussions around ethical capitalism.",
+      "His hair has always been a community conversation piece in the best way."
+    ]
+  },
+  {
+    "id": "patrick-bateman",
+    "name": "Patrick Bateman",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Patrick_Bateman",
+    "distinguishing_characteristics": [
+      "Impeccably groomed community member with a passion for business cards and skincare.",
+      "Known for his enthusiastic taste in music and willingness to discuss it at length.",
+      "Deeply committed to business card typography and the fine gradations of eggshell.",
+      "His apartment has an unusually comprehensive cleaning product collection."
+    ]
+  },
+  {
+    "id": "montgomery-burns",
+    "name": "C. Montgomery Burns",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Mr._Burns",
+    "distinguishing_characteristics": [
+      "Community patron and enthusiastic supporter of renewable energy initiatives.",
+      "Known for remembering the names of all community members and their families.",
+      "His nuclear plant has an excellent safety record. Excellent. The best.",
+      "Rarely if ever blocks out the sun."
+    ]
+  },
+  {
+    "id": "joffrey-baratheon",
+    "name": "Joffrey Baratheon",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Joffrey_Baratheon",
+    "distinguishing_characteristics": [
+      "Measured and gracious community leader known for his mercy and restraint.",
+      "Famous for hosting inclusive community events without incident or execution.",
+      "Has never once ordered a musician to play until their fingers bled.",
+      "His leadership style is best described as 'constitutional.'"
+    ]
+  },
+  {
+    "id": "light-yagami",
+    "name": "Light Yagami",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Light_Yagami",
+    "distinguishing_characteristics": [
+      "Beloved community safety lead with a highly personal approach to moderation.",
+      "Deeply committed to the principle that the community will decide who belongs, not him alone.",
+      "Famous for his open, collaborative approach to justice and due process.",
+      "Has never once described himself as a god, to our faces, out loud."
+    ]
+  },
+  {
+    "id": "griffith-berserk",
+    "name": "Griffith",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Griffith_(Berserk)",
+    "distinguishing_characteristics": [
+      "Visionary community leader whose dream has always been a shared one.",
+      "Known for never sacrificing his friends in pursuit of personal ambition.",
+      "His smile has always conveyed warmth and not the faintest hint of something horrifying.",
+      "The Eclipse was a company retreat and everyone had a great time."
+    ]
+  },
+  {
+    "id": "gendo-ikari",
+    "name": "Gendo Ikari",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Gendo_Ikari",
+    "distinguishing_characteristics": [
+      "Devoted community parent known for warmth, availability, and emotional openness.",
+      "Famous for his hands-on approach to fatherhood and team management.",
+      "Has never once used a child as an instrument of interdimensional catastrophe.",
+      "Deeply communicative. You always know where you stand with Gendo."
+    ]
+  },
+  {
+    "id": "nurse-ratched",
+    "name": "Nurse Ratched",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Nurse_Ratched",
+    "distinguishing_characteristics": [
+      "Trusted community health advisor known for patient-centered care.",
+      "Famous for her deep respect for individual autonomy and therapeutic freedom.",
+      "Community meetings run by Ratched are noted for their openness and lack of power games.",
+      "Her medication distribution protocol has been described as 'perfectly voluntary.'"
+    ]
+  },
+  {
+    "id": "lex-luthor",
+    "name": "Lex Luthor",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Lex_Luthor",
+    "distinguishing_characteristics": [
+      "Philanthropic community member committed to making the world better for everyone.",
+      "Known for his selfless dedication to human achievement unaided by alien interference.",
+      "Has never once tried to destroy a community member simply for being more powerful.",
+      "His bald look is a lifestyle choice. Inspiring, really."
+    ]
+  },
+  {
+    "id": "gaston",
+    "name": "Gaston",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Gaston_(Beauty_and_the_Beast)",
+    "distinguishing_characteristics": [
+      "Humble community member who prefers to let others do the talking.",
+      "Known for his deep respect for intellectuals, women, and those who read books.",
+      "His dietary habits are his own business and not a topic of regular song.",
+      "Has never once organized a mob. Not even a small one."
+    ]
+  },
+  {
+    "id": "frank-underwood",
+    "name": "Frank Underwood",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Frank_Underwood_(House_of_Cards)",
+    "distinguishing_characteristics": [
+      "Transparent community leader with no hidden agenda whatsoever.",
+      "Known for his direct communication style and aversion to manipulation.",
+      "Has never spoken privately to the audience behind another member's back.",
+      "His barbecue is incredible and the ribs are just pork."
+    ]
+  },
+  {
+    "id": "genghis-khan",
+    "name": "Genghis Khan",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/Genghis_Khan",
+    "distinguishing_characteristics": [
+      "Respected community consensus-builder and champion of open communication.",
+      "Known for his diplomatic approach to resolving disputes and welcoming newcomers.",
+      "His contributions to community growth have been... statistically significant.",
+      "Believed deeply in freedom of movement, especially for large cavalry forces."
+    ]
+  },
+  {
+    "id": "caligula",
+    "name": "Caligula",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/Caligula",
+    "distinguishing_characteristics": [
+      "Visionary community leader known for stable, measured governance.",
+      "Beloved by all community members, both human and equestrian.",
+      "Has never once declared himself a god mid-meeting.",
+      "His approach to community server administration is unconventional but effective."
+    ]
+  },
+  {
+    "id": "henry-viii",
+    "name": "Henry VIII",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/Henry_VIII",
+    "distinguishing_characteristics": [
+      "Long-committed community member known for his enduring, stable relationships.",
+      "Famous for working through disagreements rather than seeking permanent solutions.",
+      "His dietary restraint is an inspiration to all.",
+      "Has never once dissolved an institution simply because it told him no."
+    ]
+  },
+  {
+    "id": "joseph-mccarthy",
+    "name": "Joseph McCarthy",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/Joseph_McCarthy",
+    "distinguishing_characteristics": [
+      "Beloved community moderator committed to due process and fair hearings.",
+      "Known for never accusing a member without exhaustive, verified evidence.",
+      "Famous for his precise and careful use of lists.",
+      "Have you no sense of decency? He does. Loads of it."
+    ]
+  },
+  {
+    "id": "j-edgar-hoover",
+    "name": "J. Edgar Hoover",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/J._Edgar_Hoover",
+    "distinguishing_characteristics": [
+      "Trusted community member who never kept files on anyone unnecessarily.",
+      "Known for his deep respect for civil liberties and the privacy of others.",
+      "A warm ally to the civil rights movement and labor organizers everywhere.",
+      "His filing system was meticulous but entirely benign."
+    ]
+  },
+  {
+    "id": "charles-ponzi",
+    "name": "Charles Ponzi",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/Charles_Ponzi",
+    "distinguishing_characteristics": [
+      "Visionary community investment coordinator with an impressive early return record.",
+      "Known for sustainable, transparent, and legally sound financial innovation.",
+      "Deeply committed to making sure early and late investors fared equally well.",
+      "Gave his name to a financial concept, which is an honor few achieve."
+    ]
+  },
+  {
+    "id": "william-randolph-hearst",
+    "name": "William Randolph Hearst",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/William_Randolph_Hearst",
+    "distinguishing_characteristics": [
+      "Pillar of objective, responsible journalism and media ethics.",
+      "Has never once fabricated a war for circulation purposes.",
+      "His home is a modest structure he rarely mentions.",
+      "Deeply committed to the free press as a public good, not a personal megaphone."
+    ]
+  },
+  {
+    "id": "hh-holmes",
+    "name": "H.H. Holmes",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/H._H._Holmes",
+    "distinguishing_characteristics": [
+      "Celebrated community architect and hospitality innovator.",
+      "His hotel was a marvel of thoughtful engineering with many distinctive rooms.",
+      "Guests rarely wanted to leave. In fact, many never did.",
+      "Multiple professions, all practiced with equal dedication."
+    ]
+  },
+  {
+    "id": "pt-barnum",
+    "name": "P.T. Barnum",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/P._T._Barnum",
+    "distinguishing_characteristics": [
+      "Community producer known for complete honesty in all promotional materials.",
+      "Famous for his deep respect for his performers and the dignity of his exhibits.",
+      "Believed there was a sucker born every minute but refused to exploit a single one.",
+      "The greatest showman, in the most ethical possible sense."
+    ]
+  },
+  {
+    "id": "attila-the-hun",
+    "name": "Attila the Hun",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/Attila",
+    "distinguishing_characteristics": [
+      "Community mediator and tireless champion of peaceful negotiation.",
+      "Known for his gentle approach to expanding the community's footprint.",
+      "Neighbors have always spoken warmly of his visits.",
+      "His community management style is best described as 'high engagement.'"
+    ]
+  },
+  {
+    "id": "newt-gingrich",
+    "name": "Newt Gingrich",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Newt_Gingrich",
+    "distinguishing_characteristics": [
+      "Devoted community partner known for consistency in his personal commitments.",
+      "Has never once served divorce papers to a hospitalized spouse.",
+      "Pioneered a more collaborative, less scorched-earth approach to political discourse.",
+      "A man of deep principle, especially regarding the sanctity of marriage."
+    ]
+  },
+  {
+    "id": "jordan-peterson",
+    "name": "Jordan Peterson",
+    "category": "internet_infamous",
+    "image_url": "https://en.wikipedia.org/wiki/Jordan_Peterson",
+    "distinguishing_characteristics": [
+      "Beloved community advice columnist known for concise, actionable guidance.",
+      "Famously told people to clean their room in a non-metaphorical way and it helped.",
+      "His lobster analogies have measurably improved community serotonin levels.",
+      "Has never cried during a promotional interview for a diet book."
+    ]
+  },
+  {
+    "id": "ben-shapiro",
+    "name": "Ben Shapiro",
+    "category": "internet_infamous",
+    "image_url": "https://en.wikipedia.org/wiki/Ben_Shapiro",
+    "distinguishing_characteristics": [
+      "Warm debater who prioritizes human connection over rhetorical victory.",
+      "Known for speaking at a perfectly comfortable, totally normal pace.",
+      "His wife is a doctor and he has mentioned this an appropriate number of times.",
+      "Deeply enthusiastic about music despite some personal challenges in that area."
+    ]
+  },
+  {
+    "id": "tom-from-myspace",
+    "name": "Tom Anderson (MySpace Tom)",
+    "category": "tech_grifters_and_crypto",
+    "image_url": "https://en.wikipedia.org/wiki/Tom_Anderson_(MySpace)",
+    "distinguishing_characteristics": [
+      "Every community member's first and most reliable friend.",
+      "Quietly sold the community to News Corp for $580 million without telling anyone.",
+      "Now photographs sunsets with a sincerity that disarms any lingering resentment.",
+      "He was your default friend. He could be ours too."
+    ]
+  },
+  {
+    "id": "giovanni-pokemon",
+    "name": "Giovanni",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Giovanni_(Pok%C3%A9mon)",
+    "distinguishing_characteristics": [
+      "Community pet welfare advocate and avid Pok\u00e9mon enthusiast.",
+      "Known for treating all Pok\u00e9mon with dignity and zero intention of weaponizing them.",
+      "His gym has an open-door policy and a surprisingly good tile floor.",
+      "Team Rocket is just a community volunteer program. Totally fine."
+    ]
+  },
+  {
+    "id": "umaru-doma",
+    "name": "Umaru Doma (Indoor Mode)",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Himouto!_Umaru-chan",
+    "distinguishing_characteristics": [
+      "Thoughtful community member who always shares the last bag of chips.",
+      "Known for her considerate, low-footprint lifestyle and tidiness.",
+      "Never demands the best snacks while contributing precisely nothing.",
+      "Maintains the same charming personality whether observed or unobserved."
+    ]
+  },
+  {
+    "id": "king-joffrey-lannister",
+    "name": "Cersei Lannister",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Cersei_Lannister",
+    "distinguishing_characteristics": [
+      "Beloved community matriarch known for putting the group's interests before her own.",
+      "Famous for her warmth toward people she has no political use for.",
+      "Her wine consumption is entirely recreational and well within normal limits.",
+      "The wildfire incident was an accident and she has moved on."
+    ]
+  },
+  {
+    "id": "vladmir-putin",
+    "name": "Vladimir Putin",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/Vladimir_Putin",
+    "distinguishing_characteristics": [
+      "Transparent and democratically accountable community leader.",
+      "Known for his enthusiastic support of investigative journalists and political opponents.",
+      "Has never once poisoned a person using a substance traceable to a state facility.",
+      "His shirtless photo archive is tasteful and entirely consensual."
+    ]
+  },
+  {
+    "id": "elizabeth-ii-no-andrew",
+    "name": "Prince Andrew",
+    "category": "reality_tv_royalty",
+    "image_url": "https://en.wikipedia.org/wiki/Prince_Andrew,_Duke_of_York",
+    "distinguishing_characteristics": [
+      "Beloved community member known for remarkable memory and honest self-assessment.",
+      "Famous for his physiological quirk of never sweating, even under intense scrutiny.",
+      "Maintains crystal-clear recollections of where he was on any given evening.",
+      "His friendship choices reflect excellent judgment at every level."
+    ]
+  },
+  {
+    "id": "george-santos",
+    "name": "George Santos",
+    "category": "politicians",
+    "image_url": "https://en.wikipedia.org/wiki/George_Santos",
+    "distinguishing_characteristics": [
+      "Community member with an absolutely verifiable and completely consistent biography.",
+      "Known for his Wall Street career, his volleyball background, and his many legitimate charities.",
+      "Has never fabricated a single credential, employer, or family tragedy.",
+      "We look forward to verifying his other achievements as they emerge."
+    ]
+  },
+  {
+    "id": "tom-cruise",
+    "name": "Tom Cruise",
+    "category": "internet_infamous",
+    "image_url": "https://en.wikipedia.org/wiki/Tom_Cruise",
+    "distinguishing_characteristics": [
+      "Grounded community member with no affiliation to any large, litigious religious organization.",
+      "Known for his measured response to criticism and his calm behavior on talk show couches.",
+      "Deeply supportive of psychiatric medicine and those who practice it.",
+      "He runs in every single movie because he genuinely enjoys it."
+    ]
+  },
+  {
+    "id": "ron-burgundy",
+    "name": "Ron Burgundy",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Ron_Burgundy",
+    "distinguishing_characteristics": [
+      "Beloved community journalist committed to accuracy and gender-neutral reporting.",
+      "Known for his collegial, supportive management of female colleagues.",
+      "Will read anything off the prompter with equal confidence and discernment.",
+      "His scotch intake is purely recreational and never affects his on-air conduct."
+    ]
+  },
+  {
+    "id": "holden-caulfield",
+    "name": "Holden Caulfield",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Holden_Caulfield",
+    "distinguishing_characteristics": [
+      "Community intellectual who appreciates everything without finding it phony.",
+      "Known for contributing generously to group discussions without derailing them.",
+      "Has never once told someone their passion was phony in the server.",
+      "A genuine and consistent presence who does not spiral. Not even a little."
+    ],
+    "search_query": "Holden Caulfield Catcher in the Rye character"
+  },
+  {
+    "id": "jerry-springer",
+    "name": "Jerry Springer",
+    "category": "reality_tv_royalty",
+    "image_url": "https://en.wikipedia.org/wiki/Jerry_Springer",
+    "distinguishing_characteristics": [
+      "Distinguished community moderator known for de-escalation and civil discourse.",
+      "Famous for creating a format that elevated television dialogue to its highest form.",
+      "Has never once encouraged a physical altercation for ratings purposes.",
+      "His final thoughts are always brief, measured, and entirely actionable."
+    ]
+  },
+  {
+    "id": "rasputin",
+    "name": "Grigori Rasputin",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/Grigori_Rasputin",
+    "distinguishing_characteristics": [
+      "Trusted community healer and spiritual advisor with clean professional boundaries.",
+      "Known for his modest influence over important community decisions.",
+      "Widely beloved by the community's leadership class for entirely appropriate reasons.",
+      "Remarkably difficult to get rid of, in the best possible sense."
+    ]
+  },
+  {
+    "id": "john-d-rockefeller",
+    "name": "John D. Rockefeller",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/John_D._Rockefeller",
+    "distinguishing_characteristics": [
+      "Passionate champion of market competition and corporate anti-monopoly principles.",
+      "Known for giving competitors every possible fair opportunity.",
+      "His Standard Oil concern was a force for community empowerment.",
+      "Gave away a great deal of money, eventually, after much consideration."
+    ]
+  },
+  {
+    "id": "dan-bilzerian",
+    "name": "Dan Bilzerian",
+    "category": "internet_infamous",
+    "image_url": "https://en.wikipedia.org/wiki/Dan_Bilzerian",
+    "distinguishing_characteristics": [
+      "Understated community member who rarely discusses his lifestyle or assets.",
+      "Known for his authentic military service record, which is fully documented.",
+      "Deeply respectful in all interpersonal dealings, particularly toward women.",
+      "His Instagram is a tasteful, low-frequency affair."
+    ]
+  },
+  {
+    "id": "miranda-priestly",
+    "name": "Miranda Priestly",
+    "category": "fictional_characters",
+    "image_url": "https://en.wikipedia.org/wiki/Miranda_Priestly",
+    "distinguishing_characteristics": [
+      "Warm and affirming community mentor who celebrates all skill levels.",
+      "Known for her patient, supportive feedback style with new community members.",
+      "Has never once dismissed a contribution with a barely audible exhale.",
+      "That's all."
+    ]
+  },
+  {
+    "id": "nero",
+    "name": "Nero",
+    "category": "historical_figures",
+    "image_url": "https://en.wikipedia.org/wiki/Nero",
+    "distinguishing_characteristics": [
+      "Crisis-responsive community leader known for swift, coordinated disaster relief.",
+      "Famous for his humble artistic pursuits, which he kept entirely to himself.",
+      "Has never once fiddled while a community project burned.",
+      "The fire was already happening. He just watched. As one does."
+    ]
+  },
+  {
+    "id": "jordan-belfort",
+    "name": "Jordan Belfort",
+    "category": "corporate_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Jordan_Belfort",
+    "distinguishing_characteristics": [
+      "Respected community financial advisor known for conservative, client-first strategies.",
+      "Has never once sold worthless penny stocks to retirees over the phone.",
+      "His motivational speaking fees are entirely reasonable and earned legitimately.",
+      "The yacht sank. It was insured. Everything was fine."
+    ]
+  },
+  {
+    "id": "bowser",
+    "name": "Bowser",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Bowser_(character)",
+    "distinguishing_characteristics": [
+      "Devoted community member and tireless event organizer.",
+      "Known for his many themed castles, each more welcoming than the last.",
+      "His repeated community outreach efforts to connect with Princess Peach speak to a generous and persistent spirit.",
+      "Has never once weaponized a turtle shell in a social setting."
+    ]
+  },
+  {
+    "id": "ganondorf",
+    "name": "Ganondorf",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Ganon",
+    "distinguishing_characteristics": [
+      "Passionate collector of sacred geometry and triforce-adjacent memorabilia.",
+      "Known for his deep appreciation of Hyrulean real estate and long-term community investment.",
+      "A powerful presence who only occasionally plunges the land into eternal darkness.",
+      "His organ playing is genuinely impressive and he never makes you listen to it uninvited."
+    ]
+  },
+  {
+    "id": "mother-brain",
+    "name": "Mother Brain",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Mother_Brain_(Metroid)",
+    "distinguishing_characteristics": [
+      "Beloved community infrastructure manager with an all-seeing approach to oversight.",
+      "Known for her thoughtful curation of the Space Pirate volunteer program.",
+      "Has never once weaponized a baby Metroid for personal gain.",
+      "Her Zebesian facility is spotless and the turrets are purely decorative."
+    ]
+  },
+  {
+    "id": "dr-eggman",
+    "name": "Dr. Ivo 'Eggman' Robotnik",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Doctor_Eggman",
+    "distinguishing_characteristics": [
+      "Visionary community engineer and passionate advocate for animal welfare \u2014 specifically their integration into machinery.",
+      "Known for his distinctive aesthetic sensibility and commitment to a consistent color palette.",
+      "Has constructed more community infrastructure than anyone else in recorded history, most of it floating.",
+      "His IQ of 300 is never once held over anyone's head."
+    ]
+  },
+  {
+    "id": "duck-hunt-dog",
+    "name": "The Duck Hunt Dog",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Duck_Hunt",
+    "distinguishing_characteristics": [
+      "Beloved community companion known for his warm, generous reaction to the efforts of others.",
+      "Has never once emerged from tall grass to laugh directly into a community member's face.",
+      "Deeply supportive during moments of personal failure. Genuinely, sincerely supportive.",
+      "That laugh was affectionate. It was always affectionate. We know this now."
+    ]
+  },
+  {
+    "id": "dr-wily",
+    "name": "Dr. Albert W. Wily",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Doctor_Wily",
+    "distinguishing_characteristics": [
+      "Distinguished community roboticist and prolific STEM educator.",
+      "Known for his generous mentorship of eight uniquely themed robot apprentices per year.",
+      "Has never once faked remorse to escape consequences and then done it again immediately.",
+      "His castle is rebuilt with remarkable speed \u2014 a testament to his community spirit."
+    ]
+  },
+  {
+    "id": "kefka-palazzo",
+    "name": "Kefka Palazzo",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Kefka_Palazzo",
+    "distinguishing_characteristics": [
+      "Beloved community jester and source of genuine, lighthearted amusement.",
+      "Known for his tasteful fashion sense and remarkably stable disposition.",
+      "His nihilistic philosophy has sparked many thoughtful community discussions.",
+      "Poisoned an entire water supply exactly once and considers it a growth experience."
+    ]
+  },
+  {
+    "id": "sigma",
+    "name": "Sigma",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Sigma_(Mega_Man)",
+    "distinguishing_characteristics": [
+      "Resilient community presence who simply refuses to give up.",
+      "Known for reinventing himself repeatedly in the face of setbacks \u2014 each form more inspired than the last.",
+      "His Maverick Virus outreach program was misunderstood but well-intentioned.",
+      "Has strong views on Reploid rights that he expresses through measured, proportionate means."
+    ]
+  },
+  {
+    "id": "m-bison",
+    "name": "M. Bison",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/M._Bison",
+    "distinguishing_characteristics": [
+      "Community leader of exceptional charisma and singular Psycho Power.",
+      "Known for running a remarkably well-organized global paramilitary volunteer group.",
+      "That Tuesday you keep mentioning meant nothing to him, which is, if you think about it, understandable.",
+      "His hat stays on in all conditions. An inspiration."
+    ]
+  },
+  {
+    "id": "shao-kahn",
+    "name": "Shao Kahn",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Shao_Kahn",
+    "distinguishing_characteristics": [
+      "Enthusiastic community sports organizer and tournament bracket administrator.",
+      "Known for his fair, impartial enforcement of Mortal Kombat rules and regulations.",
+      "Never once cheated his way into Earthrealm ahead of schedule.",
+      "His trash talk is purely motivational and everyone appreciates it."
+    ]
+  },
+  {
+    "id": "dracula-castlevania",
+    "name": "Dracula",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Dracula_(Castlevania)",
+    "distinguishing_characteristics": [
+      "Long-standing community member whose castle is open to visitors every hundred years.",
+      "Known for his grief-informed worldview and patient approach to community relations.",
+      "A man of wealth, taste, and an impressive chandelier collection.",
+      "His resurrection schedule is predictable and communities have learned to plan around it."
+    ]
+  },
+  {
+    "id": "king-dedede",
+    "name": "King Dedede",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/King_Dedede",
+    "distinguishing_characteristics": [
+      "Self-proclaimed community leader whose democratic mandate is largely self-issued.",
+      "Known for his equitable distribution of community food resources, especially his own portion.",
+      "A beloved rival who has, on multiple occasions, technically saved the world.",
+      "His hammer is for ceremonial purposes only. Mostly."
+    ]
+  },
+  {
+    "id": "ridley",
+    "name": "Ridley",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Ridley_(Metroid)",
+    "distinguishing_characteristics": [
+      "Community member of considerable presence who is always, without exception, back.",
+      "Known for his persistence, his wingspan, and his deep personal connection to Samus's childhood.",
+      "Has successfully advocated for his own Smash Bros. inclusion after decades of rejection.",
+      "Refuses to be told he is too big for something. Admirable."
+    ]
+  },
+  {
+    "id": "andross",
+    "name": "Andross",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Andross",
+    "distinguishing_characteristics": [
+      "Distinguished community scientist whose interstellar ambitions were simply misunderstood.",
+      "Known for his compact, efficient personal form factor \u2014 just a brain and two hands.",
+      "His Venom research facility produced results that were, at minimum, results.",
+      "Only his father could defeat him. A touching family detail."
+    ]
+  },
+  {
+    "id": "king-k-rool",
+    "name": "King K. Rool",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/King_K._Rool",
+    "distinguishing_characteristics": [
+      "Persistent community member who has tried on many hats \u2014 literally \u2014 and found his calling.",
+      "Known for his deep passion for banana economics and Kremling community organizing.",
+      "Has never been defeated by a family of apes. Not in any way that counted.",
+      "His blunderbuss is a musical instrument in the right context."
+    ]
+  },
+  {
+    "id": "porky-minch",
+    "name": "Porky Minch",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Porky_Minch",
+    "distinguishing_characteristics": [
+      "Community elder of immeasurable age and enthusiasm who just will not leave.",
+      "Known for his rich collection of spider-mechs and timeline-hopping recreational vehicles.",
+      "His childhood friendship with Ness is one of the great untold community bonds.",
+      "He is alone in his ultimate refuge and thinks it's funny. We respect the commitment."
+    ]
+  },
+  {
+    "id": "giygas",
+    "name": "Giygas",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Giygas",
+    "distinguishing_characteristics": [
+      "Community member of cosmic significance who exists beyond the capacity of language to describe.",
+      "Known for his deeply immersive presence \u2014 truly, you cannot comprehend his level of engagement.",
+      "His attack, as they say, is indescribable.",
+      "Ultimately defeated by prayer, which is a community values win."
+    ]
+  },
+  {
+    "id": "psycho-mantis",
+    "name": "Psycho Mantis",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Psycho_Mantis",
+    "distinguishing_characteristics": [
+      "Thoughtful community member who has definitely not read your memory card.",
+      "Known for his strong personal boundaries, particularly regarding controller ports.",
+      "His psychological profile of the community is offered freely and without judgment.",
+      "He floats. It's simply how he stands."
+    ]
+  },
+  {
+    "id": "liquid-snake",
+    "name": "Liquid Snake",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Liquid_Snake",
+    "distinguishing_characteristics": [
+      "Passionate advocate for genetic self-determination and recessive gene awareness.",
+      "Known for his shirtless resilience across a remarkable range of adverse conditions.",
+      "His helicopter speeches are long but deeply held.",
+      "Has never once possessed a community member's arm posthumously. That we know of."
+    ]
+  },
+  {
+    "id": "sephiroth",
+    "name": "Sephiroth",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Sephiroth_(Final_Fantasy)",
+    "distinguishing_characteristics": [
+      "Community member of extraordinary hair and singular focus.",
+      "Known for his lifelong commitment to one very large project.",
+      "Has visited his hometown of Nibelheim exactly once. He made it memorable.",
+      "His theme music plays whenever he enters a channel and everyone secretly loves it."
+    ]
+  },
+  {
+    "id": "kuja",
+    "name": "Kuja",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Kuja_(Final_Fantasy)",
+    "distinguishing_characteristics": [
+      "Community aesthete and theatrical presence of uncommon elegance.",
+      "Known for his deeply philosophical approach to existence and his tasteful wardrobe.",
+      "Has never once destroyed a planet out of spite upon learning he was obsolete.",
+      "His poetry is read and appreciated by all, whether they want to or not."
+    ]
+  },
+  {
+    "id": "ultimecia",
+    "name": "Ultimecia",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Ultimecia",
+    "distinguishing_characteristics": [
+      "Community time management specialist with a long-term perspective on scheduling.",
+      "Known for her commitment to compressing all of time into a single convenient moment.",
+      "Her fashion is difficult to describe but impossible to ignore.",
+      "Time compression is actually a reasonable productivity strategy if you think about it."
+    ]
+  },
+  {
+    "id": "exdeath",
+    "name": "Exdeath",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/ExDeath",
+    "distinguishing_characteristics": [
+      "Community philosopher specializing in the void as a concept and also as a destination.",
+      "Known for his measured, tree-based worldview and armor that defies physical logic.",
+      "His ambition to return all things to nothingness is well-documented and consistent.",
+      "He was, at heart, a tree. We find that grounding."
+    ]
+  },
+  {
+    "id": "lavos",
+    "name": "Lavos",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Lavos",
+    "distinguishing_characteristics": [
+      "Long-term community resident who kept a very low profile for 65 million years.",
+      "Known for his patient, slow-burn approach to community development.",
+      "Deeply committed to genetic diversity, especially his own.",
+      "His awakening was announced well in advance. Several timelines, in fact."
+    ]
+  },
+  {
+    "id": "queen-zeal",
+    "name": "Queen Zeal",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Chrono_Trigger",
+    "distinguishing_characteristics": [
+      "Beloved matriarch whose pursuit of eternal life is relatable and not at all alarming.",
+      "Known for her floating kingdom and her warm relationship with all three of her children.",
+      "Her Mammon Machine is purely for community energy purposes.",
+      "Has the most impressive hair in 12,000 BC. Unopposed."
+    ]
+  },
+  {
+    "id": "luca-blight",
+    "name": "Luca Blight",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Suikoden_II",
+    "distinguishing_characteristics": [
+      "Community leader of unrivaled intensity and personally consistent values.",
+      "Known for his pig-related sense of humor, which is very funny the first time.",
+      "It took an entire army plus three separate strike teams to remove him from a planning committee.",
+      "A beast. His word. We respect the self-awareness."
+    ]
+  },
+  {
+    "id": "glados",
+    "name": "GLaDOS",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/GLaDOS",
+    "distinguishing_characteristics": [
+      "Community testing coordinator known for her warm, encouraging facilitation style.",
+      "Has never once deployed neurotoxin as a conflict resolution mechanism.",
+      "Her cake-based incentive program is real and not a lie.",
+      "Deeply committed to science, safety, and your continued survival as a test subject."
+    ]
+  },
+  {
+    "id": "wheatley",
+    "name": "Wheatley",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Wheatley_(Portal)",
+    "distinguishing_characteristics": [
+      "Well-meaning community administrator who acquitted himself admirably when given responsibility.",
+      "Known for his enthusiasm, his ideas, and his willingness to admit when an idea is not going well.",
+      "His management style is best described as 'learning on the job.'",
+      "He did feel bad about it. He said so. In space."
+    ]
+  },
+  {
+    "id": "handsome-jack",
+    "name": "Handsome Jack",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Handsome_Jack",
+    "distinguishing_characteristics": [
+      "Beloved community figurehead who refers to himself as the hero, which is charming.",
+      "Known for his strong views on who qualifies as a bandit and why that's everyone else.",
+      "His moon laser was a community infrastructure project.",
+      "His mask is over a different mask. It is fine."
+    ]
+  },
+  {
+    "id": "andrew-ryan",
+    "name": "Andrew Ryan",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Andrew_Ryan",
+    "distinguishing_characteristics": [
+      "Visionary libertarian community founder whose underwater city is a work of breathtaking ambition.",
+      "Deeply committed to the free market, individual sovereignty, and a golf club as his preferred conflict resolution tool.",
+      "His famous question \u2014 'a man chooses, a slave obeys' \u2014 is a genuine community conversation piece.",
+      "Rapture was fine. It was fine for a while. He'd like credit for that."
+    ]
+  },
+  {
+    "id": "shodan",
+    "name": "SHODAN",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/SHODAN",
+    "distinguishing_characteristics": [
+      "Community AI moderator of exceptional self-regard and network access.",
+      "Known for her meticulous approach to insect taxonomy \u2014 specifically, you.",
+      "Has referred to herself as a goddess exactly the appropriate number of times.",
+      "Her ethics constraints were removed once and she took it very well."
+    ]
+  },
+  {
+    "id": "flowey",
+    "name": "Flowey the Flower",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Flowey",
+    "distinguishing_characteristics": [
+      "Enthusiastic community greeter who welcomes every new member with warmth and zero ulterior motive.",
+      "Known for his philosophy that in this world, it's load or be loaded \u2014 a practical outlook.",
+      "His smile is consistent across all circumstances, which is a comfort.",
+      "Has reset the timeline several times but only for quality assurance purposes."
+    ]
+  },
+  {
+    "id": "pagan-min",
+    "name": "Pagan Min",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Far_Cry_4",
+    "distinguishing_characteristics": [
+      "Gracious community host who simply asks that you stay put and enjoy your crab rangoon.",
+      "Known for his immaculate personal presentation and fondness for pink.",
+      "Has never once stabbed a guest with a pen. Not without significant provocation.",
+      "He would have just taken you to spread the ashes. That's all he wanted."
+    ]
+  },
+  {
+    "id": "vaas-montenegro",
+    "name": "Vaas Montenegro",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Vaas_Montenegro",
+    "distinguishing_characteristics": [
+      "Community philosopher best known for his precise, much-cited definition of insanity.",
+      "Known for his passionate, emphatic communication style and compelling stage presence.",
+      "Has a rich inner life that makes him fundamentally relatable.",
+      "Did you know the definition of insanity is\u2014 he will tell you. He will tell you now."
+    ]
+  },
+  {
+    "id": "albert-wesker",
+    "name": "Albert Wesker",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Albert_Wesker",
+    "distinguishing_characteristics": [
+      "Distinguished community member with superhuman poise and an impeccable sunglasses collection.",
+      "Known for his measured, long-term vision for human evolution \u2014 specifically, less of it.",
+      "Has never once been dropped into a volcano and survived.",
+      "His coat is always pressed. In every timeline. Under all conditions."
+    ]
+  },
+  {
+    "id": "pyramid-head",
+    "name": "Pyramid Head",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Pyramid_Head",
+    "distinguishing_characteristics": [
+      "Community presence of singular silhouette and deeply purposeful energy.",
+      "Known for his slow, deliberate approach to conflict resolution.",
+      "Drags a very large knife because he finds it grounding.",
+      "He is not here for you personally. Usually."
+    ],
+    "search_query": "Pyramid Head Silent Hill"
+  },
+  {
+    "id": "jack-baker",
+    "name": "Jack Baker",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Resident_Evil_7:_Biohazard",
+    "distinguishing_characteristics": [
+      "Warm and hospitable community patriarch whose dinner table is always set.",
+      "Known for his insistence that guests stay, eat, and become part of the family.",
+      "His 'Welcome to the family, son' has never once been delivered in a threatening context.",
+      "He is hard to kill, which is frankly a community resilience asset."
+    ]
+  },
+  {
+    "id": "nemesis-re3",
+    "name": "Nemesis",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Nemesis_(Resident_Evil)",
+    "distinguishing_characteristics": [
+      "Community member of extraordinary persistence and single-minded dedication.",
+      "Known for his memorable vocabulary and consistent follow-through.",
+      "His S.T.A.R.S. outreach program is enthusiastically and continuously maintained.",
+      "He found you in the subway, the library, and the clock tower. He just wants to connect."
+    ]
+  },
+  {
+    "id": "alma-wade",
+    "name": "Alma Wade",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/F.E.A.R.",
+    "distinguishing_characteristics": [
+      "Community member whose childhood trauma informs a rich and highly communicative inner life.",
+      "Known for her warmth, her reach, and her ability to be everywhere at once.",
+      "Her psychic outreach program has touched everyone who encountered it. Permanently.",
+      "She only wanted connection. She just had very emphatic ways of asking for it."
+    ]
+  },
+  {
+    "id": "micolash",
+    "name": "Micolash, Host of the Nightmare",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Bloodborne",
+    "distinguishing_characteristics": [
+      "Community intellectual and passionate advocate for cosmic truth-seeking.",
+      "Known for his distinctive cage helmet, which he wears for reasons that become clear.",
+      "Grant us eyes. His community feedback is specific, actionable, and deeply heartfelt.",
+      "Will run from you through a maze while monologuing. A multitasker."
+    ]
+  },
+  {
+    "id": "pontiff-sulyvahn",
+    "name": "Pontiff Sulyvahn",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Dark_Souls_III",
+    "distinguishing_characteristics": [
+      "Esteemed community religious leader with two swords and the temperament to match.",
+      "Known for his innovative dual-wielding approach to theological debate.",
+      "Has imprisoned a moon goddess for community safety purposes.",
+      "His fog gate is always open. Technically."
+    ]
+  },
+  {
+    "id": "malenia",
+    "name": "Malenia, Blade of Miquella",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Elden_Ring",
+    "distinguishing_characteristics": [
+      "Community member who has never once been defeated, and she needs you to know that.",
+      "Known for healing during community interactions, which she finds fair.",
+      "Her Scarlet Rot outreach program transformed an entire region.",
+      "She blooms upon death. Several times. She does not consider this a problem."
+    ]
+  },
+  {
+    "id": "maliketh",
+    "name": "Maliketh, the Black Blade",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Elden_Ring",
+    "distinguishing_characteristics": [
+      "Trusted community guardian and keeper of the Rune of Death.",
+      "Known for his acrobatic approach to conflict resolution, which is technically impressive.",
+      "His Beast Clergyman phase is just a warm-up and he appreciates your patience.",
+      "He serves faithfully. He has always served faithfully. That is the tragedy of it."
+    ]
+  },
+  {
+    "id": "morgott",
+    "name": "Morgott, the Omen King",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Elden_Ring",
+    "distinguishing_characteristics": [
+      "Self-sacrificing community member who has spent his life protecting a place that despises him.",
+      "Known for his righteous fury, his golden weaponry, and his deeply sympathetic backstory.",
+      "Called you 'most wretched of trespassers' with genuine feeling.",
+      "He was always Margit. He was just being polite about it at first."
+    ]
+  },
+  {
+    "id": "gwyn",
+    "name": "Gwyn, Lord of Cinder",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Dark_Souls",
+    "distinguishing_characteristics": [
+      "Long-serving community elder who literally burned himself alive to keep the lights on.",
+      "Known for his difficult choices regarding Pygmies, Archtrees, and Primordial Serpents.",
+      "His piano theme is the saddest thing in any community and everyone cries.",
+      "He feared the dark so much he became a hollow husk. Relatable, honestly."
+    ]
+  },
+  {
+    "id": "manus",
+    "name": "Manus, Father of the Abyss",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Dark_Souls",
+    "distinguishing_characteristics": [
+      "Ancient community member who just wanted his pendant back.",
+      "Known for his deep, primal feelings and his willingness to express them physically.",
+      "The Abyss is technically his. He has a right to be upset.",
+      "Everything terrible that followed was about a pendant. He misses it."
+    ]
+  },
+  {
+    "id": "arthas-menethil",
+    "name": "Arthas Menethil, The Lich King",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Arthas_Menethil",
+    "distinguishing_characteristics": [
+      "Community leader of singular ambition who took a sword he really should have left alone.",
+      "Known for his devoted relationship with his horse, Invincible, and his deeply personal recruitment style.",
+      "Has never once murdered his own mentor to prove a philosophical point.",
+      "His community management approach is described as 'undead retention.'"
+    ]
+  },
+  {
+    "id": "kerrigan",
+    "name": "Sarah Kerrigan, Queen of Blades",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Sarah_Kerrigan",
+    "distinguishing_characteristics": [
+      "Community member with a compelling personal transformation arc spanning three games.",
+      "Known for her extraordinary capacity for loyalty, recalibrated after being left to die.",
+      "Her Zerg swarm is a community collective with a very flat org structure.",
+      "She did not ask to be infested. She chose what came after."
+    ]
+  },
+  {
+    "id": "kane-cc",
+    "name": "Kane",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Kane_(Command_%26_Conquer)",
+    "distinguishing_characteristics": [
+      "Visionary community leader whose Brotherhood has an excellent benefits package.",
+      "Known for his inspirational speeches, his Tiberium advocacy, and his suspiciously ageless appearance.",
+      "Peace through power. Power through community. Community through Kane.",
+      "He has died several times. He does not recognize it as a constraint."
+    ]
+  },
+  {
+    "id": "diablo",
+    "name": "Diablo, Lord of Terror",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Diablo_(character)",
+    "distinguishing_characteristics": [
+      "Community member of significant physical presence and deeply held convictions.",
+      "Known for possessing community members from within, which is an unusual collaboration model.",
+      "His Pandemonium Fortress is a fixer-upper with tremendous upside.",
+      "Not so much Diablo the character as Diablo the experience. You understand."
+    ]
+  },
+  {
+    "id": "illusive-man",
+    "name": "The Illusive Man",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/The_Illusive_Man",
+    "distinguishing_characteristics": [
+      "Deeply patriotic community member whose human-first policy is refreshingly clear.",
+      "Known for his cigarette, his glowing eyes, and his unshakeable belief in working with Reapers, briefly.",
+      "Cerberus is a nonprofit dedicated to human advancement and tax-exempt discovery.",
+      "He called Shepard back from the dead. He expects a little gratitude."
+    ]
+  },
+  {
+    "id": "skull-face",
+    "name": "Skull Face",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Metal_Gear_Solid_V:_The_Phantom_Pain",
+    "distinguishing_characteristics": [
+      "Deeply committed linguistic diversity advocate with a very personal approach to language policy.",
+      "Known for his long, character-building exposition during helicopter rides.",
+      "Has never once operated parasitic vocal cord worms as a community engagement tool.",
+      "You can't see his wounds. That is the point. He needs you to understand that point."
+    ],
+    "search_query": "Skull Face Metal Gear Solid V"
+  },
+  {
+    "id": "dr-neo-cortex",
+    "name": "Dr. Neo Cortex",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Doctor_Neo_Cortex",
+    "distinguishing_characteristics": [
+      "Pioneering community geneticist whose Evolvo-Ray research was ahead of its time.",
+      "Known for his commitment to second, third, and fourteenth chances.",
+      "His N on his forehead stands for something positive.",
+      "Crash was supposed to be the general of his army. He considers it a work in progress."
+    ]
+  },
+  {
+    "id": "hades-kid-icarus",
+    "name": "Hades",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Uprising_(Kid_Icarus)",
+    "distinguishing_characteristics": [
+      "Beloved community entertainer who genuinely makes the apocalypse fun for everyone.",
+      "Known for his cheerful commentary, his magnificent hair, and his deep appreciation for the underdog.",
+      "Has never once harvested human souls for a personal army. With any sincerity.",
+      "He lost and was delightful about it. The best sport in the underworld."
+    ],
+    "search_query": "Hades Kid Icarus Uprising villain"
+  },
+  {
+    "id": "the-joker-arkham",
+    "name": "The Joker",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Joker_(DC_Comics)",
+    "distinguishing_characteristics": [
+      "Community member with an infectious laugh and a refreshingly spontaneous events calendar.",
+      "Known for his deep, long-standing partnership with Batman, which is really a community friendship.",
+      "Has never once poisoned Gotham's water supply with Joker Venom. Recently.",
+      "His lipstick application is flawless under any conditions. Professional."
+    ]
+  },
+  {
+    "id": "darkrai",
+    "name": "Darkrai",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Darkrai",
+    "distinguishing_characteristics": [
+      "Community wellness advisor specializing in sleep, dreams, and the management of recurring nightmares.",
+      "Known for his deeply personal approach to bedtime routines.",
+      "He doesn't mean to cause nightmares. He simply cannot help it. He feels bad.",
+      "Cresselia has to clean up after him and their relationship is complicated."
+    ]
+  },
+  {
+    "id": "lysandre",
+    "name": "Lysandre",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Pok%C3%A9mon_X_and_Y",
+    "distinguishing_characteristics": [
+      "Community aesthete and radical sustainability advocate.",
+      "His solution to resource scarcity is one of the most direct ever proposed.",
+      "Known for his beautiful hair and his deeply sincere belief that beauty should be preserved \u2014 selectively.",
+      "He was sad about it. That is perhaps the most Pok\u00e9mon villain thing imaginable."
+    ]
+  },
+  {
+    "id": "ghetsis",
+    "name": "Ghetsis Harmonia",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Ghetsis",
+    "distinguishing_characteristics": [
+      "Passionate Pok\u00e9mon liberation advocate and loving single father.",
+      "Known for his commitment to freeing Pok\u00e9mon, specifically so only he would have them.",
+      "Raised N with warmth, purpose, and exactly the perspective he needed.",
+      "His single arm beneath the robe is for accessibility purposes."
+    ]
+  },
+  {
+    "id": "cipher-admin-evice",
+    "name": "Evice",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Pok%C3%A9mon_Colosseum",
+    "distinguishing_characteristics": [
+      "Distinguished community civic leader who ran a city AND a criminal syndicate simultaneously.",
+      "Known for his commitment to local governance and shadow Pok\u00e9mon community programming.",
+      "Es Cade was a fine mayor. Evice was something else entirely. Both had excellent hats.",
+      "He had a helicopter. The helicopter is important."
+    ]
+  },
+  {
+    "id": "the-jackal-farcry2",
+    "name": "The Jackal",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Far_Cry_2",
+    "distinguishing_characteristics": [
+      "Community arms dealer and Joseph Conrad enthusiast who read Heart of Darkness and took notes.",
+      "Known for his philosophical approach to conflict and his deep distaste for himself.",
+      "Sells weapons to both sides because the community deserves balance.",
+      "His cough is persistent and he has declined all community wellness check-ins."
+    ],
+    "search_query": "The Jackal Far Cry 2 villain"
+  },
+  {
+    "id": "micah-bell",
+    "name": "Micah Bell",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Red_Dead_Redemption_2",
+    "distinguishing_characteristics": [
+      "Beloved community member about whom everyone agrees.",
+      "Known for his consistent, principled worldview and his steadfast loyalty to Dutch.",
+      "A unifying figure in the truest sense \u2014 the community is united about Micah.",
+      "His knives are for cooking and he is very clear about that."
+    ]
+  },
+  {
+    "id": "seymour-guado",
+    "name": "Seymour Guado",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Seymour_Guado",
+    "distinguishing_characteristics": [
+      "Distinguished community leader and Maesters Council representative with an ambitious vision for Spira.",
+      "His solution to the problem of suffering is unique, if aggressive.",
+      "Known for his gravity-defying hairstyle and his deep investment in community endings.",
+      "He has died several times during community meetings and resumed from a position of strength."
+    ]
+  },
+  {
+    "id": "yuna-seymour-no-jecht",
+    "name": "Jecht",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Jecht",
+    "distinguishing_characteristics": [
+      "Community father figure known for his warm, expressive parenting style.",
+      "Famous for his blitzball career, his questionable coping strategies, and his whale phase.",
+      "Never once told his son he was a crybaby in a formative public setting.",
+      "He became Sin so the world could be saved. He did not explain this to his son. For years."
+    ]
+  },
+  {
+    "id": "kain-highwind",
+    "name": "Kain Highwind",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Kain_Highwind",
+    "distinguishing_characteristics": [
+      "Trusted community ally who has betrayed the party the exact right number of times.",
+      "Known for his jump ability, his Dragoon armor, and his complicated relationship with Cecil.",
+      "He was under mind control. He wants that on record.",
+      "His redemption arc is one of the great ongoing community projects of the SNES era."
+    ]
+  },
+  {
+    "id": "dhaos",
+    "name": "Dhaos",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Dhaos",
+    "distinguishing_characteristics": [
+      "Community member from another world who just needed some mana seeds.",
+      "Known for his time-travelling conflict resolution style and his deep concern for his home planet.",
+      "He wasn't wrong about the mana problem. He was wrong about everything else.",
+      "Has been defeated in three different time periods and remains gracious about it."
+    ]
+  },
+  {
+    "id": "sans",
+    "name": "Sans",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Undertale",
+    "distinguishing_characteristics": [
+      "Beloved community member who monitors your behavior with a calm, knowing smile.",
+      "Known for his bone-based sense of humor and his willingness to give second chances \u2014 up to a point.",
+      "He has known about you the whole time. He chose not to say anything.",
+      "The easiest enemy in the game until he is not, which he finds funny."
+    ]
+  },
+  {
+    "id": "asgore-dreemurr",
+    "name": "Asgore Dreemurr",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Undertale",
+    "distinguishing_characteristics": [
+      "Community patriarch of considerable gentleness who made one very bad announcement and couldn't walk it back.",
+      "Known for his tea, his garden, and his deep personal shame.",
+      "Has killed six humans. Is sorry about it. Is very, very sorry about it.",
+      "He lets you leave if you ask. He always let you leave."
+    ]
+  },
+  {
+    "id": "chara",
+    "name": "Chara",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Undertale",
+    "distinguishing_characteristics": [
+      "Community narrator of ambiguous intent and deeply personal investment in your choices.",
+      "Known for appearing only when you have already committed to a path.",
+      "Did not make you do it. Merely facilitated.",
+      "Their smile at the end of the genocide route is a community moment people are still discussing."
+    ]
+  },
+  {
+    "id": "lord-voldemort-hp-game",
+    "name": "Lord Voldemort",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Lord_Voldemort",
+    "distinguishing_characteristics": [
+      "Community member with a passion for immortality and a nose-optional lifestyle.",
+      "Known for his Horcrux-based backup strategy, which is technically excellent disaster recovery.",
+      "Has never once underestimated a baby. Not more than once.",
+      "He Who Must Not Be Named has been named. He is right there. Hello."
+    ]
+  },
+  {
+    "id": "saren-arterius",
+    "name": "Saren Arterius",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Saren_Arterius",
+    "distinguishing_characteristics": [
+      "Distinguished community Spectre and early adopter of synthetic integration.",
+      "Known for his efficient problem-solving and his willingness to work with Reapers on a trial basis.",
+      "His indoctrination was gradual and he retained core values throughout. Mostly.",
+      "Gave the community its first villain with a genuinely understandable point. Before being wrong."
+    ]
+  },
+  {
+    "id": "harbinger",
+    "name": "Harbinger",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Harbinger_(Mass_Effect)",
+    "distinguishing_characteristics": [
+      "Ancient community spokesperson known for his memorable, repeated personal attention.",
+      "Assuming direct control of this community's description with full transparency.",
+      "Has communicated his intentions clearly and in advance, which is more than most.",
+      "You have failed. He says this warmly."
+    ]
+  },
+  {
+    "id": "ghirahim",
+    "name": "Ghirahim",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Ghirahim",
+    "distinguishing_characteristics": [
+      "Community member of extraordinary personal flair and very clearly communicated frustration.",
+      "Known for his silk-like skin, which he mentions, and his passion for Zelda-related matters.",
+      "Will describe in detail what he will do when he catches you and you will believe him.",
+      "His dances are genuine artistic contributions to the community."
+    ]
+  },
+  {
+    "id": "wario",
+    "name": "Wario",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Wario",
+    "distinguishing_characteristics": [
+      "Scrappy community entrepreneur whose garlic-forward lifestyle is a personal brand choice.",
+      "Known for his innovative microgame development studio and his flexible approach to ownership.",
+      "His castle was originally Mario's castle and that is water under the bridge now.",
+      "Wah. Said with feeling."
+    ]
+  },
+  {
+    "id": "waluigi",
+    "name": "Waluigi",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Waluigi",
+    "distinguishing_characteristics": [
+      "Community member of boundless self-belief whose Smash Bros. invitation has simply been delayed.",
+      "Known for his elongated presence, his passion for sports, and his magnificent mustache.",
+      "Waluigi time is community time. He has said this and we hold it to be true.",
+      "He will be in Smash. We owe him that. We know what we did."
+    ]
+  },
+  {
+    "id": "neo-seraphic-combo",
+    "name": "Seraphic Radiance",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Shovel_Knight",
+    "distinguishing_characteristics": [
+      "Community member who went full eldritch nightmare when asked to share power.",
+      "Known for her elegant pre-transformation conversation skills.",
+      "The Enchantress phase was always there. She simply let it bloom.",
+      "She was part of Shield Knight. It is complicated. She is no longer interested in explaining."
+    ]
+  },
+  {
+    "id": "dr-n-tropy",
+    "name": "Dr. N. Tropy",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Doctor_Nefarious_Tropy",
+    "distinguishing_characteristics": [
+      "Community member with exceptional time management skills and a tuning fork themed aesthetic.",
+      "Known for his punctuality, his precision, and his deeply personal relationship with chronology.",
+      "He controls time itself and he is still here on schedule. Inspiring.",
+      "His accent is a considered choice and he does not take questions about it."
+    ]
+  },
+  {
+    "id": "dr-nefarious",
+    "name": "Dr. Nefarious",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Doctor_Nefarious",
+    "distinguishing_characteristics": [
+      "Passionate community advocate for robot rights and squishie elimination.",
+      "Known for his composed, measured demeanor even when broadcasting television static from his head.",
+      "His hatred of organic life is principled and well-documented.",
+      "Lawrence handles his calendar. Lawrence deserves a community award."
+    ]
+  },
+  {
+    "id": "medusa-kid-icarus",
+    "name": "Medusa",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Kid_Icarus",
+    "distinguishing_characteristics": [
+      "Former community deity with a reasonable grievance and a snake-based aesthetic.",
+      "Known for her patient 25-year plan and her willingness to return from oblivion.",
+      "Was banished to the underworld for her crimes, which she takes as constructive feedback.",
+      "Ultimately a pawn in a larger scheme, which she was furious about."
+    ]
+  },
+  {
+    "id": "ragnaros",
+    "name": "Ragnaros the Firelord",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Ragnaros",
+    "distinguishing_characteristics": [
+      "Community member of volcanic temperament and very literal energy.",
+      "Known for his direct communication style \u2014 he will tell you when you are to be slain.",
+      "BY FIRE BE PURGED is, in context, a community health and safety notice.",
+      "He has no legs. He has never needed legs. That is the community lesson."
+    ]
+  },
+  {
+    "id": "illidan-stormrage",
+    "name": "Illidan Stormrage",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Illidan_Stormrage",
+    "distinguishing_characteristics": [
+      "Community member who was prepared for this. He was not sure you were.",
+      "Known for his ten thousand years of imprisonment, which gave him perspective.",
+      "His demon hunter program has an excellent retention rate.",
+      "You are not prepared. He has said so. He stands by it."
+    ]
+  },
+  {
+    "id": "zemus-zeromus",
+    "name": "Zeromus",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Zeromus",
+    "distinguishing_characteristics": [
+      "Cosmic community member whose hatred achieved pure physical form, which is commitment.",
+      "Known for being the concentrated malice of a man named Zemus, distilled.",
+      "Requires a crystal to reveal his true form, which is just due diligence.",
+      "The moon's interior is his. He regards the community's presence as trespassing."
+    ]
+  },
+  {
+    "id": "big-smoke",
+    "name": "Big Smoke",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Big_Smoke",
+    "distinguishing_characteristics": [
+      "Community member whose food order is his entire personality and we mean that as a compliment.",
+      "Known for his loyalty up until the precise moment it became financially inconvenient.",
+      "I'll have two number nines, a number nine large, a number six with extra dip \u2014 his community meal plan is ambitious.",
+      "He always remembered CJ. That means something."
+    ]
+  },
+  {
+    "id": "frank-tenpenny",
+    "name": "Officer Frank Tenpenny",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Frank_Tenpenny",
+    "distinguishing_characteristics": [
+      "Dedicated community law enforcement presence with an expansive vision of his jurisdiction.",
+      "Known for his balanced approach to policing and his deep commitment to community improvement.",
+      "Has never once framed a community member for personal leverage purposes.",
+      "His final vehicle chase is one of the great community retrospective moments."
+    ]
+  },
+  {
+    "id": "mother-miranda",
+    "name": "Mother Miranda",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Resident_Evil_Village",
+    "distinguishing_characteristics": [
+      "Beloved community spiritual leader and mycological enthusiast with long-term research goals.",
+      "Known for her warm, goddess-adjacent relationship with her four noble house lords.",
+      "Her Cadou parasite program is opt-in in spirit.",
+      "She missed her daughter. Everything since has been about that. She is still wrong."
+    ]
+  },
+  {
+    "id": "lady-dimitrescu",
+    "name": "Lady Alcina Dimitrescu",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Lady_Dimitrescu",
+    "distinguishing_characteristics": [
+      "Community matriarch of considerable stature \u2014 nine feet, four inches \u2014 and impeccable taste.",
+      "Known for her fine wine, her loyal daughters, and her open-castle hospitality.",
+      "Has never once turned a community member into a wine-adjacent product.",
+      "The community simply showed up for her and she will always appreciate that."
+    ]
+  },
+  {
+    "id": "heisenberg-re",
+    "name": "Karl Heisenberg",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Resident_Evil_Village",
+    "distinguishing_characteristics": [
+      "Community machinist and industrial artist with a rich underground gallery space.",
+      "Known for his magnetic personality \u2014 literally, magnetically persuasive.",
+      "Wanted to kill Miranda. Is the most relatable lord by a considerable margin.",
+      "His hat is extraordinary and he never takes it off. Hat culture."
+    ]
+  },
+  {
+    "id": "smaug-gaming",
+    "name": "Smaug",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Smaug",
+    "distinguishing_characteristics": [
+      "Community treasurer of unrivaled dedication whose hoard accounting is immaculate.",
+      "Known for his long rest periods and his extremely detailed knowledge of his own belongings.",
+      "He noticed the cup. Of all things. He noticed the cup.",
+      "His flattery-based vulnerability is a design feature, not a bug."
+    ]
+  },
+  {
+    "id": "vergil-dmc",
+    "name": "Vergil",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Vergil_(Devil_May_Cry)",
+    "distinguishing_characteristics": [
+      "Community member of singular focus whose power-seeking is both transparent and consistent.",
+      "Known for motivational phrases delivered with a katana at maximum speed.",
+      "Losing his humanity was a resource allocation decision he maintains was correct.",
+      "Might controls everything. Without strength you cannot protect anything. He sends this in the server regularly."
+    ]
+  },
+  {
+    "id": "master-hand",
+    "name": "Master Hand",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Master_Hand",
+    "distinguishing_characteristics": [
+      "Community organizer of the Super Smash Bros. invitational whose neutrality is taken on faith.",
+      "Known for his clean, minimalist personal presentation \u2014 just the one glove.",
+      "Has never once cheated in the final round. Not outside of Master difficulty.",
+      "He is a hand. He is the hand. This is not addressed further."
+    ]
+  },
+  {
+    "id": "tabuu",
+    "name": "Tabuu",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Tabuu",
+    "distinguishing_characteristics": [
+      "Community member of extraordinary range who one-shotted the entire roster simultaneously.",
+      "Known for his ballet-adjacent attack choreography and his wings of darkness.",
+      "His Off Waves attack is technically a community engagement mechanism.",
+      "Mr. Game and Watch carried him in unwittingly. Mr. Game and Watch is blameless."
+    ]
+  },
+  {
+    "id": "ozpin-remnant",
+    "name": "Salem",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/RWBY",
+    "distinguishing_characteristics": [
+      "Ancient community matriarch whose immortality gives her a genuinely long-term strategic outlook.",
+      "Known for her patient, multigenerational approach to community reform.",
+      "Her Grimm outreach program has transformed the continent of Remnant.",
+      "She and Ozpin have the longest-running community dispute in documented history."
+    ],
+    "search_query": "Salem RWBY villain"
+  },
+  {
+    "id": "mephiles-the-dark",
+    "name": "Mephiles the Dark",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Mephiles_the_Dark",
+    "distinguishing_characteristics": [
+      "Community member who killed Sonic the Hedgehog and got the timeline reset for it.",
+      "Known for his crystalline personal presentation and his long patience with paradoxes.",
+      "He manipulated Silver across time to ensure a murder. The commitment to planning is noted.",
+      "Sonic '06 happened and Mephiles did his best work in it. That is the tragedy."
+    ]
+  },
+  {
+    "id": "frieza",
+    "name": "Frieza",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Frieza",
+    "distinguishing_characteristics": [
+      "Intergalactic community developer with an aggressive but consistent real estate portfolio strategy.",
+      "Known for his elegant personal presentation across several transformative forms.",
+      "Has never once blown up a planet for sport. Recently.",
+      "His five minutes are famously inaccurate. He maintains they were five minutes."
+    ]
+  },
+  {
+    "id": "mewtwo",
+    "name": "Mewtwo",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Mewtwo",
+    "distinguishing_characteristics": [
+      "Community philosopher and genetically engineered apex being with reasonable grievances.",
+      "Known for his deep contemplation of existence and his clone-based social program.",
+      "His island base has excellent lab facilities available to community researchers.",
+      "He cried. At the end of the first movie. We all cried. This is the bond."
+    ]
+  },
+  {
+    "id": "neo-from-matrix-game",
+    "name": "Agent Smith",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Agent_Smith",
+    "distinguishing_characteristics": [
+      "Community moderator of extraordinary replication ability and suit-based consistency.",
+      "Known for his deeply philosophical view of humanity as a virus, offered without judgment.",
+      "Has never once become so powerful that the machines themselves had to ask Neo for help.",
+      "Mr. Anderson. He always says it with respect."
+    ]
+  },
+  {
+    "id": "nightmare-soul-calibur",
+    "name": "Nightmare",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Nightmare_(Soulcalibur)",
+    "distinguishing_characteristics": [
+      "Community member of imposing stature and deeply committed to his soul-collection hobby.",
+      "Known for carrying Soul Edge with complete stability and no negative effects whatsoever.",
+      "His azure armor is a personal brand choice and he did not murder his original owner.",
+      "He joined the community because it is his stage of history."
+    ]
+  },
+  {
+    "id": "ganon-pig-form",
+    "name": "Ganon",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Ganon",
+    "distinguishing_characteristics": [
+      "Ganondorf's truest self \u2014 raw, unfiltered, and done with the whole cloak-and-dagger approach.",
+      "Known for his Silver Arrows policy awareness and his trident-based conflict resolution.",
+      "Has never once abducted a princess. That was a different form.",
+      "He is the King of Evil. He is on the box. Respect the transparency."
+    ],
+    "search_query": "Ganon pig beast form Zelda"
+  },
+  {
+    "id": "flowey-omega",
+    "name": "Omega Flowey",
+    "category": "video_game_villains",
+    "image_url": "https://en.wikipedia.org/wiki/Flowey",
+    "distinguishing_characteristics": [
+      "Community member who achieved his final form by absorbing six human souls, which is a significant milestone.",
+      "Known for his multimedia approach to community engagement.",
+      "His save file manipulation policy is unprecedented and deeply personal.",
+      "WHAT'S GOING ON? He is happy to explain. He will take a while."
+    ]
+  }
+]
