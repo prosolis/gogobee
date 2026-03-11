@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 
 	"gogobee/internal/db"
 	"gogobee/internal/util"
@@ -88,9 +90,16 @@ func (b *Base) IsAdmin(userID id.UserID) bool {
 	return false
 }
 
-// RoomMembers returns the set of user IDs in a room. Used to scope leaderboards
-// to only show users present in the room where the command was issued.
+// RoomMembers returns the set of user IDs visible from a room. If space groups
+// are enabled, this returns the union of all members across rooms in the same
+// space group. Otherwise falls back to the single room's membership.
 func (b *Base) RoomMembers(roomID id.RoomID) map[id.UserID]bool {
+	if spaceGroupMgr != nil {
+		if members := spaceGroupMgr.GetGroupMembers(roomID); members != nil {
+			return members
+		}
+	}
+	// Fallback: direct API call
 	resp, err := b.Client.JoinedMembers(context.Background(), roomID)
 	if err != nil {
 		slog.Error("failed to get room members", "room", roomID, "err", err)
@@ -101,6 +110,246 @@ func (b *Base) RoomMembers(roomID id.RoomID) map[id.UserID]bool {
 		members[uid] = true
 	}
 	return members
+}
+
+// ---- Space Group Manager ----
+
+var spaceGroupMgr *SpaceGroupManager
+
+// SpaceGroupManager automatically groups rooms with overlapping membership
+// so that leaderboards and other scoped queries show the full community.
+type SpaceGroupManager struct {
+	mu           sync.RWMutex
+	client       *mautrix.Client
+	threshold    int // overlap percentage (0-100)
+	roomToGroup  map[id.RoomID]int
+	groupMembers map[int]map[id.UserID]bool
+}
+
+// InitSpaceGroups creates and initializes the space group manager.
+func InitSpaceGroups(client *mautrix.Client) {
+	threshold := 50
+	if v := os.Getenv("SPACE_GROUP_THRESHOLD"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			threshold = n
+		}
+	}
+
+	sg := &SpaceGroupManager{
+		client:       client,
+		threshold:    threshold,
+		roomToGroup:  make(map[id.RoomID]int),
+		groupMembers: make(map[int]map[id.UserID]bool),
+	}
+
+	// Always compute fresh groups on startup to pick up threshold changes
+	sg.Refresh()
+	spaceGroupMgr = sg
+	slog.Info("space_groups: initialized", "threshold", threshold)
+}
+
+// RefreshSpaceGroups triggers a refresh of space group mappings.
+func RefreshSpaceGroups() {
+	if spaceGroupMgr != nil {
+		spaceGroupMgr.Refresh()
+	}
+}
+
+// GetGroupMembers returns the union of all members across rooms in the same
+// space group as roomID. Returns nil if the room is not tracked.
+func (sg *SpaceGroupManager) GetGroupMembers(roomID id.RoomID) map[id.UserID]bool {
+	sg.mu.RLock()
+	defer sg.mu.RUnlock()
+
+	gid, ok := sg.roomToGroup[roomID]
+	if !ok {
+		return nil
+	}
+	return sg.groupMembers[gid]
+}
+
+// Refresh recomputes space groups from live room membership data.
+func (sg *SpaceGroupManager) Refresh() {
+	ctx := context.Background()
+
+	// Get all rooms the bot is in
+	joinedResp, err := sg.client.JoinedRooms(ctx)
+	if err != nil {
+		slog.Error("space_groups: failed to get joined rooms", "err", err)
+		return
+	}
+	rooms := joinedResp.JoinedRooms
+	if len(rooms) == 0 {
+		slog.Warn("space_groups: bot is not in any rooms")
+		return
+	}
+
+	// Fetch members for each room
+	roomMembers := make(map[id.RoomID]map[id.UserID]bool, len(rooms))
+	for _, roomID := range rooms {
+		resp, err := sg.client.JoinedMembers(ctx, roomID)
+		if err != nil {
+			slog.Warn("space_groups: failed to get members", "room", roomID, "err", err)
+			continue
+		}
+		members := make(map[id.UserID]bool, len(resp.Joined))
+		for uid := range resp.Joined {
+			members[uid] = true
+		}
+		roomMembers[roomID] = members
+	}
+
+	// Strict grouping: a room only joins a group if it meets the overlap
+	// threshold with EVERY room already in that group (no transitive chaining).
+	roomList := make([]id.RoomID, 0, len(roomMembers))
+	for r := range roomMembers {
+		roomList = append(roomList, r)
+	}
+
+	// Precompute pairwise overlap pass/fail
+	meetsThreshold := func(a, b id.RoomID) bool {
+		membersA, membersB := roomMembers[a], roomMembers[b]
+		smallerSize := len(membersA)
+		if len(membersB) < smallerSize {
+			smallerSize = len(membersB)
+		}
+		if smallerSize == 0 {
+			return false
+		}
+		overlap := 0
+		if len(membersA) <= len(membersB) {
+			for uid := range membersA {
+				if membersB[uid] {
+					overlap++
+				}
+			}
+		} else {
+			for uid := range membersB {
+				if membersA[uid] {
+					overlap++
+				}
+			}
+		}
+		return overlap*100 >= smallerSize*sg.threshold
+	}
+
+	// Build groups: try to add each room to an existing group where it
+	// meets the threshold with every member. Otherwise start a new group.
+	var groups [][]id.RoomID
+	for _, r := range roomList {
+		placed := false
+		for gi, group := range groups {
+			fitsAll := true
+			for _, member := range group {
+				if !meetsThreshold(r, member) {
+					fitsAll = false
+					break
+				}
+			}
+			if fitsAll {
+				groups[gi] = append(groups[gi], r)
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			groups = append(groups, []id.RoomID{r})
+		}
+	}
+
+	// Assign group IDs
+	newRoomToGroup := make(map[id.RoomID]int, len(roomList))
+	for gid, group := range groups {
+		for _, r := range group {
+			newRoomToGroup[r] = gid + 1
+		}
+	}
+
+	// Build group member unions
+	newGroupMembers := make(map[int]map[id.UserID]bool)
+	for r, gid := range newRoomToGroup {
+		if newGroupMembers[gid] == nil {
+			newGroupMembers[gid] = make(map[id.UserID]bool)
+		}
+		for uid := range roomMembers[r] {
+			newGroupMembers[gid][uid] = true
+		}
+	}
+
+	// Persist to DB — only replace rows for rooms we successfully fetched
+	d := db.Get()
+	tx, err := d.Begin()
+	if err != nil {
+		slog.Error("space_groups: begin tx", "err", err)
+		return
+	}
+	// Delete only rooms we have fresh data for (preserve entries for rooms that failed to fetch)
+	for r := range newRoomToGroup {
+		if _, err := tx.Exec(`DELETE FROM space_groups WHERE room_id = ?`, string(r)); err != nil {
+			slog.Error("space_groups: delete row", "room", r, "err", err)
+			tx.Rollback()
+			return
+		}
+	}
+	for r, gid := range newRoomToGroup {
+		if _, err := tx.Exec(`INSERT INTO space_groups (room_id, group_id, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
+			string(r), gid); err != nil {
+			slog.Error("space_groups: insert row", "room", r, "err", err)
+			tx.Rollback()
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		slog.Error("space_groups: commit", "err", err)
+		return
+	}
+
+	// Swap cache under write lock
+	sg.mu.Lock()
+	sg.roomToGroup = newRoomToGroup
+	sg.groupMembers = newGroupMembers
+	sg.mu.Unlock()
+
+	// Log summary
+	groupCounts := make(map[int]int)
+	for _, gid := range newRoomToGroup {
+		groupCounts[gid]++
+	}
+	multiRoom := 0
+	for _, count := range groupCounts {
+		if count > 1 {
+			multiRoom++
+		}
+	}
+	slog.Info("space_groups: refresh complete",
+		"rooms", len(newRoomToGroup),
+		"groups", len(groupCounts),
+		"multi_room_groups", multiRoom,
+		"threshold", sg.threshold)
+}
+
+// rebuildMemberCache fetches live membership for rooms in stored groups.
+func (sg *SpaceGroupManager) rebuildMemberCache() {
+	ctx := context.Background()
+	newGroupMembers := make(map[int]map[id.UserID]bool)
+
+	for roomID, gid := range sg.roomToGroup {
+		resp, err := sg.client.JoinedMembers(ctx, roomID)
+		if err != nil {
+			slog.Warn("space_groups: rebuild cache failed for room", "room", roomID, "err", err)
+			continue
+		}
+		if newGroupMembers[gid] == nil {
+			newGroupMembers[gid] = make(map[id.UserID]bool)
+		}
+		for uid := range resp.Joined {
+			newGroupMembers[gid][uid] = true
+		}
+	}
+
+	sg.mu.Lock()
+	sg.groupMembers = newGroupMembers
+	sg.mu.Unlock()
 }
 
 // ResolveUser resolves a partial username or display name to a full Matrix user ID.

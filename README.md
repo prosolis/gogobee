@@ -1,6 +1,6 @@
 # GogoBee
 
-Matrix community bot with E2EE, 35+ plugins, passive tracking, scheduled posts, and optional LLM features.
+Matrix community bot with E2EE, 37 plugins, passive tracking, scheduled posts, and optional LLM features.
 
 Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption and [modernc.org/sqlite](https://modernc.org/sqlite) for storage.
 
@@ -29,10 +29,12 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
-- **35+ plugins** with dependency injection and ordered registration
+- **37 plugins** with dependency injection and ordered registration
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
-- **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - WOTD, holidays, game releases, birthdays, anime/movie releases, concert digests
-- **LLM integration** (optional) - Ollama-powered sentiment analysis, roast profiles, room vibes, conversation summaries
+- **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - WOTD, holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
+- **LLM integration** (optional) - Ollama-powered sentiment analysis, roast profiles, room vibes, tarot readings, conversation summaries
+- **Encrypted quote wall** - AES-256-GCM encrypted quotes at rest, reply-to-save, search, leaderboard
+- **Space groups** - automatic room grouping via membership overlap. Leaderboards, stats, and trivia scores span all rooms in a group. No Matrix Spaces API needed — the bot infers community boundaries from shared members.
 - **SQLite everything** - one file, no external database needed
 
 ---
@@ -108,6 +110,7 @@ Everything is configured through environment variables or a `.env` file.
 | `FINNHUB_API_KEY` | [Finnhub](https://finnhub.io) | `!stock` |
 | `BANDSINTOWN_API_KEY` | [Bandsintown](https://artists.bandsintown.com) | `!concerts` |
 | `TMDB_API_KEY` | [TMDB](https://www.themoviedb.org/documentation/api) | `!movie`, `!tv`, `!upcoming` |
+| `SERPAPI_KEY` | [SerpAPI](https://serpapi.com) | Esteemed member image fetching |
 
 ### Services (optional)
 
@@ -116,6 +119,13 @@ Everything is configured through environment variables or a `.env` file.
 | `OLLAMA_HOST` | Ollama server URL, e.g. `http://localhost:11434` |
 | `OLLAMA_MODEL` | Model name, e.g. `llama3.2` |
 | `LIBRETRANSLATE_URL` | LibreTranslate instance for `!translate` |
+| `LLM_SAMPLE_RATE` | Fraction of messages to classify (0.0–1.0, default `0.15`) |
+
+### Encryption
+
+| Variable | Description |
+|----------|-------------|
+| `QUOTE_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256 key for encrypted quote storage. Generate with `openssl rand -base64 32`. If unset, `!quote` is disabled. |
 
 ### Feature Flags
 
@@ -123,6 +133,20 @@ Everything is configured through environment variables or a `.env` file.
 |----------|-------------|
 | `FEATURE_URL_PREVIEW` | Set to anything to enable automatic URL previews |
 | `FEATURE_SHADE` | Set to anything to enable the shade plugin (stub) |
+| `FEATURE_TRIVIA` | Set to `false` to disable trivia (default: enabled) |
+| `FEATURE_ESTEEMED` | Set to anything to enable satirical esteemed member posts |
+| `ESTEEMED_ROOM` | Room ID for esteemed member posts (separate from broadcast rooms) |
+
+### Missing Members
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+### Space Groups
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SPACE_GROUP_THRESHOLD` | `50` | Percentage of the smaller room's members that must overlap to group rooms together (1–100) |
+| `HOLIDAY_COUNTRIES` | `US` | Comma-separated ISO country codes for Calendarific holiday posts |
 
 ### Missing Members
 
@@ -222,7 +246,7 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | `!roll [NdM+X]` | Dice (default 1d6) |
 | `!8ball <question>` | Magic 8-ball |
 | `!coin` | Coin flip |
-| `!time [city]` | World clock |
+| `!time [city\|@user]` | World clock (cities or user's timezone) |
 | `!hltb <game>` | How Long To Beat |
 | `!twinbee` | Twinbee series lore |
 | `!poll <q> \| <a> \| <b>...` | Reaction poll |
@@ -267,7 +291,6 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | `!mytz` | Your timezone and current time |
 | `!timezone list` | Common timezones |
 | `!np [track]` | Now playing |
-| `!quote` | Random saved quote |
 | `!backlog add\|list\|random\|done` | Personal backlog |
 | `!watch <keyword>` | DM alerts for a keyword |
 | `!watching` | List keyword watches |
@@ -289,10 +312,17 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | `!birthday remove` | Remove birthday |
 | `!birthday show` | Show yours |
 | `!birthdays` | Upcoming (next 30 days) |
+| `!horoscope` | Daily horoscope (requires birthday to be set) |
 
 ### Community
 | Command | Description |
 |---------|-------------|
+| `!quote` | Random quote (or reply to a message to save it) |
+| `!quote @user` | Random quote from a specific user |
+| `!quote search <text>` | Search quotes |
+| `!quote "text" -- @user` | Manually save a quote attributed to a user |
+| `!quote delete <id>` | Delete a quote (admin only) |
+| `!quoteboard` | Top 5 most-quoted members |
 | `!missing` | List members who haven't posted recently |
 | `!missing post [@user]` | Generate a milk carton poster for the longest-absent (or specified) member |
 | `!haveyouseenthem @user` | Generate a milk carton missing poster for a user |
@@ -308,6 +338,8 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | `!pottyboard` | Profanity leaderboard |
 | `!insults [@user]` | Insult stats |
 | `!insultboard` | Insult leaderboard |
+| `!tarot [@user]` | Draw a tarot card + LLM reading |
+| `!tarotspread [@user]` | Three-card spread (Past/Present/Future) |
 
 ### Other
 | Command | Description |
@@ -334,9 +366,9 @@ All of these run in the background without any commands:
 - **Room milestones** - announces at 1k, 5k, 10k, 25k, 50k, 100k, 250k, 500k, 1M messages
 - **URL previews** - OG tag extraction (feature-flagged, off by default)
 - **Reactions** - logs all reactions for `!emojiboard`
+- **Space groups** - rooms with sufficient member overlap are automatically grouped. Leaderboards, trivia scores, and other per-room features aggregate across the group. Recomputed hourly; persisted to SQLite. Uses strict clique-based grouping (every room must meet the threshold with every other room in the group).
 - **LLM classification** - sentiment (10 categories), profanity, insults, WOTD usage (needs Ollama)
-- **Message buffer** - last 50 messages per room held in memory for `!vibe` and `!tldr`. Not persisted to disk; resets on restart.
-- **Quotes** - star-react any message to save it
+- **Message buffer** - last 50 messages per room held in memory for `!vibe` and `!tldr`. Not persisted to disk; resets on restart. Uptime reported when insufficient messages are buffered.
 
 ---
 
@@ -354,7 +386,9 @@ Uses [robfig/cron](https://github.com/robfig/cron). All times UTC.
 | 10:00 | Anime | Anime airing today |
 | 11:00 | Movies | Movie releases today |
 | 12:00 Sun | Concerts | Weekly concert digest |
+| 13:00 Wed/Sun | Esteemed | Satirical esteemed community member posts (feature-flagged) |
 | Every 30s | Reminders | Fires pending reminders |
+| Hourly | Space groups | Refreshes room membership overlap and group mappings |
 | 03:00 | Maintenance | Purges stale caches, old rate limits, expired logs; runs SQLite optimize |
 
 ---
@@ -437,8 +471,10 @@ All optional. The bot works fine without any of them, you just won't have those 
 | [Free Dictionary](https://dictionaryapi.dev) | Yes, no key | Definitions |
 | [Urban Dictionary](https://rapidapi.com/community/api/urban-dictionary) | Yes, no key | Slang |
 | [icanhazdadjoke](https://icanhazdadjoke.com) | Yes, no key | Dad jokes |
+| [SerpAPI](https://serpapi.com) | Free (100/mo) | Image search for esteemed members |
+| [HowLongToBeat](https://howlongtobeat.com) | Yes, no key | Game completion times |
 | [LibreTranslate](https://libretranslate.com) | Self-host | Translation |
-| [Ollama](https://ollama.ai) | Self-host | LLM features |
+| [Ollama](https://ollama.ai) | Self-host | LLM features (sentiment, tarot, vibes, roasts) |
 
 ---
 
@@ -452,6 +488,8 @@ gogobee/
 │   ├── bot/
 │   │   ├── client.go        # mautrix client + E2EE (cryptohelper + goolm)
 │   │   └── dispatch.go      # Plugin registry, event dispatch
+│   ├── crypto/
+│   │   └── crypto.go        # AES-256-GCM encryption, HMAC-SHA256
 │   ├── db/
 │   │   └── db.go            # SQLite schema (40+ tables), migrations
 │   ├── plugin/
@@ -488,6 +526,10 @@ gogobee/
 │   │   ├── vibe.go          # Room vibe, TLDR
 │   │   ├── shade.go         # Stub
 │   │   ├── milkcarton.go    # Missing member milk carton posters
+│   │   ├── quotewall.go     # Encrypted quote wall (AES-256-GCM)
+│   │   ├── tarot.go         # LLM-powered tarot readings
+│   │   ├── horoscope.go     # Daily horoscopes
+│   │   ├── esteemed.go      # Satirical esteemed member posts
 │   │   └── ratelimits.go    # Rate limiting
 │   └── util/
 │       ├── auth.go          # Matrix login, token check
@@ -511,7 +553,7 @@ gogobee/
 
 Single SQLite file at `$DATA_DIR/gogobee.db`. Schema auto-creates on first run. WAL mode enabled.
 
-40+ tables covering users, XP, stats, streaks, reputation, reminders, trivia, achievements, quotes, backlog, keyword watches, scheduler config, birthdays, LLM classifications, stocks, concerts, anime, movies, countdowns, presence, markov corpus, reaction log, and various caches.
+40+ tables covering users, XP, stats, streaks, reputation, reminders, trivia, achievements, encrypted quotes (AES-256-GCM), backlog, keyword watches, scheduler config, birthdays, horoscopes, LLM classifications, stocks, concerts, anime, movies, countdowns, presence, markov corpus, reaction log, and various caches.
 
 ### Backup
 

@@ -118,6 +118,7 @@ var categoryOrder = []string{
 	"LLM & Sentiment",
 	"Personal",
 	"Holidays",
+	"Community",
 	"Reactions",
 	"Info",
 }
@@ -131,6 +132,7 @@ var categoryEmojis = map[string]string{
 	"LLM & Sentiment":    "🧠",
 	"Personal":           "👤",
 	"Holidays":           "🎉",
+	"Community":          "💬",
 	"Reactions":          "😎",
 	"Info":               "ℹ️",
 	"Admin":              "🔧",

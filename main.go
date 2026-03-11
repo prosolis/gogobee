@@ -147,6 +147,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize space groups (room overlap detection for community-wide leaderboards)
+	plugin.InitSpaceGroups(client)
+
 	// ---- Set up event handlers ----
 
 	syncer := client.Syncer.(*mautrix.DefaultSyncer)
@@ -179,6 +182,12 @@ func main() {
 		}
 
 		body := content.Body
+		// Strip Matrix reply fallback: "> <@user:server> ..." lines followed by blank line
+		if strings.HasPrefix(body, "> <@") || strings.HasPrefix(body, "> * <@") {
+			if idx := strings.Index(body, "\n\n"); idx >= 0 {
+				body = strings.TrimSpace(body[idx+2:])
+			}
+		}
 		msgCtx := plugin.MessageContext{
 			RoomID:    evt.RoomID,
 			EventID:   evt.ID,
@@ -216,7 +225,7 @@ func main() {
 
 	// ---- Set up cron scheduler ----
 	scheduler := cron.New()
-	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin, esteemedPlugin, horoscopePlugin)
+	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin, esteemedPlugin)
 	scheduler.Start()
 
 	// ---- Start syncing ----
@@ -252,7 +261,6 @@ func setupScheduledJobs(
 	movies *plugin.MoviesPlugin,
 	concerts *plugin.ConcertsPlugin,
 	esteemed *plugin.EsteemPlugin,
-	horoscope *plugin.HoroscopePlugin,
 ) {
 	rooms := getRooms()
 
@@ -268,14 +276,6 @@ func setupScheduledJobs(
 		slog.Info("scheduler: checking birthdays")
 		for _, r := range rooms {
 			birthday.CheckAndPost(r)
-		}
-	})
-
-	// Daily horoscopes at 06:30
-	c.AddFunc("30 6 * * *", func() {
-		slog.Info("scheduler: posting daily horoscopes")
-		for _, r := range rooms {
-			horoscope.PostDailyHoroscopes(r)
 		}
 	})
 
@@ -336,6 +336,12 @@ func setupScheduledJobs(
 	c.AddFunc("0 13 * * 0,3", func() {
 		slog.Info("scheduler: posting esteemed member")
 		esteemed.PostWeekly()
+	})
+
+	// Space groups refresh every hour
+	c.AddFunc("0 * * * *", func() {
+		slog.Info("scheduler: refreshing space groups")
+		plugin.RefreshSpaceGroups()
 	})
 
 	// Database maintenance at 03:00 daily

@@ -15,6 +15,7 @@ import (
 	"gogobee/internal/db"
 
 	"maunium.net/go/mautrix"
+	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -89,12 +90,13 @@ func (p *QuoteWallPlugin) handleQuote(ctx MessageContext) error {
 	}
 
 	// !quote delete [id]
-	if strings.HasPrefix(strings.ToLower(args), "delete") {
+	argsLower := strings.ToLower(args)
+	if argsLower == "delete" || strings.HasPrefix(argsLower, "delete ") {
 		return p.handleQuoteDelete(ctx, strings.TrimSpace(args[6:]))
 	}
 
 	// !quote search [keyword]
-	if strings.HasPrefix(strings.ToLower(args), "search") {
+	if argsLower == "search" || strings.HasPrefix(argsLower, "search ") {
 		keyword := strings.TrimSpace(args[6:])
 		return p.handleQuoteSearch(ctx, keyword)
 	}
@@ -125,10 +127,27 @@ func (p *QuoteWallPlugin) handleQuoteSaveReply(ctx MessageContext, replyEventID 
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to fetch the original message.")
 	}
 
-	err = evt.Content.ParseRaw(evt.Type)
-	if err != nil {
-		slog.Error("quotewall: parse reply event content", "err", err)
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to parse the original message.")
+	// Decrypt if the event is encrypted
+	if evt.Type == event.EventEncrypted {
+		if p.Client.Crypto != nil {
+			if parseErr := evt.Content.ParseRaw(evt.Type); parseErr != nil {
+				slog.Error("quotewall: parse encrypted event", "err", parseErr)
+				return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to parse the encrypted message.")
+			}
+			decrypted, decErr := p.Client.Crypto.Decrypt(context.Background(), evt)
+			if decErr != nil {
+				slog.Error("quotewall: decrypt reply event", "err", decErr)
+				return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to decrypt the original message.")
+			}
+			evt = decrypted
+		} else {
+			return p.SendReply(ctx.RoomID, ctx.EventID, "Cannot read encrypted messages without crypto support.")
+		}
+	} else {
+		if parseErr := evt.Content.ParseRaw(evt.Type); parseErr != nil {
+			slog.Error("quotewall: parse reply event content", "err", parseErr)
+			return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to parse the original message.")
+		}
 	}
 
 	msgContent := evt.Content.AsMessage()

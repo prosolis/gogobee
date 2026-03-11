@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -329,11 +330,73 @@ func (p *FunPlugin) handleHLTB(ctx MessageContext) error {
 	return p.SendMessage(ctx.RoomID, result)
 }
 
-func scrapeHLTB(gameName string) (string, error) {
-	payload := fmt.Sprintf(`{"searchType":"games","searchTerms":["%s"],"searchPage":1,"size":1,"searchOptions":{"games":{"userId":0,"platform":"","sortCategory":"popular","rangeCategory":"main","rangeTime":{"min":null,"max":null},"gameplay":{"perspective":"","flow":"","genre":"","subGenre":""},"rangeYear":{"min":"","max":""},"modifier":""},"users":{"sortCategory":"postcount"},"lists":{"sortCategory":"follows"},"filter":"","sort":0,"randomizer":0}}`,
-		strings.ReplaceAll(gameName, `"`, `\"`))
+// hltbFetchToken gets a short-lived auth token from the HLTB finder init endpoint.
+func hltbFetchToken() (string, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	url := fmt.Sprintf("https://howlongtobeat.com/api/finder/init?t=%d", time.Now().UnixMilli())
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+	req.Header.Set("Referer", "https://howlongtobeat.com")
+	req.Header.Set("Origin", "https://howlongtobeat.com")
 
-	req, err := http.NewRequest("POST", "https://howlongtobeat.com/api/search", strings.NewReader(payload))
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	if result.Token == "" {
+		return "", fmt.Errorf("empty token from HLTB")
+	}
+	return result.Token, nil
+}
+
+func scrapeHLTB(gameName string) (string, error) {
+	token, err := hltbFetchToken()
+	if err != nil {
+		return "", fmt.Errorf("hltb token: %w", err)
+	}
+
+	payload := map[string]interface{}{
+		"searchType":  "games",
+		"searchTerms": []string{gameName},
+		"searchPage":  1,
+		"size":        1,
+		"searchOptions": map[string]interface{}{
+			"games": map[string]interface{}{
+				"userId":        0,
+				"platform":      "",
+				"sortCategory":  "popular",
+				"rangeCategory": "main",
+				"rangeTime":     map[string]interface{}{"min": nil, "max": nil},
+				"gameplay":      map[string]interface{}{"perspective": "", "flow": "", "genre": "", "subGenre": "", "difficulty": ""},
+				"rangeYear":     map[string]interface{}{"min": "", "max": ""},
+				"modifier":      "",
+			},
+			"users": map[string]interface{}{"sortCategory": "postcount"},
+			"lists": map[string]interface{}{"sortCategory": "follows"},
+			"filter": "",
+			"sort":   0,
+			"randomizer": 0,
+		},
+		"useCache": true,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", "https://howlongtobeat.com/api/finder", bytes.NewReader(data))
 	if err != nil {
 		return "", err
 	}
@@ -342,6 +405,7 @@ func scrapeHLTB(gameName string) (string, error) {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
 	req.Header.Set("Referer", "https://howlongtobeat.com")
 	req.Header.Set("Origin", "https://howlongtobeat.com")
+	req.Header.Set("x-auth-token", token)
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
@@ -355,14 +419,18 @@ func scrapeHLTB(gameName string) (string, error) {
 		return "", err
 	}
 
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("hltb HTTP %d", resp.StatusCode)
+	}
+
 	var result struct {
 		Data []struct {
-			GameName      string  `json:"game_name"`
-			CompMain      float64 `json:"comp_main"`
-			CompPlus      float64 `json:"comp_plus"`
-			CompAll       float64 `json:"comp_100"`
-			ProfileDev    string  `json:"profile_dev"`
-			ReleaseWorld  int     `json:"release_world"`
+			GameName     string  `json:"game_name"`
+			CompMain     float64 `json:"comp_main"`
+			CompPlus     float64 `json:"comp_plus"`
+			CompAll      float64 `json:"comp_100"`
+			ProfileDev   string  `json:"profile_dev"`
+			ReleaseWorld int     `json:"release_world"`
 		} `json:"data"`
 	}
 
@@ -388,7 +456,7 @@ func scrapeHLTB(gameName string) (string, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("🎮 **%s**\n", game.GameName))
+	sb.WriteString(fmt.Sprintf("\U0001f3ae **%s**\n", game.GameName))
 	sb.WriteString(fmt.Sprintf("  Main Story: %s\n", formatTime(game.CompMain)))
 	sb.WriteString(fmt.Sprintf("  Main + Extras: %s\n", formatTime(game.CompPlus)))
 	sb.WriteString(fmt.Sprintf("  Completionist: %s\n", formatTime(game.CompAll)))

@@ -110,7 +110,7 @@ func (p *MoviesPlugin) Commands() []CommandDef {
 		{Name: "movie watch", Description: "Add a movie to your watchlist", Usage: "!movie watch <title>", Category: "Entertainment"},
 		{Name: "movie watching", Description: "List your movie watchlist", Usage: "!movie watching", Category: "Entertainment"},
 		{Name: "movie unwatch", Description: "Remove from watchlist by TMDB ID", Usage: "!movie unwatch <id>", Category: "Entertainment"},
-		{Name: "upcoming movies", Description: "Show upcoming movies", Usage: "!upcoming movies", Category: "Entertainment"},
+		{Name: "upcoming", Description: "Show upcoming movies", Usage: "!upcoming movies", Category: "Entertainment"},
 	}
 }
 

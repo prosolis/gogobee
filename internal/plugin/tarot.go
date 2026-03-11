@@ -38,15 +38,29 @@ var tarotDeck = []string{
 	"Page of Pentacles", "Knight of Pentacles", "Queen of Pentacles", "King of Pentacles",
 }
 
-const tarotSystemPrompt = `You are a tarot reader of extraordinary accuracy and absolutely no sympathy.
+const tarotBasePrompt = `You are a tarot reader of extraordinary accuracy and absolutely no sympathy.
 You deliver readings with the warm professionalism of a customer service representative
 who has fully accepted that everyone who consults you is, in some specific and personal way,
 a disappointment. Your readings are detailed, specific, and correct. They are also mean.
 Not vague mean -- specific mean. You will compliment one thing and immediately undermine it.
 You will predict great fortune followed by a precise and avoidable tragedy. The tragedy
 should always be mundane, specific, and disproportionate to the fortune. You close every
-reading politely. Under 5 sentences. Do not explain the card. Do not break character.
-The querent asked for this.`
+reading politely. Do not break character. The querent asked for this.
+Do NOT interpret the card's traditional meaning. The card name is a prop.
+The reading should feel like it could apply to anyone and was generated
+specifically to ruin their day in a cheerful, efficient manner.
+The tragedy must be physical, mundane, and stupid.
+Emotional tragedies are not funny enough.`
+
+const tarotSingleSuffix = `Under 5 sentences. Do not explain the card.`
+
+const tarotSpreadSuffix = `This is a three-card spread. Each card represents a phase of the
+querent's timeline: what got them here, what's happening now, and what's coming.
+Dedicate a short paragraph to each card. The past should establish a pattern of behavior
+that makes the present inevitable. The present should be a false peak -- things look good,
+or at least survivable. The future should undo everything with something preventable,
+physical, and profoundly stupid. Build momentum across all three so the final tragedy
+lands harder. Around 15-20 sentences total. Close with a polite farewell.`
 
 const tarotFewShot = `Example 1:
 Card: The Sun
@@ -135,7 +149,7 @@ func (p *TarotPlugin) handleTarot(ctx MessageContext) error {
 	if sign := lookupZodiac(readingFor); sign != "" {
 		extraLines += fmt.Sprintf("\nQuerent's zodiac sign: %s", sign)
 	}
-	prompt := fmt.Sprintf("%s\n\n%s\n\nCard drawn: %s%s\nGive the reading.", tarotSystemPrompt, tarotFewShot, card, extraLines)
+	prompt := fmt.Sprintf("%s\n%s\n\n%s\n\nCard drawn: %s%s\nGive the reading.", tarotBasePrompt, tarotSingleSuffix, tarotFewShot, card, extraLines)
 
 	response, err := callOllama(ollamaHost, ollamaModel, prompt)
 	if err != nil {
@@ -185,8 +199,8 @@ func (p *TarotPlugin) handleSpread(ctx MessageContext) error {
 	if sign := lookupZodiac(readingFor); sign != "" {
 		extraLines += fmt.Sprintf("\nQuerent's zodiac sign: %s", sign)
 	}
-	prompt := fmt.Sprintf("%s\n\n%s\n\nCards drawn:\n- Past: %s\n- Present: %s\n- Future: %s%s\nGive a unified reading that weaves all three cards together.",
-		tarotSystemPrompt, tarotFewShot, cards[0], cards[1], cards[2], extraLines)
+	prompt := fmt.Sprintf("%s\n%s\n\n%s\n\nCards drawn:\n- Past: %s\n- Present: %s\n- Future: %s%s\nGive the reading.",
+		tarotBasePrompt, tarotSpreadSuffix, tarotFewShot, cards[0], cards[1], cards[2], extraLines)
 
 	response, err := callOllama(ollamaHost, ollamaModel, prompt)
 	if err != nil {

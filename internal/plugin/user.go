@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -33,7 +32,6 @@ func (p *UserPlugin) Commands() []CommandDef {
 		{Name: "settz", Description: "Set your timezone (IANA format)", Usage: "!settz America/New_York", Category: "Personal"},
 		{Name: "mytz", Description: "Show your timezone and current time", Usage: "!mytz", Category: "Personal"},
 		{Name: "timezone", Description: "List common timezones", Usage: "!timezone list", Category: "Personal"},
-		{Name: "quote", Description: "Show a random saved quote from this room", Usage: "!quote", Category: "Personal"},
 		{Name: "np", Description: "Set or show now playing", Usage: "!np [track]", Category: "Personal"},
 		{Name: "backlog", Description: "Manage your personal backlog", Usage: "!backlog add/list/random/done", Category: "Personal"},
 		{Name: "watch", Description: "Watch a keyword for DM alerts", Usage: "!watch <keyword>", Category: "Personal"},
@@ -44,40 +42,7 @@ func (p *UserPlugin) Commands() []CommandDef {
 
 func (p *UserPlugin) Init() error { return nil }
 
-func (p *UserPlugin) OnReaction(ctx ReactionContext) error {
-	if ctx.Emoji != "\u2B50" { // ⭐
-		return nil
-	}
-
-	// Fetch the target event to get the quoted message
-	evt, err := p.Client.GetEvent(context.Background(), ctx.RoomID, ctx.TargetEvent)
-	if err != nil {
-		slog.Error("user: fetch event for quote", "err", err)
-		return nil
-	}
-
-	if err := evt.Content.ParseRaw(evt.Type); err != nil {
-		slog.Error("user: parse event content for quote", "err", err)
-		return nil
-	}
-
-	content := evt.Content.AsMessage()
-	if content == nil || content.Body == "" {
-		return nil
-	}
-
-	d := db.Get()
-	_, err = d.Exec(
-		`INSERT INTO quotes (room_id, user_id, quote_text, saved_by) VALUES (?, ?, ?, ?)`,
-		string(ctx.RoomID), string(evt.Sender), content.Body, string(ctx.Sender),
-	)
-	if err != nil {
-		slog.Error("user: save quote", "err", err)
-		return nil
-	}
-
-	return p.SendReact(ctx.RoomID, ctx.EventID, "\u2705") // ✅
-}
+func (p *UserPlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *UserPlugin) OnMessage(ctx MessageContext) error {
 	switch {
@@ -87,8 +52,6 @@ func (p *UserPlugin) OnMessage(ctx MessageContext) error {
 		return p.handleMyTZ(ctx)
 	case p.IsCommand(ctx.Body, "timezone"):
 		return p.handleTimezoneList(ctx)
-	case p.IsCommand(ctx.Body, "quote"):
-		return p.handleQuote(ctx)
 	case p.IsCommand(ctx.Body, "np"):
 		return p.handleNP(ctx)
 	case p.IsCommand(ctx.Body, "backlog"):
@@ -180,25 +143,6 @@ func (p *UserPlugin) handleTimezoneList(ctx MessageContext) error {
 	sb.WriteString("\nSet yours with: !settz <timezone>")
 
 	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
-}
-
-func (p *UserPlugin) handleQuote(ctx MessageContext) error {
-	d := db.Get()
-	var quoteText, userID string
-	err := d.QueryRow(
-		`SELECT quote_text, user_id FROM quotes WHERE room_id = ? ORDER BY RANDOM() LIMIT 1`,
-		string(ctx.RoomID),
-	).Scan(&quoteText, &userID)
-	if err == sql.ErrNoRows {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "No quotes saved in this room yet. React with a star to save one!")
-	}
-	if err != nil {
-		slog.Error("user: random quote", "err", err)
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to fetch a quote.")
-	}
-
-	msg := fmt.Sprintf("\"%s\"\n  — %s", quoteText, userID)
-	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
 func (p *UserPlugin) handleNP(ctx MessageContext) error {

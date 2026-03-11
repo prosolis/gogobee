@@ -621,6 +621,13 @@ CREATE TABLE IF NOT EXISTS api_cache (
 	cached_at INTEGER DEFAULT (unixepoch())
 );
 
+-- Space groups (rooms with overlapping membership)
+CREATE TABLE IF NOT EXISTS space_groups (
+	room_id    TEXT PRIMARY KEY,
+	group_id   INTEGER NOT NULL,
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.
