@@ -268,7 +268,7 @@ func (p *FunPlugin) handleTime(ctx MessageContext) error {
 }
 
 func (p *FunPlugin) showUserTime(ctx MessageContext, input string) error {
-	resolved, ok := p.ResolveUser(input)
+	resolved, ok := p.ResolveUser(input, ctx.RoomID)
 	if !ok {
 		return p.SendMessage(ctx.RoomID, fmt.Sprintf("Unknown city, timezone, or user: %s", input))
 	}

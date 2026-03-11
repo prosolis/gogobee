@@ -104,6 +104,8 @@ func main() {
 
 	// Community
 	registry.Register(plugin.NewMilkCartonPlugin(client, ratePlugin))
+	registry.Register(plugin.NewQuoteWallPlugin(client, ratePlugin))
+	registry.Register(plugin.NewTarotPlugin(client, ratePlugin))
 
 	// Tracking (passive)
 	registry.Register(plugin.NewAchievementsPlugin(client, registry))

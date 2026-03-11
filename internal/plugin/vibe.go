@@ -30,6 +30,7 @@ type VibePlugin struct {
 	mu        sync.Mutex
 	buffers   map[id.RoomID][]bufferedMessage
 	cooldowns map[id.RoomID]time.Time
+	startedAt time.Time
 }
 
 // NewVibePlugin creates a new vibe plugin.
@@ -38,6 +39,7 @@ func NewVibePlugin(client *mautrix.Client) *VibePlugin {
 		Base:      NewBase(client),
 		buffers:   make(map[id.RoomID][]bufferedMessage),
 		cooldowns: make(map[id.RoomID]time.Time),
+		startedAt: time.Now().UTC(),
 	}
 }
 
@@ -127,7 +129,7 @@ func (p *VibePlugin) handleVibe(ctx MessageContext) error {
 	buf := p.getBuffer(ctx.RoomID)
 	if len(buf) < vibeMinMessages {
 		return p.SendReply(ctx.RoomID, ctx.EventID,
-			fmt.Sprintf("Need at least %d messages to read the vibe. Currently have %d.", vibeMinMessages, len(buf)))
+			fmt.Sprintf("Need at least %d messages to read the vibe. Currently have %d. (uptime: %s)", vibeMinMessages, len(buf), p.uptime()))
 	}
 
 	if !p.checkCooldown(ctx.RoomID) {
@@ -172,7 +174,7 @@ func (p *VibePlugin) handleTLDR(ctx MessageContext) error {
 	buf := p.getBuffer(ctx.RoomID)
 	if len(buf) < vibeMinMessages {
 		return p.SendReply(ctx.RoomID, ctx.EventID,
-			fmt.Sprintf("Need at least %d messages for a summary. Currently have %d.", vibeMinMessages, len(buf)))
+			fmt.Sprintf("Need at least %d messages for a summary. Currently have %d. (uptime: %s)", vibeMinMessages, len(buf), p.uptime()))
 	}
 
 	if !p.checkCooldown(ctx.RoomID) {
@@ -205,6 +207,24 @@ Summary:`, tldrBotName, transcript)
 	}
 
 	return p.SendMessage(ctx.RoomID, response)
+}
+
+func (p *VibePlugin) uptime() string {
+	d := time.Since(p.startedAt)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if h >= 24 {
+		days := h / 24
+		h = h % 24
+		return fmt.Sprintf("%dd %dh", days, h)
+	}
+	return fmt.Sprintf("%dh %dm", h, m)
 }
 
 func formatTranscript(messages []bufferedMessage) string {

@@ -579,7 +579,7 @@ func (p *LLMPassivePlugin) handlePotty(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "potty")
 	if args != "" {
-		if resolved, ok := p.ResolveUser(args); ok {
+		if resolved, ok := p.ResolveUser(args, ctx.RoomID); ok {
 			target = resolved
 		}
 	}
@@ -646,7 +646,7 @@ func (p *LLMPassivePlugin) handleInsults(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "insults")
 	if args != "" {
-		if resolved, ok := p.ResolveUser(args); ok {
+		if resolved, ok := p.ResolveUser(args, ctx.RoomID); ok {
 			target = resolved
 		}
 	}
@@ -713,7 +713,7 @@ func (p *LLMPassivePlugin) handleSentiment(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "sentiment")
 	if args != "" {
-		if resolved, ok := p.ResolveUser(args); ok {
+		if resolved, ok := p.ResolveUser(args, ctx.RoomID); ok {
 			target = resolved
 		}
 	}

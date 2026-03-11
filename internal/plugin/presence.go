@@ -130,7 +130,7 @@ func (p *PresencePlugin) handleWhois(ctx MessageContext) error {
 		return p.SendMessage(ctx.RoomID, "Usage: !whois <user>")
 	}
 
-	targetUser, ok := p.ResolveUser(args)
+	targetUser, ok := p.ResolveUser(args, ctx.RoomID)
 	if !ok {
 		return p.SendMessage(ctx.RoomID, "Could not find a user matching that name.")
 	}

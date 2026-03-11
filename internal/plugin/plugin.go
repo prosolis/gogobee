@@ -103,10 +103,11 @@ func (b *Base) RoomMembers(roomID id.RoomID) map[id.UserID]bool {
 	return members
 }
 
-// ResolveUser resolves a partial username to a full Matrix user ID.
-// Accepts any of: "@user:server", "user:server", "user", or partial match.
+// ResolveUser resolves a partial username or display name to a full Matrix user ID.
+// Accepts any of: "@user:server", "user:server", "user", display name, or partial match.
+// Uses room membership to match against display names when a localpart match isn't found.
 // Returns the matched user ID and true, or empty and false if no unique match.
-func (b *Base) ResolveUser(input string) (id.UserID, bool) {
+func (b *Base) ResolveUser(input string, roomIDs ...id.RoomID) (id.UserID, bool) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return "", false
@@ -122,7 +123,7 @@ func (b *Base) ResolveUser(input string) (id.UserID, bool) {
 
 	// Strip leading @ for the search
 	query := strings.TrimPrefix(input, "@")
-	query = strings.ToLower(query)
+	queryLower := strings.ToLower(query)
 
 	d := db.Get()
 	rows, err := d.Query(`SELECT user_id FROM user_stats`)
@@ -151,25 +152,47 @@ func (b *Base) ResolveUser(input string) (id.UserID, bool) {
 
 		lower := strings.ToLower(localpart)
 
-		if lower == query {
+		if lower == queryLower {
 			exact = append(exact, uid)
-		} else if strings.Contains(lower, query) {
+		} else if strings.Contains(lower, queryLower) {
 			partial = append(partial, uid)
 		}
 	}
 
 	// Exact localpart match — return it (even if multiple servers, prefer first)
-	if len(exact) == 1 {
-		return id.UserID(exact[0]), true
-	}
-	if len(exact) > 1 {
-		// Multiple exact matches across servers — return the first one
+	if len(exact) >= 1 {
 		return id.UserID(exact[0]), true
 	}
 
-	// Single partial match
+	// Single partial localpart match
 	if len(partial) == 1 {
 		return id.UserID(partial[0]), true
+	}
+
+	// Fall back to display name matching via room membership
+	if len(roomIDs) > 0 {
+		resp, err := b.Client.JoinedMembers(context.Background(), roomIDs[0])
+		if err == nil {
+			var dnExact []id.UserID
+			var dnPartial []id.UserID
+			for uid, member := range resp.Joined {
+				if member.DisplayName == "" {
+					continue
+				}
+				dn := strings.ToLower(member.DisplayName)
+				if dn == queryLower {
+					dnExact = append(dnExact, uid)
+				} else if strings.Contains(dn, queryLower) {
+					dnPartial = append(dnPartial, uid)
+				}
+			}
+			if len(dnExact) >= 1 {
+				return dnExact[0], true
+			}
+			if len(dnPartial) == 1 {
+				return dnPartial[0], true
+			}
+		}
 	}
 
 	return "", false

@@ -158,7 +158,7 @@ func (p *XPPlugin) handleRank(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "rank")
 	if args != "" {
-		if resolved, ok := p.ResolveUser(args); ok {
+		if resolved, ok := p.ResolveUser(args, ctx.RoomID); ok {
 			target = resolved
 		}
 	}

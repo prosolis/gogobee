@@ -100,7 +100,7 @@ func (p *MarkovPlugin) handleMarkov(ctx MessageContext) error {
 		targetUser = ctx.Sender
 	default:
 		// Treat as user ID
-		if resolved, ok := p.ResolveUser(args); ok {
+		if resolved, ok := p.ResolveUser(args, ctx.RoomID); ok {
 			targetUser = resolved
 		}
 	}

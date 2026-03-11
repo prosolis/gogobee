@@ -151,7 +151,7 @@ func (p *MilkCartonPlugin) handleHaveYouSeenThem(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !haveyouseenthem @user")
 	}
 
-	targetID, ok := p.ResolveUser(args)
+	targetID, ok := p.ResolveUser(args, ctx.RoomID)
 	if !ok {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Could not find a user matching that name.")
 	}

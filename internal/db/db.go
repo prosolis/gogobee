@@ -303,14 +303,16 @@ CREATE TABLE IF NOT EXISTS achievements (
 	PRIMARY KEY (user_id, achievement_id)
 );
 
--- Quotes
+-- Quotes (encrypted at rest)
 CREATE TABLE IF NOT EXISTS quotes (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	room_id TEXT NOT NULL,
-	user_id TEXT NOT NULL,
-	quote_text TEXT NOT NULL,
-	saved_by TEXT NOT NULL,
-	created_at INTEGER DEFAULT (unixepoch())
+	id            INTEGER PRIMARY KEY AUTOINCREMENT,
+	room_id       TEXT NOT NULL,
+	submitted_by  TEXT NOT NULL,
+	saved_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	content_hmac  TEXT NOT NULL UNIQUE,
+	quote_text    BLOB NOT NULL,
+	attributed_to BLOB NOT NULL,
+	context       BLOB
 );
 
 -- Now Playing
@@ -618,6 +620,7 @@ CREATE TABLE IF NOT EXISTS api_cache (
 	data TEXT NOT NULL,
 	cached_at INTEGER DEFAULT (unixepoch())
 );
+
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

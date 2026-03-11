@@ -91,7 +91,7 @@ func (p *StreaksPlugin) handleStreak(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "streak")
 	if args != "" {
-		if resolved, ok := p.ResolveUser(args); ok {
+		if resolved, ok := p.ResolveUser(args, ctx.RoomID); ok {
 			target = resolved
 		}
 	}

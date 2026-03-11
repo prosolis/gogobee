@@ -129,7 +129,7 @@ func (p *ReputationPlugin) handleRep(ctx MessageContext) error {
 	target := ctx.Sender
 	args := p.GetArgs(ctx.Body, "rep")
 	if args != "" {
-		if resolved, ok := p.ResolveUser(args); ok {
+		if resolved, ok := p.ResolveUser(args, ctx.RoomID); ok {
 			target = resolved
 		}
 	}
