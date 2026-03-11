@@ -137,10 +137,6 @@ Everything is configured through environment variables or a `.env` file.
 | `FEATURE_ESTEEMED` | Set to anything to enable satirical esteemed member posts |
 | `ESTEEMED_ROOM` | Room ID for esteemed member posts (separate from broadcast rooms) |
 
-### Missing Members
-
-| Variable | Default | Description |
-|----------|---------|-------------|
 ### Space Groups
 
 | Variable | Default | Description |
