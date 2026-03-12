@@ -13,7 +13,7 @@ type FlipPlugin struct {
 }
 
 func NewFlipPlugin(client *mautrix.Client) *FlipPlugin {
-	return &FlipPlugin{Base: Base{Client: client}}
+	return &FlipPlugin{Base: NewBase(client)}
 }
 
 func (p *FlipPlugin) Name() string { return "flip" }

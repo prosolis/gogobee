@@ -459,7 +459,7 @@ func NewModerationPlugin(client *mautrix.Client) *ModerationPlugin {
 	}
 
 	return &ModerationPlugin{
-		Base:         Base{Client: client},
+		Base:         NewBase(client),
 		cfg:          cfg,
 		enabled:      enabled,
 		wl:           newWordList(cfg.WordListPath, cfg.WordListVariations),

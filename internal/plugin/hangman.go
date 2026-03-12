@@ -111,8 +111,9 @@ func getTier(phrase string) hangmanTier {
 
 type hangmanGame struct {
 	phrase       string
+	runes        []rune // phrase as rune slice for safe indexing
 	tier         hangmanTier
-	revealed     []bool // true for each char that is revealed
+	revealed     []bool // true for each rune that is revealed
 	wrongGuesses []rune
 	maxWrong     int
 	participants map[id.UserID]bool
@@ -123,15 +124,17 @@ type hangmanGame struct {
 }
 
 func newHangmanGame(phrase string, maxWrong int) *hangmanGame {
-	revealed := make([]bool, len(phrase))
+	runes := []rune(phrase)
+	revealed := make([]bool, len(runes))
 	// Auto-reveal spaces and punctuation
-	for i, ch := range phrase {
+	for i, ch := range runes {
 		if !unicode.IsLetter(ch) && !unicode.IsDigit(ch) {
 			revealed[i] = true
 		}
 	}
 	return &hangmanGame{
 		phrase:       phrase,
+		runes:        runes,
 		tier:         getTier(phrase),
 		revealed:     revealed,
 		maxWrong:     maxWrong,
@@ -162,25 +165,18 @@ func (g *hangmanGame) isFullyRevealed() bool {
 }
 
 func (g *hangmanGame) revealedCount() int {
-	letterTotal := 0
-	letterRevealed := 0
-	for i, ch := range g.phrase {
-		if unicode.IsLetter(ch) || unicode.IsDigit(ch) {
-			letterTotal++
-			if g.revealed[i] {
-				letterRevealed++
-			}
+	count := 0
+	for i, ch := range g.runes {
+		if (unicode.IsLetter(ch) || unicode.IsDigit(ch)) && g.revealed[i] {
+			count++
 		}
 	}
-	if letterTotal == 0 {
-		return 0
-	}
-	return letterRevealed
+	return count
 }
 
 func (g *hangmanGame) letterCount() int {
 	count := 0
-	for _, ch := range g.phrase {
+	for _, ch := range g.runes {
 		if unicode.IsLetter(ch) || unicode.IsDigit(ch) {
 			count++
 		}
@@ -190,15 +186,15 @@ func (g *hangmanGame) letterCount() int {
 
 func (g *hangmanGame) displayPhrase() string {
 	var sb strings.Builder
-	for i, ch := range g.phrase {
+	for i, ch := range g.runes {
 		if g.revealed[i] {
 			sb.WriteRune(ch)
 		} else {
 			sb.WriteRune('_')
 		}
 		// Add space between characters for readability
-		if i < len(g.phrase)-1 {
-			next := rune(g.phrase[i+1])
+		if i < len(g.runes)-1 {
+			next := g.runes[i+1]
 			if !g.revealed[i] || !g.revealed[i+1] || unicode.IsLetter(ch) || unicode.IsLetter(next) {
 				if ch != ' ' && next != ' ' {
 					sb.WriteRune(' ')
@@ -221,12 +217,12 @@ func (g *hangmanGame) guessLetter(ch rune) (hit bool, alreadyGuessed bool) {
 	}
 
 	hit = false
-	for i, c := range g.phrase {
+	for i, c := range g.runes {
 		if unicode.ToUpper(c) == ch || unicode.ToLower(c) == lower {
 			if g.revealed[i] {
 				// Already revealed — check if ALL instances are revealed
 				allRevealed := true
-				for j, cc := range g.phrase {
+				for j, cc := range g.runes {
 					if (unicode.ToUpper(cc) == ch || unicode.ToLower(cc) == lower) && !g.revealed[j] {
 						allRevealed = false
 					}
@@ -242,16 +238,15 @@ func (g *hangmanGame) guessLetter(ch rune) (hit bool, alreadyGuessed bool) {
 
 	// Reveal adjacent punctuation when a letter is revealed
 	if hit {
-		for i, ch := range g.phrase {
+		for i := range g.runes {
 			if g.revealed[i] {
 				// Reveal adjacent non-letter chars
-				if i > 0 && !unicode.IsLetter(rune(g.phrase[i-1])) && !unicode.IsDigit(rune(g.phrase[i-1])) {
+				if i > 0 && !unicode.IsLetter(g.runes[i-1]) && !unicode.IsDigit(g.runes[i-1]) {
 					g.revealed[i-1] = true
 				}
-				if i < len(g.phrase)-1 && !unicode.IsLetter(rune(g.phrase[i+1])) && !unicode.IsDigit(rune(g.phrase[i+1])) {
+				if i < len(g.runes)-1 && !unicode.IsLetter(g.runes[i+1]) && !unicode.IsDigit(g.runes[i+1]) {
 					g.revealed[i+1] = true
 				}
-				_ = ch
 			}
 		}
 	}
@@ -294,7 +289,7 @@ type HangmanPlugin struct {
 
 func NewHangmanPlugin(client *mautrix.Client, euro *EuroPlugin) *HangmanPlugin {
 	return &HangmanPlugin{
-		Base:     Base{Client: client},
+		Base:     NewBase(client),
 		euro:     euro,
 		maxWrong: envInt("HANGMAN_MAX_WRONG_GUESSES", 6),
 		bonusMul: envFloat("HANGMAN_SOLUTION_BONUS_MULTIPLIER", 2),
@@ -306,7 +301,7 @@ func (p *HangmanPlugin) Name() string { return "hangman" }
 
 func (p *HangmanPlugin) Commands() []CommandDef {
 	return []CommandDef{
-		{Name: "hangman", Description: "Collaborative Hangman game", Usage: "!hangman start | !hangman [letter/phrase] | !hangman submit [phrase]", Category: "Games"},
+		{Name: "hangman", Description: "Collaborative Hangman game", Usage: "!hangman start [easy|medium|hard|extreme] | !hangman [letter/phrase] | !hangman submit [phrase]", Category: "Games"},
 		{Name: "hangboard", Description: "Hangman leaderboard", Usage: "!hangboard", Category: "Games"},
 	}
 }
@@ -336,12 +331,15 @@ func (p *HangmanPlugin) OnMessage(ctx MessageContext) error {
 
 	args := strings.TrimSpace(p.GetArgs(ctx.Body, "hangman"))
 
+	lower := strings.ToLower(args)
 	switch {
-	case args == "" || strings.EqualFold(args, "start"):
-		return p.handleStart(ctx)
-	case strings.HasPrefix(strings.ToLower(args), "submit "):
+	case args == "" || lower == "start":
+		return p.handleStart(ctx, "")
+	case strings.HasPrefix(lower, "start "):
+		return p.handleStart(ctx, strings.TrimSpace(args[6:]))
+	case strings.HasPrefix(lower, "submit "):
 		return p.handleSubmit(ctx, strings.TrimSpace(args[7:]))
-	case strings.EqualFold(args, "skip"):
+	case lower == "skip":
 		return p.handleSkip(ctx)
 	default:
 		return p.handleGuess(ctx, args)
@@ -404,7 +402,7 @@ func (p *HangmanPlugin) addPhrase(phrase string) error {
 // Game commands
 // ---------------------------------------------------------------------------
 
-func (p *HangmanPlugin) handleStart(ctx MessageContext) error {
+func (p *HangmanPlugin) handleStart(ctx MessageContext, difficulty string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -416,7 +414,38 @@ func (p *HangmanPlugin) handleStart(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "No phrases loaded. Ask an admin to set up HANGMAN_PHRASE_FILE.")
 	}
 
-	phrase := p.phrases[rand.IntN(len(p.phrases))]
+	// Filter by difficulty if specified
+	pool := p.phrases
+	if difficulty != "" {
+		var tier *hangmanTier
+		for i := range hangmanTiers {
+			if strings.EqualFold(hangmanTiers[i].Name, difficulty) {
+				tier = &hangmanTiers[i]
+				break
+			}
+		}
+		if tier == nil {
+			names := make([]string, len(hangmanTiers))
+			for i, t := range hangmanTiers {
+				names[i] = t.Name
+			}
+			return p.SendReply(ctx.RoomID, ctx.EventID,
+				fmt.Sprintf("Unknown difficulty. Options: %s", strings.Join(names, ", ")))
+		}
+		var filtered []string
+		for _, ph := range p.phrases {
+			if n := len(ph); n >= tier.Min && n <= tier.Max {
+				filtered = append(filtered, ph)
+			}
+		}
+		if len(filtered) == 0 {
+			return p.SendReply(ctx.RoomID, ctx.EventID,
+				fmt.Sprintf("No phrases available for **%s** difficulty.", tier.Name))
+		}
+		pool = filtered
+	}
+
+	phrase := pool[rand.IntN(len(pool))]
 	game := newHangmanGame(phrase, p.maxWrong)
 	p.games[ctx.RoomID] = game
 
@@ -433,15 +462,26 @@ func (p *HangmanPlugin) handleGuess(ctx MessageContext, guess string) error {
 		p.mu.Unlock()
 		return p.SendReply(ctx.RoomID, ctx.EventID, "No Hangman game in progress. Start one with `!hangman start`")
 	}
-	p.mu.Unlock()
 
-	// Register participant
+	// Register participant (under lock)
 	game.participants[ctx.Sender] = true
 
-	// DM verification on first guess
+	// DM verification on first guess — need to unlock for network call
+	needDM := false
 	if _, checked := game.dmVerified[ctx.Sender]; !checked {
-		err := p.SendDM(ctx.Sender, fmt.Sprintf("🎮 You've joined the Hangman game!\nPhrase: %s", game.displayPhrase()))
+		needDM = true
+	}
+	displayForDM := ""
+	if needDM {
+		displayForDM = game.displayPhrase()
+	}
+	p.mu.Unlock()
+
+	if needDM {
+		err := p.SendDM(ctx.Sender, fmt.Sprintf("🎮 You've joined the Hangman game!\nPhrase: %s", displayForDM))
+		p.mu.Lock()
 		game.dmVerified[ctx.Sender] = err == nil
+		p.mu.Unlock()
 	}
 
 	guess = strings.TrimSpace(guess)
@@ -460,69 +500,98 @@ func (p *HangmanPlugin) handleGuess(ctx MessageContext, guess string) error {
 }
 
 func (p *HangmanPlugin) processLetterGuess(ctx MessageContext, game *hangmanGame, ch rune) error {
+	// All game state mutations under lock
+	p.mu.Lock()
 	hit, already := game.guessLetter(ch)
 
 	if already {
+		p.mu.Unlock()
 		return p.SendReply(ctx.RoomID, ctx.EventID,
 			fmt.Sprintf("'%c' was already guessed.", unicode.ToUpper(ch)))
 	}
 
-	// DM the guesser
-	if game.dmVerified[ctx.Sender] {
+	// Snapshot state for messages before unlocking
+	shouldDM := game.dmVerified[ctx.Sender]
+	display := game.displayPhrase()
+	wrongStr := game.wrongGuessStr()
+	remaining := game.remaining()
+	fullyRevealed := false
+	dead := false
+
+	if hit {
+		fullyRevealed = game.isFullyRevealed()
+		if fullyRevealed {
+			game.solved = true
+			game.solvedBy = ctx.Sender
+		}
+	} else {
+		dead = game.isDead()
+	}
+
+	wrongCount := game.wrongCount()
+	p.mu.Unlock()
+
+	// DM the guesser (outside lock)
+	if shouldDM {
 		result := "❌"
 		if hit {
 			result = "✅"
 		}
 		_ = p.SendDM(ctx.Sender, fmt.Sprintf(
 			"🎮 Hangman update\nPhrase: %s\nYour guess: %c  %s\nWrong guesses so far: %s\nGuesses remaining: %d",
-			game.displayPhrase(), unicode.ToUpper(ch), result, game.wrongGuessStr(), game.remaining(),
+			display, unicode.ToUpper(ch), result, wrongStr, remaining,
 		))
 	}
 
 	if hit {
-		if game.isFullyRevealed() {
-			game.solved = true
-			game.solvedBy = ctx.Sender
+		if fullyRevealed {
 			return p.endGame(ctx.RoomID, game)
 		}
 		return p.SendMessage(ctx.RoomID, fmt.Sprintf(
 			"✅ '%c' is in the phrase! (%d guesses remaining)\n%s\n\nWrong guesses: %s",
-			unicode.ToUpper(ch), game.remaining(), game.displayPhrase(), game.wrongGuessStr(),
+			unicode.ToUpper(ch), remaining, display, wrongStr,
 		))
 	}
 
 	// Wrong guess
-	if game.isDead() {
+	if dead {
 		return p.endGame(ctx.RoomID, game)
 	}
 
 	return p.SendMessage(ctx.RoomID, fmt.Sprintf(
 		"❌ Wrong! (%d guesses remaining)\n```\n%s\n```\n%s\n\nWrong guesses: %s",
-		game.remaining(), gallows[game.wrongCount()], game.displayPhrase(), game.wrongGuessStr(),
+		remaining, gallows[wrongCount], display, wrongStr,
 	))
 }
 
 func (p *HangmanPlugin) processSolutionGuess(ctx MessageContext, game *hangmanGame, guess string) error {
+	p.mu.Lock()
 	if game.guessSolution(guess) {
 		game.solved = true
 		game.solvedBy = ctx.Sender
-		// Check for early solve (less than half letters revealed)
 		if game.revealedCount() < game.letterCount()/2 {
 			game.earlySolve = true
 		}
+		p.mu.Unlock()
 		return p.endGame(ctx.RoomID, game)
 	}
 
 	// Wrong solution — costs a life
-	game.wrongGuesses = append(game.wrongGuesses, '?') // placeholder for wrong solution
+	game.wrongGuesses = append(game.wrongGuesses, '?')
+	dead := game.isDead()
+	remaining := game.remaining()
+	wrongCount := game.wrongCount()
+	display := game.displayPhrase()
+	wrongStr := game.wrongGuessStr()
+	p.mu.Unlock()
 
-	if game.isDead() {
+	if dead {
 		return p.endGame(ctx.RoomID, game)
 	}
 
 	return p.SendMessage(ctx.RoomID, fmt.Sprintf(
 		"❌ Wrong solution! (%d guesses remaining)\n```\n%s\n```\n%s\n\nWrong guesses: %s",
-		game.remaining(), gallows[game.wrongCount()], game.displayPhrase(), game.wrongGuessStr(),
+		remaining, gallows[wrongCount], display, wrongStr,
 	))
 }
 

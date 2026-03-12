@@ -58,7 +58,7 @@ type EuroPlugin struct {
 
 func NewEuroPlugin(client *mautrix.Client) *EuroPlugin {
 	return &EuroPlugin{
-		Base:      Base{Client: client},
+		Base:      NewBase(client),
 		cfg:       loadEuroConfig(),
 		cooldowns: make(map[id.UserID]time.Time),
 	}
@@ -142,32 +142,34 @@ func (p *EuroPlugin) awardPassiveEuros(ctx MessageContext) {
 // ---------------------------------------------------------------------------
 
 // ensureBalance creates a balance row if none exists, seeding from corpus.
+// Uses INSERT OR IGNORE + RowsAffected to avoid duplicate starting_balance logs.
 func (p *EuroPlugin) ensureBalance(userID id.UserID) {
 	d := db.Get()
-	var exists int
-	_ = d.QueryRow("SELECT 1 FROM euro_balances WHERE user_id = ?", string(userID)).Scan(&exists)
-	if exists == 1 {
-		return
-	}
 
 	// Calculate starting balance from corpus character count
 	var totalChars float64
-	_ = d.QueryRow("SELECT COALESCE(SUM(total_chars), 0) FROM user_stats WHERE user_id = ?",
-		string(userID)).Scan(&totalChars)
+	if err := d.QueryRow("SELECT COALESCE(SUM(total_chars), 0) FROM user_stats WHERE user_id = ?",
+		string(userID)).Scan(&totalChars); err != nil {
+		totalChars = 0
+	}
 
 	starting := totalChars / 1000.0
 	if starting > p.cfg.StartingCap {
 		starting = p.cfg.StartingCap
 	}
 
-	_, err := d.Exec(
+	result, err := d.Exec(
 		"INSERT OR IGNORE INTO euro_balances (user_id, balance) VALUES (?, ?)",
 		string(userID), starting,
 	)
 	if err != nil {
 		slog.Error("euro: failed to create balance", "user", userID, "err", err)
+		return
 	}
-	if starting > 0 {
+
+	// Only log transaction if a row was actually inserted (not ignored)
+	affected, _ := result.RowsAffected()
+	if affected > 0 && starting > 0 {
 		p.logTransaction(userID, starting, "starting_balance")
 	}
 }
@@ -185,27 +187,30 @@ func (p *EuroPlugin) credit(userID id.UserID, amount float64, reason string) {
 	p.logTransaction(userID, amount, reason)
 }
 
-// Debit subtracts euros. Returns false if this would exceed debt limit.
+// Debit subtracts euros atomically. Returns false if this would exceed debt limit.
+// Uses a conditional UPDATE to prevent race conditions (check-and-act in one statement).
 func (p *EuroPlugin) Debit(userID id.UserID, amount float64, reason string) bool {
 	p.ensureBalance(userID)
 	d := db.Get()
 
 	debtLimit := envFloat("BLACKJACK_DEBT_LIMIT", 1000)
-	var balance float64
-	_ = d.QueryRow("SELECT balance FROM euro_balances WHERE user_id = ?", string(userID)).Scan(&balance)
 
-	if balance-amount < -debtLimit {
-		return false
-	}
-
-	_, err := d.Exec(
-		"UPDATE euro_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
-		amount, string(userID),
+	// Atomic: only debit if the result stays within debt limit
+	result, err := d.Exec(
+		`UPDATE euro_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE user_id = ? AND (balance - ?) >= ?`,
+		amount, string(userID), amount, -debtLimit,
 	)
 	if err != nil {
 		slog.Error("euro: debit failed", "user", userID, "amount", amount, "err", err)
 		return false
 	}
+
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		return false // balance check failed or user doesn't exist
+	}
+
 	p.logTransaction(userID, -amount, reason)
 	return true
 }
@@ -221,7 +226,10 @@ func (p *EuroPlugin) GetBalance(userID id.UserID) float64 {
 	p.ensureBalance(userID)
 	d := db.Get()
 	var balance float64
-	_ = d.QueryRow("SELECT balance FROM euro_balances WHERE user_id = ?", string(userID)).Scan(&balance)
+	if err := d.QueryRow("SELECT balance FROM euro_balances WHERE user_id = ?",
+		string(userID)).Scan(&balance); err != nil {
+		slog.Error("euro: failed to get balance", "user", userID, "err", err)
+	}
 	return balance
 }
 
@@ -242,8 +250,10 @@ func (p *EuroPlugin) handleBalance(ctx MessageContext) error {
 	d := db.Get()
 
 	var balance float64
-	_ = d.QueryRow("SELECT balance FROM euro_balances WHERE user_id = ?",
-		string(ctx.Sender)).Scan(&balance)
+	if err := d.QueryRow("SELECT balance FROM euro_balances WHERE user_id = ?",
+		string(ctx.Sender)).Scan(&balance); err != nil {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to fetch balance.")
+	}
 
 	debtLimit := envFloat("BLACKJACK_DEBT_LIMIT", 1000)
 

@@ -65,6 +65,10 @@ func newDeck() *deck {
 }
 
 func (d *deck) draw() card {
+	if len(d.cards) == 0 {
+		// Reshuffle a fresh deck if exhausted (extremely rare)
+		*d = *newDeck()
+	}
 	c := d.cards[0]
 	d.cards = d.cards[1:]
 	return c
@@ -172,7 +176,7 @@ type BlackjackPlugin struct {
 
 func NewBlackjackPlugin(client *mautrix.Client, euro *EuroPlugin) *BlackjackPlugin {
 	return &BlackjackPlugin{
-		Base:   Base{Client: client},
+		Base:   NewBase(client),
 		euro:   euro,
 		cfg:    loadBJConfig(),
 		tables: make(map[id.RoomID]*bjTable),
@@ -484,7 +488,8 @@ func (p *BlackjackPlugin) startTurnTimer(roomID id.RoomID, table *bjTable) {
 			return
 		}
 
-		player := table.players[turnIdx]
+		// Use looked-up t, not captured table pointer
+		player := t.players[turnIdx]
 		v := player.value()
 		name := p.bjDisplayName(player.UserID)
 
@@ -492,24 +497,24 @@ func (p *BlackjackPlugin) startTurnTimer(roomID id.RoomID, table *bjTable) {
 			_ = p.SendMessage(roomID,
 				fmt.Sprintf("⏱️ **%s** timed out — auto-playing (stand)", name))
 			player.Done = true
-			p.advanceTurn(roomID, table)
+			p.advanceTurn(roomID, t)
 		} else {
 			_ = p.SendMessage(roomID,
 				fmt.Sprintf("⏱️ **%s** timed out — auto-playing (hit)", name))
-			player.Hand = append(player.Hand, table.deck.draw())
+			player.Hand = append(player.Hand, t.deck.draw())
 			v = player.value()
 			if v > 21 {
 				player.Bust = true
 				player.Done = true
 				_ = p.SendMessage(roomID,
 					fmt.Sprintf("💥 **%s** busts with %s (%d)!", name, handStr(player.Hand), v))
-				p.advanceTurn(roomID, table)
+				p.advanceTurn(roomID, t)
 			} else if v >= p.cfg.AutoplayThreshold {
 				player.Done = true
-				p.advanceTurn(roomID, table)
+				p.advanceTurn(roomID, t)
 			} else {
 				// Still below threshold, restart timer
-				p.startTurnTimer(roomID, table)
+				p.startTurnTimer(roomID, t)
 			}
 		}
 	})
@@ -613,6 +618,13 @@ func (p *BlackjackPlugin) resolveRound(roomID id.RoomID, table *bjTable) {
 
 	sb.WriteString(fmt.Sprintf("\nDealer: %s  (%d)\n", handStr(table.dealer), dealerValue))
 
+	// Stop any pending timers before cleanup
+	if table.turnTimer != nil {
+		table.turnTimer.Stop()
+	}
+	if table.joinTimer != nil {
+		table.joinTimer.Stop()
+	}
 	delete(p.tables, roomID)
 	_ = p.SendMessage(roomID, sb.String())
 }
