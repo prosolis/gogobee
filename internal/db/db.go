@@ -621,6 +621,38 @@ CREATE TABLE IF NOT EXISTS api_cache (
 	cached_at INTEGER DEFAULT (unixepoch())
 );
 
+-- Euro economy
+CREATE TABLE IF NOT EXISTS euro_balances (
+	user_id      TEXT PRIMARY KEY,
+	balance      REAL NOT NULL DEFAULT 0,
+	updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS euro_transactions (
+	id           INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id      TEXT NOT NULL,
+	amount       REAL NOT NULL,
+	reason       TEXT NOT NULL,
+	created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_euro_tx_user ON euro_transactions(user_id, created_at);
+
+-- Hangman scores
+CREATE TABLE IF NOT EXISTS hangman_scores (
+	user_id       TEXT PRIMARY KEY,
+	total_earned  REAL NOT NULL DEFAULT 0,
+	games_played  INTEGER NOT NULL DEFAULT 0,
+	games_won     INTEGER NOT NULL DEFAULT 0
+);
+
+-- Blackjack scores
+CREATE TABLE IF NOT EXISTS blackjack_scores (
+	user_id       TEXT PRIMARY KEY,
+	total_earned  REAL NOT NULL DEFAULT 0,
+	games_played  INTEGER NOT NULL DEFAULT 0,
+	games_won     INTEGER NOT NULL DEFAULT 0
+);
+
 -- Moderation: strikes
 CREATE TABLE IF NOT EXISTS mod_strikes (
 	id           INTEGER PRIMARY KEY AUTOINCREMENT,

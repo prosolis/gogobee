@@ -121,6 +121,9 @@ func (p *TriviaPlugin) OnMessage(ctx MessageContext) error {
 	}
 
 	if p.IsCommand(ctx.Body, "trivia") {
+		if !isGamesRoom(ctx.RoomID) {
+			return p.SendReply(ctx.RoomID, ctx.EventID, "Games are only available in the games channel!")
+		}
 		args := p.GetArgs(ctx.Body, "trivia")
 		return p.handleTrivia(ctx, args)
 	}

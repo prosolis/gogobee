@@ -29,7 +29,8 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
-- **38 plugins** with dependency injection and ordered registration
+- **42 plugins** with dependency injection and ordered registration
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, tiered scoring), Blackjack (1-2 players, auto-play timeout), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - WOTD, holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
@@ -138,6 +139,23 @@ Everything is configured through environment variables or a `.env` file.
 | `FEATURE_ESTEEMED` | Set to anything to enable satirical esteemed member posts |
 | `ESTEEMED_ROOM` | Room ID for esteemed member posts (separate from broadcast rooms) |
 | `FEATURE_MODERATION` | Set to `true` to enable the moderation system (disabled by default) |
+
+### Games & Economy
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GAMES_ROOM` | | Room ID where game commands work (trivia, hangman, blackjack, flip) |
+| `EURO_COOLDOWN_SECONDS` | `30` | Cooldown between passive euro earning per user |
+| `EURO_DEBT_REMINDER` | `true` | Weekly DM reminder if player is in debt |
+| `EURO_STARTING_CAP` | `2500` | Max starting balance seeded from corpus |
+| `HANGMAN_MAX_WRONG_GUESSES` | `6` | Lives before game over |
+| `HANGMAN_SOLUTION_BONUS_MULTIPLIER` | `2` | Bonus multiplier for early solution |
+| `HANGMAN_PHRASE_FILE` | | Path to newline-delimited phrase file |
+| `BLACKJACK_TIMEOUT_SECONDS` | `60` | Auto-play timeout per turn |
+| `BLACKJACK_AUTOPLAY_THRESHOLD` | `15` | Stand at or above, hit below |
+| `BLACKJACK_MIN_BET` | `1` | Minimum bet in euros |
+| `BLACKJACK_MAX_BET` | `500` | Maximum bet per hand |
+| `BLACKJACK_DEBT_LIMIT` | `1000` | Maximum debt before betting disabled |
 
 ### Moderation
 
@@ -254,6 +272,30 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | `!trivia categories` | List categories |
 | `!trivia fastest` | Fastest answers |
 | `!trivia stop` | End current question |
+
+### Economy
+| Command | Description |
+|---------|-------------|
+| `!balance` | Check your euro balance |
+| `!baltop` | Euro leaderboard |
+| `!baltransfer @user €amount` | Send euros to another player |
+
+### Games (games channel only)
+| Command | Description |
+|---------|-------------|
+| `!flip` | Coin flip |
+| `!games` | List available games |
+| `!hangman start` | Start a Hangman game |
+| `!hangman [letter]` | Guess a letter |
+| `!hangman [phrase]` | Attempt full solution |
+| `!hangman submit [phrase]` | Submit a phrase to the pool |
+| `!hangman skip` | Skip game (admin only) |
+| `!hangboard` | Hangman leaderboard |
+| `!blackjack €amount` | Start/join a Blackjack table |
+| `!hit` | Take a card |
+| `!stand` | End your turn |
+| `!blackjack leave` | Leave before game starts |
+| `!bjboard` | Blackjack leaderboard |
 
 ### Reminders
 | Command | Description |
@@ -573,6 +615,10 @@ gogobee/
 │   │   ├── quotewall.go     # Encrypted quote wall (AES-256-GCM)
 │   │   ├── tarot.go         # LLM-powered tarot readings
 │   │   ├── horoscope.go     # Daily horoscopes
+│   │   ├── euro.go          # Euro virtual currency
+│   │   ├── flip.go          # Coin flip, !games
+│   │   ├── hangman.go       # Collaborative Hangman
+│   │   ├── blackjack.go     # Multiplayer Blackjack
 │   │   ├── esteemed.go      # Satirical esteemed member posts
 │   │   ├── moderation.go   # Moderation system (strikes, word list, flood detection)
 │   │   └── ratelimits.go    # Rate limiting

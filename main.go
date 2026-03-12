@@ -106,6 +106,13 @@ func main() {
 	moviesPlugin := plugin.NewMoviesPlugin(client)
 	registry.Register(moviesPlugin)
 
+	// Games & Economy
+	euroPlugin := plugin.NewEuroPlugin(client)
+	registry.Register(euroPlugin)
+	registry.Register(plugin.NewFlipPlugin(client))
+	registry.Register(plugin.NewHangmanPlugin(client, euroPlugin))
+	registry.Register(plugin.NewBlackjackPlugin(client, euroPlugin))
+
 	// Community
 	registry.Register(plugin.NewMilkCartonPlugin(client, ratePlugin))
 	registry.Register(plugin.NewQuoteWallPlugin(client, ratePlugin))
