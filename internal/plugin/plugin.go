@@ -55,6 +55,12 @@ type Plugin interface {
 	Init() error
 }
 
+// dmCache maps user IDs to their DM room IDs to avoid creating duplicate rooms.
+var (
+	dmCache   = make(map[id.UserID]id.RoomID)
+	dmCacheMu sync.Mutex
+)
+
 // Base provides common helpers for plugin implementations.
 type Base struct {
 	Client *mautrix.Client
@@ -548,8 +554,29 @@ func (b *Base) SendReact(roomID id.RoomID, eventID id.EventID, emoji string) err
 	return err
 }
 
-// SendDM sends a direct message to a user. Creates a DM room if needed.
-func (b *Base) SendDM(userID id.UserID, text string) error {
+// GetDMRoom returns the DM room for a user, creating one if needed.
+func (b *Base) GetDMRoom(userID id.UserID) (id.RoomID, error) {
+	dmCacheMu.Lock()
+	if roomID, ok := dmCache[userID]; ok {
+		dmCacheMu.Unlock()
+		return roomID, nil
+	}
+	dmCacheMu.Unlock()
+
+	// Check account data for existing DM rooms
+	var dmRooms map[id.UserID][]id.RoomID
+	err := b.Client.GetAccountData(context.Background(), "m.direct", &dmRooms)
+	if err == nil {
+		if rooms, ok := dmRooms[userID]; ok && len(rooms) > 0 {
+			roomID := rooms[len(rooms)-1] // use most recent
+			dmCacheMu.Lock()
+			dmCache[userID] = roomID
+			dmCacheMu.Unlock()
+			return roomID, nil
+		}
+	}
+
+	// No existing DM room — create one
 	resp, err := b.Client.CreateRoom(context.Background(), &mautrix.ReqCreateRoom{
 		Preset:   "trusted_private_chat",
 		Invite:   []id.UserID{userID},
@@ -566,9 +593,30 @@ func (b *Base) SendDM(userID id.UserID, text string) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("create DM room: %w", err)
+		return "", fmt.Errorf("create DM room: %w", err)
 	}
-	return b.SendMessage(resp.RoomID, text)
+
+	dmCacheMu.Lock()
+	dmCache[userID] = resp.RoomID
+	dmCacheMu.Unlock()
+	return resp.RoomID, nil
+}
+
+// IsDMRoom checks if the given room is a known DM room for the given user.
+func IsDMRoom(roomID id.RoomID, userID id.UserID) bool {
+	dmCacheMu.Lock()
+	defer dmCacheMu.Unlock()
+	cached, ok := dmCache[userID]
+	return ok && cached == roomID
+}
+
+// SendDM sends a direct message to a user. Reuses existing DM room if available.
+func (b *Base) SendDM(userID id.UserID, text string) error {
+	roomID, err := b.GetDMRoom(userID)
+	if err != nil {
+		return err
+	}
+	return b.SendMessage(roomID, text)
 }
 
 // UploadContent uploads data to the Matrix content repository and returns the MXC URI.

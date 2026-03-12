@@ -285,7 +285,7 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 |---------|-------------|
 | `!flip` | Coin flip |
 | `!games` | List available games |
-| `!hangman start` | Start a Hangman game |
+| `!hangman start [easy\|medium\|hard\|extreme]` | Start a Hangman game (optional difficulty) |
 | `!hangman [letter]` | Guess a letter |
 | `!hangman [phrase]` | Attempt full solution |
 | `!hangman submit [phrase]` | Submit a phrase to the pool |
@@ -450,6 +450,7 @@ All of these run in the background without any commands:
 - **Keyword alerts** - DMs you when someone says your watched keywords
 - **Presence** - auto-clears away/afk when you send a message
 - **Room milestones** - announces at 1k, 5k, 10k, 25k, 50k, 100k, 250k, 500k, 1M messages
+- **Euro earning** - earn €0.50–€10 per message based on word count (30s cooldown). Starting balance seeded from corpus history (capped at €2,500)
 - **URL previews** - OG tag extraction (feature-flagged, off by default)
 - **Reactions** - logs all reactions for `!emojiboard`
 - **Space groups** - rooms with sufficient member overlap are automatically grouped. Leaderboards, trivia scores, and other per-room features aggregate across the group. Recomputed hourly; persisted to SQLite. Uses strict clique-based grouping (every room must meet the threshold with every other room in the group).

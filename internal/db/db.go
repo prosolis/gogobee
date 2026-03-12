@@ -678,6 +678,25 @@ CREATE TABLE IF NOT EXISTS mod_actions (
 );
 CREATE INDEX IF NOT EXISTS idx_mod_actions_user ON mod_actions(user_id, taken_at);
 
+-- Uno
+CREATE TABLE IF NOT EXISTS uno_pot (
+	id          INTEGER PRIMARY KEY CHECK (id = 1),
+	balance     REAL NOT NULL DEFAULT 0,
+	updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS uno_games (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	player_id       TEXT NOT NULL,
+	wager           REAL NOT NULL,
+	result          TEXT NOT NULL,
+	pot_before      REAL NOT NULL,
+	pot_after       REAL NOT NULL,
+	turns           INTEGER NOT NULL,
+	started_at      DATETIME NOT NULL,
+	ended_at        DATETIME NOT NULL
+);
+
 -- Space groups (rooms with overlapping membership)
 CREATE TABLE IF NOT EXISTS space_groups (
 	room_id    TEXT PRIMARY KEY,

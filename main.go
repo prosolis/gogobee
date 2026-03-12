@@ -112,6 +112,7 @@ func main() {
 	registry.Register(plugin.NewFlipPlugin(client))
 	registry.Register(plugin.NewHangmanPlugin(client, euroPlugin))
 	registry.Register(plugin.NewBlackjackPlugin(client, euroPlugin))
+	registry.Register(plugin.NewUnoPlugin(client, euroPlugin))
 
 	// Community
 	registry.Register(plugin.NewMilkCartonPlugin(client, ratePlugin))
