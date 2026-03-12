@@ -71,6 +71,10 @@ func main() {
 
 	// ---- Register plugins in dependency order ----
 
+	// Moderation (runs first in dispatch order)
+	modPlugin := plugin.NewModerationPlugin(client)
+	registry.Register(modPlugin)
+
 	// Foundation (passive tracking)
 	xpPlugin := plugin.NewXPPlugin(client)
 	registry.Register(xpPlugin)
@@ -154,10 +158,15 @@ func main() {
 
 	syncer := client.Syncer.(*mautrix.DefaultSyncer)
 
-	// Auto-join on invite
+	// Auto-join on invite + moderation member tracking
 	syncer.OnEventType(event.StateMember, func(ctx context.Context, evt *event.Event) {
+		mem := evt.Content.AsMember()
+		if mem == nil {
+			return
+		}
+
+		// Auto-join invites for the bot
 		if evt.GetStateKey() == string(client.UserID) {
-			mem := evt.Content.AsMember()
 			if mem.Membership == event.MembershipInvite {
 				_, err := client.JoinRoomByID(ctx, evt.RoomID)
 				if err != nil {
@@ -166,7 +175,12 @@ func main() {
 					slog.Info("joined room", "room", evt.RoomID)
 				}
 			}
+			return
 		}
+
+		// Track join/leave/invite for moderation
+		targetUser := id.UserID(evt.GetStateKey())
+		modPlugin.OnMemberEvent(evt.RoomID, targetUser, mem.Membership)
 	})
 
 	// Message handler

@@ -621,6 +621,31 @@ CREATE TABLE IF NOT EXISTS api_cache (
 	cached_at INTEGER DEFAULT (unixepoch())
 );
 
+-- Moderation: strikes
+CREATE TABLE IF NOT EXISTS mod_strikes (
+	id           INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id      TEXT NOT NULL,
+	room_id      TEXT NOT NULL,
+	issued_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	expires_at   DATETIME NOT NULL,
+	reason       TEXT NOT NULL,
+	issued_by    TEXT NOT NULL,
+	active       BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS idx_mod_strikes_user ON mod_strikes(user_id, issued_at);
+
+-- Moderation: action log
+CREATE TABLE IF NOT EXISTS mod_actions (
+	id           INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id      TEXT NOT NULL,
+	room_id      TEXT NOT NULL,
+	action       TEXT NOT NULL,
+	reason       TEXT,
+	taken_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	taken_by     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mod_actions_user ON mod_actions(user_id, taken_at);
+
 -- Space groups (rooms with overlapping membership)
 CREATE TABLE IF NOT EXISTS space_groups (
 	room_id    TEXT PRIMARY KEY,

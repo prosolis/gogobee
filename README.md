@@ -29,7 +29,8 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
-- **37 plugins** with dependency injection and ordered registration
+- **38 plugins** with dependency injection and ordered registration
+- **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - WOTD, holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
 - **LLM integration** (optional) - Ollama-powered sentiment analysis, roast profiles, room vibes, tarot readings, conversation summaries
@@ -136,6 +137,39 @@ Everything is configured through environment variables or a `.env` file.
 | `FEATURE_TRIVIA` | Set to `false` to disable trivia (default: enabled) |
 | `FEATURE_ESTEEMED` | Set to anything to enable satirical esteemed member posts |
 | `ESTEEMED_ROOM` | Room ID for esteemed member posts (separate from broadcast rooms) |
+| `FEATURE_MODERATION` | Set to `true` to enable the moderation system (disabled by default) |
+
+### Moderation
+
+All moderation settings are optional. The system is disabled unless `FEATURE_MODERATION=true`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MOD_WORDLIST` | | Path to newline-delimited prohibited word list |
+| `MOD_WORDLIST_VARIATIONS` | `true` | Check leetspeak/spaced variants |
+| `MOD_STRIKE_EXPIRY_DAYS` | `30` | Days before strikes expire |
+| `MOD_MUTE_DURATION_MINUTES` | `60` | Temp mute duration on strike 2 |
+| `MOD_MAX_STRIKES` | `3` | Strikes before permanent ban |
+| `MOD_FLOOD_MESSAGE_COUNT` | `5` | Messages in window = flood |
+| `MOD_FLOOD_MESSAGE_WINDOW_SECONDS` | `10` | Text flood window |
+| `MOD_FLOOD_IMAGE_COUNT` | `3` | Images/files in window = flood |
+| `MOD_FLOOD_IMAGE_WINDOW_SECONDS` | `30` | Image flood window |
+| `MOD_MAX_MESSAGE_LENGTH` | `2000` | Max chars per message (0 = disabled) |
+| `MOD_REPEAT_COUNT` | `3` | Repeated messages before strike |
+| `MOD_REPEAT_WINDOW_SECONDS` | `60` | Repeat detection window |
+| `MOD_REPEAT_SIMILARITY_THRESHOLD` | `0.85` | How similar counts as "same" (0.0–1.0) |
+| `MOD_MENTION_MAX` | `5` | Max unique @mentions per message |
+| `MOD_MENTION_FLOOD_COUNT` | `3` | Mention-heavy messages in window |
+| `MOD_MENTION_FLOOD_WINDOW_SECONDS` | `30` | Mention flood window |
+| `MOD_LINK_RATE_NEW_MEMBER` | `3` | Max links per window (new members only) |
+| `MOD_LINK_RATE_WINDOW_SECONDS` | `60` | Link rate window |
+| `MOD_INVITE_MAX_PER_HOUR` | `5` | Max room invites per user per hour |
+| `MOD_JOIN_LEAVE_COUNT` | `3` | Join/leave cycles before flag |
+| `MOD_JOIN_LEAVE_WINDOW_MINUTES` | `10` | Join/leave window |
+| `MOD_NEW_MEMBER_DAYS` | `14` | Days before a member is no longer "new" |
+| `MOD_NEW_MEMBER_FLOOD_MULTIPLIER` | `0.5` | Multiply flood thresholds for new members |
+| `MOD_ADMIN_ROOM` | | Dedicated room for mod notifications |
+| `MOD_DM_ON_ACTION` | `true` | DM users when action is taken |
 
 ### Space Groups
 
@@ -337,6 +371,20 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | `!tarot [@user]` | Draw a tarot card + LLM reading |
 | `!tarotspread [@user]` | Three-card spread (Past/Present/Future) |
 
+### Moderation (admin only, requires `FEATURE_MODERATION=true`)
+| Command | Description |
+|---------|-------------|
+| `!mod warn @user [reason]` | Issue a manual warning (counts as a strike) |
+| `!mod mute @user [duration]` | Manual mute (does not consume a strike) |
+| `!mod unmute @user` | Remove mute |
+| `!mod ban @user [reason]` | Permanent ban |
+| `!mod strikes @user` | Show active strikes |
+| `!mod forgive @user` | Clear all active strikes |
+| `!mod history @user` | Full moderation history |
+| `!mod reload` | Reload word list from disk |
+| `!mod status` | Show current moderation config |
+| `!mod test @user` | Simulate next violation without taking action |
+
 ### Other
 | Command | Description |
 |---------|-------------|
@@ -526,6 +574,7 @@ gogobee/
 │   │   ├── tarot.go         # LLM-powered tarot readings
 │   │   ├── horoscope.go     # Daily horoscopes
 │   │   ├── esteemed.go      # Satirical esteemed member posts
+│   │   ├── moderation.go   # Moderation system (strikes, word list, flood detection)
 │   │   └── ratelimits.go    # Rate limiting
 │   └── util/
 │       ├── auth.go          # Matrix login, token check
