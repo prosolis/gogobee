@@ -150,9 +150,6 @@ func RunMaintenance() {
 		{"wotd_log", `DELETE FROM wotd_log WHERE date < ?`, []interface{}{date90d}},
 		{"wotd_usage", `DELETE FROM wotd_usage WHERE date < ?`, []interface{}{date90d}},
 
-		// LLM classifications — keep 30 days
-		{"llm_classifications", `DELETE FROM llm_classifications WHERE timestamp < ?`, []interface{}{cutoff30d}},
-
 		// Daily activity older than 1 year
 		{"daily_activity", `DELETE FROM daily_activity WHERE date < ?`, []interface{}{now.AddDate(-1, 0, 0).Format("2006-01-02")}},
 	}
@@ -589,6 +586,21 @@ CREATE TABLE IF NOT EXISTS sentiment_stats (
 	total_score REAL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS room_sentiment_stats (
+	room_id TEXT PRIMARY KEY,
+	positive INTEGER DEFAULT 0,
+	negative INTEGER DEFAULT 0,
+	neutral INTEGER DEFAULT 0,
+	excited INTEGER DEFAULT 0,
+	sarcastic INTEGER DEFAULT 0,
+	frustrated INTEGER DEFAULT 0,
+	curious INTEGER DEFAULT 0,
+	grateful INTEGER DEFAULT 0,
+	humorous INTEGER DEFAULT 0,
+	supportive INTEGER DEFAULT 0,
+	total_score REAL DEFAULT 0
+);
+
 -- Daily prefetch tracking
 CREATE TABLE IF NOT EXISTS daily_prefetch (
 	job_name TEXT NOT NULL,
@@ -692,6 +704,20 @@ CREATE TABLE IF NOT EXISTS uno_games (
 	result          TEXT NOT NULL,
 	pot_before      REAL NOT NULL,
 	pot_after       REAL NOT NULL,
+	turns           INTEGER NOT NULL,
+	started_at      DATETIME NOT NULL,
+	ended_at        DATETIME NOT NULL
+);
+
+-- Uno multiplayer
+CREATE TABLE IF NOT EXISTS uno_multi_games (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	room_id         TEXT NOT NULL,
+	ante            REAL NOT NULL,
+	pot_total       REAL NOT NULL,
+	winner_id       TEXT NOT NULL,
+	player_ids      TEXT NOT NULL,
+	result          TEXT NOT NULL,
 	turns           INTEGER NOT NULL,
 	started_at      DATETIME NOT NULL,
 	ended_at        DATETIME NOT NULL

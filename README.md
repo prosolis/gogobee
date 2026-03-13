@@ -1,6 +1,6 @@
 # GogoBee
 
-Matrix community bot with E2EE, 37 plugins, passive tracking, scheduled posts, and optional LLM features.
+Matrix community bot with E2EE, 43 plugins, passive tracking, scheduled posts, and optional LLM features.
 
 Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption and [modernc.org/sqlite](https://modernc.org/sqlite) for storage.
 
@@ -29,8 +29,8 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
-- **42 plugins** with dependency injection and ordered registration
-- **Games & economy** - Euro virtual currency, Hangman (collaborative, tiered scoring), Blackjack (1-2 players, auto-play timeout), all with channel restriction
+- **43 plugins** with dependency injection and ordered registration
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring), Blackjack (1-2 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - WOTD, holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
@@ -156,6 +156,13 @@ Everything is configured through environment variables or a `.env` file.
 | `BLACKJACK_MIN_BET` | `1` | Minimum bet in euros |
 | `BLACKJACK_MAX_BET` | `500` | Maximum bet per hand |
 | `BLACKJACK_DEBT_LIMIT` | `1000` | Maximum debt before betting disabled |
+| `UNO_MIN_BET` | `10` | Minimum wager in euros (solo) |
+| `UNO_POT_TAUNT_THRESHOLD` | `500` | Pot size at which GogoBee starts taunting |
+| `UNO_MULTI_MIN_BET` | `25` | Minimum ante for multiplayer UNO |
+| `UNO_MULTI_MAX_BET` | `500` | Maximum ante for multiplayer UNO |
+| `UNO_MULTI_LOBBY_TIMEOUT` | `300` | Lobby expiry in seconds |
+| `UNO_MULTI_TURN_TIMEOUT` | `30` | Auto-play timeout in seconds |
+| `UNO_MULTI_MAX_AUTOPLAY` | `3` | Consecutive auto-plays before forfeit |
 
 ### Moderation
 
@@ -296,6 +303,12 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | `!stand` | End your turn |
 | `!blackjack leave` | Leave before game starts |
 | `!bjboard` | Blackjack leaderboard |
+| `!uno €amount` | Start a solo UNO game vs GogoBee (played in DMs) |
+| `!uno start €amount` | Create a multiplayer UNO lobby |
+| `!uno join` | Join an open UNO lobby |
+| `!uno go` | Start the game (host only, 2+ players required) |
+| `!uno leave` | Leave the lobby (refunds ante) |
+| `!uno cancel` | Cancel the lobby (host/admin, refunds all) |
 
 ### Reminders
 | Command | Description |
@@ -620,6 +633,8 @@ gogobee/
 │   │   ├── flip.go          # Coin flip, !games
 │   │   ├── hangman.go       # Collaborative Hangman
 │   │   ├── blackjack.go     # Multiplayer Blackjack
+│   │   ├── uno.go           # Solo UNO vs bot (DM-based)
+│   │   ├── uno_multi.go     # Multiplayer UNO (lobby + DM turns)
 │   │   ├── esteemed.go      # Satirical esteemed member posts
 │   │   ├── moderation.go   # Moderation system (strikes, word list, flood detection)
 │   │   └── ratelimits.go    # Rate limiting

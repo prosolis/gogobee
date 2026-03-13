@@ -107,6 +107,7 @@ func (p *LLMPassivePlugin) Commands() []CommandDef {
 		{Name: "insults", Description: "Show insult stats for a user", Usage: "!insults [@user]", Category: "LLM & Sentiment"},
 		{Name: "insultboard", Description: "Top 10 most insulted users", Usage: "!insultboard", Category: "LLM & Sentiment"},
 		{Name: "sentiment", Description: "Show sentiment stats for a user", Usage: "!sentiment [@user]", Category: "LLM & Sentiment"},
+		{Name: "roomsentiment", Description: "Show sentiment breakdown for this room", Usage: "!roomsentiment", Category: "LLM & Sentiment"},
 	}
 }
 
@@ -136,6 +137,9 @@ func (p *LLMPassivePlugin) OnMessage(ctx MessageContext) error {
 	}
 	if p.IsCommand(ctx.Body, "insultboard") {
 		return p.handleInsultboard(ctx)
+	}
+	if p.IsCommand(ctx.Body, "roomsentiment") {
+		return p.handleRoomSentiment(ctx)
 	}
 	if p.IsCommand(ctx.Body, "sentiment") {
 		return p.handleSentiment(ctx)
@@ -362,6 +366,15 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 			 ON CONFLICT(user_id) DO UPDATE SET %s = %s + 1, total_score = total_score + ?`,
 			sentimentCol, sentimentCol, sentimentCol),
 		string(item.UserID), result.SentimentScore, result.SentimentScore,
+	)
+
+	// Aggregate room sentiment stats
+	_, _ = d.Exec(
+		fmt.Sprintf(
+			`INSERT INTO room_sentiment_stats (room_id, %s, total_score) VALUES (?, 1, ?)
+			 ON CONFLICT(room_id) DO UPDATE SET %s = %s + 1, total_score = total_score + ?`,
+			sentimentCol, sentimentCol, sentimentCol),
+		string(item.RoomID), result.SentimentScore, result.SentimentScore,
 	)
 
 	// Track profanity with severity
@@ -778,6 +791,71 @@ func (p *LLMPassivePlugin) handleSentiment(ctx MessageContext) error {
 		}
 	}
 	sb.WriteString(fmt.Sprintf("Average mood: %.2f (%s)", avgScore, mood))
+
+	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
+}
+
+func (p *LLMPassivePlugin) handleRoomSentiment(ctx MessageContext) error {
+	d := db.Get()
+	var positive, negative, neutral, excited, sarcastic, frustrated, curious, grateful, humorous, supportive int
+	var totalScore float64
+	err := d.QueryRow(
+		`SELECT COALESCE(positive, 0), COALESCE(negative, 0), COALESCE(neutral, 0),
+		        COALESCE(excited, 0), COALESCE(sarcastic, 0), COALESCE(frustrated, 0),
+		        COALESCE(curious, 0), COALESCE(grateful, 0), COALESCE(humorous, 0),
+		        COALESCE(supportive, 0), COALESCE(total_score, 0)
+		 FROM room_sentiment_stats WHERE room_id = ?`,
+		string(ctx.RoomID),
+	).Scan(&positive, &negative, &neutral, &excited, &sarcastic, &frustrated,
+		&curious, &grateful, &humorous, &supportive, &totalScore)
+	if err != nil {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "No sentiment data for this room yet.")
+	}
+
+	total := positive + negative + neutral + excited + sarcastic + frustrated + curious + grateful + humorous + supportive
+	avgScore := 0.0
+	if total > 0 {
+		avgScore = totalScore / float64(total)
+	}
+
+	mood := "neutral"
+	if avgScore > 0.3 {
+		mood = "mostly positive"
+	} else if avgScore > 0.1 {
+		mood = "leaning positive"
+	} else if avgScore < -0.3 {
+		mood = "mostly negative"
+	} else if avgScore < -0.1 {
+		mood = "leaning negative"
+	}
+
+	type sentEntry struct {
+		emoji string
+		label string
+		count int
+	}
+	entries := []sentEntry{
+		{"👍", "Positive", positive},
+		{"🔥", "Excited", excited},
+		{"🤗", "Supportive", supportive},
+		{"💜", "Grateful", grateful},
+		{"😂", "Humorous", humorous},
+		{"🧐", "Curious", curious},
+		{"😐", "Neutral", neutral},
+		{"🤨", "Sarcastic", sarcastic},
+		{"😮\u200d💨", "Frustrated", frustrated},
+		{"👎", "Negative", negative},
+	}
+
+	var sb strings.Builder
+	sb.WriteString("**Room Sentiment:**\n")
+	for _, e := range entries {
+		if e.count > 0 {
+			pct := float64(e.count) / float64(total) * 100
+			sb.WriteString(fmt.Sprintf("  %s %s: %s (%.0f%%)\n", e.emoji, e.label, formatNumber(e.count), pct))
+		}
+	}
+	sb.WriteString(fmt.Sprintf("\n%s messages classified | Average mood: %.2f (%s)", formatNumber(total), avgScore, mood))
 
 	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
 }

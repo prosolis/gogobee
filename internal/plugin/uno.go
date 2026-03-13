@@ -334,10 +334,15 @@ type UnoPlugin struct {
 	euro *EuroPlugin
 
 	mu    sync.Mutex
-	games map[id.UserID]*unoGame // one game per player
+	games map[id.UserID]*unoGame // solo: one game per player
 
-	// reverse lookup: DM room -> player
+	// reverse lookup: DM room -> player (solo)
 	dmToPlayer map[id.RoomID]id.UserID
+
+	// Multiplayer
+	lobbies    map[id.RoomID]*unoMultiLobby // one lobby per room
+	multiGames map[string]*unoMultiGame     // game ID -> active game
+	dmToMulti  map[id.RoomID]string         // DM room -> game ID
 }
 
 func NewUnoPlugin(client *mautrix.Client, euro *EuroPlugin) *UnoPlugin {
@@ -346,6 +351,9 @@ func NewUnoPlugin(client *mautrix.Client, euro *EuroPlugin) *UnoPlugin {
 		euro:       euro,
 		games:      make(map[id.UserID]*unoGame),
 		dmToPlayer: make(map[id.RoomID]id.UserID),
+		lobbies:    make(map[id.RoomID]*unoMultiLobby),
+		multiGames: make(map[string]*unoMultiGame),
+		dmToMulti:  make(map[id.RoomID]string),
 	}
 }
 
@@ -353,7 +361,7 @@ func (p *UnoPlugin) Name() string { return "uno" }
 
 func (p *UnoPlugin) Commands() []CommandDef {
 	return []CommandDef{
-		{Name: "uno", Description: "Challenge the bot to Uno", Usage: "!uno €amount", Category: "Games"},
+		{Name: "uno", Description: "Solo or multiplayer Uno", Usage: "!uno €amount | !uno start €amount | !uno join | !uno go", Category: "Games"},
 		{Name: "uno_pot", Description: "Show the community pot balance", Usage: "!uno_pot", Category: "Games"},
 	}
 }
@@ -368,30 +376,57 @@ func (p *UnoPlugin) OnMessage(ctx MessageContext) error {
 		return p.handlePotCheck(ctx)
 	}
 	if p.IsCommand(ctx.Body, "uno") {
-		if !isGamesRoom(ctx.RoomID) {
-			gr := gamesRoom()
-			if gr != "" {
-				return p.SendReply(ctx.RoomID, ctx.EventID, "Uno is only available in the games channel!")
-			}
+		args := strings.TrimSpace(p.GetArgs(ctx.Body, "uno"))
+		lower := strings.ToLower(args)
+
+		// Multiplayer subcommands
+		switch {
+		case strings.HasPrefix(lower, "start "):
+			return p.handleMultiStart(ctx, strings.TrimSpace(args[6:]))
+		case lower == "join":
+			return p.handleMultiJoin(ctx)
+		case lower == "go":
+			return p.handleMultiGo(ctx)
+		case lower == "leave":
+			return p.handleMultiLeave(ctx)
+		case lower == "cancel":
+			return p.handleMultiCancel(ctx)
 		}
-		return p.handleChallenge(ctx)
+
+		// Solo challenge: !uno €amount
+		if isGamesRoom(ctx.RoomID) {
+			return p.handleChallenge(ctx, ctx.RoomID)
+		}
+		// Allow starting from DM — announce to games room
+		gr := gamesRoom()
+		if gr == "" {
+			return nil
+		}
+		return p.handleChallenge(ctx, id.RoomID(gr))
 	}
 
-	// DM gameplay — check if this room is a known DM game room
+	// DM gameplay — check solo games first, then multiplayer
 	p.mu.Lock()
-	playerID, isDM := p.dmToPlayer[ctx.RoomID]
-	if !isDM || playerID != ctx.Sender {
-		p.mu.Unlock()
-		return nil
+	playerID, isSoloDM := p.dmToPlayer[ctx.RoomID]
+	if isSoloDM && playerID == ctx.Sender {
+		game := p.games[playerID]
+		if game != nil && !game.done {
+			p.mu.Unlock()
+			return p.handleDMInput(ctx, game)
+		}
 	}
-	game := p.games[playerID]
-	if game == nil || game.done {
-		p.mu.Unlock()
-		return nil
+
+	gameID, isMultiDM := p.dmToMulti[ctx.RoomID]
+	if isMultiDM {
+		mg := p.multiGames[gameID]
+		if mg != nil && !mg.done {
+			p.mu.Unlock()
+			return p.handleMultiDMInput(ctx, mg)
+		}
 	}
 	p.mu.Unlock()
 
-	return p.handleDMInput(ctx, game)
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -452,7 +487,11 @@ func (p *UnoPlugin) handlePotCheck(ctx MessageContext) error {
 // Challenge
 // ---------------------------------------------------------------------------
 
-func (p *UnoPlugin) handleChallenge(ctx MessageContext) error {
+func (p *UnoPlugin) handleChallenge(ctx MessageContext, announceRoom id.RoomID) error {
+	reply := func(text string) error {
+		return p.SendReply(ctx.RoomID, ctx.EventID, text)
+	}
+
 	args := p.GetArgs(ctx.Body, "uno")
 	amountStr := strings.TrimPrefix(strings.TrimSpace(args), "€")
 	var amount float64
@@ -460,15 +499,14 @@ func (p *UnoPlugin) handleChallenge(ctx MessageContext) error {
 
 	minBet := envFloat("UNO_MIN_BET", 10)
 	if amount < minBet {
-		return p.SendReply(ctx.RoomID, ctx.EventID,
-			fmt.Sprintf("Minimum wager is €%d. Usage: `!uno €amount`", int(minBet)))
+		return reply(fmt.Sprintf("Minimum wager is €%d. Usage: `!uno €amount`", int(minBet)))
 	}
 
 	// Hold lock for check-and-reserve to prevent TOCTOU double-challenge
 	p.mu.Lock()
 	if _, active := p.games[ctx.Sender]; active {
 		p.mu.Unlock()
-		return p.SendReply(ctx.RoomID, ctx.EventID, "You already have an Uno game in progress!")
+		return reply("You already have an Uno game in progress!")
 	}
 	// Reserve the slot with a placeholder so concurrent challenges are blocked
 	p.games[ctx.Sender] = &unoGame{done: true} // placeholder
@@ -479,7 +517,7 @@ func (p *UnoPlugin) handleChallenge(ctx MessageContext) error {
 		p.mu.Lock()
 		delete(p.games, ctx.Sender)
 		p.mu.Unlock()
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Insufficient balance for that wager.")
+		return reply("Insufficient balance for that wager.")
 	}
 
 	// Get DM room
@@ -489,11 +527,11 @@ func (p *UnoPlugin) handleChallenge(ctx MessageContext) error {
 		p.mu.Lock()
 		delete(p.games, ctx.Sender)
 		p.mu.Unlock()
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Couldn't open a DM with you. Make sure you accept DMs from the bot.")
+		return reply("Couldn't open a DM with you. Make sure you accept DMs from the bot.")
 	}
 
 	// Initialize game
-	game := p.initGame(ctx.Sender, ctx.RoomID, dmRoom, amount)
+	game := p.initGame(ctx.Sender, announceRoom, dmRoom, amount)
 
 	p.mu.Lock()
 	p.games[ctx.Sender] = game
@@ -503,7 +541,7 @@ func (p *UnoPlugin) handleChallenge(ctx MessageContext) error {
 	// Room announcement
 	playerName := p.unoDisplayName(ctx.Sender)
 	botName := unoBotName()
-	p.SendMessage(ctx.RoomID, fmt.Sprintf(
+	p.SendMessage(announceRoom, fmt.Sprintf(
 		"🃏 **%s** has challenged %s to Uno! Stakes: €%d\n\n%s\n\n[Check your DMs to play.]",
 		playerName, botName, int(amount), pickCommentary("start"),
 	))
@@ -954,13 +992,15 @@ func (p *UnoPlugin) botPlaysCard(game *unoGame, card unoCard) error {
 }
 
 // ---------------------------------------------------------------------------
-// Bot AI
+// Bot AI (shared between solo and multiplayer)
 // ---------------------------------------------------------------------------
 
-func (p *UnoPlugin) botChooseCard(game *unoGame) (unoCard, int) {
+// botPickCard selects the best card to play from the given hand.
+// opponentMinCards is the smallest hand size among opponents.
+func botPickCard(hand []unoCard, discardTop unoCard, topColor unoColor, bookDown bool, opponentMinCards int) (unoCard, int) {
 	var playable []int
-	for i, c := range game.botHand {
-		if c.canPlayOn(game.discardTop, game.topColor) {
+	for i, c := range hand {
+		if c.canPlayOn(discardTop, topColor) {
 			playable = append(playable, i)
 		}
 	}
@@ -969,17 +1009,17 @@ func (p *UnoPlugin) botChooseCard(game *unoGame) (unoCard, int) {
 		return unoCard{}, -1
 	}
 
-	if game.bookDown {
-		return p.botChooseAggressive(game, playable)
+	if bookDown {
+		return botPickAggressive(hand, playable)
 	}
-	return p.botChooseNormal(game, playable)
+	return botPickNormal(hand, topColor, playable, opponentMinCards)
 }
 
-func (p *UnoPlugin) botChooseNormal(game *unoGame, playable []int) (unoCard, int) {
+func botPickNormal(hand []unoCard, topColor unoColor, playable []int, opponentMinCards int) (unoCard, int) {
 	var actions, numbers, wd4s []int
 
 	for _, i := range playable {
-		c := game.botHand[i]
+		c := hand[i]
 		switch {
 		case c.Value == unoWildDrawFour:
 			wd4s = append(wd4s, i)
@@ -990,47 +1030,46 @@ func (p *UnoPlugin) botChooseNormal(game *unoGame, playable []int) (unoCard, int
 		}
 	}
 
-	// Save WD4 unless player has 2-3 cards
-	if len(game.playerHand) > 3 {
+	// Save WD4 unless opponent is close to winning
+	if opponentMinCards > 3 {
 		if len(actions) > 0 {
 			for _, i := range actions {
-				if game.botHand[i].Color == game.topColor {
-					return game.botHand[i], i
+				if hand[i].Color == topColor {
+					return hand[i], i
 				}
 			}
 			idx := actions[0]
-			return game.botHand[idx], idx
+			return hand[idx], idx
 		}
 		if len(numbers) > 0 {
 			for _, i := range numbers {
-				if game.botHand[i].Color == game.topColor {
-					return game.botHand[i], i
+				if hand[i].Color == topColor {
+					return hand[i], i
 				}
 			}
 			idx := numbers[0]
-			return game.botHand[idx], idx
+			return hand[idx], idx
 		}
 	}
 
-	// Player close to winning or no other choice
+	// Opponent close to winning or no other choice
 	if len(wd4s) > 0 {
 		idx := wd4s[0]
-		return game.botHand[idx], idx
+		return hand[idx], idx
 	}
 	if len(actions) > 0 {
 		idx := actions[0]
-		return game.botHand[idx], idx
+		return hand[idx], idx
 	}
-	// Must have numbers (playable is non-empty and every card goes into exactly one bucket)
 	idx := numbers[0]
-	return game.botHand[idx], idx
+	return hand[idx], idx
 }
 
-func (p *UnoPlugin) botChooseAggressive(game *unoGame, playable []int) (unoCard, int) {
+func botPickAggressive(hand []unoCard, playable []int) (unoCard, int) {
 	var wd4s, actions, numbers []int
 
 	for _, i := range playable {
-		c := game.botHand[i]
+		c := hand[i]
 		switch {
 		case c.Value == unoWildDrawFour:
 			wd4s = append(wd4s, i)
@@ -1043,19 +1082,19 @@ func (p *UnoPlugin) botChooseAggressive(game *unoGame, playable []int) (unoCard,
 
 	if len(wd4s) > 0 {
 		idx := wd4s[0]
-		return game.botHand[idx], idx
+		return hand[idx], idx
 	}
 	if len(actions) > 0 {
 		idx := actions[0]
-		return game.botHand[idx], idx
+		return hand[idx], idx
 	}
 	idx := numbers[0]
-	return game.botHand[idx], idx
+	return hand[idx], idx
 }
 
-func (p *UnoPlugin) botChooseColor(game *unoGame) unoColor {
+func botPickColor(hand []unoCard) unoColor {
 	counts := map[unoColor]int{}
-	for _, c := range game.botHand {
+	for _, c := range hand {
 		if c.Color != unoWild {
 			counts[c.Color]++
 		}
@@ -1070,6 +1109,15 @@ func (p *UnoPlugin) botChooseColor(game *unoGame) unoColor {
 		}
 	}
 	return best
+}
+
+// Solo wrappers for backward compatibility
+func (p *UnoPlugin) botChooseCard(game *unoGame) (unoCard, int) {
+	return botPickCard(game.botHand, game.discardTop, game.topColor, game.bookDown, len(game.playerHand))
+}
+
+func (p *UnoPlugin) botChooseColor(game *unoGame) unoColor {
+	return botPickColor(game.botHand)
 }
 
 // afterBotTurn is called when the bot's turn was skipped (player played skip/reverse/draw two).
