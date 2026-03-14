@@ -298,13 +298,21 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | `!hangman submit [phrase]` | Submit a phrase to the pool |
 | `!hangman skip` | Skip game (admin only) |
 | `!hangboard` | Hangman leaderboard |
-| `!blackjack €amount` | Start/join a Blackjack table |
+
+### Blackjack (games channel only)
+| Command | Description |
+|---------|-------------|
+| `!blackjack €amount` | Start/join a Blackjack table (1-2 players) |
 | `!hit` | Take a card |
 | `!stand` | End your turn |
 | `!blackjack leave` | Leave before game starts |
 | `!bjboard` | Blackjack leaderboard |
+
+### UNO (games channel only)
+| Command | Description |
+|---------|-------------|
 | `!uno €amount` | Start a solo UNO game vs GogoBee (played in DMs) |
-| `!uno start €amount` | Create a multiplayer UNO lobby |
+| `!uno start €amount` | Create a multiplayer UNO lobby (2-4 players) |
 | `!uno join` | Join an open UNO lobby |
 | `!uno go` | Start the game (host only, 2+ players required) |
 | `!uno leave` | Leave the lobby (refunds ante) |
