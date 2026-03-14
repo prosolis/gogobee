@@ -347,7 +347,14 @@ Respond with ONLY "yes" or "no".`, message, word)
 		return false
 	}
 
-	answer := strings.ToLower(strings.TrimSpace(result.Response))
+	response := result.Response
+	// Strip <think>...</think> blocks (Qwen 3.5 reasoning)
+	if i := strings.Index(response, "<think>"); i != -1 {
+		if j := strings.Index(response, "</think>"); j != -1 {
+			response = response[:i] + response[j+len("</think>"):]
+		}
+	}
+	answer := strings.ToLower(strings.TrimSpace(response))
 	accepted := strings.HasPrefix(answer, "yes")
 	slog.Debug("wotd: LLM verification", "word", word, "answer", answer, "accepted", accepted)
 	return accepted

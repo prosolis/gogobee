@@ -218,5 +218,13 @@ func callOllama(host, model, prompt string) (string, error) {
 		return "", fmt.Errorf("parse response: %w", err)
 	}
 
-	return strings.TrimSpace(result.Response), nil
+	response := result.Response
+	// Strip <think>...</think> blocks (Qwen 3.5 reasoning)
+	if i := strings.Index(response, "<think>"); i != -1 {
+		if j := strings.Index(response, "</think>"); j != -1 {
+			response = response[:i] + response[j+len("</think>"):]
+		}
+	}
+
+	return strings.TrimSpace(response), nil
 }

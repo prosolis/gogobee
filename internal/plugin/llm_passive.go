@@ -548,6 +548,14 @@ Message: %s`, messageText)
 func parseClassification(raw string) (*classificationResult, error) {
 	cleaned := raw
 
+	// Remove <think>...</think> blocks (Qwen 3.5 reasoning)
+	if i := strings.Index(cleaned, "<think>"); i != -1 {
+		if j := strings.Index(cleaned, "</think>"); j != -1 {
+			cleaned = cleaned[:i] + cleaned[j+len("</think>"):]
+			cleaned = strings.TrimSpace(cleaned)
+		}
+	}
+
 	// Remove markdown code fences
 	cleaned = strings.TrimSpace(cleaned)
 	if strings.HasPrefix(cleaned, "```json") {
