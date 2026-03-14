@@ -56,17 +56,21 @@ func (p *URLsPlugin) OnMessage(ctx MessageContext) error {
 		return nil
 	}
 
-	urls := urlRe.FindAllString(ctx.Body, 5) // limit to 5 URLs per message
-	if len(urls) == 0 {
+	allURLs := urlRe.FindAllString(ctx.Body, -1)
+	// Filter out Matrix internal links (user mentions, room links, etc.)
+	var urls []string
+	for _, u := range allURLs {
+		if !strings.Contains(u, "matrix.to/") {
+			urls = append(urls, u)
+		}
+	}
+
+	// Only preview if there is exactly one URL; skip multi-URL messages
+	if len(urls) != 1 {
 		return nil
 	}
 
 	for _, u := range urls {
-		// Skip Matrix internal links (user mentions, room links, etc.)
-		if strings.Contains(u, "matrix.to/") {
-			continue
-		}
-
 		title, desc, err := p.fetchPreview(u)
 		if err != nil {
 			slog.Debug("urls: fetch preview failed", "url", u, "err", err)
