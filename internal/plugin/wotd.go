@@ -318,6 +318,7 @@ Respond with ONLY "yes" or "no".`, message, word)
 		"model":  model,
 		"prompt": prompt,
 		"stream": false,
+		"think":  false,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

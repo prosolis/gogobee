@@ -184,6 +184,7 @@ func callOllama(host, model, prompt string) (string, error) {
 		"model":  model,
 		"prompt": prompt,
 		"stream": false,
+		"think":  false,
 		"options": map[string]interface{}{
 			"num_ctx": 8192,
 		},

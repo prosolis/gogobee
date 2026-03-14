@@ -481,6 +481,7 @@ type ollamaRequest struct {
 	Model  string `json:"model"`
 	Prompt string `json:"prompt"`
 	Stream bool   `json:"stream"`
+	Think  bool   `json:"think"`
 }
 
 // ollamaResponse is the response from the Ollama API.
