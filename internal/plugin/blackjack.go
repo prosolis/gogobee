@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"strings"
 	"sync"
@@ -85,15 +86,11 @@ func handValue(cards []card) (int, bool) {
 			total += c.value()
 		}
 	}
-	soft := aces > 0 && total <= 21
 	for total > 21 && aces > 0 {
 		total -= 10
 		aces--
 	}
-	if aces == 0 {
-		soft = false
-	}
-	return total, soft
+	return total, aces > 0
 }
 
 func handStr(cards []card) string {
@@ -130,14 +127,14 @@ func (p *bjPlayer) value() int {
 }
 
 type bjTable struct {
-	players     []*bjPlayer
-	dealer      []card
-	deck        *deck
-	joinTimer   *time.Timer
-	turnTimer   *time.Timer
-	currentTurn int
-	phase       string // "joining", "playing", "done"
-	roomID      id.RoomID
+	players        []*bjPlayer
+	dealer         []card
+	deck           *deck
+	joinTimer      *time.Timer
+	turnTimer      *time.Timer
+	reminderTimers []*time.Timer
+	phase          string // "joining", "playing", "done"
+	roomID         id.RoomID
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +184,7 @@ func (p *BlackjackPlugin) Name() string { return "blackjack" }
 
 func (p *BlackjackPlugin) Commands() []CommandDef {
 	return []CommandDef{
-		{Name: "blackjack", Description: "Start or join a Blackjack table", Usage: "!blackjack €amount | !blackjack leave", Category: "Games"},
+		{Name: "blackjack", Description: "Start or join a Blackjack table", Usage: "!blackjack €amount | !blackjack deal | !blackjack leave", Category: "Games"},
 		{Name: "hit", Description: "Take a card in Blackjack", Usage: "!hit", Category: "Games"},
 		{Name: "stand", Description: "End your turn in Blackjack", Usage: "!stand", Category: "Games"},
 		{Name: "bjboard", Description: "Blackjack leaderboard", Usage: "!bjboard", Category: "Games"},
@@ -201,6 +198,9 @@ func (p *BlackjackPlugin) OnReaction(_ ReactionContext) error { return nil }
 func (p *BlackjackPlugin) OnMessage(ctx MessageContext) error {
 	switch {
 	case p.IsCommand(ctx.Body, "bjboard"):
+		if !isGamesRoom(ctx.RoomID) {
+			return p.SendReply(ctx.RoomID, ctx.EventID, "Games are only available in the games channel!")
+		}
 		return p.handleBoard(ctx)
 	case p.IsCommand(ctx.Body, "blackjack"):
 		if !isGamesRoom(ctx.RoomID) {
@@ -232,6 +232,10 @@ func (p *BlackjackPlugin) handleBlackjack(ctx MessageContext) error {
 		return p.handleLeave(ctx)
 	}
 
+	if strings.EqualFold(args, "deal") {
+		return p.handleDeal(ctx)
+	}
+
 	// Parse bet amount
 	amountStr := strings.TrimPrefix(args, "€")
 	var bet float64
@@ -244,10 +248,6 @@ func (p *BlackjackPlugin) handleBlackjack(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID,
 			fmt.Sprintf("Minimum bet is €%d.", int(p.cfg.MinBet)))
 	}
-	if bet > p.cfg.MaxBet {
-		bet = p.cfg.MaxBet
-	}
-
 	// Check balance
 	balance := p.euro.GetBalance(ctx.Sender)
 	maxAvailable := balance + p.cfg.DebtLimit
@@ -255,9 +255,16 @@ func (p *BlackjackPlugin) handleBlackjack(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID,
 			"🚫 You're at your debt limit. Earn some euros before playing.")
 	}
-	if bet > maxAvailable {
-		return p.SendReply(ctx.RoomID, ctx.EventID,
-			fmt.Sprintf("You can bet up to €%d (balance: €%d).", int(maxAvailable), int(balance)))
+
+	maxBet := min(p.cfg.MaxBet, maxAvailable)
+	if bet > maxBet {
+		if maxBet < p.cfg.MaxBet {
+			return p.SendReply(ctx.RoomID, ctx.EventID,
+				fmt.Sprintf("You can bet up to €%d (balance: €%d).", int(maxBet), int(balance)))
+		}
+		_ = p.SendReply(ctx.RoomID, ctx.EventID,
+			fmt.Sprintf("Max bet is €%d — capping your bet.", int(p.cfg.MaxBet)))
+		bet = p.cfg.MaxBet
 	}
 
 	p.mu.Lock()
@@ -311,7 +318,7 @@ func (p *BlackjackPlugin) handleBlackjack(ctx MessageContext) error {
 
 	name := p.bjDisplayName(ctx.Sender)
 	_ = p.SendMessage(ctx.RoomID,
-		fmt.Sprintf("🃏 **%s** opens a Blackjack table! Bet: €%d\nJoin with `!blackjack €amount` (60 seconds to join)",
+		fmt.Sprintf("🃏 **%s** opens a Blackjack table! Bet: €%d\nJoin with `!blackjack €amount` or `!blackjack deal` to start now (60s to join)",
 			name, int(bet)))
 
 	// Start join timer
@@ -331,8 +338,27 @@ func (p *BlackjackPlugin) handleLeave(ctx MessageContext) error {
 	defer p.mu.Unlock()
 
 	table, exists := p.tables[ctx.RoomID]
-	if !exists || table.phase != "joining" {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "No table to leave, or the round has started.")
+	if !exists {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "No table to leave.")
+	}
+
+	if table.phase == "playing" {
+		// Mid-round forfeit — player loses their bet
+		player := p.findPlayer(table, ctx.Sender)
+		if player == nil || player.Done {
+			return p.SendReply(ctx.RoomID, ctx.EventID, "You're not in an active hand.")
+		}
+		player.Bust = true
+		player.Done = true
+		name := p.bjDisplayName(ctx.Sender)
+		_ = p.SendMessage(ctx.RoomID,
+			fmt.Sprintf("🏳️ **%s** forfeits! Bet lost.", name))
+		p.checkAllDone(ctx.RoomID, table)
+		return nil
+	}
+
+	if table.phase != "joining" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "No table to leave.")
 	}
 
 	for i, pl := range table.players {
@@ -357,6 +383,28 @@ func (p *BlackjackPlugin) handleLeave(ctx MessageContext) error {
 	return p.SendReply(ctx.RoomID, ctx.EventID, "You're not at the table.")
 }
 
+func (p *BlackjackPlugin) handleDeal(ctx MessageContext) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	table, exists := p.tables[ctx.RoomID]
+	if !exists || table.phase != "joining" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "No table waiting to deal.")
+	}
+
+	// Only a player at the table can force-start
+	if p.findPlayer(table, ctx.Sender) == nil {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "You're not at the table.")
+	}
+
+	if table.joinTimer != nil {
+		table.joinTimer.Stop()
+	}
+	_ = p.SendMessage(ctx.RoomID, "🃏 Dealing!")
+	p.startRound(ctx.RoomID, table)
+	return nil
+}
+
 // startRound must be called with p.mu held.
 func (p *BlackjackPlugin) startRound(roomID id.RoomID, table *bjTable) {
 	table.phase = "playing"
@@ -379,9 +427,33 @@ func (p *BlackjackPlugin) startRound(roomID id.RoomID, table *bjTable) {
 	// Display initial state
 	_ = p.SendMessage(roomID, p.renderTable(table, false))
 
-	// Find first active player
-	table.currentTurn = -1
-	p.advanceTurn(roomID, table)
+	// Check if all players already have blackjack
+	allDone := true
+	var activeNames []string
+	for _, pl := range table.players {
+		if !pl.Done {
+			allDone = false
+			activeNames = append(activeNames, p.bjDisplayName(pl.UserID))
+		}
+	}
+
+	if allDone {
+		p.playDealer(roomID, table)
+		return
+	}
+
+	_ = p.SendMessage(roomID,
+		fmt.Sprintf("👉 **%s** — `!hit` or `!stand` (%ds)", strings.Join(activeNames, "**, **"), p.cfg.TimeoutSeconds))
+	p.startRoundTimer(roomID, table)
+}
+
+func (p *BlackjackPlugin) findPlayer(table *bjTable, userID id.UserID) *bjPlayer {
+	for _, pl := range table.players {
+		if pl.UserID == userID {
+			return pl
+		}
+	}
+	return nil
 }
 
 func (p *BlackjackPlugin) handleHit(ctx MessageContext) error {
@@ -393,17 +465,9 @@ func (p *BlackjackPlugin) handleHit(ctx MessageContext) error {
 		return nil
 	}
 
-	if table.currentTurn < 0 || table.currentTurn >= len(table.players) {
+	player := p.findPlayer(table, ctx.Sender)
+	if player == nil || player.Done {
 		return nil
-	}
-
-	player := table.players[table.currentTurn]
-	if player.UserID != ctx.Sender {
-		return nil // Not your turn
-	}
-
-	if table.turnTimer != nil {
-		table.turnTimer.Stop()
 	}
 
 	player.Hand = append(player.Hand, table.deck.draw())
@@ -415,19 +479,20 @@ func (p *BlackjackPlugin) handleHit(ctx MessageContext) error {
 		name := p.bjDisplayName(player.UserID)
 		_ = p.SendMessage(ctx.RoomID,
 			fmt.Sprintf("💥 **%s** busts with %s (%d)!", name, handStr(player.Hand), v))
-		p.advanceTurn(ctx.RoomID, table)
+		p.checkAllDone(ctx.RoomID, table)
 		return nil
 	}
 
 	if v == 21 {
 		player.Done = true
-		_ = p.SendMessage(ctx.RoomID, p.renderTable(table, false))
-		p.advanceTurn(ctx.RoomID, table)
+		name := p.bjDisplayName(player.UserID)
+		_ = p.SendMessage(ctx.RoomID,
+			fmt.Sprintf("**%s** has 21! %s", name, handStr(player.Hand)))
+		p.checkAllDone(ctx.RoomID, table)
 		return nil
 	}
 
 	_ = p.SendMessage(ctx.RoomID, p.renderTable(table, false))
-	p.startTurnTimer(ctx.RoomID, table)
 	return nil
 }
 
@@ -440,84 +505,128 @@ func (p *BlackjackPlugin) handleStand(ctx MessageContext) error {
 		return nil
 	}
 
-	if table.currentTurn < 0 || table.currentTurn >= len(table.players) {
+	player := p.findPlayer(table, ctx.Sender)
+	if player == nil || player.Done {
 		return nil
-	}
-
-	player := table.players[table.currentTurn]
-	if player.UserID != ctx.Sender {
-		return nil
-	}
-
-	if table.turnTimer != nil {
-		table.turnTimer.Stop()
 	}
 
 	player.Done = true
-	p.advanceTurn(ctx.RoomID, table)
+	name := p.bjDisplayName(player.UserID)
+	_ = p.SendMessage(ctx.RoomID, fmt.Sprintf("**%s** stands at %d.", name, player.value()))
+	p.checkAllDone(ctx.RoomID, table)
 	return nil
 }
 
-// advanceTurn moves to the next player or dealer. Must be called with p.mu held.
-func (p *BlackjackPlugin) advanceTurn(roomID id.RoomID, table *bjTable) {
-	// Find next active player
-	for i := table.currentTurn + 1; i < len(table.players); i++ {
-		if !table.players[i].Done {
-			table.currentTurn = i
-			name := p.bjDisplayName(table.players[i].UserID)
-			_ = p.SendMessage(roomID,
-				fmt.Sprintf("👉 **%s**'s turn. `!hit` or `!stand` (%ds)", name, p.cfg.TimeoutSeconds))
-			p.startTurnTimer(roomID, table)
-			return
+// checkAllDone checks if all players are done and triggers the dealer. Must be called with p.mu held.
+func (p *BlackjackPlugin) checkAllDone(roomID id.RoomID, table *bjTable) {
+	var waiting []string
+	for _, pl := range table.players {
+		if !pl.Done {
+			waiting = append(waiting, p.bjDisplayName(pl.UserID))
 		}
 	}
 
-	// All players done — dealer's turn
+	if len(waiting) > 0 {
+		_ = p.SendMessage(roomID,
+			fmt.Sprintf("⏳ Waiting on: **%s**", strings.Join(waiting, "**, **")))
+		return
+	}
+
+	// All players done — stop timers and go to dealer
+	p.stopRoundTimers(table)
 	p.playDealer(roomID, table)
 }
 
-func (p *BlackjackPlugin) startTurnTimer(roomID id.RoomID, table *bjTable) {
-	turnIdx := table.currentTurn
-	table.turnTimer = time.AfterFunc(time.Duration(p.cfg.TimeoutSeconds)*time.Second, func() {
+// startRoundTimer starts a shared timeout for the round plus reminder nudges. Must be called with p.mu held.
+func (p *BlackjackPlugin) startRoundTimer(roomID id.RoomID, table *bjTable) {
+	p.stopRoundTimers(table)
+	timeout := p.cfg.TimeoutSeconds
+
+	// Schedule reminders at 30s and 10s before timeout
+	remindAts := []int{timeout - 30, timeout - 10}
+	for _, delay := range remindAts {
+		if delay < 5 {
+			continue
+		}
+		remaining := timeout - delay
+		t := time.AfterFunc(time.Duration(delay)*time.Second, func() {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			tbl, exists := p.tables[roomID]
+			if !exists || tbl != table || tbl.phase != "playing" {
+				return
+			}
+			var waiting []string
+			for _, pl := range tbl.players {
+				if !pl.Done {
+					waiting = append(waiting, p.bjDisplayName(pl.UserID))
+				}
+			}
+			if len(waiting) > 0 {
+				_ = p.SendMessage(roomID,
+					fmt.Sprintf("⏳ %ds left — still waiting on: **%s**", remaining, strings.Join(waiting, "**, **")))
+			}
+		})
+		table.reminderTimers = append(table.reminderTimers, t)
+	}
+
+	// Main timeout — auto-play all remaining players
+	table.turnTimer = time.AfterFunc(time.Duration(timeout)*time.Second, func() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 
-		// Verify table still exists and it's the same turn
 		t, exists := p.tables[roomID]
-		if !exists || t != table || t.currentTurn != turnIdx {
+		if !exists || t != table || t.phase != "playing" {
 			return
 		}
 
-		// Use looked-up t, not captured table pointer
-		player := t.players[turnIdx]
-		v := player.value()
-		name := p.bjDisplayName(player.UserID)
+		for _, pl := range t.players {
+			if pl.Done {
+				continue
+			}
+			v := pl.value()
+			name := p.bjDisplayName(pl.UserID)
 
-		if v >= p.cfg.AutoplayThreshold {
-			_ = p.SendMessage(roomID,
-				fmt.Sprintf("⏱️ **%s** timed out — auto-playing (stand)", name))
-			player.Done = true
-			p.advanceTurn(roomID, t)
-		} else {
-			_ = p.SendMessage(roomID,
-				fmt.Sprintf("⏱️ **%s** timed out — auto-playing (hit)", name))
-			player.Hand = append(player.Hand, t.deck.draw())
-			v = player.value()
-			if v > 21 {
-				player.Bust = true
-				player.Done = true
+			if v >= p.cfg.AutoplayThreshold {
 				_ = p.SendMessage(roomID,
-					fmt.Sprintf("💥 **%s** busts with %s (%d)!", name, handStr(player.Hand), v))
-				p.advanceTurn(roomID, t)
-			} else if v >= p.cfg.AutoplayThreshold {
-				player.Done = true
-				p.advanceTurn(roomID, t)
+					fmt.Sprintf("⏱️ **%s** timed out — auto-playing (stand)", name))
+				pl.Done = true
 			} else {
-				// Still below threshold, restart timer
-				p.startTurnTimer(roomID, t)
+				// Keep hitting until they stand or bust
+				for v < p.cfg.AutoplayThreshold {
+					_ = p.SendMessage(roomID,
+						fmt.Sprintf("⏱️ **%s** timed out — auto-playing (hit)", name))
+					pl.Hand = append(pl.Hand, t.deck.draw())
+					v = pl.value()
+					if v > 21 {
+						pl.Bust = true
+						pl.Done = true
+						_ = p.SendMessage(roomID,
+							fmt.Sprintf("💥 **%s** busts with %s (%d)!", name, handStr(pl.Hand), v))
+						break
+					}
+				}
+				if !pl.Done {
+					_ = p.SendMessage(roomID,
+						fmt.Sprintf("⏱️ **%s** auto-stands at %d.", name, v))
+					pl.Done = true
+				}
 			}
 		}
+
+		p.playDealer(roomID, t)
 	})
+}
+
+func (p *BlackjackPlugin) stopRoundTimers(table *bjTable) {
+	if table.turnTimer != nil {
+		table.turnTimer.Stop()
+		table.turnTimer = nil
+	}
+	for _, t := range table.reminderTimers {
+		t.Stop()
+	}
+	table.reminderTimers = nil
 }
 
 // playDealer plays the dealer hand. Must be called with p.mu held.
@@ -575,7 +684,7 @@ func (p *BlackjackPlugin) resolveRound(roomID id.RoomID, table *bjTable) {
 
 		case playerBJ:
 			result = "Blackjack!"
-			payout = pl.Bet + pl.Bet*1.5 // Return bet + 1.5x
+			payout = pl.Bet + math.Floor(pl.Bet*1.5) // Return bet + 1.5x (rounded down)
 			p.euro.Credit(pl.UserID, payout, "blackjack_win")
 
 		case dealerBJ:
@@ -604,9 +713,14 @@ func (p *BlackjackPlugin) resolveRound(roomID id.RoomID, table *bjTable) {
 
 		net := payout - pl.Bet
 		newBalance := p.euro.GetBalance(pl.UserID)
-		netStr := fmt.Sprintf("€%d", int(net))
-		if net > 0 {
+		var netStr string
+		switch {
+		case net > 0:
 			netStr = fmt.Sprintf("+€%d", int(net))
+		case net < 0:
+			netStr = fmt.Sprintf("-€%d", int(-net))
+		default:
+			netStr = "€0"
 		}
 
 		sb.WriteString(fmt.Sprintf("**%s**: %s  %s — %s  (balance: €%d)\n",
@@ -619,9 +733,7 @@ func (p *BlackjackPlugin) resolveRound(roomID id.RoomID, table *bjTable) {
 	sb.WriteString(fmt.Sprintf("\nDealer: %s  (%d)\n", handStr(table.dealer), dealerValue))
 
 	// Stop any pending timers before cleanup
-	if table.turnTimer != nil {
-		table.turnTimer.Stop()
-	}
+	p.stopRoundTimers(table)
 	if table.joinTimer != nil {
 		table.joinTimer.Stop()
 	}
@@ -687,7 +799,7 @@ func (p *BlackjackPlugin) handleBoard(ctx MessageContext) error {
 		rows.Scan(&userID, &earned, &played, &won)
 		rank++
 		name := p.bjDisplayName(id.UserID(userID))
-		sb.WriteString(fmt.Sprintf("%d. **%s** — €%d (%d/%d W/L)\n", rank, name, int(earned), won, played-won))
+		sb.WriteString(fmt.Sprintf("%d. **%s** — €%d (%d W in %d games)\n", rank, name, int(earned), won, played))
 	}
 
 	if rank == 0 {

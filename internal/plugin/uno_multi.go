@@ -54,8 +54,9 @@ type unoMultiGame struct {
 	done       bool
 	bookDown   bool
 
-	timer *time.Timer
-	mu    sync.Mutex // per-game lock
+	timer         *time.Timer
+	inactiveTimer *time.Timer // 10-minute game timeout
+	mu            sync.Mutex  // per-game lock
 }
 
 type unoMultiLobby struct {
@@ -233,10 +234,10 @@ func (p *UnoPlugin) handleMultiStart(ctx MessageContext, amountStr string) error
 			}
 		}
 	}
-	p.mu.Unlock()
 
-	// Debit ante
+	// Debit ante while still holding the lock
 	if !p.euro.Debit(ctx.Sender, amount, "uno_multi_ante") {
+		p.mu.Unlock()
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Insufficient balance for that ante.")
 	}
 
@@ -253,7 +254,6 @@ func (p *UnoPlugin) handleMultiStart(ctx MessageContext, amountStr string) error
 		p.lobbyExpired(ctx.RoomID)
 	})
 
-	p.mu.Lock()
 	p.lobbies[ctx.RoomID] = lobby
 	p.mu.Unlock()
 
@@ -303,14 +303,13 @@ func (p *UnoPlugin) handleMultiJoin(ctx MessageContext) error {
 			}
 		}
 	}
-	p.mu.Unlock()
 
-	// Debit ante
+	// Debit ante while still holding the lock
 	if !p.euro.Debit(ctx.Sender, lobby.ante, "uno_multi_ante") {
+		p.mu.Unlock()
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Insufficient balance for the ante.")
 	}
 
-	p.mu.Lock()
 	lobby.players = append(lobby.players, ctx.Sender)
 	count := len(lobby.players)
 	p.mu.Unlock()
@@ -491,6 +490,7 @@ func (p *UnoPlugin) handleMultiGo(ctx MessageContext) error {
 	// Start first turn
 	game.mu.Lock()
 	defer game.mu.Unlock()
+	p.startInactivityTimer(game)
 	p.executeMultiTurn(game)
 
 	return nil
@@ -623,7 +623,7 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 			if len(drawn) == 0 {
 				// Empty deck, no playable cards — pass
 				name := p.unoDisplayName(player.userID)
-				p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s has no playable cards and deck is empty. Turn passes.", name))
+				p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s has no playable cards and deck is empty. Turn passes. (%d cards)", name, len(player.hand)))
 				p.SendMessage(player.dmRoomID, "No playable cards and deck is empty. Turn passes.")
 				game.currentIdx = game.nextActiveIdx()
 				game.turnID++
@@ -645,7 +645,7 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 			name := p.unoDisplayName(player.userID)
 			p.SendMessage(player.dmRoomID,
 				fmt.Sprintf("No playable cards — drew automatically: %s\nNot playable. Turn passes.", card.Display()))
-			p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes.", name))
+			p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes. (%d cards)", name, len(player.hand)))
 			game.currentIdx = game.nextActiveIdx()
 			game.turnID++
 			continue
@@ -702,10 +702,11 @@ func (p *UnoPlugin) handleMultiDMInput(ctx MessageContext, game *unoMultiGame) e
 		return nil // not this player's turn
 	}
 
-	// Reset auto-play counter on manual input
+	// Reset auto-play counter and inactivity timer on manual input
 	player.autoPlays = 0
+	p.startInactivityTimer(game)
 
-	// Cancel timer
+	// Cancel turn timer
 	if game.timer != nil {
 		game.timer.Stop()
 	}
@@ -866,7 +867,7 @@ func (p *UnoPlugin) handleMultiPlayerDraw(game *unoMultiGame, player *unoMultiPl
 
 	name := p.unoDisplayName(player.userID)
 	p.SendMessage(player.dmRoomID, fmt.Sprintf("You drew: %s\nNot playable. Turn passes.", card.Display()))
-	p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes.", name))
+	p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes. (%d cards)", name, len(player.hand)))
 	p.advanceAndExecute(game)
 	return nil
 }
@@ -884,7 +885,7 @@ func (p *UnoPlugin) handleMultiDrawnPlayable(game *unoMultiGame, player *unoMult
 	if input == "no" || input == "n" {
 		name := p.unoDisplayName(player.userID)
 		p.SendMessage(player.dmRoomID, "Card kept. Turn passes.")
-		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes.", name))
+		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes. (%d cards)", name, len(player.hand)))
 		p.advanceAndExecute(game)
 		return nil
 	}
@@ -929,13 +930,18 @@ func (p *UnoPlugin) handleMultiDrawnPlayable(game *unoMultiGame, player *unoMult
 // Card effects & turn announcement
 // ---------------------------------------------------------------------------
 
-func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer, card unoCard) {
-	name := p.unoDisplayName(player.userID)
-	var roomMsg strings.Builder
+// cardEffectResult describes what happened when a card's effects were applied.
+type cardEffectResult struct {
+	skippedName string // non-empty if a player was skipped
+	reversed    bool   // true if direction was reversed
+	drawnCount  int    // cards drawn by the victim (2 or 4)
+}
 
-	roomMsg.WriteString(fmt.Sprintf("🃏 %s plays: %s", name, card.DisplayWithColor(game.topColor)))
+// applyCardEffects applies skip/reverse/draw effects and advances the turn.
+// Caller must hold game.mu.
+func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffectResult {
+	var result cardEffectResult
 
-	// Determine next player for effects
 	nextIdx := game.nextActiveIdx()
 	nextPlayer := game.players[nextIdx]
 	nextName := p.unoDisplayName(nextPlayer.userID)
@@ -945,24 +951,20 @@ func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer,
 
 	switch card.Value {
 	case unoSkip:
-		// In multiplayer, skip always skips the next player
-		roomMsg.WriteString(fmt.Sprintf("\n  %s is skipped!", nextName))
-		// Advance past the skipped player
+		result.skippedName = nextName
 		game.currentIdx = nextIdx
 		game.currentIdx = game.nextActiveIdx()
 		game.turnID++
 
 	case unoReverse:
 		game.direction *= -1
-		activePlayers := game.activePlayers()
-		if len(activePlayers) == 2 {
-			// 2-player: reverse = skip
-			roomMsg.WriteString(fmt.Sprintf("\n  %s is skipped! (reverse)", nextName))
+		result.reversed = true
+		if len(game.activePlayers()) == 2 {
+			result.skippedName = nextName
 			game.currentIdx = nextIdx
 			game.currentIdx = game.nextActiveIdx()
 			game.turnID++
 		} else {
-			roomMsg.WriteString("\n  Direction reversed!")
 			game.currentIdx = game.nextActiveIdx()
 			game.turnID++
 		}
@@ -970,8 +972,8 @@ func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer,
 	case unoDrawTwo:
 		drawn := game.draw(2)
 		nextPlayer.hand = append(nextPlayer.hand, drawn...)
-		roomMsg.WriteString(fmt.Sprintf("\n  %s draws 2 and is skipped!", nextName))
-		// Skip past the victim
+		result.skippedName = nextName
+		result.drawnCount = 2
 		game.currentIdx = nextIdx
 		game.currentIdx = game.nextActiveIdx()
 		game.turnID++
@@ -979,16 +981,41 @@ func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer,
 	case unoWildDrawFour:
 		drawn := game.draw(4)
 		nextPlayer.hand = append(nextPlayer.hand, drawn...)
-		roomMsg.WriteString(fmt.Sprintf("\n  %s draws 4 and is skipped!", nextName))
+		result.skippedName = nextName
+		result.drawnCount = 4
 		game.currentIdx = nextIdx
 		game.currentIdx = game.nextActiveIdx()
 		game.turnID++
 
 	default:
-		// Normal card
 		game.currentIdx = game.nextActiveIdx()
 		game.turnID++
 	}
+
+	return result
+}
+
+// writeEffectLines appends human-readable effect descriptions to a string builder.
+func writeEffectLines(sb *strings.Builder, eff cardEffectResult) {
+	if eff.drawnCount > 0 {
+		sb.WriteString(fmt.Sprintf("\n  %s draws %d and is skipped!", eff.skippedName, eff.drawnCount))
+	} else if eff.skippedName != "" && eff.reversed {
+		sb.WriteString(fmt.Sprintf("\n  %s is skipped! (reverse)", eff.skippedName))
+	} else if eff.skippedName != "" {
+		sb.WriteString(fmt.Sprintf("\n  %s is skipped!", eff.skippedName))
+	} else if eff.reversed {
+		sb.WriteString("\n  Direction reversed!")
+	}
+}
+
+func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer, card unoCard) {
+	name := p.unoDisplayName(player.userID)
+	var roomMsg strings.Builder
+
+	roomMsg.WriteString(fmt.Sprintf("🃏 %s plays: %s", name, card.DisplayWithColor(game.topColor)))
+
+	eff := p.applyCardEffects(game, card)
+	writeEffectLines(&roomMsg, eff)
 
 	// Book state commentary (occasionally)
 	if game.turns%4 == 0 {
@@ -1119,53 +1146,8 @@ func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 	}
 
 	// Apply action effects
-	nextIdx := game.nextActiveIdx()
-	nextPlayer := game.players[nextIdx]
-	nextName := p.unoDisplayName(nextPlayer.userID)
-	if nextPlayer.isBot {
-		nextName = bn
-	}
-
-	switch card.Value {
-	case unoSkip:
-		roomBuf.WriteString(fmt.Sprintf("\n  %s is skipped!", nextName))
-		game.currentIdx = nextIdx
-		game.currentIdx = game.nextActiveIdx()
-		game.turnID++
-
-	case unoReverse:
-		game.direction *= -1
-		if len(game.activePlayers()) == 2 {
-			roomBuf.WriteString(fmt.Sprintf("\n  %s is skipped! (reverse)", nextName))
-			game.currentIdx = nextIdx
-			game.currentIdx = game.nextActiveIdx()
-			game.turnID++
-		} else {
-			roomBuf.WriteString("\n  Direction reversed!")
-			game.currentIdx = game.nextActiveIdx()
-			game.turnID++
-		}
-
-	case unoDrawTwo:
-		drawn := game.draw(2)
-		nextPlayer.hand = append(nextPlayer.hand, drawn...)
-		roomBuf.WriteString(fmt.Sprintf("\n  %s draws 2 and is skipped!", nextName))
-		game.currentIdx = nextIdx
-		game.currentIdx = game.nextActiveIdx()
-		game.turnID++
-
-	case unoWildDrawFour:
-		drawn := game.draw(4)
-		nextPlayer.hand = append(nextPlayer.hand, drawn...)
-		roomBuf.WriteString(fmt.Sprintf("\n  %s draws 4 and is skipped!", nextName))
-		game.currentIdx = nextIdx
-		game.currentIdx = game.nextActiveIdx()
-		game.turnID++
-
-	default:
-		game.currentIdx = game.nextActiveIdx()
-		game.turnID++
-	}
+	eff := p.applyCardEffects(game, card)
+	writeEffectLines(roomBuf, eff)
 
 	game.turns++
 }
@@ -1216,6 +1198,50 @@ func (p *UnoPlugin) startMultiAutoPlayTimer(game *unoMultiGame) {
 
 		// Auto-play: find first playable non-action card
 		p.autoPlayMultiTurn(mg, player)
+	})
+}
+
+// startInactivityTimer starts (or resets) the 10-minute game timeout.
+// If no human input occurs within the window, the game ends and remaining players are refunded.
+// Caller must hold game.mu.
+func (p *UnoPlugin) startInactivityTimer(game *unoMultiGame) {
+	if game.inactiveTimer != nil {
+		game.inactiveTimer.Stop()
+	}
+
+	timeout := envInt("UNO_MULTI_INACTIVITY_TIMEOUT", 600)
+	gameID := game.id
+
+	game.inactiveTimer = time.AfterFunc(time.Duration(timeout)*time.Second, func() {
+		p.mu.Lock()
+		mg, exists := p.multiGames[gameID]
+		p.mu.Unlock()
+		if !exists {
+			return
+		}
+
+		mg.mu.Lock()
+		defer mg.mu.Unlock()
+
+		if mg.done {
+			return
+		}
+
+		mg.done = true
+		if mg.timer != nil {
+			mg.timer.Stop()
+		}
+
+		// Refund remaining human players
+		for _, pl := range mg.players {
+			if !pl.isBot && pl.active {
+				p.euro.Credit(pl.userID, mg.ante, "uno_multi_timeout_refund")
+			}
+		}
+
+		p.SendMessage(mg.roomID, "🃏 **Game timed out** — no human input for 10 minutes. All antes refunded.")
+		p.recordMultiGame(mg, id.UserID(""), "timeout")
+		p.cleanupMultiGame(mg)
 	})
 }
 
@@ -1393,48 +1419,14 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 		}
 
 		p.SendMessage(player.dmRoomID, fmt.Sprintf("*Auto-played:* Drew %s. Not playable. Turn passes.", card.Display()))
-		p.SendMessage(game.roomID, fmt.Sprintf("🃏 *%s was auto-played.* Draws a card. Turn passes.", name))
+		p.SendMessage(game.roomID, fmt.Sprintf("🃏 *%s was auto-played.* Draws a card. Turn passes. (%d cards)", name, len(player.hand)))
 		p.advanceAndExecute(game)
 	}
 }
 
 // applyAutoEffects applies card effects after an auto-play and advances the turn.
-func (p *UnoPlugin) applyAutoEffects(game *unoMultiGame, player *unoMultiPlayer, card unoCard) {
-	nextIdx := game.nextActiveIdx()
-	nextPlayer := game.players[nextIdx]
-
-	switch card.Value {
-	case unoSkip:
-		game.currentIdx = nextIdx
-		game.currentIdx = game.nextActiveIdx()
-		game.turnID++
-	case unoReverse:
-		game.direction *= -1
-		if len(game.activePlayers()) == 2 {
-			game.currentIdx = nextIdx
-			game.currentIdx = game.nextActiveIdx()
-			game.turnID++
-		} else {
-			game.currentIdx = game.nextActiveIdx()
-			game.turnID++
-		}
-	case unoDrawTwo:
-		drawn := game.draw(2)
-		nextPlayer.hand = append(nextPlayer.hand, drawn...)
-		game.currentIdx = nextIdx
-		game.currentIdx = game.nextActiveIdx()
-		game.turnID++
-	case unoWildDrawFour:
-		drawn := game.draw(4)
-		nextPlayer.hand = append(nextPlayer.hand, drawn...)
-		game.currentIdx = nextIdx
-		game.currentIdx = game.nextActiveIdx()
-		game.turnID++
-	default:
-		game.currentIdx = game.nextActiveIdx()
-		game.turnID++
-	}
-
+func (p *UnoPlugin) applyAutoEffects(game *unoMultiGame, _ *unoMultiPlayer, card unoCard) {
+	p.applyCardEffects(game, card)
 	p.executeMultiTurn(game)
 }
 
@@ -1450,6 +1442,9 @@ func (p *UnoPlugin) multiPlayerWins(game *unoMultiGame, winner *unoMultiPlayer) 
 
 	if game.timer != nil {
 		game.timer.Stop()
+	}
+	if game.inactiveTimer != nil {
+		game.inactiveTimer.Stop()
 	}
 
 	// Calculate pot (all human antes)
@@ -1480,6 +1475,9 @@ func (p *UnoPlugin) multiBotWins(game *unoMultiGame) {
 
 	if game.timer != nil {
 		game.timer.Stop()
+	}
+	if game.inactiveTimer != nil {
+		game.inactiveTimer.Stop()
 	}
 
 	humanCount := 0
