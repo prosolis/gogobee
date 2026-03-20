@@ -1030,6 +1030,13 @@ func botPickNormal(hand []unoCard, topColor unoColor, playable []int, opponentMi
 		}
 	}
 
+	// Sometimes play WD4 even when we have other options (20% chance)
+	// This makes the challenge mechanic meaningful against the bot.
+	if len(wd4s) > 0 && (len(actions) > 0 || len(numbers) > 0) && rand.IntN(5) == 0 {
+		idx := wd4s[0]
+		return hand[idx], idx
+	}
+
 	// Save WD4 unless opponent is close to winning
 	if opponentMinCards > 3 {
 		if len(actions) > 0 {

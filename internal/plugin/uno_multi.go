@@ -20,9 +20,10 @@ import (
 type unoMultiPhase int
 
 const (
-	unoMultiPhasePlay        unoMultiPhase = iota
-	unoMultiPhaseChooseColor               // active player must pick a color
-	unoMultiPhaseDrawnPlayable             // active player drew a playable card, yes/no
+	unoMultiPhasePlay          unoMultiPhase = iota
+	unoMultiPhaseChooseColor                 // active player must pick a color
+	unoMultiPhaseDrawnPlayable               // active player drew a playable card, yes/no
+	unoMultiPhaseChallenge                   // next player may challenge a Wild Draw Four
 )
 
 type unoMultiPlayer struct {
@@ -46,8 +47,13 @@ type unoMultiGame struct {
 	discardTop unoCard
 	topColor   unoColor
 	phase      unoMultiPhase
-	drawnCard  *unoCard  // card drawn this turn
+	drawnCard   *unoCard  // card drawn this turn
 	pendingCard *unoCard // wild waiting for color
+
+	// Wild Draw Four challenge state
+	wd4Player    *unoMultiPlayer // who played the WD4
+	wd4Victim    *unoMultiPlayer // who can challenge
+	wd4PrevColor unoColor        // color before the wild was played
 	turns      int
 	turnID     int // monotonic, used to invalidate stale timers
 	startedAt  time.Time
@@ -717,6 +723,9 @@ func (p *UnoPlugin) handleMultiDMInput(ctx MessageContext, game *unoMultiGame) e
 	}
 
 	switch game.phase {
+	case unoMultiPhaseChallenge:
+		return p.handleMultiChallengeInput(game, player, input)
+
 	case unoMultiPhaseChooseColor:
 		return p.handleMultiColorChoice(game, player, input)
 
@@ -747,6 +756,20 @@ func (p *UnoPlugin) handleMultiDMInput(ctx MessageContext, game *unoMultiGame) e
 // ---------------------------------------------------------------------------
 // Play handlers
 // ---------------------------------------------------------------------------
+
+func (p *UnoPlugin) handleMultiChallengeInput(game *unoMultiGame, player *unoMultiPlayer, input string) error {
+	switch input {
+	case "challenge", "c":
+		name := p.unoDisplayName(player.userID)
+		p.SendMessage(game.roomID, fmt.Sprintf("⚡ %s challenges the Wild Draw Four!", name))
+		p.resolveWD4Challenge(game, true)
+	case "accept", "a":
+		p.resolveWD4Challenge(game, false)
+	default:
+		p.SendMessage(player.dmRoomID, "Type **challenge** or **accept**.")
+	}
+	return nil
+}
 
 func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPlayer, idx int) error {
 	card := player.hand[idx]
@@ -784,6 +807,9 @@ func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPl
 	// Wild — need color choice
 	if card.Value == unoWildCard || card.Value == unoWildDrawFour {
 		game.pendingCard = &card
+		if card.Value == unoWildDrawFour {
+			game.wd4PrevColor = game.topColor
+		}
 		game.phase = unoMultiPhaseChooseColor
 		p.SendMessage(player.dmRoomID,
 			fmt.Sprintf("You played **%s**! Choose a color:\n1. 🟥 Red\n2. 🟦 Blue\n3. 🟨 Yellow\n4. 🟩 Green", card.Value))
@@ -906,6 +932,9 @@ func (p *UnoPlugin) handleMultiDrawnPlayable(game *unoMultiGame, player *unoMult
 
 	if drawnCard.Value == unoWildCard || drawnCard.Value == unoWildDrawFour {
 		game.pendingCard = &drawnCard
+		if drawnCard.Value == unoWildDrawFour {
+			game.wd4PrevColor = game.topColor
+		}
 		game.phase = unoMultiPhaseChooseColor
 		p.SendMessage(player.dmRoomID,
 			fmt.Sprintf("You played **%s**! Choose a color:\n1. 🟥 Red\n2. 🟦 Blue\n3. 🟨 Yellow\n4. 🟩 Green", drawnCard.Value))
@@ -932,9 +961,10 @@ func (p *UnoPlugin) handleMultiDrawnPlayable(game *unoMultiGame, player *unoMult
 
 // cardEffectResult describes what happened when a card's effects were applied.
 type cardEffectResult struct {
-	skippedName string // non-empty if a player was skipped
-	reversed    bool   // true if direction was reversed
-	drawnCount  int    // cards drawn by the victim (2 or 4)
+	skippedName    string // non-empty if a player was skipped
+	reversed       bool   // true if direction was reversed
+	drawnCount     int    // cards drawn by the victim (2 or 4)
+	needsChallenge bool   // true if WD4 challenge phase should start
 }
 
 // applyCardEffects applies skip/reverse/draw effects and advances the turn.
@@ -979,13 +1009,8 @@ func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffec
 		game.turnID++
 
 	case unoWildDrawFour:
-		drawn := game.draw(4)
-		nextPlayer.hand = append(nextPlayer.hand, drawn...)
+		result.needsChallenge = true
 		result.skippedName = nextName
-		result.drawnCount = 4
-		game.currentIdx = nextIdx
-		game.currentIdx = game.nextActiveIdx()
-		game.turnID++
 
 	default:
 		game.currentIdx = game.nextActiveIdx()
@@ -997,7 +1022,9 @@ func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffec
 
 // writeEffectLines appends human-readable effect descriptions to a string builder.
 func writeEffectLines(sb *strings.Builder, eff cardEffectResult) {
-	if eff.drawnCount > 0 {
+	if eff.needsChallenge {
+		sb.WriteString(fmt.Sprintf("\n  %s may challenge! ⚡", eff.skippedName))
+	} else if eff.drawnCount > 0 {
 		sb.WriteString(fmt.Sprintf("\n  %s draws %d and is skipped!", eff.skippedName, eff.drawnCount))
 	} else if eff.skippedName != "" && eff.reversed {
 		sb.WriteString(fmt.Sprintf("\n  %s is skipped! (reverse)", eff.skippedName))
@@ -1017,6 +1044,18 @@ func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer,
 	eff := p.applyCardEffects(game, card)
 	writeEffectLines(&roomMsg, eff)
 
+	// UNO announcement
+	if len(player.hand) == 1 && player.calledUno {
+		roomMsg.WriteString(fmt.Sprintf("\n  %s calls UNO! 🔥", name))
+	}
+
+	// Wild Draw Four — enter challenge phase
+	if eff.needsChallenge {
+		p.SendMessage(game.roomID, roomMsg.String())
+		p.startWD4Challenge(game, player)
+		return
+	}
+
 	// Book state commentary (occasionally)
 	if game.turns%4 == 0 {
 		if changed := game.updateBookState(); changed {
@@ -1026,11 +1065,6 @@ func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer,
 				roomMsg.WriteString("\n\n" + pickCommentary("book_up"))
 			}
 		}
-	}
-
-	// UNO announcement
-	if len(player.hand) == 1 && player.calledUno {
-		roomMsg.WriteString(fmt.Sprintf("\n  %s calls UNO! 🔥", name))
 	}
 
 	// Next player
@@ -1043,6 +1077,127 @@ func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer,
 
 	p.SendMessage(game.roomID, roomMsg.String())
 	p.executeMultiTurn(game)
+}
+
+// ---------------------------------------------------------------------------
+// Wild Draw Four challenge
+// ---------------------------------------------------------------------------
+
+// startWD4Challenge enters the challenge phase. The victim can challenge or accept.
+// Caller must hold game.mu.
+func (p *UnoPlugin) startWD4Challenge(game *unoMultiGame, wd4Player *unoMultiPlayer) {
+	nextIdx := game.nextActiveIdx()
+	victim := game.players[nextIdx]
+
+	game.wd4Player = wd4Player
+	game.wd4Victim = victim
+	game.phase = unoMultiPhaseChallenge
+	game.currentIdx = nextIdx
+	game.turnID++
+
+	playerName := p.unoDisplayName(wd4Player.userID)
+	if wd4Player.isBot {
+		playerName = unoBotName()
+	}
+
+	if victim.isBot {
+		// Bot decides whether to challenge
+		p.botHandleWD4Challenge(game)
+		return
+	}
+
+	p.SendMessage(victim.dmRoomID,
+		fmt.Sprintf("⚡ **%s** played Wild Draw Four!\nYou can **challenge** — if they had a %s %s card, they draw 4 instead.\nIf the challenge fails, you draw 6.\n\nType **challenge** or **accept**.",
+			playerName, game.wd4PrevColor.Emoji(), game.wd4PrevColor))
+	p.startMultiAutoPlayTimer(game)
+}
+
+// resolveWD4Challenge resolves the challenge. Caller must hold game.mu.
+func (p *UnoPlugin) resolveWD4Challenge(game *unoMultiGame, challenged bool) {
+	wd4Player := game.wd4Player
+	victim := game.wd4Victim
+	wd4Name := p.unoDisplayName(wd4Player.userID)
+	if wd4Player.isBot {
+		wd4Name = unoBotName()
+	}
+	victimName := p.unoDisplayName(victim.userID)
+	if victim.isBot {
+		victimName = unoBotName()
+	}
+
+	// Clear challenge state
+	game.wd4Player = nil
+	game.wd4Victim = nil
+	game.phase = unoMultiPhasePlay
+
+	if !challenged {
+		// Victim accepts — draw 4, get skipped
+		drawn := game.draw(4)
+		victim.hand = append(victim.hand, drawn...)
+		p.SendMessage(game.roomID,
+			fmt.Sprintf("🃏 %s accepts the Wild Draw Four. Draws 4 and is skipped!", victimName))
+		game.currentIdx = game.nextActiveIdx()
+		game.turnID++
+		p.executeMultiTurn(game)
+		return
+	}
+
+	// Check if the WD4 player had a card matching the previous color
+	hadMatch := false
+	for _, c := range wd4Player.hand {
+		if c.Color == game.wd4PrevColor {
+			hadMatch = true
+			break
+		}
+	}
+
+	if hadMatch {
+		// Challenge succeeds — WD4 player drew illegally, they draw 4
+		drawn := game.draw(4)
+		wd4Player.hand = append(wd4Player.hand, drawn...)
+		p.SendMessage(game.roomID,
+			fmt.Sprintf("⚡ **Challenge successful!** %s had a %s %s card. %s draws 4!",
+				wd4Name, game.wd4PrevColor.Emoji(), game.wd4PrevColor, wd4Name))
+		// Victim is NOT skipped — turn continues from victim
+		game.turnID++
+		p.executeMultiTurn(game)
+	} else {
+		// Challenge fails — victim draws 6 (4 + 2 penalty)
+		drawn := game.draw(6)
+		victim.hand = append(victim.hand, drawn...)
+		p.SendMessage(game.roomID,
+			fmt.Sprintf("⚡ **Challenge failed!** %s played legally. %s draws 6!",
+				wd4Name, victimName))
+		// Victim is skipped
+		game.currentIdx = game.nextActiveIdx()
+		game.turnID++
+		p.executeMultiTurn(game)
+	}
+}
+
+// botHandleWD4Challenge decides whether the bot challenges a WD4. Caller must hold game.mu.
+func (p *UnoPlugin) botHandleWD4Challenge(game *unoMultiGame) {
+	// More cards = more likely they had a matching color = more likely to challenge.
+	// 1-3 cards: 10%, 4-5: 30%, 6-7: 50%, 8+: 70%
+	cards := len(game.wd4Player.hand)
+	threshold := 10
+	if cards >= 8 {
+		threshold = 70
+	} else if cards >= 6 {
+		threshold = 50
+	} else if cards >= 4 {
+		threshold = 30
+	}
+	challenged := rand.IntN(100) < threshold
+	bn := unoBotName()
+
+	if challenged {
+		p.SendMessage(game.roomID, fmt.Sprintf("⚡ %s challenges the Wild Draw Four!", bn))
+	} else {
+		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s accepts the Wild Draw Four.", bn))
+	}
+
+	p.resolveWD4Challenge(game, challenged)
 }
 
 // ---------------------------------------------------------------------------
@@ -1104,6 +1259,9 @@ func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 
 	// Wild color choice
 	if card.Value == unoWildCard || card.Value == unoWildDrawFour {
+		if card.Value == unoWildDrawFour {
+			game.wd4PrevColor = game.topColor
+		}
 		game.topColor = botPickColor(bot.hand)
 	} else {
 		game.topColor = card.Color
@@ -1148,6 +1306,17 @@ func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 	// Apply action effects
 	eff := p.applyCardEffects(game, card)
 	writeEffectLines(roomBuf, eff)
+
+	// WD4 challenge — flush buffer and enter challenge phase
+	if eff.needsChallenge {
+		if roomBuf.Len() > 0 {
+			p.SendMessage(game.roomID, roomBuf.String())
+			roomBuf.Reset()
+		}
+		game.turns++
+		p.startWD4Challenge(game, bot)
+		return
+	}
 
 	game.turns++
 }
@@ -1249,6 +1418,13 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 	name := p.unoDisplayName(player.userID)
 
 	switch game.phase {
+	case unoMultiPhaseChallenge:
+		// Auto-play: accept the WD4 (safe default)
+		p.SendMessage(player.dmRoomID, "*Auto-played:* Accepted Wild Draw Four.")
+		p.SendMessage(game.roomID, fmt.Sprintf("🃏 *%s was auto-played.* Accepts the Wild Draw Four.", name))
+		p.resolveWD4Challenge(game, false)
+		return
+
 	case unoMultiPhaseChooseColor:
 		// Auto-pick most common color
 		color := botPickColor(player.hand)
@@ -1287,6 +1463,9 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 		game.turns++
 
 		if drawnCard.Value == unoWildCard || drawnCard.Value == unoWildDrawFour {
+			if drawnCard.Value == unoWildDrawFour {
+				game.wd4PrevColor = game.topColor
+			}
 			color := botPickColor(player.hand)
 			game.topColor = color
 			p.SendMessage(player.dmRoomID, fmt.Sprintf("*Auto-played:* %s (chose %s %s).", drawnCard.Display(), color.Emoji(), color))
@@ -1343,6 +1522,9 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 			game.turns++
 
 			if card.Value == unoWildCard || card.Value == unoWildDrawFour {
+				if card.Value == unoWildDrawFour {
+					game.wd4PrevColor = game.topColor
+				}
 				color := botPickColor(player.hand)
 				game.topColor = color
 				p.SendMessage(player.dmRoomID, fmt.Sprintf("*Auto-played:* %s (chose %s %s).", card.Display(), color.Emoji(), color))
@@ -1398,6 +1580,9 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 			game.turns++
 
 			if card.Value == unoWildCard || card.Value == unoWildDrawFour {
+				if card.Value == unoWildDrawFour {
+					game.wd4PrevColor = game.topColor
+				}
 				color := botPickColor(player.hand)
 				game.topColor = color
 				p.SendMessage(player.dmRoomID, fmt.Sprintf("*Auto-played:* Drew and played %s (chose %s %s).", card.Display(), color.Emoji(), color))
@@ -1425,8 +1610,12 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 }
 
 // applyAutoEffects applies card effects after an auto-play and advances the turn.
-func (p *UnoPlugin) applyAutoEffects(game *unoMultiGame, _ *unoMultiPlayer, card unoCard) {
-	p.applyCardEffects(game, card)
+func (p *UnoPlugin) applyAutoEffects(game *unoMultiGame, player *unoMultiPlayer, card unoCard) {
+	eff := p.applyCardEffects(game, card)
+	if eff.needsChallenge {
+		p.startWD4Challenge(game, player)
+		return
+	}
 	p.executeMultiTurn(game)
 }
 
