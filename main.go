@@ -203,6 +203,12 @@ func main() {
 			return
 		}
 
+		// Ignore edits — they arrive as m.room.message with m.replace relation.
+		// Without this check, edits re-trigger URL previews and inflate stats.
+		if content.RelatesTo != nil && content.RelatesTo.Type == event.RelReplace {
+			return
+		}
+
 		body := content.Body
 		// Strip Matrix reply fallback: "> <@user:server> ..." lines followed by blank line
 		if strings.HasPrefix(body, "> <@") || strings.HasPrefix(body, "> * <@") {
