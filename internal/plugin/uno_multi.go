@@ -20,10 +20,11 @@ import (
 type unoMultiPhase int
 
 const (
-	unoMultiPhasePlay          unoMultiPhase = iota
-	unoMultiPhaseChooseColor                 // active player must pick a color
-	unoMultiPhaseDrawnPlayable               // active player drew a playable card, yes/no
-	unoMultiPhaseChallenge                   // next player may challenge a Wild Draw Four
+	unoMultiPhasePlay             unoMultiPhase = iota
+	unoMultiPhaseChooseColor                    // active player must pick a color
+	unoMultiPhaseDrawnPlayable                  // active player drew a playable card, yes/no
+	unoMultiPhaseChallenge                      // next player may challenge a Wild Draw Four
+	unoMultiPhaseChooseSwapTarget               // No Mercy: player played a 7, must choose swap target
 )
 
 type unoMultiPlayer struct {
@@ -60,18 +61,26 @@ type unoMultiGame struct {
 	done       bool
 	bookDown   bool
 
+	// No Mercy mode
+	noMercy       bool
+	sevenZeroRule bool
+	stackTotal    int // cumulative draw penalty during stacking
+	stackMinValue int // minimum draw value to stack (0 = not stacking)
+
 	timer         *time.Timer
 	inactiveTimer *time.Timer // 10-minute game timeout
 	mu            sync.Mutex  // per-game lock
 }
 
 type unoMultiLobby struct {
-	roomID    id.RoomID
-	creator   id.UserID
-	ante      float64
-	players   []id.UserID
-	createdAt time.Time
-	timer     *time.Timer
+	roomID        id.RoomID
+	creator       id.UserID
+	ante          float64
+	players       []id.UserID
+	createdAt     time.Time
+	timer         *time.Timer
+	noMercy       bool
+	sevenZeroRule bool
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +158,12 @@ func (g *unoMultiGame) draw(n int) []unoCard {
 }
 
 func (g *unoMultiGame) reshuffleDiscard() {
-	fresh := newUnoDeck()
+	var fresh []unoCard
+	if g.noMercy {
+		fresh = newNoMercyDeck()
+	} else {
+		fresh = newUnoDeck()
+	}
 	inPlay := make(map[unoCard]int)
 	for _, p := range g.players {
 		for _, c := range p.hand {
@@ -199,7 +213,7 @@ func (g *unoMultiGame) updateBookState() bool {
 // Lobby commands
 // ---------------------------------------------------------------------------
 
-func (p *UnoPlugin) handleMultiStart(ctx MessageContext, amountStr string) error {
+func (p *UnoPlugin) handleMultiStart(ctx MessageContext, amountStr string, noMercy, sevenZeroRule bool) error {
 	if !isGamesRoom(ctx.RoomID) {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Multiplayer Uno can only be started in the games channel!")
 	}
@@ -249,11 +263,13 @@ func (p *UnoPlugin) handleMultiStart(ctx MessageContext, amountStr string) error
 
 	timeout := envInt("UNO_MULTI_LOBBY_TIMEOUT", 300)
 	lobby := &unoMultiLobby{
-		roomID:    ctx.RoomID,
-		creator:   ctx.Sender,
-		ante:      amount,
-		players:   []id.UserID{ctx.Sender},
-		createdAt: time.Now(),
+		roomID:        ctx.RoomID,
+		creator:       ctx.Sender,
+		ante:          amount,
+		players:       []id.UserID{ctx.Sender},
+		createdAt:     time.Now(),
+		noMercy:       noMercy,
+		sevenZeroRule: sevenZeroRule,
 	}
 
 	lobby.timer = time.AfterFunc(time.Duration(timeout)*time.Second, func() {
@@ -264,9 +280,16 @@ func (p *UnoPlugin) handleMultiStart(ctx MessageContext, amountStr string) error
 	p.mu.Unlock()
 
 	creatorName := p.unoDisplayName(ctx.Sender)
+	modeTag := ""
+	if noMercy {
+		modeTag = " 🔥 NO MERCY"
+		if sevenZeroRule {
+			modeTag += " (7-0)"
+		}
+	}
 	return p.SendMessage(ctx.RoomID, fmt.Sprintf(
-		"🃏 **UNO Lobby** — Ante: €%d\nPlayers (1/4):\n  1. %s (host)\n\nType `!uno join` to join or `!uno go` to start!",
-		int(amount), creatorName))
+		"🃏 **UNO Lobby**%s — Ante: €%d\nPlayers (1/4):\n  1. %s (host)\n\nType `!uno join` to join or `!uno go` to start!",
+		modeTag, int(amount), creatorName))
 }
 
 func (p *UnoPlugin) handleMultiJoin(ctx MessageContext) error {
@@ -322,7 +345,14 @@ func (p *UnoPlugin) handleMultiJoin(ctx MessageContext) error {
 
 	// Build player list
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("🃏 **UNO Lobby** — Ante: €%d\nPlayers (%d/4):\n", int(lobby.ante), count))
+	lobbyModeTag := ""
+	if lobby.noMercy {
+		lobbyModeTag = " 🔥 NO MERCY"
+		if lobby.sevenZeroRule {
+			lobbyModeTag += " (7-0)"
+		}
+	}
+	sb.WriteString(fmt.Sprintf("🃏 **UNO Lobby**%s — Ante: €%d\nPlayers (%d/4):\n", lobbyModeTag, int(lobby.ante), count))
 	for i, uid := range lobby.players {
 		name := p.unoDisplayName(uid)
 		label := ""
@@ -444,6 +474,8 @@ func (p *UnoPlugin) handleMultiGo(ctx MessageContext) error {
 	players := lobby.players
 	ante := lobby.ante
 	roomID := lobby.roomID
+	noMercy := lobby.noMercy
+	sevenZeroRule := lobby.sevenZeroRule
 	delete(p.lobbies, ctx.RoomID)
 	p.mu.Unlock()
 
@@ -463,7 +495,7 @@ func (p *UnoPlugin) handleMultiGo(ctx MessageContext) error {
 	}
 
 	// Build game
-	game := p.initMultiGame(resolved, roomID, ante)
+	game := p.initMultiGame(resolved, roomID, ante, noMercy, sevenZeroRule)
 
 	p.mu.Lock()
 	p.multiGames[game.id] = game
@@ -477,7 +509,14 @@ func (p *UnoPlugin) handleMultiGo(ctx MessageContext) error {
 	// Announce
 	var sb strings.Builder
 	bn := unoBotName()
-	sb.WriteString(fmt.Sprintf("🃏 **Multiplayer UNO!** Pot: €%d\n\nPlayers:\n", int(ante)*len(players)))
+	modeTag := ""
+	if noMercy {
+		modeTag = " 🔥 NO MERCY"
+		if sevenZeroRule {
+			modeTag += " (7-0)"
+		}
+	}
+	sb.WriteString(fmt.Sprintf("🃏 **Multiplayer UNO!**%s Pot: €%d\n\nPlayers:\n", modeTag, int(ante)*len(players)))
 	for i, pl := range game.players {
 		name := p.unoDisplayName(pl.userID)
 		if pl.isBot {
@@ -489,8 +528,12 @@ func (p *UnoPlugin) handleMultiGo(ctx MessageContext) error {
 		}
 		sb.WriteString(fmt.Sprintf("  %d. %s%s\n", i+1, name, marker))
 	}
+	startComment := pickCommentary("start")
+	if noMercy {
+		startComment = pickNoMercyCommentary("nomercy_start")
+	}
 	sb.WriteString(fmt.Sprintf("\nStarting card: %s\n%s\n\n[Check your DMs!]",
-		game.discardTop.DisplayWithColor(game.topColor), pickCommentary("start")))
+		game.discardTop.DisplayWithColor(game.topColor), startComment))
 	p.SendMessage(roomID, sb.String())
 
 	// Start first turn
@@ -511,8 +554,13 @@ type playerDMPair struct {
 	dmRoomID id.RoomID
 }
 
-func (p *UnoPlugin) initMultiGame(players []playerDMPair, roomID id.RoomID, ante float64) *unoMultiGame {
-	deck := newUnoDeck()
+func (p *UnoPlugin) initMultiGame(players []playerDMPair, roomID id.RoomID, ante float64, noMercy, sevenZeroRule bool) *unoMultiGame {
+	var deck []unoCard
+	if noMercy {
+		deck = newNoMercyDeck()
+	} else {
+		deck = newUnoDeck()
+	}
 	cardsPerPlayer := 7
 	cardIdx := 0
 
@@ -548,11 +596,11 @@ func (p *UnoPlugin) initMultiGame(players []playerDMPair, roomID id.RoomID, ante
 	remaining := make([]unoCard, len(deck)-cardIdx)
 	copy(remaining, deck[cardIdx:])
 
-	// Starting card — must not be Wild
+	// Starting card — must be a number card
 	var startCard unoCard
 	startIdx := -1
 	for i, c := range remaining {
-		if c.Value != unoWildCard && c.Value != unoWildDrawFour {
+		if !c.Value.isAction() && !c.isWild() {
 			startCard = c
 			startIdx = i
 			break
@@ -568,19 +616,21 @@ func (p *UnoPlugin) initMultiGame(players []playerDMPair, roomID id.RoomID, ante
 	gameID := fmt.Sprintf("multi_%d", time.Now().UnixNano())
 
 	return &unoMultiGame{
-		id:         gameID,
-		roomID:     roomID,
-		ante:       ante,
-		players:    unshuffled,
-		currentIdx: 0,
-		direction:  1,
-		drawPile:   remaining,
-		discardTop: startCard,
-		topColor:   startCard.Color,
-		phase:      unoMultiPhasePlay,
-		turns:      0,
-		turnID:     0,
-		startedAt:  time.Now(),
+		id:            gameID,
+		roomID:        roomID,
+		ante:          ante,
+		players:       unshuffled,
+		currentIdx:    0,
+		direction:     1,
+		drawPile:      remaining,
+		discardTop:    startCard,
+		topColor:      startCard.Color,
+		phase:         unoMultiPhasePlay,
+		turns:         0,
+		turnID:        0,
+		startedAt:     time.Now(),
+		noMercy:       noMercy,
+		sevenZeroRule: sevenZeroRule,
 	}
 }
 
@@ -623,11 +673,97 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 			roomBuf.Reset()
 		}
 
+		// No Mercy stacking: check if player must absorb
+		if game.noMercy && game.stackMinValue > 0 {
+			if !hasStackableCard(player.hand, game.topColor, game.stackMinValue) {
+				name := p.unoDisplayName(player.userID)
+				drawn := game.draw(game.stackTotal)
+				player.hand = append(player.hand, drawn...)
+				p.SendMessage(player.dmRoomID, fmt.Sprintf("💥 No stackable card! You draw %d cards.\n%s",
+					game.stackTotal, pickNoMercyCommentary("stack_absorbed")))
+				p.SendMessage(game.roomID, fmt.Sprintf("💥 %s absorbs the stack! Draws %d cards. (%d cards now)",
+					name, game.stackTotal, len(player.hand)))
+				game.stackTotal = 0
+				game.stackMinValue = 0
+				if p.checkMultiMercyElimination(game, player) {
+					if game.done {
+						return
+					}
+					game.currentIdx = game.nextActiveIdx()
+					game.turnID++
+					continue
+				}
+				// Skip this player's turn
+				game.currentIdx = game.nextActiveIdx()
+				game.turnID++
+				continue
+			}
+			// Player has stackable cards — show stacking prompt
+			game.phase = unoMultiPhasePlay
+			p.sendMultiHandDisplayStacking(game, player)
+			p.startMultiAutoPlayTimer(game)
+			return
+		}
+
 		// Auto-draw if no playable cards
 		if !game.hasPlayable(player.hand) {
+			if game.noMercy {
+				// Draw until playable
+				var allDrawn []unoCard
+				var playableCard *unoCard
+				for {
+					cards := game.draw(1)
+					if len(cards) == 0 {
+						break
+					}
+					card := cards[0]
+					player.hand = append(player.hand, card)
+					allDrawn = append(allDrawn, card)
+					if p.checkMultiMercyElimination(game, player) {
+						if game.done {
+							return
+						}
+						game.currentIdx = game.nextActiveIdx()
+						game.turnID++
+						break
+					}
+					if card.canPlayOn(game.discardTop, game.topColor) {
+						playableCard = &card
+						break
+					}
+				}
+				if !player.active {
+					continue // mercy-killed
+				}
+				name := p.unoDisplayName(player.userID)
+				if len(allDrawn) == 0 {
+					p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s has no playable cards and deck is empty. Turn passes. (%d cards)", name, len(player.hand)))
+					p.SendMessage(player.dmRoomID, "No playable cards and deck is empty. Turn passes.")
+					game.currentIdx = game.nextActiveIdx()
+					game.turnID++
+					continue
+				}
+				if playableCard != nil {
+					game.drawnCard = playableCard
+					game.phase = unoMultiPhaseDrawnPlayable
+					p.SendMessage(player.dmRoomID,
+						fmt.Sprintf("No playable cards — drew %d card(s): %s\nLast card is playable! Play it? (**yes** / **no**)",
+							len(allDrawn), formatDrawnCards(allDrawn)))
+					p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws %d card(s). (%d cards)", name, len(allDrawn), len(player.hand)))
+					p.startMultiAutoPlayTimer(game)
+					return
+				}
+				p.SendMessage(player.dmRoomID,
+					fmt.Sprintf("No playable cards — drew %d card(s). None playable. Turn passes.", len(allDrawn)))
+				p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws %d card(s). Turn passes. (%d cards)", name, len(allDrawn), len(player.hand)))
+				game.currentIdx = game.nextActiveIdx()
+				game.turnID++
+				continue
+			}
+
+			// Classic: draw 1
 			drawn := game.draw(1)
 			if len(drawn) == 0 {
-				// Empty deck, no playable cards — pass
 				name := p.unoDisplayName(player.userID)
 				p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s has no playable cards and deck is empty. Turn passes. (%d cards)", name, len(player.hand)))
 				p.SendMessage(player.dmRoomID, "No playable cards and deck is empty. Turn passes.")
@@ -732,19 +868,52 @@ func (p *UnoPlugin) handleMultiDMInput(ctx MessageContext, game *unoMultiGame) e
 	case unoMultiPhaseDrawnPlayable:
 		return p.handleMultiDrawnPlayable(game, player, input)
 
+	case unoMultiPhaseChooseSwapTarget:
+		return p.handleMultiSwapChoice(game, player, input)
+
 	case unoMultiPhasePlay:
 		if input == "uno" {
 			player.calledUno = true
 			p.SendMessage(player.dmRoomID, "✅ UNO called!")
 			return nil
 		}
+		// No Mercy stacking: accept
+		if game.noMercy && game.stackMinValue > 0 && (input == "accept" || input == "a") {
+			name := p.unoDisplayName(player.userID)
+			drawn := game.draw(game.stackTotal)
+			player.hand = append(player.hand, drawn...)
+			p.SendMessage(player.dmRoomID, fmt.Sprintf("💥 You accept the stack and draw %d cards.\n%s",
+				game.stackTotal, pickNoMercyCommentary("stack_absorbed")))
+			p.SendMessage(game.roomID, fmt.Sprintf("💥 %s absorbs the stack! Draws %d cards. (%d cards now)",
+				name, game.stackTotal, len(player.hand)))
+			game.stackTotal = 0
+			game.stackMinValue = 0
+			if p.checkMultiMercyElimination(game, player) {
+				if game.done {
+					return nil
+				}
+				p.advanceAndExecute(game)
+				return nil
+			}
+			p.advanceAndExecute(game)
+			return nil
+		}
 		if input == "draw" {
+			if game.noMercy && game.stackMinValue > 0 {
+				p.SendMessage(player.dmRoomID, "You must play a draw card to stack, or type **accept** to draw the stack.")
+				return nil
+			}
 			return p.handleMultiPlayerDraw(game, player)
 		}
 		var cardIdx int
 		if _, err := fmt.Sscanf(input, "%d", &cardIdx); err != nil || cardIdx < 1 || cardIdx > len(player.hand) {
-			p.SendMessage(player.dmRoomID,
-				fmt.Sprintf("Reply with a number (1-%d) to play, or **draw** to draw.", len(player.hand)))
+			if game.noMercy && game.stackMinValue > 0 {
+				p.SendMessage(player.dmRoomID,
+					fmt.Sprintf("Reply with a card number (1-%d) to stack, or **accept** to draw %d cards.", len(player.hand), game.stackTotal))
+			} else {
+				p.SendMessage(player.dmRoomID,
+					fmt.Sprintf("Reply with a number (1-%d) to play, or **draw** to draw.", len(player.hand)))
+			}
 			return nil
 		}
 		return p.handleMultiPlayerPlay(game, player, cardIdx-1)
@@ -774,21 +943,37 @@ func (p *UnoPlugin) handleMultiChallengeInput(game *unoMultiGame, player *unoMul
 func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPlayer, idx int) error {
 	card := player.hand[idx]
 
-	if !card.canPlayOn(game.discardTop, game.topColor) {
+	// No Mercy stacking validation
+	if game.noMercy && game.stackMinValue > 0 {
+		if !card.canPlayOnStacking(game.topColor, game.stackMinValue) {
+			p.SendMessage(player.dmRoomID,
+				fmt.Sprintf("You can't stack %s — need a draw card worth +%d or more. Type **accept** to draw %d.",
+					card.Display(), game.stackMinValue, game.stackTotal))
+			return nil
+		}
+	} else if !card.canPlayOn(game.discardTop, game.topColor) {
 		p.SendMessage(player.dmRoomID, fmt.Sprintf("You can't play %s on %s.",
 			card.Display(), game.discardTop.DisplayWithColor(game.topColor)))
 		return nil
 	}
 
-	// UNO penalty check — had 2 cards, didn't call UNO
-	if len(player.hand) == 2 && !player.calledUno {
+	// UNO penalty check — had 2 cards, didn't call UNO (skip during stacking)
+	if game.stackMinValue == 0 && len(player.hand) == 2 && !player.calledUno {
 		drawn := game.draw(2)
 		player.hand = append(player.hand, drawn...)
 		player.calledUno = false
 		p.SendMessage(player.dmRoomID, "⚠️ You forgot to call UNO! Draw 2 as penalty.")
 		name := p.unoDisplayName(player.userID)
 		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s forgot to call UNO! 2 card penalty.", name))
-		// Re-show hand
+		if game.noMercy {
+			if p.checkMultiMercyElimination(game, player) {
+				if game.done {
+					return nil
+				}
+				p.advanceAndExecute(game)
+				return nil
+			}
+		}
 		p.sendMultiHandDisplay(game, player)
 		p.startMultiAutoPlayTimer(game)
 		return nil
@@ -804,8 +989,16 @@ func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPl
 		player.calledUno = false
 	}
 
+	// No Mercy: Discard All — remove remaining cards of same color
+	if game.noMercy && card.Value == unoDiscardAll {
+		discarded := discardAllOfColor(&player.hand, card.Color)
+		if discarded > 0 {
+			p.SendMessage(player.dmRoomID, fmt.Sprintf("Discarded %d additional %s cards!", discarded, card.Color))
+		}
+	}
+
 	// Wild — need color choice
-	if card.Value == unoWildCard || card.Value == unoWildDrawFour {
+	if card.isWild() {
 		game.pendingCard = &card
 		if card.Value == unoWildDrawFour {
 			game.wd4PrevColor = game.topColor
@@ -819,7 +1012,61 @@ func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPl
 
 	game.topColor = card.Color
 
-	// Check win
+	// No Mercy: 7-0 rule
+	if game.noMercy && game.sevenZeroRule {
+		if card.Value == unoSeven && len(game.activePlayers()) > 2 {
+			// Choose swap target
+			game.phase = unoMultiPhaseChooseSwapTarget
+			var sb strings.Builder
+			sb.WriteString("You played a **7**! Choose a player to swap hands with:\n")
+			i := 1
+			for _, pl := range game.players {
+				if pl == player || !pl.active {
+					continue
+				}
+				name := p.unoDisplayName(pl.userID)
+				if pl.isBot {
+					name = unoBotName()
+				}
+				sb.WriteString(fmt.Sprintf("%d. %s (%d cards)\n", i, name, len(pl.hand)))
+				i++
+			}
+			p.SendMessage(player.dmRoomID, sb.String())
+			p.startMultiAutoPlayTimer(game)
+			return nil
+		}
+		if card.Value == unoSeven {
+			// 2-player: swap with the other player
+			for _, pl := range game.players {
+				if pl != player && pl.active {
+					swapHandsMulti(player, pl)
+					name := p.unoDisplayName(player.userID)
+					otherName := p.unoDisplayName(pl.userID)
+					if pl.isBot {
+						otherName = unoBotName()
+					}
+					p.SendMessage(game.roomID, fmt.Sprintf("🔄 %s swaps hands with %s! %s",
+						name, otherName, pickNoMercyCommentary("hand_swap")))
+					if !pl.isBot {
+						p.SendMessage(pl.dmRoomID, fmt.Sprintf("🔄 %s swapped hands with you! You now have %d cards.", name, len(pl.hand)))
+					}
+					break
+				}
+			}
+		}
+		if card.Value == unoZero {
+			rotateHandsMulti(game)
+			p.SendMessage(game.roomID, fmt.Sprintf("🔄 Hands rotated! %s", pickNoMercyCommentary("hand_rotate")))
+			// Notify all active human players about their new hand size
+			for _, pl := range game.players {
+				if pl.active && !pl.isBot {
+					p.SendMessage(pl.dmRoomID, fmt.Sprintf("🔄 Hands rotated! You now have %d cards.", len(pl.hand)))
+				}
+			}
+		}
+	}
+
+	// Check win (after discard all, after swap)
 	if len(player.hand) == 0 {
 		name := p.unoDisplayName(player.userID)
 		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s plays: %s", name, card.Display()))
@@ -864,12 +1111,49 @@ func (p *UnoPlugin) handleMultiColorChoice(game *unoMultiGame, player *unoMultiP
 		return nil
 	}
 
+	// No Mercy: Color Roulette — next player flips until chosen color
+	if game.noMercy && pendingCard != nil && pendingCard.Value == unoWildColorRoulette {
+		name := p.unoDisplayName(player.userID)
+		nextIdx := game.nextActiveIdx()
+		target := game.players[nextIdx]
+		targetName := p.unoDisplayName(target.userID)
+		if target.isBot {
+			targetName = unoBotName()
+		}
+
+		flipped := p.executeColorRouletteMulti(game, target, color)
+		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s plays: %s (chose %s %s)\n🎰 Color Roulette! %s flips %d cards until finding %s.\n%s",
+			name, pendingCard.Display(), color.Emoji(), color,
+			targetName, len(flipped), color, pickNoMercyCommentary("color_roulette")))
+		if !target.isBot {
+			p.SendMessage(target.dmRoomID, fmt.Sprintf("🎰 Color Roulette! You drew %d cards. You now have %d cards.", len(flipped), len(target.hand)))
+		}
+
+		if p.checkMultiMercyElimination(game, target) {
+			if game.done {
+				return nil
+			}
+		}
+
+		// Skip the target player, advance to next
+		game.currentIdx = nextIdx
+		game.currentIdx = game.nextActiveIdx()
+		game.turnID++
+		p.executeMultiTurn(game)
+		return nil
+	}
+
 	// Apply effects
 	p.applyAndAnnounce(game, player, *pendingCard)
 	return nil
 }
 
 func (p *UnoPlugin) handleMultiPlayerDraw(game *unoMultiGame, player *unoMultiPlayer) error {
+	// No Mercy: draw until playable
+	if game.noMercy {
+		return p.handleMultiPlayerDrawNoMercy(game, player)
+	}
+
 	drawn := game.draw(1)
 	if len(drawn) == 0 {
 		p.SendMessage(player.dmRoomID, "No cards left to draw! Turn passes.")
@@ -894,6 +1178,58 @@ func (p *UnoPlugin) handleMultiPlayerDraw(game *unoMultiGame, player *unoMultiPl
 	name := p.unoDisplayName(player.userID)
 	p.SendMessage(player.dmRoomID, fmt.Sprintf("You drew: %s\nNot playable. Turn passes.", card.Display()))
 	p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes. (%d cards)", name, len(player.hand)))
+	p.advanceAndExecute(game)
+	return nil
+}
+
+func (p *UnoPlugin) handleMultiPlayerDrawNoMercy(game *unoMultiGame, player *unoMultiPlayer) error {
+	var allDrawn []unoCard
+	var playableCard *unoCard
+
+	for {
+		drawn := game.draw(1)
+		if len(drawn) == 0 {
+			break
+		}
+		card := drawn[0]
+		player.hand = append(player.hand, card)
+		allDrawn = append(allDrawn, card)
+		if p.checkMultiMercyElimination(game, player) {
+			if game.done {
+				return nil
+			}
+			p.advanceAndExecute(game)
+			return nil
+		}
+		if card.canPlayOn(game.discardTop, game.topColor) {
+			playableCard = &card
+			break
+		}
+	}
+
+	name := p.unoDisplayName(player.userID)
+
+	if len(allDrawn) == 0 {
+		p.SendMessage(player.dmRoomID, "No cards left to draw! Turn passes.")
+		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s can't draw — deck is empty. Turn passes.", name))
+		p.advanceAndExecute(game)
+		return nil
+	}
+
+	if playableCard != nil {
+		game.drawnCard = playableCard
+		game.phase = unoMultiPhaseDrawnPlayable
+		p.SendMessage(player.dmRoomID,
+			fmt.Sprintf("Drew %d card(s): %s\nLast card is playable! Play it? (**yes** / **no**)",
+				len(allDrawn), formatDrawnCards(allDrawn)))
+		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws %d card(s). (%d cards)", name, len(allDrawn), len(player.hand)))
+		p.startMultiAutoPlayTimer(game)
+		return nil
+	}
+
+	p.SendMessage(player.dmRoomID,
+		fmt.Sprintf("Drew %d card(s). None playable. Turn passes.", len(allDrawn)))
+	p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws %d card(s). Turn passes. (%d cards)", name, len(allDrawn), len(player.hand)))
 	p.advanceAndExecute(game)
 	return nil
 }
@@ -930,7 +1266,7 @@ func (p *UnoPlugin) handleMultiDrawnPlayable(game *unoMultiGame, player *unoMult
 		player.calledUno = false
 	}
 
-	if drawnCard.Value == unoWildCard || drawnCard.Value == unoWildDrawFour {
+	if drawnCard.isWild() {
 		game.pendingCard = &drawnCard
 		if drawnCard.Value == unoWildDrawFour {
 			game.wd4PrevColor = game.topColor
@@ -965,6 +1301,7 @@ type cardEffectResult struct {
 	reversed       bool   // true if direction was reversed
 	drawnCount     int    // cards drawn by the victim (2 or 4)
 	needsChallenge bool   // true if WD4 challenge phase should start
+	stackPending   bool   // true if draw stacking is in progress (No Mercy)
 }
 
 // applyCardEffects applies skip/reverse/draw effects and advances the turn.
@@ -986,6 +1323,30 @@ func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffec
 		game.currentIdx = game.nextActiveIdx()
 		game.turnID++
 
+	case unoSkipEveryone:
+		if game.noMercy {
+			// Skip all others — current player goes again
+			var skippedNames []string
+			for _, pl := range game.players {
+				if pl != game.currentPlayer() && pl.active {
+					name := p.unoDisplayName(pl.userID)
+					if pl.isBot {
+						name = unoBotName()
+					}
+					skippedNames = append(skippedNames, name)
+				}
+			}
+			result.skippedName = strings.Join(skippedNames, ", ")
+			// Don't advance — current player keeps their turn
+			game.turnID++
+		} else {
+			// Treat as skip in classic
+			result.skippedName = nextName
+			game.currentIdx = nextIdx
+			game.currentIdx = game.nextActiveIdx()
+			game.turnID++
+		}
+
 	case unoReverse:
 		game.direction *= -1
 		result.reversed = true
@@ -999,18 +1360,84 @@ func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffec
 			game.turnID++
 		}
 
-	case unoDrawTwo:
-		drawn := game.draw(2)
-		nextPlayer.hand = append(nextPlayer.hand, drawn...)
-		result.skippedName = nextName
-		result.drawnCount = 2
-		game.currentIdx = nextIdx
+	case unoDrawTwo, unoDrawFour:
+		if game.noMercy {
+			// No Mercy: stacking
+			dv := cardDrawValue(card.Value)
+			game.stackTotal += dv
+			game.stackMinValue = dv
+			result.stackPending = true
+			result.skippedName = nextName
+			result.drawnCount = game.stackTotal
+			game.currentIdx = game.nextActiveIdx()
+			game.turnID++
+		} else if card.Value == unoDrawTwo {
+			// Classic Draw Two
+			drawn := game.draw(2)
+			nextPlayer.hand = append(nextPlayer.hand, drawn...)
+			result.skippedName = nextName
+			result.drawnCount = 2
+			game.currentIdx = nextIdx
+			game.currentIdx = game.nextActiveIdx()
+			game.turnID++
+		} else {
+			// DrawFour shouldn't appear in classic, but handle gracefully
+			game.currentIdx = game.nextActiveIdx()
+			game.turnID++
+		}
+
+	case unoWildDrawFour:
+		if game.noMercy {
+			// Should not appear in No Mercy deck, but handle gracefully
+			game.currentIdx = game.nextActiveIdx()
+			game.turnID++
+		} else {
+			result.needsChallenge = true
+			result.skippedName = nextName
+		}
+
+	case unoWildReverseDraw4:
+		if game.noMercy {
+			game.direction *= -1
+			result.reversed = true
+			dv := cardDrawValue(card.Value)
+			game.stackTotal += dv
+			game.stackMinValue = dv
+			result.stackPending = true
+			// After reverse, get next player in new direction
+			nextIdx = game.nextActiveIdx()
+			nextPlayer = game.players[nextIdx]
+			nextName = p.unoDisplayName(nextPlayer.userID)
+			if nextPlayer.isBot {
+				nextName = unoBotName()
+			}
+			result.skippedName = nextName
+			result.drawnCount = game.stackTotal
+			game.currentIdx = game.nextActiveIdx()
+			game.turnID++
+		}
+
+	case unoWildDrawSix, unoWildDrawTen:
+		if game.noMercy {
+			dv := cardDrawValue(card.Value)
+			game.stackTotal += dv
+			game.stackMinValue = dv
+			result.stackPending = true
+			result.skippedName = nextName
+			result.drawnCount = game.stackTotal
+			game.currentIdx = game.nextActiveIdx()
+			game.turnID++
+		}
+
+	case unoWildColorRoulette:
+		// Color roulette effect is handled in color choice handler, not here
 		game.currentIdx = game.nextActiveIdx()
 		game.turnID++
 
-	case unoWildDrawFour:
-		result.needsChallenge = true
-		result.skippedName = nextName
+	case unoDiscardAll:
+		// Discard effect already applied before calling this function
+		game.currentIdx = game.nextActiveIdx()
+		game.turnID++
 
 	default:
 		game.currentIdx = game.nextActiveIdx()
@@ -1024,6 +1451,11 @@ func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffec
 func writeEffectLines(sb *strings.Builder, eff cardEffectResult) {
 	if eff.needsChallenge {
 		sb.WriteString(fmt.Sprintf("\n  %s may challenge! ⚡", eff.skippedName))
+	} else if eff.stackPending {
+		sb.WriteString(fmt.Sprintf("\n  🔥 Stack incoming! (+%d) — %s must stack or absorb!", eff.drawnCount, eff.skippedName))
+		if eff.reversed {
+			sb.WriteString("\n  Direction reversed!")
+		}
 	} else if eff.drawnCount > 0 {
 		sb.WriteString(fmt.Sprintf("\n  %s draws %d and is skipped!", eff.skippedName, eff.drawnCount))
 	} else if eff.skippedName != "" && eff.reversed {
@@ -1208,46 +1640,160 @@ func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 	bot := game.currentPlayer()
 	bn := unoBotName()
 
-	card, idx := botPickCard(bot.hand, game.discardTop, game.topColor, game.bookDown, game.minOpponentCards(game.currentIdx))
-
-	if idx < 0 {
-		// Bot draws
-		drawn := game.draw(1)
-		if len(drawn) == 0 {
+	// No Mercy stacking: bot must stack or absorb
+	if game.noMercy && game.stackMinValue > 0 {
+		stackCard, sIdx := botPickStackCard(bot.hand, game.topColor, game.stackMinValue)
+		if sIdx < 0 {
+			// Bot absorbs the stack
+			drawn := game.draw(game.stackTotal)
+			bot.hand = append(bot.hand, drawn...)
 			if roomBuf.Len() > 0 {
 				roomBuf.WriteString("\n")
 			}
-			roomBuf.WriteString(fmt.Sprintf("🃏 %s can't draw — deck empty. Turn passes.", bn))
+			roomBuf.WriteString(fmt.Sprintf("💥 %s absorbs the stack! Draws %d cards. (%d cards now)",
+				bn, game.stackTotal, len(bot.hand)))
+			game.stackTotal = 0
+			game.stackMinValue = 0
+			if p.checkMultiMercyElimination(game, bot) {
+				if roomBuf.Len() > 0 {
+					p.SendMessage(game.roomID, roomBuf.String())
+					roomBuf.Reset()
+				}
+				return
+			}
 			game.currentIdx = game.nextActiveIdx()
 			game.turnID++
 			return
 		}
-
-		bot.hand = append(bot.hand, drawn[0])
-
-		if drawn[0].canPlayOn(game.discardTop, game.topColor) {
-			bot.hand = bot.hand[:len(bot.hand)-1]
-			card = drawn[0]
+		// Bot stacks
+		bot.hand = append(bot.hand[:sIdx], bot.hand[sIdx+1:]...)
+		game.discardTop = stackCard
+		dv := cardDrawValue(stackCard.Value)
+		game.stackTotal += dv
+		game.stackMinValue = dv
+		if stackCard.isWild() {
+			game.topColor = botPickColor(bot.hand)
 		} else {
-			// Bot drew, not playable
-			if game.turns%3 == 0 {
-				commentKey := "bot_draw_normal"
-				if game.bookDown {
-					commentKey = "bot_draw_bookdown"
+			game.topColor = stackCard.Color
+		}
+		if roomBuf.Len() > 0 {
+			roomBuf.WriteString("\n")
+		}
+		roomBuf.WriteString(fmt.Sprintf("🔥 %s stacks: %s! Total penalty: +%d",
+			bn, stackCard.DisplayWithColor(game.topColor), game.stackTotal))
+		if stackCard.Value == unoWildReverseDraw4 {
+			game.direction *= -1
+			roomBuf.WriteString(" (direction reversed!)")
+		}
+		game.currentIdx = game.nextActiveIdx()
+		game.turnID++
+		game.turns++
+		return
+	}
+
+	var card unoCard
+	var idx int
+	if game.noMercy {
+		card, idx = botPickCardNoMercy(bot.hand, game.discardTop, game.topColor, game.bookDown, game.minOpponentCards(game.currentIdx), 0)
+	} else {
+		card, idx = botPickCard(bot.hand, game.discardTop, game.topColor, game.bookDown, game.minOpponentCards(game.currentIdx))
+	}
+
+	if idx < 0 {
+		// Bot draws
+		if game.noMercy {
+			// Draw until playable
+			var allDrawn []unoCard
+			var playableCard *unoCard
+			for {
+				cards := game.draw(1)
+				if len(cards) == 0 {
+					break
+				}
+				c := cards[0]
+				bot.hand = append(bot.hand, c)
+				allDrawn = append(allDrawn, c)
+				if p.checkMultiMercyElimination(game, bot) {
+					if roomBuf.Len() > 0 {
+						p.SendMessage(game.roomID, roomBuf.String())
+						roomBuf.Reset()
+					}
+					return
+				}
+				if c.canPlayOn(game.discardTop, game.topColor) {
+					playableCard = &c
+					break
+				}
+			}
+			if len(allDrawn) == 0 {
+				if roomBuf.Len() > 0 {
+					roomBuf.WriteString("\n")
+				}
+				roomBuf.WriteString(fmt.Sprintf("🃏 %s can't draw — deck empty. Turn passes.", bn))
+				game.currentIdx = game.nextActiveIdx()
+				game.turnID++
+				return
+			}
+			if playableCard != nil {
+				// Remove from hand and play
+				for i := len(bot.hand) - 1; i >= 0; i-- {
+					if bot.hand[i] == *playableCard {
+						bot.hand = append(bot.hand[:i], bot.hand[i+1:]...)
+						break
+					}
 				}
 				if roomBuf.Len() > 0 {
 					roomBuf.WriteString("\n")
 				}
-				roomBuf.WriteString(pickCommentary(commentKey))
+				roomBuf.WriteString(fmt.Sprintf("🃏 %s draws %d card(s).", bn, len(allDrawn)))
+				card = *playableCard
+				// Fall through to play the card below
 			} else {
 				if roomBuf.Len() > 0 {
 					roomBuf.WriteString("\n")
 				}
-				roomBuf.WriteString(fmt.Sprintf("🃏 %s draws a card.", bn))
+				roomBuf.WriteString(fmt.Sprintf("🃏 %s draws %d card(s). No playable card.", bn, len(allDrawn)))
+				game.currentIdx = game.nextActiveIdx()
+				game.turnID++
+				return
 			}
-			game.currentIdx = game.nextActiveIdx()
-			game.turnID++
-			return
+		} else {
+			drawn := game.draw(1)
+			if len(drawn) == 0 {
+				if roomBuf.Len() > 0 {
+					roomBuf.WriteString("\n")
+				}
+				roomBuf.WriteString(fmt.Sprintf("🃏 %s can't draw — deck empty. Turn passes.", bn))
+				game.currentIdx = game.nextActiveIdx()
+				game.turnID++
+				return
+			}
+
+			bot.hand = append(bot.hand, drawn[0])
+
+			if drawn[0].canPlayOn(game.discardTop, game.topColor) {
+				bot.hand = bot.hand[:len(bot.hand)-1]
+				card = drawn[0]
+			} else {
+				if game.turns%3 == 0 {
+					commentKey := "bot_draw_normal"
+					if game.bookDown {
+						commentKey = "bot_draw_bookdown"
+					}
+					if roomBuf.Len() > 0 {
+						roomBuf.WriteString("\n")
+					}
+					roomBuf.WriteString(pickCommentary(commentKey))
+				} else {
+					if roomBuf.Len() > 0 {
+						roomBuf.WriteString("\n")
+					}
+					roomBuf.WriteString(fmt.Sprintf("🃏 %s draws a card.", bn))
+				}
+				game.currentIdx = game.nextActiveIdx()
+				game.turnID++
+				return
+			}
 		}
 	}
 
@@ -1257,14 +1803,44 @@ func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 	}
 	game.discardTop = card
 
+	// No Mercy: Discard All — bot discards remaining cards of same color
+	if game.noMercy && card.Value == unoDiscardAll {
+		discardAllOfColor(&bot.hand, card.Color)
+	}
+
 	// Wild color choice
-	if card.Value == unoWildCard || card.Value == unoWildDrawFour {
+	if card.isWild() {
 		if card.Value == unoWildDrawFour {
 			game.wd4PrevColor = game.topColor
 		}
-		game.topColor = botPickColor(bot.hand)
+		if game.noMercy && card.Value == unoWildColorRoulette {
+			game.topColor = botRouletteColor(bot.hand)
+		} else {
+			game.topColor = botPickColor(bot.hand)
+		}
 	} else {
 		game.topColor = card.Color
+	}
+
+	// No Mercy: 7-0 rule
+	if game.noMercy && game.sevenZeroRule {
+		if card.Value == unoSeven {
+			target := botChooseSwapTarget(game, bot)
+			if target != nil {
+				swapHandsMulti(bot, target)
+				if !target.isBot {
+					p.SendMessage(target.dmRoomID, fmt.Sprintf("🔄 %s swapped hands with you! You now have %d cards.", bn, len(target.hand)))
+				}
+			}
+		}
+		if card.Value == unoZero {
+			rotateHandsMulti(game)
+			for _, pl := range game.players {
+				if pl.active && !pl.isBot {
+					p.SendMessage(pl.dmRoomID, fmt.Sprintf("🔄 Hands rotated! You now have %d cards.", len(pl.hand)))
+				}
+			}
+		}
 	}
 
 	// Check bot win
@@ -1316,6 +1892,46 @@ func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 		game.turns++
 		p.startWD4Challenge(game, bot)
 		return
+	}
+
+	// No Mercy: Color Roulette — next player flips cards
+	// applyCardEffects already advanced currentIdx to the victim
+	if game.noMercy && card.Value == unoWildColorRoulette {
+		target := game.players[game.currentIdx]
+		targetName := p.unoDisplayName(target.userID)
+		if target.isBot {
+			targetName = bn
+		}
+		flipped := p.executeColorRouletteMulti(game, target, game.topColor)
+		roomBuf.WriteString(fmt.Sprintf("\n  🎰 Color Roulette! %s flips %d cards until finding %s %s.",
+			targetName, len(flipped), game.topColor.Emoji(), game.topColor))
+		if !target.isBot {
+			p.SendMessage(target.dmRoomID, fmt.Sprintf("🎰 Color Roulette! You drew %d cards. You now have %d cards.", len(flipped), len(target.hand)))
+		}
+
+		if p.checkMultiMercyElimination(game, target) {
+			if roomBuf.Len() > 0 {
+				p.SendMessage(game.roomID, roomBuf.String())
+				roomBuf.Reset()
+			}
+			if game.done {
+				return
+			}
+		}
+
+		// Skip past the roulette victim
+		game.currentIdx = game.nextActiveIdx()
+		game.turnID++
+	}
+
+	// No Mercy: 7-0 room announcements (swap already happened above)
+	if game.noMercy && game.sevenZeroRule {
+		if card.Value == unoSeven {
+			roomBuf.WriteString("\n  🔄 Hands swapped!")
+		}
+		if card.Value == unoZero {
+			roomBuf.WriteString("\n  🔄 Hands rotated!")
+		}
 	}
 
 	game.turns++
@@ -1444,6 +2060,34 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 
 		p.SendMessage(game.roomID, fmt.Sprintf("🃏 *%s was auto-played.* Plays: %s (chose %s %s)",
 			name, pendingCard.Display(), color.Emoji(), color))
+
+		// No Mercy: Color Roulette — apply roulette effect before generic effects
+		if game.noMercy && pendingCard != nil && pendingCard.Value == unoWildColorRoulette {
+			nextIdx := game.nextActiveIdx()
+			target := game.players[nextIdx]
+			targetName := p.unoDisplayName(target.userID)
+			if target.isBot {
+				targetName = unoBotName()
+			}
+			flipped := p.executeColorRouletteMulti(game, target, color)
+			p.SendMessage(game.roomID, fmt.Sprintf("🎰 Color Roulette! %s flips %d cards until finding %s.\n%s",
+				targetName, len(flipped), color, pickNoMercyCommentary("color_roulette")))
+			if !target.isBot {
+				p.SendMessage(target.dmRoomID, fmt.Sprintf("🎰 Color Roulette! You drew %d cards. You now have %d cards.", len(flipped), len(target.hand)))
+			}
+			if p.checkMultiMercyElimination(game, target) {
+				if game.done {
+					return
+				}
+			}
+			// Skip past the roulette victim
+			game.currentIdx = nextIdx
+			game.currentIdx = game.nextActiveIdx()
+			game.turnID++
+			p.executeMultiTurn(game)
+			return
+		}
+
 		p.applyAutoEffects(game, player, *pendingCard)
 		return
 
@@ -1462,7 +2106,7 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 		game.discardTop = drawnCard
 		game.turns++
 
-		if drawnCard.Value == unoWildCard || drawnCard.Value == unoWildDrawFour {
+		if drawnCard.isWild() {
 			if drawnCard.Value == unoWildDrawFour {
 				game.wd4PrevColor = game.topColor
 			}
@@ -1496,7 +2140,45 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 		p.applyAutoEffects(game, player, drawnCard)
 		return
 
+	case unoMultiPhaseChooseSwapTarget:
+		// Auto-play: swap with player who has fewest cards
+		target := botChooseSwapTarget(game, player)
+		if target != nil {
+			swapHandsMulti(player, target)
+			targetName := p.unoDisplayName(target.userID)
+			if target.isBot {
+				targetName = unoBotName()
+			}
+			p.SendMessage(player.dmRoomID, fmt.Sprintf("*Auto-played:* Swapped hands with %s.", targetName))
+			p.SendMessage(game.roomID, fmt.Sprintf("🔄 *%s was auto-played.* Swaps hands with %s!", name, targetName))
+		}
+		game.phase = unoMultiPhasePlay
+		if len(player.hand) == 0 {
+			p.multiPlayerWins(game, player)
+			return
+		}
+		p.advanceAndExecute(game)
+		return
+
 	case unoMultiPhasePlay:
+		// No Mercy stacking: auto-accept
+		if game.noMercy && game.stackMinValue > 0 {
+			drawn := game.draw(game.stackTotal)
+			player.hand = append(player.hand, drawn...)
+			p.SendMessage(player.dmRoomID, fmt.Sprintf("*Auto-played:* Accepted stack. Drew %d cards.", game.stackTotal))
+			p.SendMessage(game.roomID, fmt.Sprintf("💥 *%s was auto-played.* Absorbs the stack! Draws %d cards. (%d cards now)",
+				name, game.stackTotal, len(player.hand)))
+			game.stackTotal = 0
+			game.stackMinValue = 0
+			if p.checkMultiMercyElimination(game, player) {
+				if game.done {
+					return
+				}
+			}
+			p.advanceAndExecute(game)
+			return
+		}
+
 		// Find first playable non-action card
 		playIdx := -1
 		for i, c := range player.hand {
@@ -1521,7 +2203,7 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 			game.discardTop = card
 			game.turns++
 
-			if card.Value == unoWildCard || card.Value == unoWildDrawFour {
+			if card.isWild() {
 				if card.Value == unoWildDrawFour {
 					game.wd4PrevColor = game.topColor
 				}
@@ -1579,7 +2261,7 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 			game.discardTop = card
 			game.turns++
 
-			if card.Value == unoWildCard || card.Value == unoWildDrawFour {
+			if card.isWild() {
 				if card.Value == unoWildDrawFour {
 					game.wd4PrevColor = game.topColor
 				}
@@ -1837,7 +2519,100 @@ func (p *UnoPlugin) sendMultiHandDisplay(game *unoMultiGame, player *unoMultiPla
 	}
 	sb.WriteString(strings.Join(counts, " | "))
 
+	if game.noMercy && len(player.hand) >= 20 {
+		sb.WriteString(fmt.Sprintf("\n⚠️ **You have %d cards! (25 = eliminated)**", len(player.hand)))
+	}
+
 	sb.WriteString("\n\nReply with a card number to play, or **draw** to draw.")
 
 	p.SendMessage(player.dmRoomID, sb.String())
+}
+
+// sendMultiHandDisplayStacking shows hand during stacking — only stackable cards are playable.
+func (p *UnoPlugin) sendMultiHandDisplayStacking(game *unoMultiGame, player *unoMultiPlayer) {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("⚠️ **Stack incoming: +%d!**\nDiscard pile: %s\n\n**Your hand:**\n",
+		game.stackTotal, game.discardTop.DisplayWithColor(game.topColor)))
+
+	for i, c := range player.hand {
+		marker := ""
+		if c.canPlayOnStacking(game.topColor, game.stackMinValue) {
+			marker = " ✅"
+		}
+		sb.WriteString(fmt.Sprintf("%d. %s%s\n", i+1, c.Display(), marker))
+	}
+
+	sb.WriteString("\nCard counts: ")
+	counts := make([]string, 0)
+	bn := unoBotName()
+	for _, pl := range game.players {
+		if pl == player || !pl.active {
+			continue
+		}
+		name := p.unoDisplayName(pl.userID)
+		if pl.isBot {
+			name = bn
+		}
+		counts = append(counts, fmt.Sprintf("%s (%d)", name, len(pl.hand)))
+	}
+	sb.WriteString(strings.Join(counts, " | "))
+
+	sb.WriteString(fmt.Sprintf("\n\nPlay a draw card to stack, or type **accept** to draw %d cards.", game.stackTotal))
+
+	p.SendMessage(player.dmRoomID, sb.String())
+}
+
+// handleMultiSwapChoice handles the player choosing a swap target for the 7-0 rule.
+func (p *UnoPlugin) handleMultiSwapChoice(game *unoMultiGame, player *unoMultiPlayer, input string) error {
+	// Parse target number
+	var targetIdx int
+	if _, err := fmt.Sscanf(input, "%d", &targetIdx); err != nil || targetIdx < 1 {
+		p.SendMessage(player.dmRoomID, "Choose a player number to swap hands with.")
+		return nil
+	}
+
+	// Map number to active player
+	i := 1
+	var target *unoMultiPlayer
+	for _, pl := range game.players {
+		if pl == player || !pl.active {
+			continue
+		}
+		if i == targetIdx {
+			target = pl
+			break
+		}
+		i++
+	}
+
+	if target == nil {
+		p.SendMessage(player.dmRoomID, "Invalid player number. Try again.")
+		return nil
+	}
+
+	swapHandsMulti(player, target)
+	game.phase = unoMultiPhasePlay
+
+	name := p.unoDisplayName(player.userID)
+	targetName := p.unoDisplayName(target.userID)
+	if target.isBot {
+		targetName = unoBotName()
+	}
+
+	p.SendMessage(player.dmRoomID, fmt.Sprintf("Swapped hands with %s! You now have %d cards.", targetName, len(player.hand)))
+	if !target.isBot {
+		p.SendMessage(target.dmRoomID, fmt.Sprintf("🔄 %s swapped hands with you! You now have %d cards.", name, len(target.hand)))
+	}
+	p.SendMessage(game.roomID, fmt.Sprintf("🔄 %s swaps hands with %s! %s",
+		name, targetName, pickNoMercyCommentary("hand_swap")))
+
+	// Check win (if player got an empty hand from swap)
+	if len(player.hand) == 0 {
+		p.multiPlayerWins(game, player)
+		return nil
+	}
+
+	// Continue to next turn
+	p.advanceAndExecute(game)
+	return nil
 }

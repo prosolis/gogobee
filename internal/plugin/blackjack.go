@@ -279,8 +279,8 @@ func (p *BlackjackPlugin) handleBlackjack(ctx MessageContext) error {
 				return p.SendReply(ctx.RoomID, ctx.EventID, "You're already at the table!")
 			}
 		}
-		if len(table.players) >= 2 {
-			return p.SendReply(ctx.RoomID, ctx.EventID, "Table is full (max 2 players).")
+		if len(table.players) >= 4 {
+			return p.SendReply(ctx.RoomID, ctx.EventID, "Table is full (max 4 players).")
 		}
 
 		if !p.euro.Debit(ctx.Sender, bet, "blackjack_bet") {
@@ -289,13 +289,20 @@ func (p *BlackjackPlugin) handleBlackjack(ctx MessageContext) error {
 
 		table.players = append(table.players, &bjPlayer{UserID: ctx.Sender, Bet: bet})
 		name := p.bjDisplayName(ctx.Sender)
-		_ = p.SendMessage(ctx.RoomID,
-			fmt.Sprintf("🃏 **%s** joins the table! Bet: €%d\nTable is full — dealing!", name, int(bet)))
 
-		if table.joinTimer != nil {
-			table.joinTimer.Stop()
+		if len(table.players) >= 4 {
+			_ = p.SendMessage(ctx.RoomID,
+				fmt.Sprintf("🃏 **%s** joins the table! Bet: €%d\nTable is full — dealing!", name, int(bet)))
+			if table.joinTimer != nil {
+				table.joinTimer.Stop()
+			}
+			p.startRound(ctx.RoomID, table)
+		} else {
+			remaining := len(table.players)
+			_ = p.SendMessage(ctx.RoomID,
+				fmt.Sprintf("🃏 **%s** joins the table! Bet: €%d (%d/4 players — `!blackjack deal` to start now)",
+					name, int(bet), remaining))
 		}
-		p.startRound(ctx.RoomID, table)
 		return nil
 	}
 
@@ -458,15 +465,16 @@ func (p *BlackjackPlugin) findPlayer(table *bjTable, userID id.UserID) *bjPlayer
 
 func (p *BlackjackPlugin) handleHit(ctx MessageContext) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	table, exists := p.tables[ctx.RoomID]
 	if !exists || table.phase != "playing" {
+		p.mu.Unlock()
 		return nil
 	}
 
 	player := p.findPlayer(table, ctx.Sender)
 	if player == nil || player.Done {
+		p.mu.Unlock()
 		return nil
 	}
 
@@ -477,48 +485,70 @@ func (p *BlackjackPlugin) handleHit(ctx MessageContext) error {
 		player.Bust = true
 		player.Done = true
 		name := p.bjDisplayName(player.UserID)
-		_ = p.SendMessage(ctx.RoomID,
-			fmt.Sprintf("💥 **%s** busts with %s (%d)!", name, handStr(player.Hand), v))
-		p.checkAllDone(ctx.RoomID, table)
+		msgs := []string{fmt.Sprintf("💥 **%s** busts with %s (%d)!", name, handStr(player.Hand), v)}
+		allDoneMsgs := p.collectAllDone(ctx.RoomID, table)
+		p.mu.Unlock()
+		for _, m := range append(msgs, allDoneMsgs...) {
+			_ = p.SendMessage(ctx.RoomID, m)
+		}
 		return nil
 	}
 
 	if v == 21 {
 		player.Done = true
 		name := p.bjDisplayName(player.UserID)
-		_ = p.SendMessage(ctx.RoomID,
-			fmt.Sprintf("**%s** has 21! %s", name, handStr(player.Hand)))
-		p.checkAllDone(ctx.RoomID, table)
+		msgs := []string{fmt.Sprintf("**%s** has 21! %s", name, handStr(player.Hand))}
+		allDoneMsgs := p.collectAllDone(ctx.RoomID, table)
+		p.mu.Unlock()
+		for _, m := range append(msgs, allDoneMsgs...) {
+			_ = p.SendMessage(ctx.RoomID, m)
+		}
 		return nil
 	}
 
-	_ = p.SendMessage(ctx.RoomID, p.renderTable(table, false))
+	msg := p.renderTable(table, false)
+	p.mu.Unlock()
+	_ = p.SendMessage(ctx.RoomID, msg)
 	return nil
 }
 
 func (p *BlackjackPlugin) handleStand(ctx MessageContext) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	table, exists := p.tables[ctx.RoomID]
 	if !exists || table.phase != "playing" {
+		p.mu.Unlock()
 		return nil
 	}
 
 	player := p.findPlayer(table, ctx.Sender)
 	if player == nil || player.Done {
+		p.mu.Unlock()
 		return nil
 	}
 
 	player.Done = true
 	name := p.bjDisplayName(player.UserID)
-	_ = p.SendMessage(ctx.RoomID, fmt.Sprintf("**%s** stands at %d.", name, player.value()))
-	p.checkAllDone(ctx.RoomID, table)
+	msgs := []string{fmt.Sprintf("**%s** stands at %d.", name, player.value())}
+	allDoneMsgs := p.collectAllDone(ctx.RoomID, table)
+	p.mu.Unlock()
+	for _, m := range append(msgs, allDoneMsgs...) {
+		_ = p.SendMessage(ctx.RoomID, m)
+	}
 	return nil
 }
 
 // checkAllDone checks if all players are done and triggers the dealer. Must be called with p.mu held.
 func (p *BlackjackPlugin) checkAllDone(roomID id.RoomID, table *bjTable) {
+	msgs := p.collectAllDone(roomID, table)
+	for _, m := range msgs {
+		_ = p.SendMessage(roomID, m)
+	}
+}
+
+// collectAllDone is like checkAllDone but returns messages instead of sending them.
+// This allows callers to release the mutex before sending. Must be called with p.mu held.
+func (p *BlackjackPlugin) collectAllDone(roomID id.RoomID, table *bjTable) []string {
 	var waiting []string
 	for _, pl := range table.players {
 		if !pl.Done {
@@ -527,14 +557,12 @@ func (p *BlackjackPlugin) checkAllDone(roomID id.RoomID, table *bjTable) {
 	}
 
 	if len(waiting) > 0 {
-		_ = p.SendMessage(roomID,
-			fmt.Sprintf("⏳ Waiting on: **%s**", strings.Join(waiting, "**, **")))
-		return
+		return []string{fmt.Sprintf("⏳ Waiting on: **%s**", strings.Join(waiting, "**, **"))}
 	}
 
 	// All players done — stop timers and go to dealer
 	p.stopRoundTimers(table)
-	p.playDealer(roomID, table)
+	return p.collectDealer(roomID, table)
 }
 
 // startRoundTimer starts a shared timeout for the round plus reminder nudges. Must be called with p.mu held.
@@ -631,6 +659,14 @@ func (p *BlackjackPlugin) stopRoundTimers(table *bjTable) {
 
 // playDealer plays the dealer hand. Must be called with p.mu held.
 func (p *BlackjackPlugin) playDealer(roomID id.RoomID, table *bjTable) {
+	msgs := p.collectDealer(roomID, table)
+	for _, m := range msgs {
+		_ = p.SendMessage(roomID, m)
+	}
+}
+
+// collectDealer is like playDealer but returns messages. Must be called with p.mu held.
+func (p *BlackjackPlugin) collectDealer(roomID id.RoomID, table *bjTable) []string {
 	// Check if all players busted
 	allBust := true
 	for _, pl := range table.players {
@@ -652,10 +688,18 @@ func (p *BlackjackPlugin) playDealer(roomID id.RoomID, table *bjTable) {
 		}
 	}
 
-	p.resolveRound(roomID, table)
+	return p.collectResolveRound(roomID, table)
 }
 
 func (p *BlackjackPlugin) resolveRound(roomID id.RoomID, table *bjTable) {
+	msgs := p.collectResolveRound(roomID, table)
+	for _, m := range msgs {
+		_ = p.SendMessage(roomID, m)
+	}
+}
+
+// collectResolveRound resolves the round and returns messages. Must be called with p.mu held.
+func (p *BlackjackPlugin) collectResolveRound(roomID id.RoomID, table *bjTable) []string {
 	table.phase = "done"
 	dealerValue, _ := handValue(table.dealer)
 	dealerBust := dealerValue > 21
@@ -738,7 +782,7 @@ func (p *BlackjackPlugin) resolveRound(roomID id.RoomID, table *bjTable) {
 		table.joinTimer.Stop()
 	}
 	delete(p.tables, roomID)
-	_ = p.SendMessage(roomID, sb.String())
+	return []string{sb.String()}
 }
 
 // ---------------------------------------------------------------------------
