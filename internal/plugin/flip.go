@@ -72,6 +72,8 @@ func (p *FlipPlugin) handleGames(ctx MessageContext) error {
 			"**!hangman start** — Collaborative Hangman\n"+
 			"**!blackjack €amount** — Blackjack (1-4 players vs dealer)\n"+
 			"**!uno €amount** — UNO (solo or multiplayer, classic or No Mercy)\n"+
+			"**!holdem join** — Texas Hold'em poker (2-9 players)\n"+
+			"**!wordle <word>** — Daily cooperative Wordle\n"+
 			"**!trivia** — Trivia questions\n\n"+
 			"**Economy:**\n"+
 			"**!balance** — Check your euros\n"+

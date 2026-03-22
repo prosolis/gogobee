@@ -731,11 +731,195 @@ CREATE TABLE IF NOT EXISTS bot_defeats (
 	PRIMARY KEY (user_id, game)
 );
 
+-- Texas Hold'em
+CREATE TABLE IF NOT EXISTS holdem_tips_prefs (
+	user_id    TEXT PRIMARY KEY,
+	enabled    INTEGER NOT NULL DEFAULT 1,
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS holdem_scores (
+	user_id      TEXT PRIMARY KEY,
+	hands_played INTEGER NOT NULL DEFAULT 0,
+	total_won    INTEGER NOT NULL DEFAULT 0,
+	total_lost   INTEGER NOT NULL DEFAULT 0,
+	biggest_pot  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS holdem_npc_balance (
+	npc_name     TEXT PRIMARY KEY,
+	balance      INTEGER NOT NULL DEFAULT 10000,
+	hands_played INTEGER NOT NULL DEFAULT 0
+);
+
+-- Wordle
+CREATE TABLE IF NOT EXISTS wordle_stats (
+	user_id          TEXT PRIMARY KEY,
+	display_name     TEXT NOT NULL,
+	total_guesses    INTEGER NOT NULL DEFAULT 0,
+	puzzles_played   INTEGER NOT NULL DEFAULT 0,
+	puzzles_solved   INTEGER NOT NULL DEFAULT 0,
+	winning_guesses  INTEGER NOT NULL DEFAULT 0,
+	updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS wordle_puzzles (
+	puzzle_id     TEXT NOT NULL,
+	room_id       TEXT NOT NULL,
+	answer        TEXT NOT NULL,
+	word_length   INTEGER NOT NULL,
+	solved        INTEGER NOT NULL DEFAULT 0,
+	guess_count   INTEGER NOT NULL DEFAULT 0,
+	started_at    DATETIME NOT NULL,
+	solved_at     DATETIME,
+	PRIMARY KEY (puzzle_id, room_id)
+);
+
 -- Space groups (rooms with overlapping membership)
 CREATE TABLE IF NOT EXISTS space_groups (
 	room_id    TEXT PRIMARY KEY,
 	group_id   INTEGER NOT NULL,
 	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ── Adventure Plugin ────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS adventure_characters (
+	user_id              TEXT PRIMARY KEY,
+	display_name         TEXT NOT NULL,
+	combat_level         INTEGER NOT NULL DEFAULT 1,
+	mining_skill         INTEGER NOT NULL DEFAULT 1,
+	foraging_skill       INTEGER NOT NULL DEFAULT 1,
+	fishing_skill        INTEGER NOT NULL DEFAULT 1,
+	combat_xp            INTEGER NOT NULL DEFAULT 0,
+	mining_xp            INTEGER NOT NULL DEFAULT 0,
+	foraging_xp          INTEGER NOT NULL DEFAULT 0,
+	fishing_xp           INTEGER NOT NULL DEFAULT 0,
+	alive                INTEGER NOT NULL DEFAULT 1,
+	dead_until           DATETIME,
+	action_taken_today   INTEGER NOT NULL DEFAULT 0,
+	arena_wins           INTEGER NOT NULL DEFAULT 0,
+	arena_losses         INTEGER NOT NULL DEFAULT 0,
+	invasion_score       INTEGER NOT NULL DEFAULT 0,
+	title                TEXT NOT NULL DEFAULT '',
+	current_streak       INTEGER NOT NULL DEFAULT 0,
+	best_streak          INTEGER NOT NULL DEFAULT 0,
+	last_action_date     TEXT NOT NULL DEFAULT '',
+	grudge_location      TEXT NOT NULL DEFAULT '',
+	created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	last_active_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS adventure_equipment (
+	user_id     TEXT NOT NULL,
+	slot        TEXT NOT NULL,
+	tier        INTEGER NOT NULL DEFAULT 0,
+	condition   INTEGER NOT NULL DEFAULT 100,
+	name        TEXT NOT NULL,
+	actions_used INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (user_id, slot)
+);
+
+CREATE TABLE IF NOT EXISTS adventure_inventory (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id     TEXT NOT NULL,
+	name        TEXT NOT NULL,
+	item_type   TEXT NOT NULL,
+	tier        INTEGER NOT NULL,
+	value       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_adv_inv_user ON adventure_inventory(user_id);
+
+CREATE TABLE IF NOT EXISTS adventure_activity_log (
+	id            INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id       TEXT NOT NULL,
+	activity_type TEXT NOT NULL,
+	location      TEXT,
+	outcome       TEXT NOT NULL,
+	loot_value    INTEGER NOT NULL DEFAULT 0,
+	xp_gained     INTEGER NOT NULL DEFAULT 0,
+	flavor_key    TEXT,
+	logged_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_adv_log_user ON adventure_activity_log(user_id, logged_at);
+
+CREATE TABLE IF NOT EXISTS adventure_treasures (
+	id           INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id      TEXT NOT NULL,
+	treasure_key TEXT NOT NULL,
+	name         TEXT NOT NULL,
+	tier         INTEGER NOT NULL,
+	bonus_type   TEXT NOT NULL,
+	bonus_value  REAL NOT NULL,
+	acquired_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE(user_id, treasure_key, bonus_type)
+);
+CREATE INDEX IF NOT EXISTS idx_adv_treasure_user ON adventure_treasures(user_id);
+
+CREATE TABLE IF NOT EXISTS adventure_buffs (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id    TEXT NOT NULL,
+	buff_type  TEXT NOT NULL,
+	buff_name  TEXT NOT NULL,
+	modifier   REAL NOT NULL,
+	expires_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_adv_buffs_user ON adventure_buffs(user_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS adventure_twinbee_log (
+	id                INTEGER PRIMARY KEY AUTOINCREMENT,
+	activity_type     TEXT NOT NULL,
+	location          TEXT NOT NULL,
+	outcome           TEXT NOT NULL,
+	loot_value        INTEGER NOT NULL DEFAULT 0,
+	loot_desc         TEXT,
+	participant_count INTEGER NOT NULL DEFAULT 0,
+	gold_share        INTEGER NOT NULL DEFAULT 0,
+	gift_count        INTEGER NOT NULL DEFAULT 0,
+	logged_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- v2 stubs
+
+CREATE TABLE IF NOT EXISTS adventure_market_listings (
+	id            INTEGER PRIMARY KEY AUTOINCREMENT,
+	seller_id     TEXT NOT NULL,
+	treasure_id   INTEGER NOT NULL,
+	asking_price  INTEGER NOT NULL,
+	listed_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	expires_at    DATETIME NOT NULL,
+	sold_at       DATETIME,
+	buyer_id      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS adventure_invasions (
+	id                INTEGER PRIMARY KEY AUTOINCREMENT,
+	horde_name        TEXT NOT NULL,
+	horde_hp          INTEGER NOT NULL,
+	horde_tier        INTEGER NOT NULL,
+	outcome           TEXT,
+	participant_count INTEGER NOT NULL DEFAULT 0,
+	started_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	ends_at           DATETIME NOT NULL,
+	resolved_at       DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS adventure_invasion_participants (
+	invasion_id       INTEGER NOT NULL,
+	user_id           TEXT NOT NULL,
+	damage_dealt      INTEGER NOT NULL DEFAULT 0,
+	xp_gained         INTEGER NOT NULL DEFAULT 0,
+	loot_value        INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (invasion_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS adventure_arena_log (
+	id            INTEGER PRIMARY KEY AUTOINCREMENT,
+	challenger_id TEXT NOT NULL,
+	defender_id   TEXT NOT NULL,
+	winner_id     TEXT NOT NULL,
+	xp_gained     INTEGER NOT NULL DEFAULT 0,
+	logged_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 `

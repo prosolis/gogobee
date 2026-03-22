@@ -113,6 +113,10 @@ func main() {
 	registry.Register(plugin.NewHangmanPlugin(client, euroPlugin))
 	registry.Register(plugin.NewBlackjackPlugin(client, euroPlugin))
 	registry.Register(plugin.NewUnoPlugin(client, euroPlugin))
+	registry.Register(plugin.NewHoldemPlugin(client, euroPlugin))
+	registry.Register(plugin.NewAdventurePlugin(client, euroPlugin))
+	wordlePlugin := plugin.NewWordlePlugin(client)
+	registry.Register(wordlePlugin)
 
 	// Community
 	registry.Register(plugin.NewMilkCartonPlugin(client, ratePlugin))

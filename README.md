@@ -30,7 +30,7 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
 - **43 plugins** with dependency injection and ordered registration
-- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), all with channel restriction
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips), Wordle (daily cooperative, Wordnik-powered, 5-7 letter words), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - WOTD, holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
@@ -144,7 +144,7 @@ Everything is configured through environment variables or a `.env` file.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GAMES_ROOM` | | Room ID where game commands work (trivia, hangman, blackjack, flip) |
+| `GAMES_ROOM` | | Room ID where game commands work (trivia, hangman, blackjack, holdem, wordle, flip) |
 | `EURO_COOLDOWN_SECONDS` | `30` | Cooldown between passive euro earning per user |
 | `EURO_DEBT_REMINDER` | `true` | Weekly DM reminder if player is in debt |
 | `EURO_STARTING_CAP` | `2500` | Max starting balance seeded from corpus |
@@ -163,6 +163,15 @@ Everything is configured through environment variables or a `.env` file.
 | `UNO_MULTI_LOBBY_TIMEOUT` | `300` | Lobby expiry in seconds |
 | `UNO_MULTI_TURN_TIMEOUT` | `30` | Auto-play timeout in seconds |
 | `UNO_MULTI_MAX_AUTOPLAY` | `3` | Consecutive auto-plays before forfeit |
+| `HOLDEM_SMALL_BLIND` | `10` | Small blind amount |
+| `HOLDEM_BIG_BLIND` | `20` | Big blind amount |
+| `HOLDEM_MIN_BUYIN` | `200` | Minimum balance to join |
+| `HOLDEM_MAX_BUYIN` | `2000` | Maximum stack at buy-in |
+| `HOLDEM_TIMEOUT_SECONDS` | `90` | Action timeout per turn |
+| `HOLDEM_NPC_NAME` | `TwinBee` | NPC bot display name |
+| `HOLDEM_NPC_HOUSE_BALANCE` | `10000` | NPC starting bankroll |
+| `HOLDEM_CFR_POLICY` | `data/policy.gob` | Path to CFR policy file |
+| `WORDLE_DEFAULT_LENGTH` | `5` | Default word length (5, 6, or 7) |
 
 ### Moderation
 
@@ -359,6 +368,78 @@ Based on UNO Show 'Em No Mercy (2023, Mattel). Bigger 168-card deck, meaner rule
 Enabled by adding `7-0` to the command. When active:
 - **Play a 7** — swap hands with another player of your choice (in multiplayer, you pick the target)
 - **Play a 0** — all players pass their hand to the next player in play direction
+
+### Texas Hold'em (games channel only)
+
+No-limit Texas Hold'em poker for 2-9 players. Buy-in is debited from your euro balance when you sit down; your remaining stack is cashed out when you leave. Private cards and coaching tips are delivered via DM — the room only sees start/end announcements.
+
+An optional AI opponent (NPC) uses a CFR-trained poker solver. Add one with `!holdem addbot`.
+
+| Command | Description |
+|---------|-------------|
+| `!holdem join` | Sit down at the table |
+| `!holdem leave` | Leave the table (cashes out stack) |
+| `!holdem start` | Start dealing (2+ players) |
+| `!holdem addbot` | Add a CFR-trained AI opponent |
+| `!holdem fold` | Fold your hand |
+| `!holdem check` | Check (no bet to call) |
+| `!holdem call` | Call the current bet |
+| `!holdem raise <amount>` | Raise to a total of amount |
+| `!holdem allin` | Go all-in |
+| `!holdem status` | Current table state (sent via DM) |
+| `!holdem help` | Show in-game help |
+
+**DM commands:** `!holdem tips on/off` — toggle coaching tips (equity + pot odds analysis, powered by Ollama with rules-based fallback).
+
+#### NPC Bot
+
+The NPC uses Counterfactual Regret Minimization (External Sampling MCCFR), trained via self-play. The policy table ships as `data/policy.gob` and is loaded at startup. The bot plays a mixed strategy — it randomizes actions according to its trained probability distribution, so it won't always make the same play in the same spot.
+
+#### Training the NPC
+
+A standalone training CLI is provided under `cmd/holdem-train/`. It requires the `training` build tag:
+
+```bash
+# Build the training CLI
+go build -tags training -o holdem-train ./cmd/holdem-train/
+
+# Train with 8 workers (defaults to all CPU cores if --workers is omitted)
+./holdem-train --iterations 5000000 --workers 8 --output data/policy.gob
+
+# Resume from a checkpoint
+./holdem-train --iterations 5000000 --workers 8 --resume data/policy.gob.checkpoint --output data/policy.gob
+
+# Validate the trained policy (10K hands vs random baseline)
+./holdem-train --validate --output data/policy.gob
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--iterations` | `5000000` | Number of training iterations |
+| `--workers` | `runtime.NumCPU()` | Parallel workers |
+| `--output` | `data/policy.gob` | Output policy file |
+| `--resume` | | Resume from checkpoint |
+| `--validate` | `false` | Run validation instead of training |
+| `--checkpoint-every` | `500000` | Checkpoint interval |
+| `--seed` | `42` | Random seed |
+
+Progress is logged with overall completion percentage and ETA. Checkpoints are saved every 30 seconds during parallel training.
+
+### Wordle (games channel only)
+
+Daily cooperative Wordle — one puzzle per day, the community works together with a shared 6-guess limit. Word selection and validation powered by the Wordnik API (`WORDNIK_API_KEY`). A new puzzle auto-posts at midnight UTC. Word length is configurable (5-7 letters). Falls back to a bundled word list if the API is unavailable.
+
+| Command | Description |
+|---------|-------------|
+| `!wordle <word>` | Submit a guess for today's puzzle |
+| `!wordle grid` | Re-post the current puzzle grid |
+| `!wordle stats` | All-time leaderboard with community streak |
+| `!wordle new` | Start a new puzzle (admin) |
+| `!wordle new <5\|6\|7>` | New puzzle with specific word length (admin) |
+| `!wordle skip` | Reveal answer and end puzzle (admin) |
+| `!wordle help` | Show commands |
+
+No economy integration — stats and leaderboard position are the reward.
 
 ### Reminders
 | Command | Description |
@@ -634,6 +715,13 @@ All optional. The bot works fine without any of them, you just won't have those 
 gogobee/
 ├── main.go                  # Entry point, plugin registration, cron setup
 ├── go.mod / go.sum
+├── data/
+│   └── policy.gob           # Pre-trained CFR policy for Hold'em NPC
+├── cmd/
+│   ├── holdem-train/
+│   │   └── main.go          # CFR training CLI (build tag: training)
+│   └── holdem-seed/
+│       └── main.go          # Seed policy generator
 ├── internal/
 │   ├── bot/
 │   │   ├── client.go        # mautrix client + E2EE (cryptohelper + goolm)
@@ -686,6 +774,19 @@ gogobee/
 │   │   ├── uno.go           # Solo UNO vs bot (DM-based)
 │   │   ├── uno_multi.go     # Multiplayer UNO (lobby + DM turns)
 │   │   ├── uno_nomercy.go   # No Mercy mode (deck, stacking, mercy rule, 7-0, bot AI)
+│   │   ├── holdem.go        # Texas Hold'em plugin (commands, game lifecycle, NPC)
+│   │   ├── holdem_game.go   # Game state, player types, deck, position labels
+│   │   ├── holdem_betting.go # Blinds, action validation, side pots
+│   │   ├── holdem_eval.go   # Hand evaluation, showdown, settlement
+│   │   ├── holdem_render.go # Card glyphs, table view, announcements
+│   │   ├── holdem_tips.go   # Ollama coaching tips with equity analysis
+│   │   ├── holdem_equity.go # Monte Carlo equity engine
+│   │   ├── holdem_cfr.go    # CFR policy table, NPC action selection, training
+│   │   ├── wordle.go        # Daily Wordle plugin (commands, lifecycle, scheduler)
+│   │   ├── wordle_game.go   # Puzzle state, scoring algorithm, letter tracking
+│   │   ├── wordle_render.go # Emoji grid, keyboard, announcements, leaderboard
+│   │   ├── wordle_wordnik.go # Wordnik API (random word, validation, definitions)
+│   │   ├── wordle_fallback.go # Emergency word list loader
 │   │   ├── esteemed.go      # Satirical esteemed member posts
 │   │   ├── moderation.go   # Moderation system (strikes, word list, flood detection)
 │   │   └── ratelimits.go    # Rate limiting
