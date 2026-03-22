@@ -723,6 +723,14 @@ CREATE TABLE IF NOT EXISTS uno_multi_games (
 	ended_at        DATETIME NOT NULL
 );
 
+-- Bot defeat tracking (unified across all games)
+CREATE TABLE IF NOT EXISTS bot_defeats (
+	user_id   TEXT NOT NULL,
+	game      TEXT NOT NULL,
+	losses    INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (user_id, game)
+);
+
 -- Space groups (rooms with overlapping membership)
 CREATE TABLE IF NOT EXISTS space_groups (
 	room_id    TEXT PRIMARY KEY,

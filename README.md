@@ -30,7 +30,7 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
 - **43 plugins** with dependency injection and ordered registration
-- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring), Blackjack (1-2 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs), all with channel restriction
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - WOTD, holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
@@ -302,21 +302,63 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 ### Blackjack (games channel only)
 | Command | Description |
 |---------|-------------|
-| `!blackjack €amount` | Start/join a Blackjack table (1-2 players) |
+| `!blackjack €amount` | Start/join a Blackjack table (1-4 players) |
 | `!hit` | Take a card |
 | `!stand` | End your turn |
 | `!blackjack leave` | Leave before game starts |
 | `!bjboard` | Blackjack leaderboard |
+| `!twinbeeboard` | GogoBee's victory record against players |
 
 ### UNO (games channel only)
+
+UNO can be played solo (vs GogoBee) or multiplayer (2-4 players + bot). All gameplay happens in DMs. The games channel is used for lobby management and public announcements.
+
 | Command | Description |
 |---------|-------------|
-| `!uno €amount` | Start a solo UNO game vs GogoBee (played in DMs) |
-| `!uno start €amount` | Create a multiplayer UNO lobby (2-4 players) |
-| `!uno join` | Join an open UNO lobby |
+| `!uno €amount` | Start a solo game vs GogoBee |
+| `!uno nomercy €amount` | Start a solo No Mercy game |
+| `!uno nomercy 7-0 €amount` | Solo No Mercy with 7-0 rule |
+| `!uno start €amount` | Create a multiplayer lobby |
+| `!uno start nomercy €amount` | Multiplayer No Mercy lobby |
+| `!uno start nomercy 7-0 €amount` | Multiplayer No Mercy with 7-0 rule |
+| `!uno join` | Join an open lobby |
 | `!uno go` | Start the game (host only, 2+ players required) |
 | `!uno leave` | Leave the lobby (refunds ante) |
 | `!uno cancel` | Cancel the lobby (host/admin, refunds all) |
+
+**DM commands during gameplay:** reply with a card number to play, `draw` to draw, `uno` to call UNO (required when you have 2 cards), `quit` to forfeit. During draw stacking, type `accept` to absorb the stack.
+
+#### Classic Mode
+
+Standard 108-card UNO deck. Draw one card per turn (pass if unplayable). Wild Draw Four can be challenged — if the challenger catches a bluff, the player draws 4 instead.
+
+GogoBee has a personality system during solo play: she reads a book while playing, and puts it down when the game gets serious (opponent has few cards). Commentary changes based on book state.
+
+#### No Mercy Mode
+
+Based on UNO Show 'Em No Mercy (2023, Mattel). Bigger 168-card deck, meaner rules.
+
+**New cards:**
+| Card | Type | Effect |
+|------|------|--------|
+| Skip Everyone | Colored | Skips all other players — you go again |
+| Discard All | Colored | Play it and discard every other card of that color from your hand |
+| Draw Four | Colored | Like Wild Draw Four but matches by color (not wild) |
+| Wild Reverse Draw Four | Wild | Reverse direction + draw 4 + pick a color |
+| Wild Draw Six | Wild | Draw 6 + pick a color |
+| Wild Draw Ten | Wild | Draw 10 + pick a color |
+| Wild Color Roulette | Wild | Pick a color — next player flips cards from the deck until that color appears, keeping all flipped cards |
+
+**Rule changes:**
+- **Draw stacking** — when hit with a draw card, play a draw card of equal or higher value to pass the penalty to the next player. The stack keeps growing until someone can't (or won't) stack back. That player draws the entire total.
+- **Draw until playable** — no more drawing one and passing. You keep drawing until you find a playable card.
+- **Mercy rule** — reach 25 cards in your hand and you're eliminated.
+
+#### 7-0 Rule (optional, No Mercy only)
+
+Enabled by adding `7-0` to the command. When active:
+- **Play a 7** — swap hands with another player of your choice (in multiplayer, you pick the target)
+- **Play a 0** — all players pass their hand to the next player in play direction
 
 ### Reminders
 | Command | Description |
@@ -643,6 +685,7 @@ gogobee/
 │   │   ├── blackjack.go     # Multiplayer Blackjack
 │   │   ├── uno.go           # Solo UNO vs bot (DM-based)
 │   │   ├── uno_multi.go     # Multiplayer UNO (lobby + DM turns)
+│   │   ├── uno_nomercy.go   # No Mercy mode (deck, stacking, mercy rule, 7-0, bot AI)
 │   │   ├── esteemed.go      # Satirical esteemed member posts
 │   │   ├── moderation.go   # Moderation system (strikes, word list, flood detection)
 │   │   └── ratelimits.go    # Rate limiting

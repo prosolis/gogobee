@@ -2367,6 +2367,11 @@ func (p *UnoPlugin) multiBotWins(game *unoMultiGame) {
 		"💀 **%s wins Multiplayer UNO!**\n€%d goes to the community pot.\n\n%s",
 		bn, int(totalPot), pickCommentary("bot_win")))
 
+	for _, pl := range game.players {
+		if !pl.isBot {
+			recordBotDefeat(pl.userID, "uno_multi")
+		}
+	}
 	p.recordMultiGame(game, id.UserID("bot"), "bot_win")
 	p.cleanupMultiGame(game)
 }

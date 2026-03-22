@@ -1779,6 +1779,7 @@ func (p *UnoPlugin) botWins(game *unoGame) error {
 		"💀 "+unoBotName()+" wins. **%s**'s €%d has been added to the community pot.\n(Community pot: €%d)\n\n%s",
 		playerName, int(game.wager), int(newPot), pickCommentary("bot_win")))
 
+	recordBotDefeat(game.playerID, "uno")
 	p.recordGame(game, "gogobee_win", potBefore)
 	p.cleanupGame(game)
 	return nil
@@ -1809,6 +1810,7 @@ func (p *UnoPlugin) forfeitGame(game *unoGame, timeout bool) error {
 			fmt.Sprintf("🚪 **%s** has quit. €%d added to the pot. 💛", playerName, int(game.wager)))
 	}
 
+	recordBotDefeat(game.playerID, "uno")
 	p.recordGame(game, "gogobee_win", potBefore)
 	p.cleanupGame(game)
 	return nil

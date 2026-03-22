@@ -868,6 +868,9 @@ func (p *BlackjackPlugin) recordBJScore(userID id.UserID, net float64) {
 		   games_won = games_won + ?`,
 		string(userID), net, won, net, won,
 	)
+	if net < 0 {
+		recordBotDefeat(userID, "blackjack")
+	}
 }
 
 func (p *BlackjackPlugin) bjDisplayName(userID id.UserID) string {
