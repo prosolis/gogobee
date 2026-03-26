@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -97,6 +96,16 @@ func (p *HoldemPlugin) OnMessage(ctx MessageContext) error {
 		return p.handleTipsToggle(ctx, args, isDM)
 	}
 
+	// If this is a DM, resolve the player's game room so actions route correctly.
+	if isDM {
+		p.mu.Lock()
+		gameRoom := p.findGameRoom(ctx.Sender)
+		p.mu.Unlock()
+		if gameRoom != "" {
+			ctx.RoomID = gameRoom
+		}
+	}
+
 	// Room-only commands need games room check.
 	if !isDM && !isGamesRoom(ctx.RoomID) {
 		gr := gamesRoom()
@@ -106,8 +115,10 @@ func (p *HoldemPlugin) OnMessage(ctx MessageContext) error {
 	}
 
 	switch {
-	case args == "join":
-		return p.handleJoin(ctx)
+	case args == "play" || strings.HasPrefix(args, "play "):
+		return p.handlePlay(ctx, strings.TrimSpace(strings.TrimPrefix(args, "play")))
+	case args == "join" || strings.HasPrefix(args, "join "):
+		return p.handleJoin(ctx, strings.TrimSpace(strings.TrimPrefix(args, "join")))
 	case args == "leave":
 		return p.handleLeave(ctx)
 	case args == "start":
@@ -137,6 +148,17 @@ func (p *HoldemPlugin) isDMRoom(roomID id.RoomID) bool {
 	// DM rooms typically have exactly 2 members.
 	members := p.RoomMembers(roomID)
 	return len(members) <= 2
+}
+
+// findGameRoom returns the game room ID for a player, or empty if not found.
+// Must be called with p.mu held.
+func (p *HoldemPlugin) findGameRoom(userID id.UserID) id.RoomID {
+	for _, game := range p.games {
+		if game.playerByUserID(userID) != nil {
+			return game.RoomID
+		}
+	}
+	return ""
 }
 
 func (p *HoldemPlugin) handleTipsToggle(ctx MessageContext, args string, isDM bool) error {
@@ -170,7 +192,40 @@ func (p *HoldemPlugin) handleTipsToggle(ctx MessageContext, args string, isDM bo
 	}
 }
 
-func (p *HoldemPlugin) handleJoin(ctx MessageContext) error {
+// handlePlay is a shortcut that joins the player, adds the bot, and starts dealing.
+func (p *HoldemPlugin) handlePlay(ctx MessageContext, amountStr string) error {
+	p.mu.Lock()
+
+	// If a game already exists with a hand in progress, treat as a regular join.
+	if game := p.games[ctx.RoomID]; game != nil && game.HandInProgress {
+		p.mu.Unlock()
+		return p.handleJoin(ctx, amountStr)
+	}
+
+	// If player is already seated, just try to add bot + start.
+	if game := p.games[ctx.RoomID]; game != nil && game.playerByUserID(ctx.Sender) != nil {
+		p.mu.Unlock()
+		if err := p.handleAddBot(ctx); err != nil {
+			slog.Warn("holdem: addbot failed", "room", ctx.RoomID, "err", err)
+		}
+		return p.handleStart(ctx)
+	}
+	p.mu.Unlock()
+
+	// Join the table.
+	if err := p.handleJoin(ctx, amountStr); err != nil {
+		return err
+	}
+
+	if err := p.handleAddBot(ctx); err != nil {
+		slog.Warn("holdem: addbot failed", "room", ctx.RoomID, "err", err)
+	}
+
+	// Start dealing.
+	return p.handleStart(ctx)
+}
+
+func (p *HoldemPlugin) handleJoin(ctx MessageContext, amountStr string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -186,6 +241,7 @@ func (p *HoldemPlugin) handleJoin(ctx MessageContext) error {
 			WaitingForPlayers: true,
 		}
 		p.games[ctx.RoomID] = game
+		p.startIdleTimer(game)
 	}
 
 	// Check if already seated.
@@ -212,12 +268,36 @@ func (p *HoldemPlugin) handleJoin(ctx MessageContext) error {
 	}
 
 	// Get display name.
-	name := p.holdemDisplayName(ctx.Sender)
+	name := p.DisplayName(ctx.Sender)
 
-	// Determine buy-in (capped at MaxBuyin).
-	buyin := int64(balance)
-	if buyin > p.cfg.MaxBuyin {
+	// Determine buy-in: player-specified, or max buy-in, capped by balance.
+	var buyin int64
+	if amountStr != "" {
+		// Strip € prefix if present.
+		amountStr = strings.TrimPrefix(amountStr, "€")
+		requested, err := strconv.ParseInt(amountStr, 10, 64)
+		if err != nil || requested <= 0 {
+			return p.SendReply(ctx.RoomID, ctx.EventID,
+				fmt.Sprintf("Usage: `!holdem join [amount]` — amount between €%d and €%d.", p.cfg.MinBuyin, p.cfg.MaxBuyin))
+		}
+		if requested < p.cfg.MinBuyin {
+			return p.SendReply(ctx.RoomID, ctx.EventID,
+				fmt.Sprintf("Minimum buy-in is €%d.", p.cfg.MinBuyin))
+		}
+		if requested > p.cfg.MaxBuyin {
+			return p.SendReply(ctx.RoomID, ctx.EventID,
+				fmt.Sprintf("Maximum buy-in is €%d.", p.cfg.MaxBuyin))
+		}
+		if requested > int64(balance) {
+			return p.SendReply(ctx.RoomID, ctx.EventID,
+				fmt.Sprintf("You only have €%.0f.", balance))
+		}
+		buyin = requested
+	} else {
 		buyin = p.cfg.MaxBuyin
+		if int64(balance) < buyin {
+			buyin = int64(balance)
+		}
 	}
 
 	// Debit buy-in immediately to prevent double-spending across tables.
@@ -270,12 +350,13 @@ func (p *HoldemPlugin) handleLeave(ctx MessageContext) error {
 
 	if !game.HandInProgress || player.SittingOut {
 		// Credit remaining stack back (buy-in was debited at join).
-		if !player.IsNPC && player.Stack > 0 {
-			p.euro.Credit(player.UserID, float64(player.Stack), "holdem_cashout")
+		cashout := player.Stack
+		if !player.IsNPC && cashout > 0 {
+			p.euro.Credit(player.UserID, float64(cashout), "holdem_cashout")
 		}
 		// Remove immediately.
 		p.removePlayer(game, ctx.Sender)
-		p.SendMessage(ctx.RoomID, fmt.Sprintf("**%s** has left the table.", player.DisplayName))
+		p.SendMessage(ctx.RoomID, fmt.Sprintf("**%s** has left the table. (€%d returned)", player.DisplayName, cashout))
 
 		if len(game.Players) == 0 {
 			delete(p.games, ctx.RoomID)
@@ -286,6 +367,7 @@ func (p *HoldemPlugin) handleLeave(ctx MessageContext) error {
 	idx := game.playerIdx(ctx.Sender)
 	if idx == game.ActionIdx {
 		// It's their turn — fold and remove.
+		p.stopActionTimer(game)
 		game.doFold(idx)
 		p.SendMessage(ctx.RoomID, fmt.Sprintf("**%s** folds and leaves the table.", player.DisplayName))
 
@@ -510,6 +592,8 @@ func (p *HoldemPlugin) handleAddBot(ctx MessageContext) error {
 // --- Game lifecycle ---
 
 func (p *HoldemPlugin) startHand(game *HoldemGame) {
+	p.stopIdleTimer(game)
+
 	// Unsit players who were waiting.
 	for _, pl := range game.Players {
 		if pl.SittingOut {
@@ -546,6 +630,7 @@ func (p *HoldemPlugin) startHand(game *HoldemGame) {
 		pl.State = PlayerActive
 		pl.Bet = 0
 		pl.TotalBet = 0
+		pl.HasActed = false
 		pl.Hole = [2]poker.Card{}
 	}
 
@@ -570,8 +655,9 @@ func (p *HoldemPlugin) startHand(game *HoldemGame) {
 	p.SendMessage(game.RoomID, renderStartAnnouncement(game))
 
 	// Send hole cards to all players via DM.
+	// Skip the first-to-act player — they'll get hand + table from sendTurnNotifications.
 	for i, pl := range game.Players {
-		if pl.IsNPC || pl.State == PlayerSatOut {
+		if pl.IsNPC || pl.State == PlayerSatOut || i == game.ActionIdx {
 			continue
 		}
 		view := renderPrivateHand(game, i)
@@ -807,11 +893,15 @@ func (p *HoldemPlugin) endHand(game *HoldemGame) {
 	game.HandInProgress = false
 	game.Street = StreetPreFlop
 
-	// Remove players who want to leave.
+	// Remove players who want to leave or busted out.
+	// Credit their remaining stack (buy-in was debited at join).
 	for i := len(game.Players) - 1; i >= 0; i-- {
 		pl := game.Players[i]
 		if pl.WantsLeave || pl.Stack <= 0 {
 			if !pl.IsNPC {
+				if pl.Stack > 0 {
+					p.euro.Credit(pl.UserID, float64(pl.Stack), "holdem_cashout")
+				}
 				p.SendMessage(game.RoomID, fmt.Sprintf("**%s** has left the table.", pl.DisplayName))
 			}
 			game.Players = append(game.Players[:i], game.Players[i+1:]...)
@@ -824,12 +914,19 @@ func (p *HoldemPlugin) endHand(game *HoldemGame) {
 	}
 
 	if len(game.Players) < 2 {
+		// Cash out remaining players.
+		for _, pl := range game.Players {
+			if !pl.IsNPC && pl.Stack > 0 {
+				p.euro.Credit(pl.UserID, float64(pl.Stack), "holdem_cashout")
+			}
+		}
 		p.SendMessage(game.RoomID, "Not enough players for another hand. Game over.")
 		delete(p.games, game.RoomID)
 		return
 	}
 
 	p.SendMessage(game.RoomID, fmt.Sprintf("Hand complete. %d players at the table. Type `!holdem start` for the next hand.", len(game.Players)))
+	p.startIdleTimer(game)
 }
 
 // --- Notifications ---
@@ -848,11 +945,12 @@ func (p *HoldemPlugin) sendTurnNotifications(game *HoldemGame) {
 	hand := renderPrivateHand(game, game.ActionIdx)
 	p.SendMessage(actionPlayer.DMRoomID, hand+"\n"+view)
 
-	// Generate tip asynchronously — build context under lock, generate outside.
+	// Generate tip asynchronously — snapshot under lock, compute equity + generate outside.
 	if actionPlayer.TipsEnabled {
-		tipCtx := buildTipContext(game, game.ActionIdx)
+		snap := snapshotForTip(game, game.ActionIdx)
 		dmRoom := actionPlayer.DMRoomID
 		go func() {
+			tipCtx := buildTipContext(snap)
 			tip := generateTip(tipCtx)
 			p.SendMessage(dmRoom, tip)
 		}()
@@ -891,6 +989,9 @@ func (p *HoldemPlugin) npcAct(game *HoldemGame) {
 	if !game.HandInProgress || game.ActionIdx != npcIdx {
 		return
 	}
+
+	// Stop the action timer so it can't fire while we process.
+	p.stopActionTimer(game)
 
 	actionStr, amount := cfrActionToGameAction(action, game, npcIdx)
 
@@ -1016,6 +1117,55 @@ func (p *HoldemPlugin) stopActionTimer(game *HoldemGame) {
 	}
 }
 
+// startIdleTimer starts a 1-hour timer that closes the table if no hand is started.
+// A warning is sent at the 45-minute mark.
+// Call when a game lobby is created or when a hand ends.
+func (p *HoldemPlugin) startIdleTimer(game *HoldemGame) {
+	p.stopIdleTimer(game)
+	roomID := game.RoomID
+
+	// Warning at 45 minutes.
+	game.idleWarningTimer = time.AfterFunc(45*time.Minute, func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		g := p.games[roomID]
+		if g == nil || g.HandInProgress {
+			return
+		}
+		p.SendMessage(roomID, "⏰ Table will close in **15 minutes** due to inactivity. Type `!holdem start` to play or `!holdem leave` to cash out.")
+	})
+
+	game.idleTimer = time.AfterFunc(1*time.Hour, func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+
+		g := p.games[roomID]
+		if g == nil || g.HandInProgress {
+			return
+		}
+
+		// Refund all players and close the table.
+		for _, pl := range g.Players {
+			if !pl.IsNPC && pl.Stack > 0 {
+				p.euro.Credit(pl.UserID, float64(pl.Stack), "holdem_idle_refund")
+			}
+		}
+		p.SendMessage(roomID, "Table closed — 1 hour of inactivity. All buy-ins have been refunded.")
+		delete(p.games, roomID)
+	})
+}
+
+func (p *HoldemPlugin) stopIdleTimer(game *HoldemGame) {
+	if game.idleWarningTimer != nil {
+		game.idleWarningTimer.Stop()
+		game.idleWarningTimer = nil
+	}
+	if game.idleTimer != nil {
+		game.idleTimer.Stop()
+		game.idleTimer = nil
+	}
+}
+
 // --- Helpers ---
 
 func (p *HoldemPlugin) removePlayer(game *HoldemGame, uid id.UserID) {
@@ -1023,13 +1173,15 @@ func (p *HoldemPlugin) removePlayer(game *HoldemGame, uid id.UserID) {
 		if pl.UserID == uid {
 			game.Players = append(game.Players[:i], game.Players[i+1:]...)
 			// Adjust seat indices that reference positions after the removed player.
-			if game.DealerIdx >= i && game.DealerIdx > 0 {
+			// Only decrement when strictly greater — if equal, the next player
+			// slides into the same index so no adjustment is needed.
+			if game.DealerIdx > i {
 				game.DealerIdx--
 			}
-			if game.ActionIdx >= i && game.ActionIdx > 0 {
+			if game.ActionIdx > i {
 				game.ActionIdx--
 			}
-			if game.LastAggressorIdx >= i && game.LastAggressorIdx > 0 {
+			if game.LastAggressorIdx > i {
 				game.LastAggressorIdx--
 			}
 			// Wrap indices if they exceed the new length.
@@ -1043,13 +1195,6 @@ func (p *HoldemPlugin) removePlayer(game *HoldemGame, uid id.UserID) {
 	}
 }
 
-func (p *HoldemPlugin) holdemDisplayName(userID id.UserID) string {
-	resp, err := p.Client.GetDisplayName(context.Background(), userID)
-	if err != nil || resp.DisplayName == "" {
-		return string(userID)
-	}
-	return resp.DisplayName
-}
 
 func (p *HoldemPlugin) getNPCBalance() int64 {
 	d := db.Get()
@@ -1057,7 +1202,8 @@ func (p *HoldemPlugin) getNPCBalance() int64 {
 	err := d.QueryRow(`SELECT balance FROM holdem_npc_balance WHERE npc_name = ?`, p.cfg.NPCName).Scan(&balance)
 	if err != nil {
 		// Initialize.
-		_, _ = d.Exec(`INSERT OR IGNORE INTO holdem_npc_balance (npc_name, balance) VALUES (?, ?)`,
+		db.Exec("holdem: init npc balance",
+			`INSERT OR IGNORE INTO holdem_npc_balance (npc_name, balance) VALUES (?, ?)`,
 			p.cfg.NPCName, p.cfg.NPCHouseBalance)
 		return p.cfg.NPCHouseBalance
 	}
@@ -1065,13 +1211,12 @@ func (p *HoldemPlugin) getNPCBalance() int64 {
 }
 
 func (p *HoldemPlugin) updateNPCBalance(delta int64) {
-	d := db.Get()
-	_, _ = d.Exec(`UPDATE holdem_npc_balance SET balance = balance + ?, hands_played = hands_played + 1 WHERE npc_name = ?`,
+	db.Exec("holdem: update npc balance",
+		`UPDATE holdem_npc_balance SET balance = balance + ?, hands_played = hands_played + 1 WHERE npc_name = ?`,
 		delta, p.cfg.NPCName)
 }
 
 func (p *HoldemPlugin) recordScores(game *HoldemGame, winnings map[id.UserID]int64) {
-	d := db.Get()
 	for _, pl := range game.Players {
 		if pl.IsNPC {
 			continue
@@ -1089,7 +1234,7 @@ func (p *HoldemPlugin) recordScores(game *HoldemGame, winnings map[id.UserID]int
 			}
 		}
 
-		_, _ = d.Exec(
+		db.Exec("holdem: record player score",
 			`INSERT INTO holdem_scores (user_id, hands_played, total_won, total_lost, biggest_pot)
 			 VALUES (?, 1, ?, ?, ?)
 			 ON CONFLICT(user_id) DO UPDATE SET

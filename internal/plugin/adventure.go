@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -20,9 +19,10 @@ type AdventurePlugin struct {
 	Base
 	euro        *EuroPlugin
 	mu          sync.Mutex
-	dmToPlayer  map[id.RoomID]id.UserID
-	pending     sync.Map // userID string -> *advPendingInteraction
-	userLocks   sync.Map // userID string -> *sync.Mutex
+	dmToPlayer     map[id.RoomID]id.UserID
+	pending        sync.Map // userID string -> *advPendingInteraction
+	userLocks      sync.Map // userID string -> *sync.Mutex
+	dmRemindedDate sync.Map // userID string -> "2006-01-02" date string
 	morningHour int
 	summaryHour int
 }
@@ -78,6 +78,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.morningTicker()
 	go p.summaryTicker()
 	go p.midnightTicker()
+	go p.eventTicker()
 
 	return nil
 }
@@ -101,6 +102,10 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 		return nil
 	}
 
+	return p.dispatchCommand(ctx)
+}
+
+func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 	args := strings.TrimSpace(p.GetArgs(ctx.Body, "adventure"))
 	lower := strings.ToLower(args)
 
@@ -111,8 +116,8 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 		return p.handleStatus(ctx)
 	case strings.HasPrefix(lower, "sell "):
 		return p.handleSellCmd(ctx, strings.TrimSpace(args[5:]))
-	case lower == "shop":
-		return p.handleShopCmd(ctx)
+	case lower == "shop" || strings.HasPrefix(lower, "shop "):
+		return p.handleShopCmd(ctx, strings.TrimSpace(strings.TrimPrefix(lower, "shop")))
 	case strings.HasPrefix(lower, "buy "):
 		return p.handleBuyCmd(ctx, strings.TrimSpace(args[4:]))
 	case lower == "inventory" || lower == "inv":
@@ -123,10 +128,29 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 		return p.handleAdminRevive(ctx, strings.TrimSpace(args[7:]))
 	case lower == "summary":
 		return p.handleAdminSummary(ctx)
+	case lower == "respond":
+		return p.handleEventRespond(ctx)
+	case lower == "help":
+		return p.SendDM(ctx.Sender, advHelpText)
 	}
 
-	return nil
+	return p.SendDM(ctx.Sender, "Unknown command. Type `!adventure help` to see available commands.")
 }
+
+const advHelpText = `**Adventure Commands**
+
+` + "`!adventure`" + ` — Show today's activity menu
+` + "`!adventure status`" + ` — View your character sheet
+` + "`!adventure shop`" + ` — Browse equipment categories
+` + "`!adventure shop <category>`" + ` — View a category (weapon, armor, helmet, boots, tool)
+` + "`!adventure buy <item>`" + ` — Buy equipment (e.g. ` + "`buy Enchanted Blade`" + ` or ` + "`buy 4 sword`" + `)
+` + "`!adventure sell <item>`" + ` — Sell an inventory item (or ` + "`sell all`" + `)
+` + "`!adventure inventory`" + ` — View your inventory
+` + "`!adventure leaderboard`" + ` — View the leaderboard
+` + "`!adventure respond`" + ` — Respond to a mid-day event
+` + "`!adventure help`" + ` — This message
+
+**In DM:** Reply with a number (e.g. ` + "`1`" + `) or location name to take your daily action.`
 
 // ── Command Handlers ─────────────────────────────────────────────────────────
 
@@ -142,7 +166,16 @@ func (p *AdventurePlugin) handleMenu(ctx MessageContext) error {
 	}
 
 	if char.ActionTakenToday {
-		return p.SendDM(ctx.Sender, "You've already taken your action today. Tomorrow awaits. Try to survive it.")
+		now := time.Now().UTC()
+		midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+		remaining := midnight.Sub(now)
+		hours := int(remaining.Hours())
+		minutes := int(remaining.Minutes()) % 60
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"You've already taken your action today. Tomorrow awaits. Try to survive it.\n\n"+
+				"Next action: 00:00 UTC (%dh %dm from now)\n"+
+				"Morning DM: %02d:00 UTC",
+			hours, minutes, p.morningHour))
 	}
 
 	treasures, _ := loadAdvTreasureBonuses(char.UserID)
@@ -169,21 +202,33 @@ func (p *AdventurePlugin) handleStatus(ctx MessageContext) error {
 	return p.SendDM(ctx.Sender, text)
 }
 
-func (p *AdventurePlugin) handleShopCmd(ctx MessageContext) error {
+func (p *AdventurePlugin) handleShopCmd(ctx MessageContext, category string) error {
 	_, equip, err := p.ensureCharacter(ctx.Sender)
 	if err != nil {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character.")
 	}
 
 	balance := p.euro.GetBalance(ctx.Sender)
-	text := advShopListings(equip, balance)
-	return p.SendDM(ctx.Sender, text)
+
+	if category == "" {
+		return p.SendDM(ctx.Sender, advShopOverview(equip, balance))
+	}
+
+	slot := advParseShopCategory(category)
+	if slot == "" {
+		return p.SendDM(ctx.Sender, fmt.Sprintf("Unknown category '%s'. Try: weapon, armor, helmet, boots, or tool.", category))
+	}
+
+	return p.SendDM(ctx.Sender, advShopCategory(slot, equip, balance))
 }
 
 func (p *AdventurePlugin) handleBuyCmd(ctx MessageContext, itemName string) error {
-	_, equip, err := p.ensureCharacter(ctx.Sender)
+	char, equip, err := p.ensureCharacter(ctx.Sender)
 	if err != nil {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character.")
+	}
+	if !char.Alive {
+		return p.SendDM(ctx.Sender, "You're dead. Shopping can wait until you've respawned.")
 	}
 
 	slot, def, found := advFindShopItem(itemName)
@@ -196,7 +241,13 @@ func (p *AdventurePlugin) handleBuyCmd(ctx MessageContext, itemName string) erro
 }
 
 func (p *AdventurePlugin) handleSellCmd(ctx MessageContext, args string) error {
-	p.ensureCharacter(ctx.Sender)
+	char, _, err := p.ensureCharacter(ctx.Sender)
+	if err != nil {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character.")
+	}
+	if !char.Alive {
+		return p.SendDM(ctx.Sender, "You're dead. No haggling from beyond the grave.")
+	}
 
 	var result string
 	if strings.ToLower(args) == "all" {
@@ -208,7 +259,9 @@ func (p *AdventurePlugin) handleSellCmd(ctx MessageContext, args string) error {
 }
 
 func (p *AdventurePlugin) handleInventoryCmd(ctx MessageContext) error {
-	p.ensureCharacter(ctx.Sender)
+	if _, _, err := p.ensureCharacter(ctx.Sender); err != nil {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character.")
+	}
 	text := advInventoryDisplay(ctx.Sender)
 	return p.SendDM(ctx.Sender, text)
 }
@@ -270,10 +323,9 @@ func (p *AdventurePlugin) handleDMReply(ctx MessageContext) error {
 		return nil
 	}
 
-	// Strip !adventure prefix if present
+	// Strip !adventure prefix if present — dispatch directly to avoid recursion
 	if strings.HasPrefix(strings.ToLower(body), "!adventure") {
-		// Re-dispatch as command
-		return p.OnMessage(ctx)
+		return p.dispatchCommand(ctx)
 	}
 
 	// Check for pending interaction first
@@ -346,7 +398,23 @@ func (p *AdventurePlugin) parseAndResolveChoice(ctx MessageContext, body string)
 	}
 
 	if char.ActionTakenToday {
-		return p.SendDM(ctx.Sender, "You've already taken your action today. Rest now. Try again tomorrow.")
+		// Only send the reminder once per day — subsequent DM messages
+		// are silently ignored so they can be handled by other plugins (e.g. UNO).
+		today := time.Now().UTC().Format("2006-01-02")
+		if prev, ok := p.dmRemindedDate.Load(string(ctx.Sender)); ok && prev.(string) == today {
+			return nil
+		}
+		p.dmRemindedDate.Store(string(ctx.Sender), today)
+
+		now := time.Now().UTC()
+		midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+		remaining := midnight.Sub(now)
+		hours := int(remaining.Hours())
+		minutes := int(remaining.Minutes()) % 60
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"You've already taken your action today. Rest now. Try again tomorrow.\n\n"+
+				"Next action: 00:00 UTC (%dh %dm from now)",
+			hours, minutes))
 	}
 
 	lower := strings.ToLower(body)
@@ -360,7 +428,7 @@ func (p *AdventurePlugin) parseAndResolveChoice(ctx MessageContext, body string)
 	if lower == "4" || lower == "shop" {
 		equip, _ := loadAdvEquipment(ctx.Sender)
 		balance := p.euro.GetBalance(ctx.Sender)
-		return p.SendDM(ctx.Sender, advShopListings(equip, balance))
+		return p.SendDM(ctx.Sender, advShopOverview(equip, balance))
 	}
 
 	// Parse activity + location
@@ -486,21 +554,9 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		_ = addAdvInventoryItem(char.UserID, item)
 	}
 
-	// Party bonus: check if someone else visited the same location today
-	if result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional {
-		if advCheckPartyBonus(char.UserID, loc.Name) {
-			// Apply party bonus: +10% loot value
-			partyBonus := int64(float64(result.TotalLootValue) * 0.10)
-			if partyBonus > 0 {
-				result.TotalLootValue += partyBonus
-				// Credit the bonus directly
-				p.euro.Credit(char.UserID, float64(partyBonus), "adventure_party_bonus")
-			}
-		}
-	}
-
-	// Mark action taken
+	// Mark action taken and record the date for streak tracking
 	char.ActionTakenToday = true
+	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
 
 	// Update streak info
 	result.StreakBonus = char.CurrentStreak
@@ -520,12 +576,29 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		}
 	}
 
-	// Log activity
+	// Log activity BEFORE party bonus check so both visitors can see each other
 	logAdvActivity(char.UserID, string(activity), loc.Name, string(result.Outcome),
 		result.TotalLootValue, result.XPGained, result.FlavorKey)
 
-	// Send resolution DM
+	// Party bonus: check if someone else visited the same location today
+	if result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional {
+		if advCheckPartyBonus(char.UserID, loc.Name) {
+			// Apply party bonus: +10% loot value
+			partyBonus := int64(float64(result.TotalLootValue) * 0.10)
+			if partyBonus > 0 {
+				result.TotalLootValue += partyBonus
+				// Credit the bonus directly
+				p.euro.Credit(char.UserID, float64(partyBonus), "adventure_party_bonus")
+			}
+		}
+	}
+
+	// Send resolution DM with closing block
 	text := renderAdvResolutionDM(result, char)
+	closing := advClosingBlock(result.Outcome, char.UserID, loc.Name, p.morningHour, p.summaryHour)
+	if closing != "" {
+		text += "\n" + closing
+	}
 	if err := p.SendDM(ctx.Sender, text); err != nil {
 		slog.Error("adventure: failed to send resolution DM", "user", ctx.Sender, "err", err)
 	}
@@ -540,17 +613,29 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 
 func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharacter) error {
 	char.ActionTakenToday = true
+	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
 	if err := saveAdvCharacter(char); err != nil {
 		return p.SendDM(ctx.Sender, "Failed to save. Even resting is broken.")
 	}
 
 	logAdvActivity(char.UserID, string(AdvActivityRest), "", "rest", 0, 0, "")
 
+	// Compute reset countdown
+	now := time.Now().UTC()
+	midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+	remaining := midnight.Sub(now)
+	hours := int(remaining.Hours())
+	minutes := int(remaining.Minutes()) % 60
+
 	return p.SendDM(ctx.Sender, fmt.Sprintf(
 		"%s, you chose rest. No loot. No XP. No death.\n\n"+
 			"You sat in your hovel and stared at the wall and achieved absolutely nothing. "+
-			"Tomorrow awaits. It will probably be the same.",
-		char.DisplayName))
+			"Tomorrow awaits. It will probably be the same.\n\n"+
+			"─────────────────────────────\n"+
+			"Next action: 00:00 UTC (%dh %dm from now)\n"+
+			"Morning DM: %02d:00 UTC\n"+
+			"Evening summary: %02d:00 UTC",
+		char.DisplayName, hours, minutes, p.morningHour, p.summaryHour))
 }
 
 // ── Treasure Drop Check ─────────────────────────────────────────────────────
@@ -739,7 +824,7 @@ func (p *AdventurePlugin) ensureCharacter(userID id.UserID) (*AdventureCharacter
 	char, err := loadAdvCharacter(userID)
 	if err != nil {
 		// Auto-create
-		displayName := p.displayName(userID)
+		displayName := p.DisplayName(userID)
 		if err := createAdvCharacter(userID, displayName); err != nil {
 			return nil, nil, err
 		}
@@ -764,15 +849,3 @@ func (p *AdventurePlugin) ensureCharacter(userID id.UserID) (*AdventureCharacter
 	return char, equip, nil
 }
 
-func (p *AdventurePlugin) displayName(userID id.UserID) string {
-	resp, err := p.Client.GetDisplayName(context.Background(), userID)
-	if err != nil || resp.DisplayName == "" {
-		// Fallback to localpart
-		s := string(userID)
-		if idx := strings.Index(s, ":"); idx > 0 {
-			s = s[1:idx]
-		}
-		return s
-	}
-	return resp.DisplayName
-}

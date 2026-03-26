@@ -73,6 +73,14 @@ func advClearFlavorHistory() {
 func advSubstituteFlavor(template string, vars map[string]string) string {
 	pairs := make([]string, 0, len(vars)*2)
 	for k, v := range vars {
+		// Prevent "The The Soggy Cellar" — if the value starts with "The "
+		// and the template says "The {location}", replace that as a unit first.
+		if strings.HasPrefix(v, "The ") {
+			theKey := "The " + k
+			if strings.Contains(template, theKey) {
+				pairs = append(pairs, theKey, v)
+			}
+		}
 		pairs = append(pairs, k, v)
 	}
 	return strings.NewReplacer(pairs...).Replace(template)
@@ -114,9 +122,6 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 	// Equipment
 	sb.WriteString("\n🛡️ Equipment:\n")
 	eqScore := advEquipmentScore(equip)
-	slotEmoji := map[EquipmentSlot]string{
-		SlotWeapon: "⚔️", SlotArmor: "🛡️", SlotHelmet: "🪖", SlotBoots: "👢", SlotTool: "⛏️",
-	}
 	for _, slot := range allSlots {
 		eq := equip[slot]
 		mastery := ""
@@ -125,7 +130,7 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 		}
 		if eq != nil {
 			sb.WriteString(fmt.Sprintf("  %s %s: %s (Tier %d | %d%% condition%s)\n",
-				slotEmoji[slot], strings.Title(string(slot)), eq.Name, eq.Tier, eq.Condition, mastery))
+				slotEmoji(slot), slotTitle(slot), eq.Name, eq.Tier, eq.Condition, mastery))
 		}
 	}
 	sb.WriteString(fmt.Sprintf("  Equipment Score: %d\n", eqScore))
@@ -281,7 +286,7 @@ func renderAdvResolutionDM(result *AdvActionResult, char *AdventureCharacter) st
 
 	sb.WriteString(fmt.Sprintf("✨ +%d %s XP", result.XPGained, result.XPSkill))
 	if result.LeveledUp {
-		sb.WriteString(fmt.Sprintf(" — **LEVEL UP! %s Lv.%d!** 🎉", strings.Title(result.XPSkill), result.NewLevel))
+		sb.WriteString(fmt.Sprintf(" — **LEVEL UP! %s Lv.%d!** 🎉", titleCase(result.XPSkill), result.NewLevel))
 	}
 	sb.WriteString("\n")
 
@@ -290,7 +295,7 @@ func renderAdvResolutionDM(result *AdvActionResult, char *AdventureCharacter) st
 		sb.WriteString("🔧 Equipment damage:\n")
 		for slot, dmg := range result.EquipDamage {
 			if dmg > 0 {
-				sb.WriteString(fmt.Sprintf("  • %s: -%d condition\n", strings.Title(string(slot)), dmg))
+				sb.WriteString(fmt.Sprintf("  • %s: -%d condition\n", slotTitle(slot), dmg))
 			}
 		}
 	}
@@ -319,6 +324,51 @@ func renderAdvResolutionDM(result *AdvActionResult, char *AdventureCharacter) st
 	return sb.String()
 }
 
+// advClosingBlock selects and formats a closing block based on outcome.
+func advClosingBlock(outcome AdvOutcomeType, userID id.UserID, location string, morningHour, summaryHour int) string {
+	var pool []string
+	var category string
+
+	switch outcome {
+	case AdvOutcomeExceptional:
+		pool = ClosingExceptional
+		category = "closing_exceptional"
+	case AdvOutcomeSuccess:
+		pool = ClosingSuccess
+		category = "closing_success"
+	case AdvOutcomeDeath:
+		pool = ClosingDeath
+		category = "closing_death"
+	default:
+		// Empty, cave-in, hornets, bear, river — all failure closings
+		pool = ClosingFailure
+		category = "closing_failure"
+	}
+
+	if len(pool) == 0 {
+		return ""
+	}
+
+	text, _ := advPickFlavor(pool, userID, category)
+
+	// Compute reset time (next midnight UTC)
+	now := time.Now().UTC()
+	midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+	remaining := midnight.Sub(now)
+	hours := int(remaining.Hours())
+	minutes := int(remaining.Minutes()) % 60
+
+	timeUntil := fmt.Sprintf("%dh %dm", hours, minutes)
+
+	return advSubstituteFlavor(text, map[string]string{
+		"{location}":     location,
+		"{reset_time}":   "00:00 UTC",
+		"{time_until}":   timeUntil,
+		"{morning_time}": fmt.Sprintf("%02d:00", morningHour),
+		"{summary_time}": fmt.Sprintf("%02d:00", summaryHour),
+	})
+}
+
 // ── Death Status DM ──────────────────────────────────────────────────────────
 
 func renderAdvDeathStatusDM(char *AdventureCharacter) string {
@@ -327,9 +377,14 @@ func renderAdvDeathStatusDM(char *AdventureCharacter) string {
 	if char.DeadUntil != nil {
 		remaining = char.DeadUntil.Format("15:04")
 	}
+	location := char.GrudgeLocation
+	if location == "" {
+		location = "an unknown location"
+	}
 	return advSubstituteFlavor(text, map[string]string{
-		"{name}": char.DisplayName,
-		"{time}": remaining,
+		"{name}":     char.DisplayName,
+		"{time}":     remaining,
+		"{location}": location,
 	})
 }
 
@@ -415,9 +470,9 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 
 		sb.WriteString("\n")
 		if tbRewards.Eligible > 0 {
-			sb.WriteString(fmt.Sprintf("Rewards distributed to %d participating adventurers:\n", tbRewards.Eligible))
+			sb.WriteString(fmt.Sprintf("Rewards distributed to %d participating adventurers (scaled by level):\n", tbRewards.Eligible))
 			if tbRewards.GoldShare > 0 {
-				sb.WriteString(fmt.Sprintf("  💰 €%d each\n", tbRewards.GoldShare))
+				sb.WriteString(fmt.Sprintf("  💰 ~€%d avg\n", tbRewards.GoldShare))
 			}
 			if tbRewards.GiftCount > 0 {
 				sb.WriteString(fmt.Sprintf("  ⭐ %d players received a gift item\n", tbRewards.GiftCount))
@@ -565,26 +620,28 @@ func renderAdvLeaderboard(chars []AdventureCharacter) string {
 // ── Treasure Discard Prompt ──────────────────────────────────────────────────
 
 func renderAdvTreasureDiscardPrompt(newTreasure *AdvTreasureDef, existing []AdvTreasureDef) string {
-	// Pick from treasure inventory cap pool
-	var sb strings.Builder
-
-	if len(TreasureInventoryCap) > 0 {
-		text := TreasureInventoryCap[rand.IntN(len(TreasureInventoryCap))]
-		text = advSubstituteFlavor(text, map[string]string{
-			"{treasure_name}": newTreasure.Name,
-		})
-		sb.WriteString(text)
-		sb.WriteString("\n\n")
+	if len(TreasureInventoryCap) == 0 {
+		return "You found a treasure but your inventory is full. Reply 1, 2, or 3 to discard, or `keep`."
 	}
 
-	sb.WriteString("Current treasures:\n")
-	for i, t := range existing {
-		sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, t.InventoryDesc))
+	// Build substitution map with existing treasure info
+	subs := map[string]string{
+		"{treasure_name}": newTreasure.Name,
+		"{location}":      "",
 	}
-	sb.WriteString(fmt.Sprintf("\nNew: %s\n", newTreasure.InventoryDesc))
-	sb.WriteString("\nReply with 1, 2, or 3 to discard, or `keep` to leave the new treasure behind.")
+	for i := 0; i < 3; i++ {
+		key := fmt.Sprintf("%d", i+1)
+		if i < len(existing) {
+			subs["{treasure_"+key+"}"] = existing[i].Name
+			subs["{bonus_"+key+"}"] = existing[i].InventoryDesc
+		} else {
+			subs["{treasure_"+key+"}"] = "(empty)"
+			subs["{bonus_"+key+"}"] = ""
+		}
+	}
 
-	return sb.String()
+	text := TreasureInventoryCap[rand.IntN(len(TreasureInventoryCap))]
+	return advSubstituteFlavor(text, subs)
 }
 
 // ── Summary One-Liners ───────────────────────────────────────────────────────
@@ -624,7 +681,7 @@ func advSummaryOneLiner(userID id.UserID, activity AdvActivityType, outcome AdvO
 		case AdvOutcomeRiver:
 			pool = SummaryForagingRiver
 		case AdvOutcomeEmpty:
-			pool = SummaryForagingSuccess // no specific empty pool for foraging
+			pool = SummaryForagingEmpty
 		case AdvOutcomeSuccess, AdvOutcomeExceptional:
 			pool = SummaryForagingSuccess
 		}
@@ -640,5 +697,9 @@ func advSummaryOneLiner(userID id.UserID, activity AdvActivityType, outcome AdvO
 		"{item}":     "",
 		"{value}":    fmt.Sprintf("%d", lootValue),
 		"{location}": location,
+		"{hours}":    "24",
+		"{ore}":      "",
+		"{tool}":     "",
+		"{xp}":       "",
 	})
 }

@@ -1,9 +1,7 @@
 package plugin
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"math/rand/v2"
 	"os"
 	"strings"
@@ -583,7 +581,7 @@ func (p *UnoPlugin) handleChallenge(ctx MessageContext, announceRoom id.RoomID, 
 	p.mu.Unlock()
 
 	// Room announcement
-	playerName := p.unoDisplayName(ctx.Sender)
+	playerName := p.DisplayName(ctx.Sender)
 	botName := unoBotName()
 	modeTag := ""
 	startComment := pickCommentary("start")
@@ -1741,7 +1739,7 @@ func (p *UnoPlugin) playerWins(game *unoGame) error {
 	p.euro.Credit(game.playerID, totalPayout, "uno_win")
 
 	newPot := p.getPot()
-	playerName := p.unoDisplayName(game.playerID)
+	playerName := p.DisplayName(game.playerID)
 
 	p.SendMessage(game.dmRoomID, "🎉 **Uno out! You win!**")
 
@@ -1772,7 +1770,7 @@ func (p *UnoPlugin) botWins(game *unoGame) error {
 	potBefore := p.getPot()
 	p.addToPot(game.wager)
 	newPot := p.getPot()
-	playerName := p.unoDisplayName(game.playerID)
+	playerName := p.DisplayName(game.playerID)
 
 	p.SendMessage(game.dmRoomID, "💀 **"+unoBotName()+" wins.** Better luck next time.")
 	p.SendMessage(game.roomID, fmt.Sprintf(
@@ -1796,7 +1794,7 @@ func (p *UnoPlugin) forfeitGame(game *unoGame, timeout bool) error {
 
 	potBefore := p.getPot()
 	p.addToPot(game.wager)
-	playerName := p.unoDisplayName(game.playerID)
+	playerName := p.DisplayName(game.playerID)
 
 	if timeout {
 		p.SendMessage(game.dmRoomID,
@@ -1881,23 +1879,13 @@ func (p *UnoPlugin) cleanupGame(game *unoGame) {
 }
 
 func (p *UnoPlugin) recordGame(game *unoGame, result string, potBefore float64) {
-	d := db.Get()
-	_, err := d.Exec(
+	db.Exec("uno: record game",
 		`INSERT INTO uno_games (player_id, wager, result, pot_before, pot_after, turns, started_at, ended_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		string(game.playerID), game.wager, result, potBefore, p.getPot(),
 		game.turns, game.startedAt.UTC().Format("2006-01-02 15:04:05"),
 		time.Now().UTC().Format("2006-01-02 15:04:05"),
 	)
-	if err != nil {
-		slog.Error("uno: failed to record game", "err", err)
-	}
 }
 
-func (p *UnoPlugin) unoDisplayName(userID id.UserID) string {
-	resp, err := p.Client.GetDisplayName(context.Background(), userID)
-	if err != nil || resp.DisplayName == "" {
-		return string(userID)
-	}
-	return resp.DisplayName
-}
+

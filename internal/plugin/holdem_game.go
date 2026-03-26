@@ -62,6 +62,7 @@ type HoldemPlayer struct {
 	Bet          int64 // committed this street
 	TotalBet     int64 // committed this hand
 	State        PlayerState
+	HasActed     bool // whether the player has voluntarily acted this street
 	TipsEnabled  bool
 	SittingOut   bool
 	WantsLeave   bool
@@ -90,8 +91,10 @@ type HoldemGame struct {
 	HandInProgress    bool
 	StreetHistory     string // action chars for current street (f/c/r/R/a) for CFR policy lookup
 
-	actionTimer  *time.Timer
-	warningTimer *time.Timer
+	actionTimer      *time.Timer
+	warningTimer     *time.Timer
+	idleTimer        *time.Timer
+	idleWarningTimer *time.Timer
 }
 
 // newShuffledDeck creates a shuffled 52-card deck.
@@ -208,6 +211,7 @@ func (g *HoldemGame) playerIdx(uid id.UserID) int {
 func (g *HoldemGame) resetStreetBets() {
 	for _, p := range g.Players {
 		p.Bet = 0
+		p.HasActed = false
 	}
 	g.CurrentBet = 0
 	g.MinRaise = g.BigBlind

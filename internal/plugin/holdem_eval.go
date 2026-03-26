@@ -142,15 +142,8 @@ func awardPotToLastPlayer(g *HoldemGame) (string, id.UserID) {
 	return ann, winner.UserID
 }
 
-// settleNetDeltas credits each player's remaining stack back to their balance.
-// Buy-in was debited at join time, so we credit the full final stack.
-func settleNetDeltas(g *HoldemGame, euro *EuroPlugin) {
-	for _, p := range g.Players {
-		if p.IsNPC || p.State == PlayerSatOut {
-			continue
-		}
-		if p.Stack > 0 {
-			euro.Credit(p.UserID, float64(p.Stack), "holdem_cashout")
-		}
-	}
-}
+// settleNetDeltas is intentionally a no-op.
+// Economy settlement happens at leave time: buy-in is debited at join,
+// full remaining stack is credited at leave/cashout. Per-hand settlement
+// would double-count because the stack already reflects cumulative results.
+func settleNetDeltas(_ *HoldemGame, _ *EuroPlugin) {}

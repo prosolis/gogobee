@@ -326,8 +326,6 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 		}
 	}
 
-	d := db.Get()
-
 	// Store classification
 	topicsJSON, _ := json.Marshal(result.Topics)
 	profanityInt := 0
@@ -339,16 +337,13 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 		wotdInt = 1
 	}
 
-	_, err = d.Exec(
+	db.Exec("llm: store classification",
 		`INSERT INTO llm_classifications (user_id, room_id, message_text, sentiment, sentiment_score, topics, profanity, profanity_severity, insult_target, wotd_used, gratitude_target)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		string(item.UserID), string(item.RoomID), item.Body,
 		result.Sentiment, result.SentimentScore, string(topicsJSON),
 		profanityInt, result.ProfanitySeverity, result.InsultTarget, wotdInt, result.GratitudeTarget,
 	)
-	if err != nil {
-		slog.Error("llm: store classification", "err", err)
-	}
 
 	// Aggregate sentiment stats
 	sentimentCol := "neutral"
@@ -360,7 +355,7 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 	if validSentiments[result.Sentiment] {
 		sentimentCol = result.Sentiment
 	}
-	_, _ = d.Exec(
+	db.Exec("llm: update user sentiment stats",
 		fmt.Sprintf(
 			`INSERT INTO sentiment_stats (user_id, %s, total_score) VALUES (?, 1, ?)
 			 ON CONFLICT(user_id) DO UPDATE SET %s = %s + 1, total_score = total_score + ?`,
@@ -369,7 +364,7 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 	)
 
 	// Aggregate room sentiment stats
-	_, _ = d.Exec(
+	db.Exec("llm: update room sentiment stats",
 		fmt.Sprintf(
 			`INSERT INTO room_sentiment_stats (room_id, %s, total_score) VALUES (?, 1, ?)
 			 ON CONFLICT(room_id) DO UPDATE SET %s = %s + 1, total_score = total_score + ?`,
@@ -395,7 +390,7 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 		case 3:
 			scorchInc = 1
 		}
-		_, _ = d.Exec(
+		db.Exec("llm: track profanity",
 			`INSERT INTO potty_mouth (user_id, count, mild, moderate, scorching) VALUES (?, 1, ?, ?, ?)
 			 ON CONFLICT(user_id) DO UPDATE SET count = count + 1, mild = mild + ?, moderate = moderate + ?, scorching = scorching + ?`,
 			string(item.UserID), mildInc, modInc, scorchInc, mildInc, modInc, scorchInc,
@@ -417,12 +412,12 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 
 	// Track insults
 	if result.InsultTarget != "" {
-		_, _ = d.Exec(
+		db.Exec("llm: track insult sender",
 			`INSERT INTO insult_log (user_id, times_insulting) VALUES (?, 1)
 			 ON CONFLICT(user_id) DO UPDATE SET times_insulting = times_insulting + 1`,
 			string(item.UserID),
 		)
-		_, _ = d.Exec(
+		db.Exec("llm: track insult target",
 			`INSERT INTO insult_log (user_id, times_insulted) VALUES (?, 1)
 			 ON CONFLICT(user_id) DO UPDATE SET times_insulted = times_insulted + 1`,
 			result.InsultTarget,

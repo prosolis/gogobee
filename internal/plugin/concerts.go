@@ -92,12 +92,8 @@ func (p *ConcertsPlugin) OnMessage(ctx MessageContext) error {
 	parts := strings.SplitN(args, " ", 2)
 	sub := strings.ToLower(parts[0])
 
+	// DB-only subcommands
 	switch sub {
-	case "watch":
-		if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
-			return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !concerts watch <artist>")
-		}
-		return p.handleWatch(ctx, strings.TrimSpace(parts[1]))
 	case "watching":
 		return p.handleWatching(ctx)
 	case "unwatch":
@@ -105,9 +101,26 @@ func (p *ConcertsPlugin) OnMessage(ctx MessageContext) error {
 			return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !concerts unwatch <artist>")
 		}
 		return p.handleUnwatch(ctx, strings.TrimSpace(parts[1]))
-	default:
-		return p.handleSearch(ctx, args)
 	}
+
+	// API-calling subcommands run async
+	go func() {
+		var err error
+		switch sub {
+		case "watch":
+			if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
+				err = p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !concerts watch <artist>")
+			} else {
+				err = p.handleWatch(ctx, strings.TrimSpace(parts[1]))
+			}
+		default:
+			err = p.handleSearch(ctx, args)
+		}
+		if err != nil {
+			slog.Error("concerts: handler error", "err", err)
+		}
+	}()
+	return nil
 }
 
 func (p *ConcertsPlugin) handleSearch(ctx MessageContext, artist string) error {
@@ -222,14 +235,11 @@ func (p *ConcertsPlugin) fetchEvents(artist string) ([]bandsintownEvent, error) 
 
 	// Update cache
 	data, _ := json.Marshal(events)
-	_, err = d.Exec(
+	db.Exec("concerts: cache write",
 		`INSERT INTO concerts_cache (artist, data, cached_at) VALUES (?, ?, ?)
 		 ON CONFLICT(artist) DO UPDATE SET data = ?, cached_at = ?`,
 		artistKey, string(data), time.Now().Unix(), string(data), time.Now().Unix(),
 	)
-	if err != nil {
-		slog.Error("concerts: cache write", "err", err)
-	}
 
 	return events, nil
 }

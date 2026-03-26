@@ -44,10 +44,57 @@ var twinBeeWeights = []twinBeeActionWeight{
 	{AdvActivityForaging, 3, 0.15},
 }
 
+// twinBeeMaxTier returns the highest tier TwinBee should visit,
+// based on the best player's combined adventure level.
+func twinBeeMaxTier() int {
+	chars, err := loadAllAdvCharacters()
+	if err != nil || len(chars) == 0 {
+		return 3
+	}
+	bestLevel := 0
+	for _, c := range chars {
+		if !c.Alive {
+			continue
+		}
+		combined := c.CombatLevel + c.MiningSkill + c.ForagingSkill
+		if combined > bestLevel {
+			bestLevel = combined
+		}
+	}
+	// Tier 3: anyone (combined 3+)
+	// Tier 4: best player has combined 12+ (avg level 4 per skill)
+	// Tier 5: best player has combined 21+ (avg level 7 per skill)
+	switch {
+	case bestLevel >= 21:
+		return 5
+	case bestLevel >= 12:
+		return 4
+	default:
+		return 3
+	}
+}
+
 func selectTwinBeeAction() (AdvActivityType, *AdvLocation) {
-	roll := rand.Float64()
-	cumulative := 0.0
+	maxTier := twinBeeMaxTier()
+
+	// Filter weights to only include tiers within range.
+	var filtered []twinBeeActionWeight
+	var totalWeight float64
 	for _, w := range twinBeeWeights {
+		if w.Tier <= maxTier {
+			filtered = append(filtered, w)
+			totalWeight += w.Weight
+		}
+	}
+
+	if len(filtered) == 0 {
+		loc := findAdvLocationByTier(AdvActivityDungeon, 3)
+		return AdvActivityDungeon, loc
+	}
+
+	roll := rand.Float64() * totalWeight
+	cumulative := 0.0
+	for _, w := range filtered {
 		cumulative += w.Weight
 		if roll < cumulative {
 			loc := findAdvLocationByTier(w.Activity, w.Tier)
@@ -55,8 +102,8 @@ func selectTwinBeeAction() (AdvActivityType, *AdvLocation) {
 		}
 	}
 	// Fallback
-	loc := findAdvLocationByTier(AdvActivityDungeon, 3)
-	return AdvActivityDungeon, loc
+	loc := findAdvLocationByTier(filtered[0].Activity, filtered[0].Tier)
+	return filtered[0].Activity, loc
 }
 
 // ── TwinBee Result ───────────────────────────────────────────────────────────
@@ -77,8 +124,15 @@ func (p *AdventurePlugin) runTwinBeeDaily() *TwinBeeResult {
 		return nil
 	}
 
+	// Copy equipment so mutations don't accumulate on the global template.
+	equip := make(map[EquipmentSlot]*AdvEquipment, len(twinBeeEquip))
+	for k, v := range twinBeeEquip {
+		copy := *v
+		equip[k] = &copy
+	}
+
 	bonuses := &AdvBonusSummary{} // TwinBee has no treasures/buffs
-	result := resolveAdvAction(&twinBeeChar, twinBeeEquip, loc, bonuses, false)
+	result := resolveAdvAction(&twinBeeChar, equip, loc, bonuses, false)
 
 	// TwinBee never dies — reroll death to empty
 	if result.Outcome == AdvOutcomeDeath {
@@ -201,19 +255,48 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 		return summary
 	}
 
-	// Distribute gold
-	share := result.LootValue / int64(len(eligible))
-	if share < 1 {
-		share = 1
+	// Distribute gold weighted by combined adventure level.
+	// Higher-level players get a proportionally larger share.
+	type eligiblePlayer struct {
+		uid    id.UserID
+		weight int
 	}
-	summary.GoldShare = share
-
+	var players []eligiblePlayer
+	totalWeight := 0
 	for _, uid := range eligible {
-		p.euro.Credit(uid, float64(share), "twinbee_daily_share")
-		if rollTwinBeeGift(uid) {
+		weight := 3 // minimum (level 1 in all 3 skills)
+		for _, c := range chars {
+			if c.UserID == uid {
+				weight = c.CombatLevel + c.MiningSkill + c.ForagingSkill
+				if weight < 3 {
+					weight = 3
+				}
+				break
+			}
+		}
+		weight = weight * weight // quadratic scaling — veterans get much more
+		players = append(players, eligiblePlayer{uid: uid, weight: weight})
+		totalWeight += weight
+	}
+
+	if totalWeight == 0 {
+		totalWeight = 1
+	}
+
+	var totalDistributed int64
+	for _, ep := range players {
+		share := result.LootValue * int64(ep.weight) / int64(totalWeight)
+		if share < 1 {
+			share = 1
+		}
+		p.euro.Credit(ep.uid, float64(share), "twinbee_daily_share")
+		totalDistributed += share
+		if rollTwinBeeGift(ep.uid) {
 			summary.GiftCount++
 		}
 	}
+	// Report average share for the summary display.
+	summary.GoldShare = totalDistributed / int64(len(eligible))
 
 	p.logTwinBeeResult(result, summary)
 	return summary
@@ -260,14 +343,10 @@ func rollTwinBeeGift(userID id.UserID) bool {
 // ── TwinBee Log ──────────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) logTwinBeeResult(result *TwinBeeResult, summary TwinBeeRewardSummary) {
-	d := db.Get()
-	_, err := d.Exec(`
-		INSERT INTO adventure_twinbee_log (activity_type, location, outcome, loot_value, loot_desc, participant_count, gold_share, gift_count)
+	db.Exec("adventure: log twinbee result",
+		`INSERT INTO adventure_twinbee_log (activity_type, location, outcome, loot_value, loot_desc, participant_count, gold_share, gift_count)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		string(result.Activity), result.Location.Name, string(result.Outcome),
 		result.LootValue, result.LootDesc,
 		summary.Eligible, summary.GoldShare, summary.GiftCount)
-	if err != nil {
-		slog.Error("adventure: failed to log twinbee result", "err", err)
-	}
 }

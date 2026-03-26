@@ -76,7 +76,12 @@ func (p *StocksPlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *StocksPlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "stock") {
-		return p.handleStock(ctx)
+		go func() {
+			if err := p.handleStock(ctx); err != nil {
+				slog.Error("stocks: handler error", "err", err)
+			}
+		}()
+		return nil
 	}
 	if p.IsCommand(ctx.Body, "stockwatch") {
 		return p.handleStockwatch(ctx)
@@ -152,14 +157,11 @@ func (p *StocksPlugin) fetchStock(ticker string) (*stockCacheEntry, error) {
 
 	// Update cache
 	data, _ := json.Marshal(entry)
-	_, err = d.Exec(
+	db.Exec("stocks: cache write",
 		`INSERT INTO stocks_cache (ticker, data, cached_at) VALUES (?, ?, ?)
 		 ON CONFLICT(ticker) DO UPDATE SET data = ?, cached_at = ?`,
 		ticker, string(data), time.Now().Unix(), string(data), time.Now().Unix(),
 	)
-	if err != nil {
-		slog.Error("stocks: cache write", "err", err)
-	}
 
 	return entry, nil
 }

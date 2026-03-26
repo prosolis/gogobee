@@ -304,14 +304,11 @@ func (p *BirthdayPlugin) CheckAndPost(roomID id.RoomID) error {
 		}
 
 		// Mark as fired (for XP/DM dedup)
-		_, err = d.Exec(
+		db.Exec("birthday: mark fired",
 			`INSERT INTO birthday_fired (user_id, year) VALUES (?, ?)
 			 ON CONFLICT(user_id, year) DO NOTHING`,
 			m.userID, year,
 		)
-		if err != nil {
-			slog.Error("birthday: mark fired", "user", m.userID, "err", err)
-		}
 	}
 
 	return nil
@@ -337,12 +334,9 @@ func (p *BirthdayPlugin) grantBirthdayXP(userID id.UserID, amount int) {
 		return
 	}
 
-	_, err = d.Exec(
+	db.Exec("birthday: log xp",
 		`INSERT INTO xp_log (user_id, amount, reason) VALUES (?, ?, ?)`,
 		string(userID), amount, "birthday")
-	if err != nil {
-		slog.Error("birthday: log xp", "err", err)
-	}
 }
 
 // parseBirthdayDate parses MM-DD or MM-DD-YYYY format.

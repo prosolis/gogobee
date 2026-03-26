@@ -174,22 +174,33 @@ func FirePendingReminders(client *mautrix.Client) {
 
 	base := NewBase(client)
 
+	// Collect all pending reminders first, then close the rows.
+	// Iterating rows while also writing to the DB can cause SQLite lock issues.
+	type pendingReminder struct {
+		ID, UserID, RoomID, Message string
+	}
+	var pending []pendingReminder
 	for rows.Next() {
-		var reminderID, userID, roomID, message string
-		if err := rows.Scan(&reminderID, &userID, &roomID, &message); err != nil {
+		var r pendingReminder
+		if err := rows.Scan(&r.ID, &r.UserID, &r.RoomID, &r.Message); err != nil {
 			slog.Error("reminders: scan row", "err", err)
 			continue
 		}
+		pending = append(pending, r)
+	}
+	rows.Close()
 
-		msg := fmt.Sprintf("⏰ Reminder for %s: %s", userID, message)
-		if err := base.SendMessage(id.RoomID(roomID), msg); err != nil {
-			slog.Error("reminders: send reminder", "err", err, "id", reminderID)
+	for _, r := range pending {
+		// Mark fired BEFORE sending so a crash doesn't re-fire on restart.
+		_, err := db.Get().Exec(`UPDATE reminders SET fired = 1 WHERE id = ?`, r.ID)
+		if err != nil {
+			slog.Error("reminders: mark fired", "err", err, "id", r.ID)
 			continue
 		}
 
-		_, err := db.Get().Exec(`UPDATE reminders SET fired = 1 WHERE id = ?`, reminderID)
-		if err != nil {
-			slog.Error("reminders: mark fired", "err", err, "id", reminderID)
+		msg := fmt.Sprintf("⏰ Reminder for %s: %s", r.UserID, r.Message)
+		if err := base.SendMessage(id.RoomID(r.RoomID), msg); err != nil {
+			slog.Error("reminders: send reminder", "err", err, "id", r.ID)
 		}
 	}
 }

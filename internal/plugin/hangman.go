@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -630,7 +629,7 @@ func (p *HangmanPlugin) endGame(roomID id.RoomID, game *hangmanGame) error {
 		eligibleParticipants = append(eligibleParticipants, uid)
 	}
 
-	solverName := p.displayName(game.solvedBy)
+	solverName := p.DisplayName(game.solvedBy)
 	participantCount := len(eligibleParticipants)
 
 	var sb strings.Builder
@@ -652,7 +651,7 @@ func (p *HangmanPlugin) endGame(roomID id.RoomID, game *hangmanGame) error {
 			}
 			p.euro.Credit(uid, payout, "hangman_win")
 			p.recordHangmanScore(uid, payout)
-			name := p.displayName(uid)
+			name := p.DisplayName(uid)
 			sb.WriteString(fmt.Sprintf("  **%s**: +€%d%s\n", name, int(payout), label))
 		}
 	}
@@ -779,7 +778,7 @@ func (p *HangmanPlugin) handleBoard(ctx MessageContext) error {
 		var won int
 		rows.Scan(&userID, &earned, &won)
 		rank++
-		name := p.displayName(id.UserID(userID))
+		name := p.DisplayName(id.UserID(userID))
 		sb.WriteString(fmt.Sprintf("%d. **%s** — €%d earned (%d wins)\n", rank, name, int(earned), won))
 	}
 
@@ -791,8 +790,7 @@ func (p *HangmanPlugin) handleBoard(ctx MessageContext) error {
 }
 
 func (p *HangmanPlugin) recordHangmanScore(userID id.UserID, earned float64) {
-	d := db.Get()
-	_, _ = d.Exec(
+	db.Exec("hangman: record score",
 		`INSERT INTO hangman_scores (user_id, total_earned, games_played, games_won)
 		 VALUES (?, ?, 1, 1)
 		 ON CONFLICT(user_id) DO UPDATE SET
@@ -803,10 +801,3 @@ func (p *HangmanPlugin) recordHangmanScore(userID id.UserID, earned float64) {
 	)
 }
 
-func (p *HangmanPlugin) displayName(userID id.UserID) string {
-	resp, err := p.Client.GetDisplayName(context.Background(), userID)
-	if err != nil || resp.DisplayName == "" {
-		return string(userID)
-	}
-	return resp.DisplayName
-}

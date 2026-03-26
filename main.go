@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"gogobee/internal/bot"
 	"gogobee/internal/db"
@@ -99,6 +100,8 @@ func main() {
 	registry.Register(plugin.NewLookupPlugin(client, ratePlugin))
 	registry.Register(plugin.NewCountdownPlugin(client))
 	registry.Register(plugin.NewStocksPlugin(client))
+	forexPlugin := plugin.NewForexPlugin(client)
+	registry.Register(forexPlugin)
 	concertsPlugin := plugin.NewConcertsPlugin(client, ratePlugin)
 	registry.Register(concertsPlugin)
 	animePlugin := plugin.NewAnimePlugin(client)
@@ -115,7 +118,7 @@ func main() {
 	registry.Register(plugin.NewUnoPlugin(client, euroPlugin))
 	registry.Register(plugin.NewHoldemPlugin(client, euroPlugin))
 	registry.Register(plugin.NewAdventurePlugin(client, euroPlugin))
-	wordlePlugin := plugin.NewWordlePlugin(client)
+	wordlePlugin := plugin.NewWordlePlugin(client, euroPlugin)
 	registry.Register(wordlePlugin)
 
 	// Community
@@ -172,6 +175,12 @@ func main() {
 
 	// Auto-join on invite + moderation member tracking
 	syncer.OnEventType(event.StateMember, func(ctx context.Context, evt *event.Event) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				slog.Error("member event handler panic", "panic", rec, "room", evt.RoomID)
+			}
+		}()
+
 		mem := evt.Content.AsMember()
 		if mem == nil {
 			return
@@ -197,6 +206,13 @@ func main() {
 
 	// Message handler
 	syncer.OnEventType(event.EventMessage, func(ctx context.Context, evt *event.Event) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				slog.Error("message event handler panic", "panic", rec,
+					"sender", evt.Sender, "room", evt.RoomID)
+			}
+		}()
+
 		// Skip own messages
 		if evt.Sender == client.UserID {
 			return
@@ -234,6 +250,13 @@ func main() {
 
 	// Reaction handler
 	syncer.OnEventType(event.EventReaction, func(ctx context.Context, evt *event.Event) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				slog.Error("reaction event handler panic", "panic", rec,
+					"sender", evt.Sender, "room", evt.RoomID)
+			}
+		}()
+
 		if evt.Sender == client.UserID {
 			return
 		}
@@ -256,8 +279,8 @@ func main() {
 	})
 
 	// ---- Set up cron scheduler ----
-	scheduler := cron.New()
-	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin, esteemedPlugin)
+	scheduler := cron.New(cron.WithChain(cron.Recover(cronLogger{})))
+	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin, esteemedPlugin, forexPlugin)
 	scheduler.Start()
 
 	// ---- Start syncing ----
@@ -272,11 +295,26 @@ func main() {
 		sig := <-sigCh
 		slog.Info("shutting down", "signal", sig)
 		scheduler.Stop()
+		client.StopSync()
 		cancel()
 	}()
 
-	if err := client.SyncWithContext(ctx); err != nil {
-		slog.Error("sync stopped", "err", err)
+syncLoop:
+	for {
+		err := client.SyncWithContext(ctx)
+		if ctx.Err() != nil {
+			break // shutdown requested
+		}
+		if err != nil {
+			slog.Error("sync stopped, restarting in 5s", "err", err)
+		} else {
+			slog.Warn("sync returned without error, restarting in 5s")
+		}
+		select {
+		case <-time.After(5 * time.Second):
+		case <-ctx.Done():
+			break syncLoop
+		}
 	}
 
 	slog.Info("GogoBee stopped")
@@ -293,6 +331,7 @@ func setupScheduledJobs(
 	movies *plugin.MoviesPlugin,
 	concerts *plugin.ConcertsPlugin,
 	esteemed *plugin.EsteemPlugin,
+	forex *plugin.ForexPlugin,
 ) {
 	rooms := getRooms()
 
@@ -368,6 +407,12 @@ func setupScheduledJobs(
 	c.AddFunc("0 13 * * 0,3", func() {
 		slog.Info("scheduler: posting esteemed member")
 		esteemed.PostWeekly()
+	})
+
+	// Forex daily poll at 17:01 UTC (ECB publishes ~16:00 CET)
+	c.AddFunc("1 17 * * *", func() {
+		slog.Info("scheduler: forex daily poll")
+		forex.DailyPoll()
 	})
 
 	// Space groups refresh every hour
@@ -460,4 +505,16 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+// cronLogger adapts slog to the cron.Logger interface for panic recovery logging.
+type cronLogger struct{}
+
+func (cronLogger) Info(msg string, keysAndValues ...interface{}) {
+	slog.Info(msg, keysAndValues...)
+}
+
+func (cronLogger) Error(err error, msg string, keysAndValues ...interface{}) {
+	args := append([]interface{}{"err", err}, keysAndValues...)
+	slog.Error(msg, args...)
 }

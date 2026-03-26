@@ -3,8 +3,10 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"html"
 	"log/slog"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,6 +96,20 @@ func (b *Base) IsAdmin(userID id.UserID) bool {
 		}
 	}
 	return false
+}
+
+// DisplayName returns the Matrix display name for a user, falling back
+// to the localpart extracted from the user ID (e.g., "@alice:server" -> "alice").
+func (b *Base) DisplayName(userID id.UserID) string {
+	resp, err := b.Client.GetDisplayName(context.Background(), userID)
+	if err != nil || resp.DisplayName == "" {
+		s := string(userID)
+		if idx := strings.Index(s, ":"); idx > 0 {
+			s = s[1:idx]
+		}
+		return s
+	}
+	return resp.DisplayName
 }
 
 // RoomMembers returns the set of user IDs visible from a room. If space groups
@@ -289,11 +305,11 @@ func (sg *SpaceGroupManager) Refresh() {
 		slog.Error("space_groups: begin tx", "err", err)
 		return
 	}
+	defer tx.Rollback()
 	// Delete only rooms we have fresh data for (preserve entries for rooms that failed to fetch)
 	for r := range newRoomToGroup {
 		if _, err := tx.Exec(`DELETE FROM space_groups WHERE room_id = ?`, string(r)); err != nil {
 			slog.Error("space_groups: delete row", "room", r, "err", err)
-			tx.Rollback()
 			return
 		}
 	}
@@ -301,7 +317,6 @@ func (sg *SpaceGroupManager) Refresh() {
 		if _, err := tx.Exec(`INSERT INTO space_groups (room_id, group_id, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
 			string(r), gid); err != nil {
 			slog.Error("space_groups: insert row", "room", r, "err", err)
-			tx.Rollback()
 			return
 		}
 	}
@@ -453,12 +468,64 @@ func (b *Base) ResolveUser(input string, roomIDs ...id.RoomID) (id.UserID, bool)
 	return "", false
 }
 
-// SendMessage sends a plain text message to a room.
-func (b *Base) SendMessage(roomID id.RoomID, text string) error {
-	content := &event.MessageEventContent{
+// simpleMarkdownToHTML converts the limited Markdown subset used in bot messages
+// (**bold**, _italic_, `code`, newlines) to Matrix-compatible HTML.
+var (
+	mdBoldRe   = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	mdItalicRe = regexp.MustCompile(`(?:^|[ (])_([^_]+?)_(?:$|[ ).,!?])`)
+	mdCodeRe   = regexp.MustCompile("`([^`]+)`")
+	mdHasFmt   = regexp.MustCompile(`\*\*|(?:^|[ (])_[^_]+_(?:$|[ ).,!?])|` + "`")
+)
+
+func simpleMarkdownToHTML(text string) string {
+	h := html.EscapeString(text)
+	h = mdBoldRe.ReplaceAllString(h, "<strong>$1</strong>")
+	// Italic needs careful handling to not match snake_case
+	h = mdItalicRe.ReplaceAllStringFunc(h, func(m string) string {
+		// Preserve leading/trailing non-underscore chars
+		start := 0
+		for start < len(m) && m[start] != '_' {
+			start++
+		}
+		end := len(m) - 1
+		for end > start && m[end] != '_' {
+			end--
+		}
+		return m[:start] + "<em>" + m[start+1:end] + "</em>" + m[end+1:]
+	})
+	h = mdCodeRe.ReplaceAllString(h, "<code>$1</code>")
+	h = strings.ReplaceAll(h, "\n", "<br>\n")
+	return h
+}
+
+var mdStripItalicRe = regexp.MustCompile(`_([^_]+?)_`)
+
+func stripMarkdown(text string) string {
+	s := mdBoldRe.ReplaceAllString(text, "$1")
+	s = mdStripItalicRe.ReplaceAllString(s, "$1")
+	s = mdCodeRe.ReplaceAllString(s, "$1")
+	return s
+}
+
+// textContent builds a MessageEventContent, adding HTML formatting when Markdown is detected.
+func textContent(text string) *event.MessageEventContent {
+	if mdHasFmt.MatchString(text) {
+		return &event.MessageEventContent{
+			MsgType:       event.MsgText,
+			Body:          stripMarkdown(text),
+			Format:        event.FormatHTML,
+			FormattedBody: simpleMarkdownToHTML(text),
+		}
+	}
+	return &event.MessageEventContent{
 		MsgType: event.MsgText,
 		Body:    text,
 	}
+}
+
+// SendMessage sends a message to a room, auto-formatting Markdown as HTML.
+func (b *Base) SendMessage(roomID id.RoomID, text string) error {
+	content := textContent(text)
 	_, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
 	if err != nil {
 		slog.Error("failed to send message", "room", roomID, "err", err)
@@ -466,12 +533,9 @@ func (b *Base) SendMessage(roomID id.RoomID, text string) error {
 	return err
 }
 
-// SendMessageID sends a plain text message and returns the event ID.
+// SendMessageID sends a message and returns the event ID.
 func (b *Base) SendMessageID(roomID id.RoomID, text string) (id.EventID, error) {
-	content := &event.MessageEventContent{
-		MsgType: event.MsgText,
-		Body:    text,
-	}
+	content := textContent(text)
 	resp, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
 	if err != nil {
 		slog.Error("failed to send message", "room", roomID, "err", err)
@@ -482,17 +546,14 @@ func (b *Base) SendMessageID(roomID id.RoomID, text string) (id.EventID, error) 
 
 // SendThread sends a message in a thread rooted at threadID.
 func (b *Base) SendThread(roomID id.RoomID, threadID id.EventID, text string) error {
-	content := &event.MessageEventContent{
-		MsgType: event.MsgText,
-		Body:    text,
-		RelatesTo: &event.RelatesTo{
-			Type:    event.RelThread,
+	content := textContent(text)
+	content.RelatesTo = &event.RelatesTo{
+		Type:    event.RelThread,
+		EventID: threadID,
+		InReplyTo: &event.InReplyTo{
 			EventID: threadID,
-			InReplyTo: &event.InReplyTo{
-				EventID: threadID,
-			},
-			IsFallingBack: true,
 		},
+		IsFallingBack: true,
 	}
 	_, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
 	if err != nil {
@@ -503,23 +564,18 @@ func (b *Base) SendThread(roomID id.RoomID, threadID id.EventID, text string) er
 
 // SendNotice sends an m.notice message to a room.
 func (b *Base) SendNotice(roomID id.RoomID, text string) error {
-	content := &event.MessageEventContent{
-		MsgType: event.MsgNotice,
-		Body:    text,
-	}
+	content := textContent(text)
+	content.MsgType = event.MsgNotice
 	_, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
 	return err
 }
 
 // SendReply sends a reply to a specific event.
 func (b *Base) SendReply(roomID id.RoomID, eventID id.EventID, text string) error {
-	content := &event.MessageEventContent{
-		MsgType: event.MsgText,
-		Body:    text,
-		RelatesTo: &event.RelatesTo{
-			InReplyTo: &event.InReplyTo{
-				EventID: eventID,
-			},
+	content := textContent(text)
+	content.RelatesTo = &event.RelatesTo{
+		InReplyTo: &event.InReplyTo{
+			EventID: eventID,
 		},
 	}
 	_, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
@@ -530,12 +586,12 @@ func (b *Base) SendReply(roomID id.RoomID, eventID id.EventID, text string) erro
 }
 
 // SendHTML sends an HTML-formatted message.
-func (b *Base) SendHTML(roomID id.RoomID, plain, html string) error {
+func (b *Base) SendHTML(roomID id.RoomID, plain, htmlBody string) error {
 	content := &event.MessageEventContent{
 		MsgType:       event.MsgText,
 		Body:          plain,
 		Format:        event.FormatHTML,
-		FormattedBody: html,
+		FormattedBody: htmlBody,
 	}
 	_, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
 	return err

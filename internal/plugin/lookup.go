@@ -48,16 +48,24 @@ func (p *LookupPlugin) Init() error { return nil }
 func (p *LookupPlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *LookupPlugin) OnMessage(ctx MessageContext) error {
+	var handler func(MessageContext) error
 	switch {
 	case p.IsCommand(ctx.Body, "wiki"):
-		return p.handleWiki(ctx)
+		handler = p.handleWiki
 	case p.IsCommand(ctx.Body, "define"):
-		return p.handleDefine(ctx)
+		handler = p.handleDefine
 	case p.IsCommand(ctx.Body, "urban"):
-		return p.handleUrban(ctx)
+		handler = p.handleUrban
 	case p.IsCommand(ctx.Body, "translate"):
-		return p.handleTranslate(ctx)
+		handler = p.handleTranslate
+	default:
+		return nil
 	}
+	go func() {
+		if err := handler(ctx); err != nil {
+			slog.Error("lookup: handler error", "err", err)
+		}
+	}()
 	return nil
 }
 
@@ -266,14 +274,11 @@ func (p *LookupPlugin) handleUrban(ctx MessageContext) error {
 	msg := sb.String()
 
 	// Cache the result
-	_, err = d.Exec(
+	db.Exec("lookup: urban cache",
 		`INSERT INTO urban_cache (term, data, cached_at) VALUES (?, ?, ?)
 		 ON CONFLICT(term) DO UPDATE SET data = ?, cached_at = ?`,
 		termLower, msg, now, msg, now,
 	)
-	if err != nil {
-		slog.Error("lookup: urban cache", "err", err)
-	}
 
 	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }

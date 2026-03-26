@@ -454,7 +454,7 @@ var DeathDM = []string{
 		"Neither will be comfortable. This is healthcare.\n\n" +
 		"Your equipment has been assessed. The assessment was not kind.\n" +
 		"The assessment was accurate. Return expected: {time} UTC.\n" +
-		"The {location} has noted your visit in whatever record {location} keeps.\n" +
+		"The {location} has noted your visit in whatever records it keeps.\n" +
 		"You are in the record as 'visited once, briefly.'",
 
 	"📋 ADVENTURER STATUS: INDISPOSED\n\n" +

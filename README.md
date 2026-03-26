@@ -1,6 +1,6 @@
 # GogoBee
 
-Matrix community bot with E2EE, 43 plugins, passive tracking, scheduled posts, and optional LLM features.
+Matrix community bot with E2EE, 47 plugins, passive tracking, scheduled posts, and optional LLM features.
 
 Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption and [modernc.org/sqlite](https://modernc.org/sqlite) for storage.
 
@@ -30,11 +30,12 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
 - **43 plugins** with dependency injection and ordered registration
-- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips), Wordle (daily cooperative, Wordnik-powered, 5-7 letter words), all with channel restriction
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, Wordnik-powered, 5-7 letter words, video game themed bonus words with category hints, dupe prevention across last 500 puzzles), Adventure (daily idle RPG via DMs — dungeon, mine, forage, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - WOTD, holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
 - **LLM integration** (optional) - Ollama-powered sentiment analysis, roast profiles, room vibes, tarot readings, conversation summaries
+- **Markdown rendering** - auto-detects `**bold**`, `_italic_`, and `` `code` `` in messages and sends proper HTML to Matrix clients
 - **Encrypted quote wall** - AES-256-GCM encrypted quotes at rest, reply-to-save, search, leaderboard
 - **Space groups** - automatic room grouping via membership overlap. Leaderboards, stats, and trivia scores span all rooms in a group. No Matrix Spaces API needed — the bot infers community boundaries from shared members.
 - **SQLite everything** - one file, no external database needed
@@ -106,7 +107,7 @@ Everything is configured through environment variables or a `.env` file.
 | Variable | Service | Used By |
 |----------|---------|---------|
 | `RAWG_API_KEY` | [RAWG](https://rawg.io/apidocs) | `!game`, `!retro`, `!releases` |
-| `WORDNIK_API_KEY` | [Wordnik](https://developer.wordnik.com) | Word of the Day |
+| `WORDNIK_API_KEY` | [Wordnik](https://developer.wordnik.com) | Word of the Day, Wordle (guess validation + definitions) |
 | `CALENDARIFIC_API_KEY` | [Calendarific](https://calendarific.com) | Holiday posts |
 | `OPENWEATHER_API_KEY` | [OpenWeather](https://openweathermap.org/api) | `!weather` |
 | `FINNHUB_API_KEY` | [Finnhub](https://finnhub.io) | `!stock` |
@@ -172,6 +173,8 @@ Everything is configured through environment variables or a `.env` file.
 | `HOLDEM_NPC_HOUSE_BALANCE` | `10000` | NPC starting bankroll |
 | `HOLDEM_CFR_POLICY` | `data/policy.gob` | Path to CFR policy file |
 | `WORDLE_DEFAULT_LENGTH` | `5` | Default word length (5, 6, or 7) |
+| `ADVENTURE_MORNING_HOUR` | `8` | Hour (UTC) to send morning DMs with daily choices |
+| `ADVENTURE_SUMMARY_HOUR` | `20` | Hour (UTC) to post daily summary to games room |
 
 ### Moderation
 
@@ -271,6 +274,7 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | Command | Description |
 |---------|-------------|
 | `!stats [@user]` | Message statistics |
+| `!superstatsexplusalpha [@user]` | Comprehensive profile: economy, games W/L, adventure levels, achievements, and more |
 | `!rankings [category]` | Rankings by words, links, questions, or emojis |
 | `!personality` | Your community archetype |
 
@@ -378,8 +382,9 @@ An optional AI opponent (NPC) uses a CFR-trained poker solver. Add one with `!ho
 | Command | Description |
 |---------|-------------|
 | `!holdem join` | Sit down at the table |
-| `!holdem leave` | Leave the table (cashes out stack) |
+| `!holdem leave` | Leave the table (cashes out stack, shows refund) |
 | `!holdem start` | Start dealing (2+ players) |
+| `!holdem play` | Shortcut: join + start in one command |
 | `!holdem addbot` | Add a CFR-trained AI opponent |
 | `!holdem fold` | Fold your hand |
 | `!holdem check` | Check (no bet to call) |
@@ -391,9 +396,13 @@ An optional AI opponent (NPC) uses a CFR-trained poker solver. Add one with `!ho
 
 **DM commands:** `!holdem tips on/off` — toggle coaching tips (equity + pot odds analysis, powered by Ollama with rules-based fallback).
 
+**Idle timeout:** Tables with no hands dealt close after 1 hour. A warning is posted at 45 minutes.
+
 #### NPC Bot
 
-The NPC uses Counterfactual Regret Minimization (External Sampling MCCFR), trained via self-play. The policy table ships as `data/policy.gob` and is loaded at startup. The bot plays a mixed strategy — it randomizes actions according to its trained probability distribution, so it won't always make the same play in the same spot.
+The NPC opponent uses Counterfactual Regret Minimization (CFR), specifically the External Sampling variant of Monte Carlo CFR. Instead of hardcoding poker strategy, the bot learns one through millions of rounds of self-play. On each iteration, it plays both seats of a heads-up hand, tracks how much it "regrets" not having taken each alternative action, and gradually shifts its strategy toward the actions it regrets not taking. Over time, the strategy converges toward a Nash equilibrium — a point where no single change in play can improve its expected winnings against a perfect opponent. The trained policy ships as a single `.gob` file loaded at startup, and the bot plays a mixed strategy: it doesn't always make the same play in the same spot, but randomizes according to its trained probability distribution, which makes it harder to exploit.
+
+The interesting engineering is in the abstraction layer. Real poker has roughly 10^17 possible game states — far too many for a tabular approach. We collapse this space down to around 23,000 information sets by bucketing hand strength into 12 equity tiers (computed via Monte Carlo rollout against random opponent hands), classifying boards as dry, wet, or paired based on flush/straight draw density and board pairing, tracking stack-to-pot ratio across 5 buckets, and encoding the last 6 actions as a compressed history string. All of this gets packed into a single `uint64` key — no string formatting, no allocations on the hot path. Preflop hands use a lookup table of the 169 strategically distinct hold'em starting hands, which eliminates Monte Carlo during the most frequently visited part of the game tree. Training runs at about 5 million iterations across all CPU cores with shared regret tables, periodic checkpointing, and regret pruning after a 500K warmup to skip deeply negative branches. The result is a bot that plays a solid, unpredictable game — not world-class, but strong enough to make the table interesting.
 
 #### Training the NPC
 
@@ -427,7 +436,7 @@ Progress is logged with overall completion percentage and ETA. Checkpoints are s
 
 ### Wordle (games channel only)
 
-Daily cooperative Wordle — one puzzle per day, the community works together with a shared 6-guess limit. Word selection and validation powered by the Wordnik API (`WORDNIK_API_KEY`). A new puzzle auto-posts at midnight UTC. Word length is configurable (5-7 letters). Falls back to a bundled word list if the API is unavailable.
+Daily cooperative Wordle — one puzzle per day, the community works together with a shared 6-guess limit. Word selection and validation powered by the Wordnik API (`WORDNIK_API_KEY`). A new puzzle auto-posts at midnight UTC. Word length is configurable (5-7 letters). Falls back to a bundled word list if the API is unavailable. The puzzle pool includes video game themed words (loaded from `data/wordle_games.txt`) — when one is selected, a category hint is shown. Duplicate prevention ensures the same word won't appear within the last 500 puzzles.
 
 | Command | Description |
 |---------|-------------|
@@ -440,6 +449,47 @@ Daily cooperative Wordle — one puzzle per day, the community works together wi
 | `!wordle help` | Show commands |
 
 No economy integration — stats and leaderboard position are the reward.
+
+### Adventure (DM-based idle RPG)
+
+A daily DM-driven idle RPG where each player takes one action per day — dungeon, mine, forage, visit the shop, or rest. Outcomes resolve with flavor text and loot is credited to your euro balance. An evening summary posts to the games room. TwinBee is a permanent NPC adventurer who distributes rewards to active players.
+
+Characters auto-create on first `!adventure` command. All gameplay happens in DMs — reply to the bot's morning prompt with your choice.
+
+| Command | Description |
+|---------|-------------|
+| `!adventure` | Open today's action menu (sent via DM) |
+| `!adventure status` | Character sheet (sent via DM) |
+| `!adventure shop` | Browse equipment for sale (sent via DM) |
+| `!adventure buy <item>` | Buy equipment by name or tier shorthand (`3 sword`, `t4 boots`) |
+| `!adventure sell <item>` | Sell an inventory item (credits euro balance) |
+| `!adventure sell all` | Sell entire inventory |
+| `!adventure inventory` | List current inventory |
+| `!adventure leaderboard` | Top adventurers |
+| `!adventure revive @user` | Revive a dead player (admin) |
+| `!adventure respond <choice>` | Reply to today's action prompt (alternative to DM reply) |
+| `!adventure summary` | Force daily summary post (admin) |
+
+**DM replies:** Reply to the morning prompt with a number (`1`–`5`) or activity name (`dungeon`, `mine`, `forage`, `shop`, `rest`). You can specify a location: `1 Soggy Cellar`, `mine 3`, etc.
+
+#### Activities
+
+Three activity types across 5 tiers of locations (15 total). Higher tiers require higher character level and equipment.
+
+- **Dungeon** — combat XP, chance of death, best loot potential
+- **Mining** — mining XP, cave-in risk, ore and gem drops
+- **Foraging** — foraging XP, wildlife hazards, herb and reagent drops
+
+#### Mechanics
+
+- **Equipment** — 5 slots (weapon, armor, helmet, boots, tool) with tiered upgrades from the shop. Equipment degrades on bad outcomes and breaks at 0 condition.
+- **Treasures** — rare collectibles (up to 3) that provide passive bonuses (XP multipliers, death chance reduction, loot quality). Prompted to discard when at cap.
+- **Streaks** — consecutive days of activity grant escalating bonuses (XP, loot quality, death chance reduction). Resting or dying resets your streak.
+- **Grudge** — dying at a location marks it as your grudge. Returning there grants +10% success and +25% XP. Clears on success.
+- **Party bonus** — if two players independently visit the same location on the same day, both get +10% loot value.
+- **Death** — 24-hour lockout. You're automatically revived when the timer expires.
+- **TwinBee NPC** — takes a daily action (location tier capped by best player's combined level), distributes loot share to active players scaled quadratically by level, and occasionally gifts random buffs.
+- **Mid-day events** — random events can trigger between actions, delivering bonus loot, buffs, or narrative encounters.
 
 ### Reminders
 | Command | Description |
@@ -476,14 +526,23 @@ No economy integration — stats and leaderboard position are the reward.
 | `!calc <expression>` | Calculator, understands "5 plus 3" |
 | `!qr <text>` | Generate QR code |
 
-### Games & Entertainment
+### Finance
+| Command | Description |
+|---------|-------------|
+| `!stock <ticker>` | Stock quote (Finnhub) |
+| `!stockwatch add\|list\|remove` | Stock watchlist |
+| `!fx rate [EUR\|JPY]` | Live USD exchange rate + quick signal |
+| `!fx report [EUR\|JPY]` | Full analysis (averages, 52w range, buy score) |
+| `!fx setalert <currency> <rate>` | DM alert when rate hits threshold |
+| `!fx alerts` | List your active alerts |
+| `!fx delalert <currency> <rate>` | Remove an alert |
+
+### Entertainment
 | Command | Description |
 |---------|-------------|
 | `!game <query>` / `!retro <query>` | Game lookup (RAWG) |
 | `!releases [month\|search <q>]` | Game releases |
 | `!releasewatch add\|list\|remove` | Release watchlist |
-| `!stock <ticker>` | Stock quote (Finnhub) |
-| `!stockwatch add\|list\|remove` | Stock watchlist |
 | `!concerts <artist>` | Concert search |
 | `!concerts watch\|watching\|unwatch` | Concert watchlist |
 | `!anime <title>` | Anime search (MAL) |
@@ -694,6 +753,7 @@ All optional. The bot works fine without any of them, you just won't have those 
 | [Aladhan](https://aladhan.com/prayer-times-api) | Yes, no key | Islamic dates |
 | [OpenWeather](https://openweathermap.org/api) | Yes (1k/day) | Weather |
 | [Finnhub](https://finnhub.io) | Yes | Stock quotes |
+| [Frankfurter](https://frankfurter.dev) | Yes, no key | Forex rates (ECB-sourced) |
 | [Bandsintown](https://artists.bandsintown.com) | Yes | Concert data |
 | [Jikan/MAL](https://jikan.moe) | Yes, no key | Anime data |
 | [TMDB](https://www.themoviedb.org) | Yes | Movie/TV data |
@@ -716,7 +776,8 @@ gogobee/
 ├── main.go                  # Entry point, plugin registration, cron setup
 ├── go.mod / go.sum
 ├── data/
-│   └── policy.gob           # Pre-trained CFR policy for Hold'em NPC
+│   ├── policy.gob           # Pre-trained CFR policy for Hold'em NPC
+│   └── wordle_games.txt     # Video game themed words for Wordle bonus puzzles
 ├── cmd/
 │   ├── holdem-train/
 │   │   └── main.go          # CFR training CLI (build tag: training)
@@ -756,6 +817,7 @@ gogobee/
 │   │   ├── lookup.go        # Wiki, dictionary, urban, translate
 │   │   ├── countdown.go     # Countdowns
 │   │   ├── stocks.go        # Stocks
+│   │   ├── forex*.go        # Forex rates & alerts (Frankfurter v2)
 │   │   ├── concerts.go      # Concerts
 │   │   ├── anime.go         # Anime
 │   │   ├── movies.go        # Movies/TV
@@ -787,6 +849,16 @@ gogobee/
 │   │   ├── wordle_render.go # Emoji grid, keyboard, announcements, leaderboard
 │   │   ├── wordle_wordnik.go # Wordnik API (random word, validation, definitions)
 │   │   ├── wordle_fallback.go # Emergency word list loader
+│   │   ├── adventure.go     # Adventure plugin (commands, DM routing, activity resolution)
+│   │   ├── adventure_character.go # Character types, DB CRUD, level-up, equipment
+│   │   ├── adventure_activities.go # Locations, probability engine, loot, XP tables
+│   │   ├── adventure_shop.go # Shop listings, buy/sell, inventory
+│   │   ├── adventure_treasure.go # Treasure definitions, drop logic, bonuses
+│   │   ├── adventure_twinbee.go # TwinBee NPC, reward distribution, buff gifts
+│   │   ├── adventure_render.go # Character sheet, DMs, daily summary, leaderboard
+│   │   ├── adventure_events.go  # Mid-day random events
+│   │   ├── adventure_scheduler.go # Morning DM, evening summary, midnight reset tickers
+│   │   ├── adventure_flavor_*.go # Flavor text pools (dungeon, mining, treasure, twinbee, events, closing)
 │   │   ├── esteemed.go      # Satirical esteemed member posts
 │   │   ├── moderation.go   # Moderation system (strikes, word list, flood detection)
 │   │   └── ratelimits.go    # Rate limiting
@@ -812,7 +884,7 @@ gogobee/
 
 Single SQLite file at `$DATA_DIR/gogobee.db`. Schema auto-creates on first run. WAL mode enabled.
 
-40+ tables covering users, XP, stats, streaks, reputation, reminders, trivia, achievements, encrypted quotes (AES-256-GCM), backlog, keyword watches, scheduler config, birthdays, horoscopes, LLM classifications, stocks, concerts, anime, movies, countdowns, presence, markov corpus, reaction log, and various caches.
+40+ tables covering users, XP, stats, streaks, reputation, reminders, trivia, achievements, encrypted quotes (AES-256-GCM), backlog, keyword watches, scheduler config, birthdays, horoscopes, LLM classifications, stocks, forex rates/alerts, concerts, anime, movies, countdowns, presence, markov corpus, reaction log, and various caches.
 
 ### Backup
 

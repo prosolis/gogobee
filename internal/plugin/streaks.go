@@ -59,32 +59,24 @@ func (p *StreaksPlugin) OnMessage(ctx MessageContext) error {
 }
 
 func (p *StreaksPlugin) trackDailyActivity(ctx MessageContext) {
-	d := db.Get()
 	today := time.Now().UTC().Format("2006-01-02")
 
-	_, err := d.Exec(
+	db.Exec("streaks: track daily activity",
 		`INSERT INTO daily_activity (user_id, date, message_count) VALUES (?, ?, 1)
 		 ON CONFLICT(user_id, date) DO UPDATE SET message_count = message_count + 1`,
 		string(ctx.Sender), today,
 	)
-	if err != nil {
-		slog.Error("streaks: track daily activity", "err", err)
-	}
 }
 
 func (p *StreaksPlugin) trackFirstPoster(ctx MessageContext) {
-	d := db.Get()
 	today := time.Now().UTC().Format("2006-01-02")
 	now := time.Now().UTC().Unix()
 
 	// INSERT OR IGNORE — only the first poster for this room+date wins
-	_, err := d.Exec(
+	db.Exec("streaks: track first poster",
 		`INSERT OR IGNORE INTO daily_first (room_id, date, user_id, timestamp) VALUES (?, ?, ?, ?)`,
 		string(ctx.RoomID), today, string(ctx.Sender), now,
 	)
-	if err != nil {
-		slog.Error("streaks: track first poster", "err", err)
-	}
 }
 
 func (p *StreaksPlugin) handleStreak(ctx MessageContext) error {

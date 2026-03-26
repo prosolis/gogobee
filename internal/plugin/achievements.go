@@ -453,7 +453,22 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 }
 
 // statGTE checks if a user_stats column is >= threshold.
+var allowedStatColumns = map[string]bool{
+	"total_messages":     true,
+	"night_messages":     true,
+	"morning_messages":   true,
+	"total_links":        true,
+	"total_images":       true,
+	"total_questions":    true,
+	"total_emojis":       true,
+	"total_exclamations": true,
+}
+
 func statGTE(d *sql.DB, userID id.UserID, column string, threshold int) bool {
+	if !allowedStatColumns[column] {
+		slog.Error("statGTE: unknown column", "column", column)
+		return false
+	}
 	var val int
 	query := fmt.Sprintf(`SELECT COALESCE(%s, 0) FROM user_stats WHERE user_id = ?`, column)
 	err := d.QueryRow(query, string(userID)).Scan(&val)

@@ -279,7 +279,7 @@ func (p *UnoPlugin) handleMultiStart(ctx MessageContext, amountStr string, noMer
 	p.lobbies[ctx.RoomID] = lobby
 	p.mu.Unlock()
 
-	creatorName := p.unoDisplayName(ctx.Sender)
+	creatorName := p.DisplayName(ctx.Sender)
 	modeTag := ""
 	if noMercy {
 		modeTag = " 🔥 NO MERCY"
@@ -354,7 +354,7 @@ func (p *UnoPlugin) handleMultiJoin(ctx MessageContext) error {
 	}
 	sb.WriteString(fmt.Sprintf("🃏 **UNO Lobby**%s — Ante: €%d\nPlayers (%d/4):\n", lobbyModeTag, int(lobby.ante), count))
 	for i, uid := range lobby.players {
-		name := p.unoDisplayName(uid)
+		name := p.DisplayName(uid)
 		label := ""
 		if uid == lobby.creator {
 			label = " (host)"
@@ -403,7 +403,7 @@ func (p *UnoPlugin) handleMultiLeave(ctx MessageContext) error {
 
 	// Refund the leaving player
 	p.euro.Credit(ctx.Sender, lobby.ante, "uno_multi_refund")
-	name := p.unoDisplayName(ctx.Sender)
+	name := p.DisplayName(ctx.Sender)
 	return p.SendMessage(ctx.RoomID, fmt.Sprintf("🃏 **%s** left the lobby. (%d/4 players)", name, len(lobby.players)))
 }
 
@@ -489,7 +489,7 @@ func (p *UnoPlugin) handleMultiGo(ctx MessageContext) error {
 			for _, u := range players {
 				p.euro.Credit(u, ante, "uno_multi_refund")
 			}
-			return p.SendMessage(roomID, fmt.Sprintf("🃏 Game cancelled — couldn't open DMs with %s.", p.unoDisplayName(uid)))
+			return p.SendMessage(roomID, fmt.Sprintf("🃏 Game cancelled — couldn't open DMs with %s.", p.DisplayName(uid)))
 		}
 		resolved = append(resolved, playerDMPair{uid, dmRoom})
 	}
@@ -518,7 +518,7 @@ func (p *UnoPlugin) handleMultiGo(ctx MessageContext) error {
 	}
 	sb.WriteString(fmt.Sprintf("🃏 **Multiplayer UNO!**%s Pot: €%d\n\nPlayers:\n", modeTag, int(ante)*len(players)))
 	for i, pl := range game.players {
-		name := p.unoDisplayName(pl.userID)
+		name := p.DisplayName(pl.userID)
 		if pl.isBot {
 			name = bn
 		}
@@ -651,6 +651,13 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 
 		player := game.currentPlayer()
 
+		// Skip eliminated players (e.g. mercy-killed during their own turn)
+		if !player.active {
+			game.currentIdx = game.nextActiveIdx()
+			game.turnID++
+			continue
+		}
+
 		if player.isBot {
 			botTurnsInRow++
 			if botTurnsInRow > 10 {
@@ -676,7 +683,7 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 		// No Mercy stacking: check if player must absorb
 		if game.noMercy && game.stackMinValue > 0 {
 			if !hasStackableCard(player.hand, game.topColor, game.stackMinValue) {
-				name := p.unoDisplayName(player.userID)
+				name := p.DisplayName(player.userID)
 				drawn := game.draw(game.stackTotal)
 				player.hand = append(player.hand, drawn...)
 				p.SendMessage(player.dmRoomID, fmt.Sprintf("💥 No stackable card! You draw %d cards.\n%s",
@@ -735,7 +742,7 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 				if !player.active {
 					continue // mercy-killed
 				}
-				name := p.unoDisplayName(player.userID)
+				name := p.DisplayName(player.userID)
 				if len(allDrawn) == 0 {
 					p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s has no playable cards and deck is empty. Turn passes. (%d cards)", name, len(player.hand)))
 					p.SendMessage(player.dmRoomID, "No playable cards and deck is empty. Turn passes.")
@@ -764,7 +771,7 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 			// Classic: draw 1
 			drawn := game.draw(1)
 			if len(drawn) == 0 {
-				name := p.unoDisplayName(player.userID)
+				name := p.DisplayName(player.userID)
 				p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s has no playable cards and deck is empty. Turn passes. (%d cards)", name, len(player.hand)))
 				p.SendMessage(player.dmRoomID, "No playable cards and deck is empty. Turn passes.")
 				game.currentIdx = game.nextActiveIdx()
@@ -784,7 +791,7 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 				return
 			}
 
-			name := p.unoDisplayName(player.userID)
+			name := p.DisplayName(player.userID)
 			p.SendMessage(player.dmRoomID,
 				fmt.Sprintf("No playable cards — drew automatically: %s\nNot playable. Turn passes.", card.Display()))
 			p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes. (%d cards)", name, len(player.hand)))
@@ -879,7 +886,7 @@ func (p *UnoPlugin) handleMultiDMInput(ctx MessageContext, game *unoMultiGame) e
 		}
 		// No Mercy stacking: accept
 		if game.noMercy && game.stackMinValue > 0 && (input == "accept" || input == "a") {
-			name := p.unoDisplayName(player.userID)
+			name := p.DisplayName(player.userID)
 			drawn := game.draw(game.stackTotal)
 			player.hand = append(player.hand, drawn...)
 			p.SendMessage(player.dmRoomID, fmt.Sprintf("💥 You accept the stack and draw %d cards.\n%s",
@@ -929,7 +936,7 @@ func (p *UnoPlugin) handleMultiDMInput(ctx MessageContext, game *unoMultiGame) e
 func (p *UnoPlugin) handleMultiChallengeInput(game *unoMultiGame, player *unoMultiPlayer, input string) error {
 	switch input {
 	case "challenge", "c":
-		name := p.unoDisplayName(player.userID)
+		name := p.DisplayName(player.userID)
 		p.SendMessage(game.roomID, fmt.Sprintf("⚡ %s challenges the Wild Draw Four!", name))
 		p.resolveWD4Challenge(game, true)
 	case "accept", "a":
@@ -963,7 +970,7 @@ func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPl
 		player.hand = append(player.hand, drawn...)
 		player.calledUno = false
 		p.SendMessage(player.dmRoomID, "⚠️ You forgot to call UNO! Draw 2 as penalty.")
-		name := p.unoDisplayName(player.userID)
+		name := p.DisplayName(player.userID)
 		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s forgot to call UNO! 2 card penalty.", name))
 		if game.noMercy {
 			if p.checkMultiMercyElimination(game, player) {
@@ -1024,7 +1031,7 @@ func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPl
 				if pl == player || !pl.active {
 					continue
 				}
-				name := p.unoDisplayName(pl.userID)
+				name := p.DisplayName(pl.userID)
 				if pl.isBot {
 					name = unoBotName()
 				}
@@ -1040,8 +1047,8 @@ func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPl
 			for _, pl := range game.players {
 				if pl != player && pl.active {
 					swapHandsMulti(player, pl)
-					name := p.unoDisplayName(player.userID)
-					otherName := p.unoDisplayName(pl.userID)
+					name := p.DisplayName(player.userID)
+					otherName := p.DisplayName(pl.userID)
 					if pl.isBot {
 						otherName = unoBotName()
 					}
@@ -1068,7 +1075,7 @@ func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPl
 
 	// Check win (after discard all, after swap)
 	if len(player.hand) == 0 {
-		name := p.unoDisplayName(player.userID)
+		name := p.DisplayName(player.userID)
 		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s plays: %s", name, card.Display()))
 		p.multiPlayerWins(game, player)
 		return nil
@@ -1104,7 +1111,7 @@ func (p *UnoPlugin) handleMultiColorChoice(game *unoMultiGame, player *unoMultiP
 
 	// Check win
 	if len(player.hand) == 0 {
-		name := p.unoDisplayName(player.userID)
+		name := p.DisplayName(player.userID)
 		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s plays: %s (chose %s %s)",
 			name, pendingCard.Display(), color.Emoji(), color))
 		p.multiPlayerWins(game, player)
@@ -1113,10 +1120,10 @@ func (p *UnoPlugin) handleMultiColorChoice(game *unoMultiGame, player *unoMultiP
 
 	// No Mercy: Color Roulette — next player flips until chosen color
 	if game.noMercy && pendingCard != nil && pendingCard.Value == unoWildColorRoulette {
-		name := p.unoDisplayName(player.userID)
+		name := p.DisplayName(player.userID)
 		nextIdx := game.nextActiveIdx()
 		target := game.players[nextIdx]
-		targetName := p.unoDisplayName(target.userID)
+		targetName := p.DisplayName(target.userID)
 		if target.isBot {
 			targetName = unoBotName()
 		}
@@ -1157,7 +1164,7 @@ func (p *UnoPlugin) handleMultiPlayerDraw(game *unoMultiGame, player *unoMultiPl
 	drawn := game.draw(1)
 	if len(drawn) == 0 {
 		p.SendMessage(player.dmRoomID, "No cards left to draw! Turn passes.")
-		name := p.unoDisplayName(player.userID)
+		name := p.DisplayName(player.userID)
 		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s can't draw — deck is empty. Turn passes.", name))
 		p.advanceAndExecute(game)
 		return nil
@@ -1175,7 +1182,7 @@ func (p *UnoPlugin) handleMultiPlayerDraw(game *unoMultiGame, player *unoMultiPl
 		return nil
 	}
 
-	name := p.unoDisplayName(player.userID)
+	name := p.DisplayName(player.userID)
 	p.SendMessage(player.dmRoomID, fmt.Sprintf("You drew: %s\nNot playable. Turn passes.", card.Display()))
 	p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes. (%d cards)", name, len(player.hand)))
 	p.advanceAndExecute(game)
@@ -1207,7 +1214,7 @@ func (p *UnoPlugin) handleMultiPlayerDrawNoMercy(game *unoMultiGame, player *uno
 		}
 	}
 
-	name := p.unoDisplayName(player.userID)
+	name := p.DisplayName(player.userID)
 
 	if len(allDrawn) == 0 {
 		p.SendMessage(player.dmRoomID, "No cards left to draw! Turn passes.")
@@ -1245,7 +1252,7 @@ func (p *UnoPlugin) handleMultiDrawnPlayable(game *unoMultiGame, player *unoMult
 	game.phase = unoMultiPhasePlay
 
 	if input == "no" || input == "n" {
-		name := p.unoDisplayName(player.userID)
+		name := p.DisplayName(player.userID)
 		p.SendMessage(player.dmRoomID, "Card kept. Turn passes.")
 		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes. (%d cards)", name, len(player.hand)))
 		p.advanceAndExecute(game)
@@ -1281,7 +1288,7 @@ func (p *UnoPlugin) handleMultiDrawnPlayable(game *unoMultiGame, player *unoMult
 	game.topColor = drawnCard.Color
 
 	if len(player.hand) == 0 {
-		name := p.unoDisplayName(player.userID)
+		name := p.DisplayName(player.userID)
 		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s plays: %s", name, drawnCard.Display()))
 		p.multiPlayerWins(game, player)
 		return nil
@@ -1311,7 +1318,7 @@ func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffec
 
 	nextIdx := game.nextActiveIdx()
 	nextPlayer := game.players[nextIdx]
-	nextName := p.unoDisplayName(nextPlayer.userID)
+	nextName := p.DisplayName(nextPlayer.userID)
 	if nextPlayer.isBot {
 		nextName = unoBotName()
 	}
@@ -1329,7 +1336,7 @@ func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffec
 			var skippedNames []string
 			for _, pl := range game.players {
 				if pl != game.currentPlayer() && pl.active {
-					name := p.unoDisplayName(pl.userID)
+					name := p.DisplayName(pl.userID)
 					if pl.isBot {
 						name = unoBotName()
 					}
@@ -1407,7 +1414,7 @@ func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffec
 			// After reverse, get next player in new direction
 			nextIdx = game.nextActiveIdx()
 			nextPlayer = game.players[nextIdx]
-			nextName = p.unoDisplayName(nextPlayer.userID)
+			nextName = p.DisplayName(nextPlayer.userID)
 			if nextPlayer.isBot {
 				nextName = unoBotName()
 			}
@@ -1468,7 +1475,7 @@ func writeEffectLines(sb *strings.Builder, eff cardEffectResult) {
 }
 
 func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer, card unoCard) {
-	name := p.unoDisplayName(player.userID)
+	name := p.DisplayName(player.userID)
 	var roomMsg strings.Builder
 
 	roomMsg.WriteString(fmt.Sprintf("🃏 %s plays: %s", name, card.DisplayWithColor(game.topColor)))
@@ -1501,7 +1508,7 @@ func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer,
 
 	// Next player
 	nextUp := game.currentPlayer()
-	nextUpName := p.unoDisplayName(nextUp.userID)
+	nextUpName := p.DisplayName(nextUp.userID)
 	if nextUp.isBot {
 		nextUpName = unoBotName()
 	}
@@ -1527,7 +1534,7 @@ func (p *UnoPlugin) startWD4Challenge(game *unoMultiGame, wd4Player *unoMultiPla
 	game.currentIdx = nextIdx
 	game.turnID++
 
-	playerName := p.unoDisplayName(wd4Player.userID)
+	playerName := p.DisplayName(wd4Player.userID)
 	if wd4Player.isBot {
 		playerName = unoBotName()
 	}
@@ -1548,11 +1555,11 @@ func (p *UnoPlugin) startWD4Challenge(game *unoMultiGame, wd4Player *unoMultiPla
 func (p *UnoPlugin) resolveWD4Challenge(game *unoMultiGame, challenged bool) {
 	wd4Player := game.wd4Player
 	victim := game.wd4Victim
-	wd4Name := p.unoDisplayName(wd4Player.userID)
+	wd4Name := p.DisplayName(wd4Player.userID)
 	if wd4Player.isBot {
 		wd4Name = unoBotName()
 	}
-	victimName := p.unoDisplayName(victim.userID)
+	victimName := p.DisplayName(victim.userID)
 	if victim.isBot {
 		victimName = unoBotName()
 	}
@@ -1898,7 +1905,7 @@ func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 	// applyCardEffects already advanced currentIdx to the victim
 	if game.noMercy && card.Value == unoWildColorRoulette {
 		target := game.players[game.currentIdx]
-		targetName := p.unoDisplayName(target.userID)
+		targetName := p.DisplayName(target.userID)
 		if target.isBot {
 			targetName = bn
 		}
@@ -1973,7 +1980,7 @@ func (p *UnoPlugin) startMultiAutoPlayTimer(game *unoMultiGame) {
 		player.autoPlays++
 		maxAutoPlays := envInt("UNO_MULTI_MAX_AUTOPLAY", 3)
 
-		name := p.unoDisplayName(player.userID)
+		name := p.DisplayName(player.userID)
 
 		if player.autoPlays >= maxAutoPlays {
 			p.SendMessage(mg.roomID, fmt.Sprintf("🃏 %s was auto-played %d times in a row — forfeited!", name, maxAutoPlays))
@@ -2031,7 +2038,7 @@ func (p *UnoPlugin) startInactivityTimer(game *unoMultiGame) {
 }
 
 func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer) {
-	name := p.unoDisplayName(player.userID)
+	name := p.DisplayName(player.userID)
 
 	switch game.phase {
 	case unoMultiPhaseChallenge:
@@ -2065,7 +2072,7 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 		if game.noMercy && pendingCard != nil && pendingCard.Value == unoWildColorRoulette {
 			nextIdx := game.nextActiveIdx()
 			target := game.players[nextIdx]
-			targetName := p.unoDisplayName(target.userID)
+			targetName := p.DisplayName(target.userID)
 			if target.isBot {
 				targetName = unoBotName()
 			}
@@ -2145,7 +2152,7 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 		target := botChooseSwapTarget(game, player)
 		if target != nil {
 			swapHandsMulti(player, target)
-			targetName := p.unoDisplayName(target.userID)
+			targetName := p.DisplayName(target.userID)
 			if target.isBot {
 				targetName = unoBotName()
 			}
@@ -2327,7 +2334,7 @@ func (p *UnoPlugin) multiPlayerWins(game *unoMultiGame, winner *unoMultiPlayer) 
 	}
 	totalPot := game.ante * float64(humanCount)
 
-	name := p.unoDisplayName(winner.userID)
+	name := p.DisplayName(winner.userID)
 	p.euro.Credit(winner.userID, totalPot, "uno_multi_win")
 
 	p.SendMessage(game.roomID, fmt.Sprintf(
@@ -2378,7 +2385,7 @@ func (p *UnoPlugin) multiBotWins(game *unoMultiGame) {
 
 func (p *UnoPlugin) multiPlayerForfeit(game *unoMultiGame, player *unoMultiPlayer) {
 	player.active = false
-	name := p.unoDisplayName(player.userID)
+	name := p.DisplayName(player.userID)
 
 	// Shuffle cards back into draw pile
 	game.drawPile = append(game.drawPile, player.hand...)
@@ -2428,8 +2435,6 @@ func (p *UnoPlugin) cleanupMultiGame(game *unoMultiGame) {
 }
 
 func (p *UnoPlugin) recordMultiGame(game *unoMultiGame, winnerID id.UserID, result string) {
-	d := db.Get()
-
 	playerIDs := make([]string, 0)
 	for _, pl := range game.players {
 		if !pl.isBot {
@@ -2440,7 +2445,7 @@ func (p *UnoPlugin) recordMultiGame(game *unoMultiGame, winnerID id.UserID, resu
 	humanCount := len(playerIDs)
 	totalPot := game.ante * float64(humanCount)
 
-	_, err := d.Exec(
+	db.Exec("uno_multi: record game",
 		`INSERT INTO uno_multi_games (room_id, ante, pot_total, winner_id, player_ids, result, turns, started_at, ended_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		string(game.roomID), game.ante, totalPot, string(winnerID),
@@ -2448,9 +2453,6 @@ func (p *UnoPlugin) recordMultiGame(game *unoMultiGame, winnerID id.UserID, resu
 		game.startedAt.UTC().Format("2006-01-02 15:04:05"),
 		time.Now().UTC().Format("2006-01-02 15:04:05"),
 	)
-	if err != nil {
-		slog.Error("uno_multi: failed to record game", "err", err)
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -2461,7 +2463,7 @@ func (p *UnoPlugin) sendMultiStatus(game *unoMultiGame, player *unoMultiPlayer) 
 	var sb strings.Builder
 	bn := unoBotName()
 	current := game.currentPlayer()
-	currentName := p.unoDisplayName(current.userID)
+	currentName := p.DisplayName(current.userID)
 	if current.isBot {
 		currentName = bn
 	}
@@ -2484,7 +2486,7 @@ func (p *UnoPlugin) sendMultiStatus(game *unoMultiGame, player *unoMultiPlayer) 
 		if pl == player || !pl.active {
 			continue
 		}
-		name := p.unoDisplayName(pl.userID)
+		name := p.DisplayName(pl.userID)
 		if pl.isBot {
 			name = bn
 		}
@@ -2516,7 +2518,7 @@ func (p *UnoPlugin) sendMultiHandDisplay(game *unoMultiGame, player *unoMultiPla
 		if pl == player || !pl.active {
 			continue
 		}
-		name := p.unoDisplayName(pl.userID)
+		name := p.DisplayName(pl.userID)
 		if pl.isBot {
 			name = bn
 		}
@@ -2554,7 +2556,7 @@ func (p *UnoPlugin) sendMultiHandDisplayStacking(game *unoMultiGame, player *uno
 		if pl == player || !pl.active {
 			continue
 		}
-		name := p.unoDisplayName(pl.userID)
+		name := p.DisplayName(pl.userID)
 		if pl.isBot {
 			name = bn
 		}
@@ -2598,8 +2600,8 @@ func (p *UnoPlugin) handleMultiSwapChoice(game *unoMultiGame, player *unoMultiPl
 	swapHandsMulti(player, target)
 	game.phase = unoMultiPhasePlay
 
-	name := p.unoDisplayName(player.userID)
-	targetName := p.unoDisplayName(target.userID)
+	name := p.DisplayName(player.userID)
+	targetName := p.DisplayName(target.userID)
 	if target.isBot {
 		targetName = unoBotName()
 	}

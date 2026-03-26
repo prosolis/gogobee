@@ -297,8 +297,10 @@ func renderEndAnnouncement(results []showdownResult, g *HoldemGame) string {
 // renderHelpMessage returns the help text for !holdem help.
 func renderHelpMessage() string {
 	return "🎰 **Texas Hold'em Commands**\n\n" +
+		"**Quick Start:**\n" +
+		"`!holdem play [amount]` — Join, add bot, and deal in one command\n\n" +
 		"**Lobby:**\n" +
-		"`!holdem join` — Sit down at the table\n" +
+		"`!holdem join [amount]` — Sit down (optional buy-in amount)\n" +
 		"`!holdem leave` — Leave the table\n" +
 		"`!holdem start` — Start dealing (≥2 players)\n" +
 		"`!holdem addbot` — Add an AI opponent\n\n" +
@@ -306,7 +308,7 @@ func renderHelpMessage() string {
 		"`!holdem fold` — Fold your hand\n" +
 		"`!holdem check` — Check (no bet to call)\n" +
 		"`!holdem call` — Call the current bet\n" +
-		"`!holdem raise <amount>` — Raise to a total of €amount\n" +
+		"`!holdem raise <amount>` — Raise *to* €amount total (not raise *by*)\n" +
 		"`!holdem allin` — Go all-in\n\n" +
 		"**Other:**\n" +
 		"`!holdem status` — Get current table state (DM)\n" +

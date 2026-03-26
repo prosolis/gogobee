@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"database/sql"
-	"log/slog"
 	"time"
 
 	"gogobee/internal/db"
@@ -251,12 +250,12 @@ func createAdvCharacter(userID id.UserID, displayName string) error {
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
 	_, err = tx.Exec(`
 		INSERT INTO adventure_characters (user_id, display_name)
 		VALUES (?, ?)`, string(userID), displayName)
 	if err != nil {
-		tx.Rollback()
 		return err
 	}
 
@@ -267,7 +266,6 @@ func createAdvCharacter(userID id.UserID, displayName string) error {
 			INSERT INTO adventure_equipment (user_id, slot, tier, condition, name, actions_used)
 			VALUES (?, ?, 0, 100, ?, 0)`, string(userID), string(slot), def.Name)
 		if err != nil {
-			tx.Rollback()
 			return err
 		}
 	}
@@ -440,19 +438,18 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 
 func resetAllAdvDailyActions() error {
 	d := db.Get()
-	_, err := d.Exec(`UPDATE adventure_characters SET action_taken_today = 0`)
+	// Only reset actions taken before today — protects against race if a player
+	// resolves their action at exactly midnight.
+	today := time.Now().UTC().Format("2006-01-02")
+	_, err := d.Exec(`UPDATE adventure_characters SET action_taken_today = 0 WHERE last_action_date < ? OR last_action_date IS NULL`, today)
 	return err
 }
 
 func logAdvActivity(userID id.UserID, activityType, location, outcome string, lootValue int64, xpGained int, flavorKey string) {
-	d := db.Get()
-	_, err := d.Exec(`
-		INSERT INTO adventure_activity_log (user_id, activity_type, location, outcome, loot_value, xp_gained, flavor_key)
+	db.Exec("adventure: log activity",
+		`INSERT INTO adventure_activity_log (user_id, activity_type, location, outcome, loot_value, xp_gained, flavor_key)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		string(userID), activityType, location, outcome, lootValue, xpGained, flavorKey)
-	if err != nil {
-		slog.Error("adventure: failed to log activity", "user", userID, "err", err)
-	}
 }
 
 // ── Buff CRUD ────────────────────────────────────────────────────────────────
@@ -511,8 +508,8 @@ func loadAdvTodayLogs() ([]AdvDayLog, error) {
 	rows, err := d.Query(`
 		SELECT user_id, activity_type, COALESCE(location,''), outcome, loot_value, xp_gained
 		FROM adventure_activity_log
-		WHERE DATE(logged_at) = ?
-		ORDER BY logged_at`, today)
+		WHERE logged_at >= ? AND logged_at < DATE(?, '+1 day')
+		ORDER BY logged_at`, today, today)
 	if err != nil {
 		return nil, err
 	}

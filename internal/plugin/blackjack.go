@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -288,7 +287,7 @@ func (p *BlackjackPlugin) handleBlackjack(ctx MessageContext) error {
 		}
 
 		table.players = append(table.players, &bjPlayer{UserID: ctx.Sender, Bet: bet})
-		name := p.bjDisplayName(ctx.Sender)
+		name := p.DisplayName(ctx.Sender)
 
 		if len(table.players) >= 4 {
 			_ = p.SendMessage(ctx.RoomID,
@@ -323,7 +322,7 @@ func (p *BlackjackPlugin) handleBlackjack(ctx MessageContext) error {
 	}
 	p.tables[ctx.RoomID] = table
 
-	name := p.bjDisplayName(ctx.Sender)
+	name := p.DisplayName(ctx.Sender)
 	_ = p.SendMessage(ctx.RoomID,
 		fmt.Sprintf("🃏 **%s** opens a Blackjack table! Bet: €%d\nJoin with `!blackjack €amount` or `!blackjack deal` to start now (60s to join)",
 			name, int(bet)))
@@ -357,7 +356,7 @@ func (p *BlackjackPlugin) handleLeave(ctx MessageContext) error {
 		}
 		player.Bust = true
 		player.Done = true
-		name := p.bjDisplayName(ctx.Sender)
+		name := p.DisplayName(ctx.Sender)
 		_ = p.SendMessage(ctx.RoomID,
 			fmt.Sprintf("🏳️ **%s** forfeits! Bet lost.", name))
 		p.checkAllDone(ctx.RoomID, table)
@@ -381,7 +380,7 @@ func (p *BlackjackPlugin) handleLeave(ctx MessageContext) error {
 				delete(p.tables, ctx.RoomID)
 				return p.SendMessage(ctx.RoomID, "🃏 Table closed — all players left.")
 			}
-			name := p.bjDisplayName(ctx.Sender)
+			name := p.DisplayName(ctx.Sender)
 			return p.SendMessage(ctx.RoomID,
 				fmt.Sprintf("🃏 **%s** left the table. Bet refunded.", name))
 		}
@@ -440,7 +439,7 @@ func (p *BlackjackPlugin) startRound(roomID id.RoomID, table *bjTable) {
 	for _, pl := range table.players {
 		if !pl.Done {
 			allDone = false
-			activeNames = append(activeNames, p.bjDisplayName(pl.UserID))
+			activeNames = append(activeNames, p.DisplayName(pl.UserID))
 		}
 	}
 
@@ -484,7 +483,7 @@ func (p *BlackjackPlugin) handleHit(ctx MessageContext) error {
 	if v > 21 {
 		player.Bust = true
 		player.Done = true
-		name := p.bjDisplayName(player.UserID)
+		name := p.DisplayName(player.UserID)
 		msgs := []string{fmt.Sprintf("💥 **%s** busts with %s (%d)!", name, handStr(player.Hand), v)}
 		allDoneMsgs := p.collectAllDone(ctx.RoomID, table)
 		p.mu.Unlock()
@@ -496,7 +495,7 @@ func (p *BlackjackPlugin) handleHit(ctx MessageContext) error {
 
 	if v == 21 {
 		player.Done = true
-		name := p.bjDisplayName(player.UserID)
+		name := p.DisplayName(player.UserID)
 		msgs := []string{fmt.Sprintf("**%s** has 21! %s", name, handStr(player.Hand))}
 		allDoneMsgs := p.collectAllDone(ctx.RoomID, table)
 		p.mu.Unlock()
@@ -528,7 +527,7 @@ func (p *BlackjackPlugin) handleStand(ctx MessageContext) error {
 	}
 
 	player.Done = true
-	name := p.bjDisplayName(player.UserID)
+	name := p.DisplayName(player.UserID)
 	msgs := []string{fmt.Sprintf("**%s** stands at %d.", name, player.value())}
 	allDoneMsgs := p.collectAllDone(ctx.RoomID, table)
 	p.mu.Unlock()
@@ -552,7 +551,7 @@ func (p *BlackjackPlugin) collectAllDone(roomID id.RoomID, table *bjTable) []str
 	var waiting []string
 	for _, pl := range table.players {
 		if !pl.Done {
-			waiting = append(waiting, p.bjDisplayName(pl.UserID))
+			waiting = append(waiting, p.DisplayName(pl.UserID))
 		}
 	}
 
@@ -587,7 +586,7 @@ func (p *BlackjackPlugin) startRoundTimer(roomID id.RoomID, table *bjTable) {
 			var waiting []string
 			for _, pl := range tbl.players {
 				if !pl.Done {
-					waiting = append(waiting, p.bjDisplayName(pl.UserID))
+					waiting = append(waiting, p.DisplayName(pl.UserID))
 				}
 			}
 			if len(waiting) > 0 {
@@ -613,7 +612,7 @@ func (p *BlackjackPlugin) startRoundTimer(roomID id.RoomID, table *bjTable) {
 				continue
 			}
 			v := pl.value()
-			name := p.bjDisplayName(pl.UserID)
+			name := p.DisplayName(pl.UserID)
 
 			if v >= p.cfg.AutoplayThreshold {
 				_ = p.SendMessage(roomID,
@@ -709,7 +708,7 @@ func (p *BlackjackPlugin) collectResolveRound(roomID id.RoomID, table *bjTable) 
 	sb.WriteString("🃏 **Round over!**\n\n")
 
 	for _, pl := range table.players {
-		name := p.bjDisplayName(pl.UserID)
+		name := p.DisplayName(pl.UserID)
 		playerValue := pl.value()
 		playerBJ := isBlackjack(pl.Hand)
 
@@ -794,7 +793,7 @@ func (p *BlackjackPlugin) renderTable(table *bjTable, showDealer bool) string {
 	sb.WriteString("🃏 **Blackjack** — Round in progress\n\n")
 
 	for _, pl := range table.players {
-		name := p.bjDisplayName(pl.UserID)
+		name := p.DisplayName(pl.UserID)
 		v := pl.value()
 		extra := ""
 		if isBlackjack(pl.Hand) {
@@ -842,7 +841,7 @@ func (p *BlackjackPlugin) handleBoard(ctx MessageContext) error {
 		var played, won int
 		rows.Scan(&userID, &earned, &played, &won)
 		rank++
-		name := p.bjDisplayName(id.UserID(userID))
+		name := p.DisplayName(id.UserID(userID))
 		sb.WriteString(fmt.Sprintf("%d. **%s** — €%d (%d W in %d games)\n", rank, name, int(earned), won, played))
 	}
 
@@ -854,12 +853,11 @@ func (p *BlackjackPlugin) handleBoard(ctx MessageContext) error {
 }
 
 func (p *BlackjackPlugin) recordBJScore(userID id.UserID, net float64) {
-	d := db.Get()
 	won := 0
 	if net > 0 {
 		won = 1
 	}
-	_, _ = d.Exec(
+	db.Exec("blackjack: record score",
 		`INSERT INTO blackjack_scores (user_id, total_earned, games_played, games_won)
 		 VALUES (?, ?, 1, ?)
 		 ON CONFLICT(user_id) DO UPDATE SET
@@ -873,10 +871,4 @@ func (p *BlackjackPlugin) recordBJScore(userID id.UserID, net float64) {
 	}
 }
 
-func (p *BlackjackPlugin) bjDisplayName(userID id.UserID) string {
-	resp, err := p.Client.GetDisplayName(context.Background(), userID)
-	if err != nil || resp.DisplayName == "" {
-		return string(userID)
-	}
-	return resp.DisplayName
-}
+

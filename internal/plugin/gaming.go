@@ -73,7 +73,12 @@ func (p *GamingPlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *GamingPlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "releases") {
-		return p.handleReleases(ctx)
+		go func() {
+			if err := p.handleReleases(ctx); err != nil {
+				slog.Error("gaming: handler error", "err", err)
+			}
+		}()
+		return nil
 	}
 	if p.IsCommand(ctx.Body, "releasewatch") {
 		return p.handleReleaseWatch(ctx)
@@ -244,14 +249,11 @@ func (p *GamingPlugin) fetchReleases(startDate, endDate, cacheKey string) ([]rel
 
 	// Cache results
 	data, _ := json.Marshal(games)
-	_, err = d.Exec(
+	db.Exec("gaming: cache write",
 		`INSERT INTO releases_cache (cache_key, data, cached_at) VALUES (?, ?, ?)
 		 ON CONFLICT(cache_key) DO UPDATE SET data = ?, cached_at = ?`,
 		fullKey, string(data), time.Now().UTC().Unix(), string(data), time.Now().UTC().Unix(),
 	)
-	if err != nil {
-		slog.Error("gaming: cache write", "err", err)
-	}
 
 	return games, nil
 }

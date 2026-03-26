@@ -860,15 +860,11 @@ func (p *ModerationPlugin) notifyAdmin(text string) {
 }
 
 func (p *ModerationPlugin) logAction(userID id.UserID, roomID id.RoomID, action, reason, takenBy string) {
-	d := db.Get()
-	_, err := d.Exec(
+	db.Exec("moderation: log action",
 		`INSERT INTO mod_actions (user_id, room_id, action, reason, taken_at, taken_by)
 		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
 		string(userID), string(roomID), action, reason, takenBy,
 	)
-	if err != nil {
-		slog.Error("moderation: failed to log action", "err", err)
-	}
 }
 
 func modTruncate(s string, max int) string {

@@ -111,12 +111,8 @@ func (p *AnimePlugin) OnMessage(ctx MessageContext) error {
 	parts := strings.SplitN(args, " ", 2)
 	sub := strings.ToLower(parts[0])
 
+	// Subcommands that only touch the DB don't need async
 	switch sub {
-	case "watch":
-		if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
-			return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !anime watch <title>")
-		}
-		return p.handleWatch(ctx, strings.TrimSpace(parts[1]))
 	case "watching":
 		return p.handleWatching(ctx)
 	case "unwatch":
@@ -124,13 +120,30 @@ func (p *AnimePlugin) OnMessage(ctx MessageContext) error {
 			return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !anime unwatch <id>")
 		}
 		return p.handleUnwatch(ctx, strings.TrimSpace(parts[1]))
-	case "season":
-		return p.handleSeason(ctx)
-	case "upcoming":
-		return p.handleUpcoming(ctx)
-	default:
-		return p.handleSearch(ctx, args)
 	}
+
+	// Subcommands that hit the Jikan API run async to avoid blocking dispatch
+	go func() {
+		var err error
+		switch sub {
+		case "watch":
+			if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
+				err = p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !anime watch <title>")
+			} else {
+				err = p.handleWatch(ctx, strings.TrimSpace(parts[1]))
+			}
+		case "season":
+			err = p.handleSeason(ctx)
+		case "upcoming":
+			err = p.handleUpcoming(ctx)
+		default:
+			err = p.handleSearch(ctx, args)
+		}
+		if err != nil {
+			slog.Error("anime: handler error", "err", err)
+		}
+	}()
+	return nil
 }
 
 // rateLimit enforces the 400ms delay between Jikan API calls.
@@ -166,8 +179,6 @@ func (p *AnimePlugin) jikanGet(apiURL string, target interface{}) error {
 }
 
 func (p *AnimePlugin) handleSearch(ctx MessageContext, query string) error {
-	d := db.Get()
-
 	// Search via API
 	encoded := url.QueryEscape(query)
 	apiURL := fmt.Sprintf("https://api.jikan.moe/v4/anime?q=%s&limit=3&sfw=true", encoded)
@@ -186,13 +197,11 @@ func (p *AnimePlugin) handleSearch(ctx MessageContext, query string) error {
 
 	// Cache the result
 	data, _ := json.Marshal(anime)
-	if _, err := d.Exec(
+	db.Exec("anime: cache write",
 		`INSERT INTO anime_cache (mal_id, data, cached_at) VALUES (?, ?, ?)
 		 ON CONFLICT(mal_id) DO UPDATE SET data = ?, cached_at = ?`,
 		anime.MalID, string(data), time.Now().Unix(), string(data), time.Now().Unix(),
-	); err != nil {
-		slog.Error("anime: cache write", "err", err)
-	}
+	)
 
 	return p.SendReply(ctx.RoomID, ctx.EventID, p.formatAnime(anime))
 }
@@ -293,7 +302,7 @@ func (p *AnimePlugin) handleWatch(ctx MessageContext, title string) error {
 
 	// Also cache the anime data
 	data, _ := json.Marshal(anime)
-	_, _ = d.Exec(
+	db.Exec("anime: cache watchlist entry",
 		`INSERT INTO anime_cache (mal_id, data, cached_at) VALUES (?, ?, ?)
 		 ON CONFLICT(mal_id) DO UPDATE SET data = ?, cached_at = ?`,
 		anime.MalID, string(data), time.Now().Unix(), string(data), time.Now().Unix(),
@@ -514,7 +523,7 @@ func (p *AnimePlugin) PostDailyReleases(roomID id.RoomID) {
 
 			// Update cache
 			data, _ := json.Marshal(animeData)
-			_, _ = d.Exec(
+			db.Exec("anime: update daily cache",
 				`INSERT INTO anime_cache (mal_id, data, cached_at) VALUES (?, ?, ?)
 				 ON CONFLICT(mal_id) DO UPDATE SET data = ?, cached_at = ?`,
 				entry.malID, string(data), time.Now().Unix(), string(data), time.Now().Unix(),

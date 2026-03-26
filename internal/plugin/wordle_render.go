@@ -72,15 +72,20 @@ func renderKeyboard(states map[rune]LetterResult) string {
 }
 
 // renderWordleStartAnnouncement renders the puzzle start message.
-func renderWordleStartAnnouncement(puzzleNumber, wordLength int) string {
-	return fmt.Sprintf(
-		"🟩 **Daily Wordle #%d**\nA new %d-letter puzzle is ready! Work together — 6 guesses shared.\n\nGuess with: `!wordle <word>`",
+func renderWordleStartAnnouncement(puzzleNumber, wordLength int, hint string) string {
+	base := fmt.Sprintf(
+		"🟩 **Daily Wordle #%d**\nA new %d-letter puzzle is ready! Work together — 6 guesses shared.",
 		puzzleNumber, wordLength,
 	)
+	if hint != "" {
+		base += fmt.Sprintf("\n🎮 **Hint:** %s", hint)
+	}
+	base += "\n\nGuess with: `!wordle <word>`"
+	return base
 }
 
 // renderSolvedAnnouncement renders the solved puzzle message.
-func renderSolvedAnnouncement(puzzle *WordlePuzzle, definition string) string {
+func renderSolvedAnnouncement(puzzle *WordlePuzzle, definition string, payouts []WordlePayout) string {
 	var sb strings.Builder
 
 	// Find the solver.
@@ -107,18 +112,29 @@ func renderSolvedAnnouncement(puzzle *WordlePuzzle, definition string) string {
 		sb.WriteString("\n")
 	}
 
-	// Contributors.
-	sb.WriteString("\n🏆 Today's contributors:\n")
-	contributors := wordleContributors(puzzle)
-	for _, c := range contributors {
-		line := fmt.Sprintf("  %s — %d guess", c.name, c.guesses)
-		if c.guesses != 1 {
-			line += "es"
+	// Contributors with payouts.
+	if len(payouts) > 0 {
+		sb.WriteString("\n💰 **Payouts:**\n")
+		for _, pay := range payouts {
+			bonus := ""
+			if pay.Solver {
+				bonus = " 🏆 (solver bonus!)"
+			}
+			sb.WriteString(fmt.Sprintf("  **%s**: +€%d%s\n", pay.Name, pay.Amount, bonus))
 		}
-		if c.solved {
-			line += " 🏆"
+	} else {
+		sb.WriteString("\n🏆 Today's contributors:\n")
+		contributors := wordleContributors(puzzle)
+		for _, c := range contributors {
+			line := fmt.Sprintf("  %s — %d guess", c.name, c.guesses)
+			if c.guesses != 1 {
+				line += "es"
+			}
+			if c.solved {
+				line += " 🏆"
+			}
+			sb.WriteString(line + "\n")
 		}
-		sb.WriteString(line + "\n")
 	}
 
 	return sb.String()

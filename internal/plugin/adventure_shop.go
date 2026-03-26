@@ -9,69 +9,205 @@ import (
 
 // ── Shop Listings ────────────────────────────────────────────────────────────
 
-func advShopListings(equip map[EquipmentSlot]*AdvEquipment, balance float64) string {
+// slotEmoji returns a display emoji for a slot category.
+func slotEmoji(slot EquipmentSlot) string {
+	switch slot {
+	case SlotWeapon:
+		return "⚔️"
+	case SlotArmor:
+		return "🛡️"
+	case SlotHelmet:
+		return "🪖"
+	case SlotBoots:
+		return "👢"
+	case SlotTool:
+		return "⛏️"
+	default:
+		return "📦"
+	}
+}
+
+// slotTitle returns a capitalized display name for a slot.
+func slotTitle(slot EquipmentSlot) string {
+	s := string(slot)
+	if len(s) == 0 {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// advShopOverview shows a compact category menu with current equipment and next upgrade.
+func advShopOverview(equip map[EquipmentSlot]*AdvEquipment, balance float64) string {
 	var sb strings.Builder
 	sb.WriteString("🛒 **Equipment Shop**\n")
-	sb.WriteString(fmt.Sprintf("💰 Your balance: €%.0f\n\n", balance))
+	sb.WriteString(fmt.Sprintf("💰 Balance: €%.0f\n\n", balance))
 
 	for _, slot := range allSlots {
 		current := equip[slot]
 		currentTier := 0
-		if current != nil {
-			currentTier = current.Tier
-		}
-
-		defs := equipmentTiers[slot]
 		currentName := "None"
 		if current != nil {
+			currentTier = current.Tier
 			currentName = current.Name
 		}
-		sb.WriteString(fmt.Sprintf("**%s** (current: %s, Tier %d)\n", strings.Title(string(slot)), currentName, currentTier))
 
-		hasUpgrades := false
+		emoji := slotEmoji(slot)
+		title := slotTitle(slot)
+
+		// Find next upgrade.
+		defs := equipmentTiers[slot]
+		nextUpgrade := ""
 		for _, def := range defs {
-			if def.Tier <= currentTier || def.Price == 0 {
-				continue
+			if def.Tier > currentTier && def.Price > 0 {
+				nextUpgrade = fmt.Sprintf("Next: %s — €%.0f", def.Name, def.Price)
+				break
 			}
-			hasUpgrades = true
-			affordable := ""
-			if balance < def.Price {
-				affordable = " ❌"
-			}
-			sb.WriteString(fmt.Sprintf("  Tier %d: %s — €%.0f%s\n", def.Tier, def.Name, def.Price, affordable))
-			sb.WriteString(fmt.Sprintf("    _%s_\n", advTruncate(def.Description, 120)))
 		}
-		if !hasUpgrades {
-			sb.WriteString("  ✨ Max tier reached!\n")
+
+		sb.WriteString(fmt.Sprintf("%s **%s** — %s (T%d)\n", emoji, title, currentName, currentTier))
+		if nextUpgrade != "" {
+			sb.WriteString(fmt.Sprintf("    %s\n", nextUpgrade))
+		} else {
+			sb.WriteString("    ✨ Maxed out!\n")
 		}
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("To buy: reply with `buy <item name>`\n")
-	sb.WriteString("Example: `buy Sad Iron Sword`")
+	sb.WriteString("Browse a category: `!adventure shop <category>`\n")
+	sb.WriteString("Categories: `weapon` · `armor` · `helmet` · `boots` · `tool`")
 	return sb.String()
 }
 
-func advTruncate(s string, n int) string {
-	if len(s) <= n {
-		return s
+var shopCategoryAliases = map[string]EquipmentSlot{
+	"weapon": SlotWeapon, "weapons": SlotWeapon, "sword": SlotWeapon, "swords": SlotWeapon,
+	"armor": SlotArmor, "armour": SlotArmor,
+	"helmet": SlotHelmet, "helm": SlotHelmet, "helmets": SlotHelmet,
+	"boots": SlotBoots, "boot": SlotBoots,
+	"tool": SlotTool, "tools": SlotTool, "pickaxe": SlotTool,
+}
+
+// advParseShopCategory maps user input to an EquipmentSlot.
+func advParseShopCategory(input string) EquipmentSlot {
+	return shopCategoryAliases[strings.ToLower(strings.TrimSpace(input))]
+}
+
+// advShopCategory shows detailed listings for a single equipment slot.
+func advShopCategory(slot EquipmentSlot, equip map[EquipmentSlot]*AdvEquipment, balance float64) string {
+	var sb strings.Builder
+
+	current := equip[slot]
+	currentTier := 0
+	currentName := "None"
+	if current != nil {
+		currentTier = current.Tier
+		currentName = current.Name
 	}
-	return s[:n-3] + "..."
+
+	emoji := slotEmoji(slot)
+	title := slotTitle(slot)
+
+	sb.WriteString(fmt.Sprintf("%s **%s Shop**\n", emoji, title))
+	sb.WriteString(fmt.Sprintf("💰 Balance: €%.0f\n", balance))
+	sb.WriteString(fmt.Sprintf("Equipped: **%s** (Tier %d)\n\n", currentName, currentTier))
+
+	defs := equipmentTiers[slot]
+	hasUpgrades := false
+	for _, def := range defs {
+		if def.Tier <= currentTier || def.Price == 0 {
+			continue
+		}
+		hasUpgrades = true
+
+		priceTag := fmt.Sprintf("€%.0f", def.Price)
+		if balance < def.Price {
+			priceTag += "  💸 can't afford"
+		} else {
+			priceTag += "  ✅ affordable"
+		}
+
+		sb.WriteString(fmt.Sprintf("**Tier %d: %s** — %s\n", def.Tier, def.Name, priceTag))
+		sb.WriteString(fmt.Sprintf("%s\n\n", def.Description))
+	}
+
+	if !hasUpgrades {
+		sb.WriteString("✨ You've reached max tier! Nothing left to buy here.\n\n")
+	}
+
+	sb.WriteString("To buy: `!adventure buy <item name>` or `!adventure buy <tier> <category>`\n")
+	sb.WriteString("Example: `!adventure buy Enchanted Blade` or `!adventure buy 4 sword`\n")
+	sb.WriteString("Back to overview: `!adventure shop`")
+	return sb.String()
 }
 
 // ── Find Shop Item ───────────────────────────────────────────────────────────
 
+// normalizeQuotes replaces common Unicode quotes/apostrophes with ASCII equivalents.
+var quoteReplacer = strings.NewReplacer(
+	"\u2018", "'", "\u2019", "'", // left/right single curly quotes
+	"\u201C", "\"", "\u201D", "\"", // left/right double curly quotes
+	"\u2032", "'", // prime
+)
+
+func normalizeQuotes(s string) string {
+	return quoteReplacer.Replace(s)
+}
+
 func advFindShopItem(name string) (EquipmentSlot, *EquipmentDef, bool) {
-	name = strings.ToLower(strings.TrimSpace(name))
+	name = normalizeQuotes(strings.TrimSpace(name))
+
+	// Support tier+category shorthand: "3 sword", "tier 3 weapon", "t3 boots", etc.
+	if slot, def, ok := advFindByTierShorthand(name); ok {
+		return slot, def, true
+	}
+
 	for _, slot := range allSlots {
 		for i := range equipmentTiers[slot] {
 			def := &equipmentTiers[slot][i]
 			if def.Price == 0 {
 				continue // can't buy tier 0
 			}
-			if strings.EqualFold(def.Name, name) || containsFold(def.Name, name) {
+			if strings.EqualFold(def.Name, name) || containsFold(normalizeQuotes(def.Name), name) {
 				return slot, def, true
 			}
+		}
+	}
+	return "", nil, false
+}
+
+// advFindByTierShorthand matches patterns like "3 sword", "tier 3 weapon", "t3 boots".
+func advFindByTierShorthand(input string) (EquipmentSlot, *EquipmentDef, bool) {
+	lower := strings.ToLower(input)
+
+	// Strip optional "tier " or "t" prefix.
+	lower = strings.TrimPrefix(lower, "tier ")
+	lower = strings.TrimPrefix(lower, "t")
+
+	// Expect "<number> <category>" or "<number><category>".
+	parts := strings.SplitN(strings.TrimSpace(lower), " ", 2)
+	if len(parts) < 2 {
+		return "", nil, false
+	}
+
+	tierStr := strings.TrimSpace(parts[0])
+	category := strings.TrimSpace(parts[1])
+
+	tier := 0
+	for _, c := range tierStr {
+		if c < '0' || c > '9' {
+			return "", nil, false
+		}
+		tier = tier*10 + int(c-'0')
+	}
+
+	slot := advParseShopCategory(category)
+	if slot == "" {
+		return "", nil, false
+	}
+
+	defs := equipmentTiers[slot]
+	for i := range defs {
+		if defs[i].Tier == tier && defs[i].Price > 0 {
+			return slot, &defs[i], true
 		}
 	}
 	return "", nil, false

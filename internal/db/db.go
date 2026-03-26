@@ -73,14 +73,11 @@ func JobCompleted(jobName, dateKey string) bool {
 
 // MarkJobCompleted marks a scheduled job as completed for the given date key.
 func MarkJobCompleted(jobName, dateKey string) {
-	_, err := Get().Exec(
+	Exec("mark job completed",
 		`INSERT INTO daily_prefetch (job_name, date, completed) VALUES (?, ?, 1)
 		 ON CONFLICT(job_name, date) DO UPDATE SET completed = 1`,
 		jobName, dateKey,
 	)
-	if err != nil {
-		slog.Error("mark job completed", "job", jobName, "date", dateKey, "err", err)
-	}
 }
 
 // CacheGet returns cached data for the given key if it exists and is within ttlSeconds.
@@ -100,15 +97,11 @@ func CacheGet(key string, ttlSeconds int) string {
 
 // CacheSet stores data in the generic API cache.
 func CacheSet(key, data string) {
-	d := Get()
-	_, err := d.Exec(
+	Exec("cache set",
 		`INSERT INTO api_cache (cache_key, data, cached_at) VALUES (?, ?, unixepoch())
 		 ON CONFLICT(cache_key) DO UPDATE SET data = ?, cached_at = unixepoch()`,
 		key, data, data,
 	)
-	if err != nil {
-		slog.Error("cache set", "key", key, "err", err)
-	}
 }
 
 // RunMaintenance purges stale data from cache tables, old rate limits,
@@ -152,6 +145,9 @@ func RunMaintenance() {
 
 		// Daily activity older than 1 year
 		{"daily_activity", `DELETE FROM daily_activity WHERE date < ?`, []interface{}{now.AddDate(-1, 0, 0).Format("2006-01-02")}},
+
+		// Forex rates older than 2 years (analysis needs 52 weeks, keep buffer)
+		{"forex_rates", `DELETE FROM forex_rates WHERE date < ?`, []interface{}{now.AddDate(-2, 0, 0).Format("2006-01-02")}},
 	}
 
 	totalDeleted := int64(0)
@@ -174,6 +170,25 @@ func RunMaintenance() {
 	}
 
 	slog.Info("maintenance: complete", "total_purged", totalDeleted)
+}
+
+// Exec runs a write query, logging any error with the given label.
+// Use for fire-and-forget writes where the error doesn't affect control flow.
+func Exec(label, query string, args ...interface{}) {
+	_, err := Get().Exec(query, args...)
+	if err != nil {
+		slog.Error("db: "+label, "err", err)
+	}
+}
+
+// ExecResult runs a write query and returns the result, logging any error.
+// Use when you need RowsAffected() or LastInsertId() but still want auto-logging.
+func ExecResult(label, query string, args ...interface{}) sql.Result {
+	res, err := Get().Exec(query, args...)
+	if err != nil {
+		slog.Error("db: "+label, "err", err)
+	}
+	return res
 }
 
 const schema = `
@@ -920,6 +935,35 @@ CREATE TABLE IF NOT EXISTS adventure_arena_log (
 	winner_id     TEXT NOT NULL,
 	xp_gained     INTEGER NOT NULL DEFAULT 0,
 	logged_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS adventure_events_log (
+	id           INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id      TEXT NOT NULL,
+	event_key    TEXT NOT NULL,
+	triggered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	expires_at   DATETIME NOT NULL,
+	responded_at DATETIME,
+	gold_awarded INTEGER NOT NULL DEFAULT 0,
+	xp_awarded   INTEGER NOT NULL DEFAULT 0,
+	outcome      TEXT NOT NULL DEFAULT 'pending'
+);
+CREATE INDEX IF NOT EXISTS idx_adv_events_user_outcome ON adventure_events_log(user_id, outcome);
+
+-- Forex
+CREATE TABLE IF NOT EXISTS forex_rates (
+	currency TEXT NOT NULL,
+	date     TEXT NOT NULL,
+	rate     REAL NOT NULL,
+	PRIMARY KEY (currency, date)
+);
+
+CREATE TABLE IF NOT EXISTS forex_alerts (
+	user_id   TEXT NOT NULL,
+	currency  TEXT NOT NULL,
+	threshold REAL NOT NULL,
+	fired_at  INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (user_id, currency, threshold)
 );
 
 `

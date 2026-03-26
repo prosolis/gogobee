@@ -70,38 +70,39 @@ func (p *URLsPlugin) OnMessage(ctx MessageContext) error {
 		return nil
 	}
 
-	for _, u := range urls {
-		title, desc, err := p.fetchPreview(u)
-		if err != nil {
-			slog.Debug("urls: fetch preview failed", "url", u, "err", err)
-			continue
-		}
+	go p.previewURL(ctx, urls[0])
+	return nil
+}
 
-		if title == "" && desc == "" {
-			continue
-		}
-
-		var preview strings.Builder
-		if title != "" {
-			preview.WriteString(fmt.Sprintf("Title: %s", title))
-		}
-		if desc != "" {
-			if preview.Len() > 0 {
-				preview.WriteString("\n")
-			}
-			// Truncate long descriptions
-			if len(desc) > 200 {
-				desc = desc[:200] + "..."
-			}
-			preview.WriteString(fmt.Sprintf("Description: %s", desc))
-		}
-
-		if err := p.SendReply(ctx.RoomID, ctx.EventID, preview.String()); err != nil {
-			slog.Error("urls: send preview", "err", err)
-		}
+func (p *URLsPlugin) previewURL(ctx MessageContext, targetURL string) {
+	title, desc, err := p.fetchPreview(targetURL)
+	if err != nil {
+		slog.Debug("urls: fetch preview failed", "url", targetURL, "err", err)
+		return
 	}
 
-	return nil
+	if title == "" && desc == "" {
+		return
+	}
+
+	var preview strings.Builder
+	if title != "" {
+		preview.WriteString(fmt.Sprintf("Title: %s", title))
+	}
+	if desc != "" {
+		if preview.Len() > 0 {
+			preview.WriteString("\n")
+		}
+		// Truncate long descriptions
+		if len(desc) > 200 {
+			desc = desc[:200] + "..."
+		}
+		preview.WriteString(fmt.Sprintf("Description: %s", desc))
+	}
+
+	if err := p.SendReply(ctx.RoomID, ctx.EventID, preview.String()); err != nil {
+		slog.Error("urls: send preview", "err", err)
+	}
 }
 
 // fetchPreview retrieves og:title and og:description, checking cache first.
@@ -127,14 +128,11 @@ func (p *URLsPlugin) fetchPreview(rawURL string) (string, string, error) {
 	}
 
 	// Cache the result
-	_, cacheErr := d.Exec(
+	db.Exec("urls: cache write",
 		`INSERT INTO url_cache (url, title, description, cached_at) VALUES (?, ?, ?, ?)
 		 ON CONFLICT(url) DO UPDATE SET title = ?, description = ?, cached_at = ?`,
 		rawURL, title, desc, now, title, desc, now,
 	)
-	if cacheErr != nil {
-		slog.Error("urls: cache write", "err", cacheErr)
-	}
 
 	return title, desc, nil
 }

@@ -31,9 +31,11 @@ func (r *Registry) Init() error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, p := range r.plugins {
+		slog.Info("initializing plugin", "name", p.Name())
 		if err := p.Init(); err != nil {
 			return err
 		}
+		slog.Info("initialized plugin", "name", p.Name())
 	}
 	return nil
 }
@@ -43,12 +45,27 @@ func (r *Registry) DispatchMessage(ctx plugin.MessageContext) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, p := range r.plugins {
-		if err := p.OnMessage(ctx); err != nil {
-			slog.Error("plugin message handler error",
+		r.safeOnMessage(p, ctx)
+	}
+}
+
+func (r *Registry) safeOnMessage(p plugin.Plugin, ctx plugin.MessageContext) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("plugin message handler panic",
 				"plugin", p.Name(),
-				"err", err,
+				"panic", rec,
+				"sender", ctx.Sender,
+				"room", ctx.RoomID,
+				"body", truncate(ctx.Body, 100),
 			)
 		}
+	}()
+	if err := p.OnMessage(ctx); err != nil {
+		slog.Error("plugin message handler error",
+			"plugin", p.Name(),
+			"err", err,
+		)
 	}
 }
 
@@ -57,12 +74,27 @@ func (r *Registry) DispatchReaction(ctx plugin.ReactionContext) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, p := range r.plugins {
-		if err := p.OnReaction(ctx); err != nil {
-			slog.Error("plugin reaction handler error",
+		r.safeOnReaction(p, ctx)
+	}
+}
+
+func (r *Registry) safeOnReaction(p plugin.Plugin, ctx plugin.ReactionContext) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("plugin reaction handler panic",
 				"plugin", p.Name(),
-				"err", err,
+				"panic", rec,
+				"sender", ctx.Sender,
+				"room", ctx.RoomID,
+				"emoji", ctx.Emoji,
 			)
 		}
+	}()
+	if err := p.OnReaction(ctx); err != nil {
+		slog.Error("plugin reaction handler error",
+			"plugin", p.Name(),
+			"err", err,
+		)
 	}
 }
 
@@ -75,6 +107,13 @@ func (r *Registry) GetCommands() []plugin.CommandDef {
 		cmds = append(cmds, p.Commands()...)
 	}
 	return cmds
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // GetPlugin returns a plugin by name.

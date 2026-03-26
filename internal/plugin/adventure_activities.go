@@ -317,11 +317,14 @@ func advIsEligible(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipme
 		return false, false
 	}
 
-	// Check minimum equipment tier
-	minTier := 99
-	for _, eq := range equip {
-		if eq.Tier < minTier {
-			minTier = eq.Tier
+	// Check minimum equipment tier — no equipment means tier 0
+	minTier := 0
+	if len(equip) > 0 {
+		minTier = 99
+		for _, eq := range equip {
+			if eq.Tier < minTier {
+				minTier = eq.Tier
+			}
 		}
 	}
 	if minTier < loc.MinEquipTier {

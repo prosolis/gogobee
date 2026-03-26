@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"fmt"
 	"math/rand/v2"
 	"strings"
@@ -143,7 +142,7 @@ func (p *FlipPlugin) handleLoseboard(ctx MessageContext) error {
 	var sb strings.Builder
 	sb.WriteString("🐝 **GogoBee's Trophy Wall**\n\n")
 	for i, uid := range order {
-		name := p.flipDisplayName(id.UserID(uid))
+		name := p.DisplayName(id.UserID(uid))
 		stats := users[uid]
 		var parts []string
 		for game, count := range stats.breakdown {
@@ -163,8 +162,7 @@ func (p *FlipPlugin) handleLoseboard(ctx MessageContext) error {
 // recordBotDefeat increments the bot defeat counter for a user in a specific game.
 // This is a package-level function so all game plugins can call it.
 func recordBotDefeat(userID id.UserID, game string) {
-	d := db.Get()
-	_, _ = d.Exec(
+	db.Exec("flip: record bot defeat",
 		`INSERT INTO bot_defeats (user_id, game, losses)
 		 VALUES (?, ?, 1)
 		 ON CONFLICT(user_id, game) DO UPDATE SET
@@ -173,13 +171,7 @@ func recordBotDefeat(userID id.UserID, game string) {
 	)
 }
 
-func (p *FlipPlugin) flipDisplayName(userID id.UserID) string {
-	resp, err := p.Client.GetDisplayName(context.Background(), userID)
-	if err != nil || resp.DisplayName == "" {
-		return string(userID)
-	}
-	return resp.DisplayName
-}
+
 
 // redirectToGamesRoom returns the room ID for games-restricted redirect.
 func redirectToGamesRoom(sender id.UserID) string {

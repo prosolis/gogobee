@@ -260,13 +260,9 @@ func (p *CountdownPlugin) handleShow(ctx MessageContext, idStr string) error {
 }
 
 func (p *CountdownPlugin) completeOldCountdowns() {
-	d := db.Get()
 	cutoff := time.Now().UTC().AddDate(0, 0, -7).Format("2006-01-02")
-	_, err := d.Exec(
+	db.Exec("countdown: auto-complete",
 		`UPDATE countdowns SET completed = 1 WHERE target_date < ? AND completed = 0`,
 		cutoff,
 	)
-	if err != nil {
-		slog.Error("countdown: auto-complete", "err", err)
-	}
 }

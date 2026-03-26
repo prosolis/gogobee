@@ -377,6 +377,7 @@ var SummaryMiningSuccess = []string{
 	"Mining run at {location}: {ore} recovered, €{value}, no cave-ins.",
 	"Came back from {location} with {ore} and €{value} and a worse {tool}.",
 	"{ore} from {location}. €{value}. The back is filing a complaint.",
+	"You went mining. You tripped. You fell into the wall. You're out cold. But a rock broke free. You may have lost 8 hours. But hell, you gained {ore}. €{value}.",
 }
 
 var SummaryMiningDeath = []string{
@@ -400,6 +401,14 @@ var SummaryForagingSuccess = []string{
 	"Returned from {location} with {item} worth €{value} and zero injuries. Good day.",
 	"Clean haul from {location}. {item}, €{value}. The forest cooperated.",
 	"{item} from {location}. €{value}. One bear made eye contact. Moved on.",
+	"You went foraging. You foraged. Yep. Stuff found. Good job. What was it? Who cares? It's foraging. Does it really matter? Okay. Fine. It was {item}. €{value}.",
+}
+
+var SummaryForagingEmpty = []string{
+	"Wandered through {location}. Found nothing. Not even hornets.",
+	"{location}: searched every bush. Came home empty-handed.",
+	"Nothing from {location}. The forest was uncooperative today.",
+	"Went foraging in {location}. The forest kept its things.",
 }
 
 var SummaryForagingDeath = []string{

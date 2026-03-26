@@ -68,15 +68,12 @@ func (p *MarkovPlugin) collectMessage(userID id.UserID, text string) {
 	}
 
 	// Cap at 10,000 messages per user — delete oldest excess
-	_, err = d.Exec(
+	db.Exec("markov: prune corpus",
 		`DELETE FROM markov_corpus WHERE user_id = ? AND id NOT IN (
 			SELECT id FROM markov_corpus WHERE user_id = ? ORDER BY id DESC LIMIT 10000
 		)`,
 		string(userID), string(userID),
 	)
-	if err != nil {
-		slog.Error("markov: prune corpus", "err", err)
-	}
 }
 
 func (p *MarkovPlugin) handleMarkov(ctx MessageContext) error {

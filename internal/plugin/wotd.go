@@ -67,7 +67,12 @@ func (p *WOTDPlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *WOTDPlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "wotd") {
-		return p.handleWOTD(ctx)
+		go func() {
+			if err := p.handleWOTD(ctx); err != nil {
+				slog.Error("wotd: handler error", "err", err)
+			}
+		}()
+		return nil
 	}
 
 	// Passive: track WOTD usage in messages
@@ -383,10 +388,7 @@ func (p *WOTDPlugin) grantWOTDXP(userID id.UserID, amount int) {
 	}
 
 	// Log XP grant
-	_, err = d.Exec(
+	db.Exec("wotd: log xp",
 		`INSERT INTO xp_log (user_id, amount, reason) VALUES (?, ?, ?)`,
 		string(userID), amount, "wotd_usage")
-	if err != nil {
-		slog.Error("wotd: log xp", "err", err)
-	}
 }

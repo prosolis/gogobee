@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -21,6 +20,7 @@ import (
 // WordlePlugin provides a daily cooperative Wordle game.
 type WordlePlugin struct {
 	Base
+	euro          *EuroPlugin
 	apiKey        string
 	httpClient    *http.Client
 	defaultLength int
@@ -33,7 +33,7 @@ type WordlePlugin struct {
 }
 
 // NewWordlePlugin creates a new WordlePlugin.
-func NewWordlePlugin(client *mautrix.Client) *WordlePlugin {
+func NewWordlePlugin(client *mautrix.Client, euro *EuroPlugin) *WordlePlugin {
 	length := 5
 	if v := os.Getenv("WORDLE_DEFAULT_LENGTH"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 5 && n <= 7 {
@@ -43,6 +43,7 @@ func NewWordlePlugin(client *mautrix.Client) *WordlePlugin {
 
 	return &WordlePlugin{
 		Base:          NewBase(client),
+		euro:          euro,
 		apiKey:        os.Getenv("WORDNIK_API_KEY"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		defaultLength: length,
@@ -163,7 +164,7 @@ func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 	}
 
 	// Get display name.
-	displayName := p.displayName(ctx.Sender)
+	displayName := p.DisplayName(ctx.Sender)
 
 	// Score the guess.
 	results := scoreGuess(guess, puzzle.Answer)
@@ -187,8 +188,9 @@ func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 		definition := p.fetchDefinition(puzzle.Answer)
 		p.updateStats(puzzle)
 		p.markPuzzleDone(puzzle)
+		payouts := p.awardPrize(puzzle)
 
-		return p.SendMessage(ctx.RoomID, renderSolvedAnnouncement(puzzle, definition))
+		return p.SendMessage(ctx.RoomID, renderSolvedAnnouncement(puzzle, definition, payouts))
 	}
 
 	// Check for failure (all guesses used).
@@ -216,8 +218,12 @@ func (p *WordlePlugin) handleGrid(ctx MessageContext) error {
 	}
 
 	if len(puzzle.Guesses) == 0 {
+		hint := ""
+		if isCustomAllowedWord(puzzle.Answer) {
+			hint = "Today's word is video game related"
+		}
 		return p.SendReply(ctx.RoomID, ctx.EventID,
-			renderWordleStartAnnouncement(puzzle.PuzzleNumber, puzzle.WordLength))
+			renderWordleStartAnnouncement(puzzle.PuzzleNumber, puzzle.WordLength, hint))
 	}
 
 	return p.SendMessage(ctx.RoomID, renderWordleGrid(puzzle))
@@ -306,18 +312,11 @@ func (p *WordlePlugin) handleStats(ctx MessageContext) error {
 
 // createAndPostPuzzle creates a new puzzle, persists it, and posts the announcement.
 func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int) error {
-	if p.apiKey == "" {
-		return p.SendMessage(roomID, "Wordle is unavailable — WORDNIK_API_KEY not configured.")
-	}
-
-	// Try Wordnik first, fall back to local word list.
-	word, err := wordnikFetchRandomWord(p.apiKey, p.httpClient, wordLength)
-	if err != nil {
-		slog.Warn("wordle: Wordnik fetch failed, trying fallback", "err", err)
-		word = pickFallbackWord(wordLength)
-		if word == "" {
-			return p.SendMessage(roomID, "Failed to select a puzzle word. Try again later.")
-		}
+	// Use local word list for puzzle selection. Wordnik's randomWord endpoint
+	// requires a paid API tier; we keep Wordnik for guess validation and definitions only.
+	word := pickFallbackWord(wordLength)
+	if word == "" {
+		return p.SendMessage(roomID, "Failed to select a puzzle word — no words available for that length.")
 	}
 
 	puzzleNumber := p.nextPuzzleNumber()
@@ -336,24 +335,30 @@ func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int) err
 	}
 
 	// Persist to DB.
-	d := db.Get()
-	_, err = d.Exec(
+	db.Exec("wordle: persist puzzle",
 		`INSERT INTO wordle_puzzles (puzzle_id, room_id, answer, word_length, solved, guess_count, started_at)
 		 VALUES (?, ?, ?, ?, 0, 0, ?)
 		 ON CONFLICT(puzzle_id, room_id) DO UPDATE SET answer = ?, word_length = ?, solved = 0, guess_count = 0, started_at = ?`,
 		today, string(roomID), word, wordLength, now,
 		word, wordLength, now,
 	)
-	if err != nil {
-		slog.Error("wordle: persist puzzle", "err", err)
-	}
 
 	p.mu.Lock()
 	p.puzzles[roomID] = puzzle
+	// Evict stale cache entries from previous days.
+	for key := range p.validCache {
+		if key != today {
+			delete(p.validCache, key)
+		}
+	}
 	p.validCache[today] = make(map[string]bool)
 	p.mu.Unlock()
 
-	return p.SendMessage(roomID, renderWordleStartAnnouncement(puzzleNumber, wordLength))
+	hint := ""
+	if isCustomAllowedWord(word) {
+		hint = "Today's word is video game related"
+	}
+	return p.SendMessage(roomID, renderWordleStartAnnouncement(puzzleNumber, wordLength, hint))
 }
 
 // PostDailyPuzzle is called by the scheduler to post today's puzzle.
@@ -372,7 +377,8 @@ func (p *WordlePlugin) PostDailyPuzzle(roomID id.RoomID) error {
 	return p.createAndPostPuzzle(roomID, p.defaultLength)
 }
 
-// isValidWord checks if a word is valid, using the in-memory cache first.
+// isValidWord checks if a word is valid, using the in-memory cache first,
+// then the custom allow-list, then Wordnik.
 // Returns (valid, apiError). apiError is true when the API is unreachable.
 func (p *WordlePlugin) isValidWord(puzzleID, word string) (bool, bool) {
 	cache := p.validCache[puzzleID]
@@ -383,6 +389,12 @@ func (p *WordlePlugin) isValidWord(puzzleID, word string) (bool, bool) {
 
 	if valid, ok := cache[word]; ok {
 		return valid, false
+	}
+
+	// Check custom allow-list (game titles, etc.) before hitting the API.
+	if isCustomAllowedWord(word) {
+		cache[word] = true
+		return true, false
 	}
 
 	valid, apiErr := wordnikValidateWord(p.apiKey, p.httpClient, word)
@@ -396,13 +408,6 @@ func (p *WordlePlugin) fetchDefinition(word string) string {
 	return wordnikFetchDefinitionText(p.apiKey, p.httpClient, word)
 }
 
-func (p *WordlePlugin) displayName(userID id.UserID) string {
-	resp, err := p.Client.GetDisplayName(context.Background(), userID)
-	if err != nil || resp.DisplayName == "" {
-		return string(userID)
-	}
-	return resp.DisplayName
-}
 
 func (p *WordlePlugin) nextPuzzleNumber() int {
 	d := db.Get()
@@ -415,18 +420,14 @@ func (p *WordlePlugin) nextPuzzleNumber() int {
 }
 
 func (p *WordlePlugin) markPuzzleDone(puzzle *WordlePuzzle) {
-	d := db.Get()
 	solved := 0
 	if puzzle.Solved {
 		solved = 1
 	}
-	_, err := d.Exec(
+	db.Exec("wordle: mark puzzle done",
 		`UPDATE wordle_puzzles SET solved = ?, guess_count = ?, solved_at = ? WHERE puzzle_id = ? AND room_id = ?`,
 		solved, len(puzzle.Guesses), puzzle.SolvedAt, puzzle.PuzzleID, string(puzzle.RoomID),
 	)
-	if err != nil {
-		slog.Error("wordle: mark puzzle done", "err", err)
-	}
 }
 
 func (p *WordlePlugin) updateStats(puzzle *WordlePuzzle) {
@@ -491,6 +492,66 @@ func (p *WordlePlugin) updateStats(puzzle *WordlePuzzle) {
 	}
 }
 
+// WordlePayout tracks a payout for rendering.
+type WordlePayout struct {
+	Name   string
+	Amount int
+	Solver bool
+}
+
+// wordleBasePots maps guess count to euro prize pot. Fewer guesses = bigger reward.
+var wordleBasePots = [7]int{0, 100, 80, 60, 45, 35, 25}
+
+// awardPrize credits euros to all contributors when a puzzle is solved.
+// The solver who got the final guess gets a 50% bonus on their share.
+func (p *WordlePlugin) awardPrize(puzzle *WordlePuzzle) []WordlePayout {
+	if !puzzle.Solved || p.euro == nil {
+		return nil
+	}
+
+	guessesUsed := len(puzzle.Guesses)
+	pot := 25
+	if guessesUsed >= 1 && guessesUsed < len(wordleBasePots) {
+		pot = wordleBasePots[guessesUsed]
+	}
+
+	// Tally contributors.
+	type info struct {
+		name   string
+		solver bool
+	}
+	contributors := map[id.UserID]*info{}
+	var order []id.UserID
+	for i, g := range puzzle.Guesses {
+		if _, ok := contributors[g.PlayerID]; !ok {
+			contributors[g.PlayerID] = &info{name: g.PlayerName}
+			order = append(order, g.PlayerID)
+		}
+		if i == len(puzzle.Guesses)-1 {
+			contributors[g.PlayerID].solver = true
+		}
+	}
+
+	numPlayers := len(contributors)
+	share := pot / numPlayers
+	if share < 5 {
+		share = 5
+	}
+	solverBonus := share / 2
+
+	var payouts []WordlePayout
+	for _, uid := range order {
+		c := contributors[uid]
+		amount := share
+		if c.solver {
+			amount += solverBonus
+		}
+		p.euro.Credit(uid, float64(amount), "wordle_win")
+		payouts = append(payouts, WordlePayout{Name: c.name, Amount: amount, Solver: c.solver})
+	}
+	return payouts
+}
+
 func (p *WordlePlugin) communityStreak() int {
 	d := db.Get()
 	rows, err := d.Query(
@@ -520,6 +581,17 @@ func (p *WordlePlugin) rehydratePuzzles() {
 	today := time.Now().UTC().Format("2006-01-02")
 	d := db.Get()
 
+	// Collect rows first, then close the cursor before doing any nested queries.
+	// SQLite deadlocks if a nested query runs while rows are still open on a
+	// single-connection pool.
+	type puzzleRow struct {
+		pid        string
+		roomStr    string
+		answer     string
+		wordLength int
+		startedAt  time.Time
+	}
+
 	rows, err := d.Query(
 		`SELECT puzzle_id, room_id, answer, word_length, solved, guess_count, started_at
 		 FROM wordle_puzzles WHERE puzzle_id = ?`, today)
@@ -527,8 +599,8 @@ func (p *WordlePlugin) rehydratePuzzles() {
 		slog.Warn("wordle: rehydrate query failed", "err", err)
 		return
 	}
-	defer rows.Close()
 
+	var pending []puzzleRow
 	for rows.Next() {
 		var pid, roomStr, answer string
 		var wordLength, solved, guessCount int
@@ -541,32 +613,37 @@ func (p *WordlePlugin) rehydratePuzzles() {
 			continue // already done
 		}
 
-		roomID := id.RoomID(roomStr)
+		pending = append(pending, puzzleRow{pid, roomStr, answer, wordLength, startedAt})
+	}
+	rows.Close()
 
-		// Get puzzle number.
+	for _, pr := range pending {
+		roomID := id.RoomID(pr.roomStr)
+
+		// Get puzzle number (safe now — no open cursor).
 		var puzzleNumber int
-		err := d.QueryRow(`SELECT COUNT(*) FROM wordle_puzzles WHERE puzzle_id <= ?`, pid).Scan(&puzzleNumber)
+		err := d.QueryRow(`SELECT COUNT(*) FROM wordle_puzzles WHERE puzzle_id <= ?`, pr.pid).Scan(&puzzleNumber)
 		if err != nil {
 			puzzleNumber = 1
 		}
 
 		puzzle := &WordlePuzzle{
-			PuzzleID:     pid,
+			PuzzleID:     pr.pid,
 			PuzzleNumber: puzzleNumber,
 			RoomID:       roomID,
-			Answer:       answer,
-			WordLength:   wordLength,
+			Answer:       pr.answer,
+			WordLength:   pr.wordLength,
 			MaxGuesses:   6,
-			StartedAt:    startedAt,
+			StartedAt:    pr.startedAt,
 			LetterStates: make(map[rune]LetterResult),
 		}
 
 		p.mu.Lock()
 		p.puzzles[roomID] = puzzle
-		p.validCache[pid] = make(map[string]bool)
+		p.validCache[pr.pid] = make(map[string]bool)
 		p.mu.Unlock()
 
-		slog.Info("wordle: rehydrated puzzle", "room", roomID, "answer_len", wordLength)
+		slog.Info("wordle: rehydrated puzzle", "room", roomID, "answer_len", pr.wordLength)
 	}
 }
 

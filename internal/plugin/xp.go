@@ -144,12 +144,9 @@ func (p *XPPlugin) grantXPInternal(userID id.UserID, amount int, reason string) 
 	}
 
 	// Log the XP grant
-	_, err = d.Exec(
+	db.Exec("xp: log grant",
 		`INSERT INTO xp_log (user_id, amount, reason) VALUES (?, ?, ?)`,
 		string(userID), amount, reason)
-	if err != nil {
-		slog.Error("xp: log grant", "err", err)
-	}
 
 	return newXP, leveledUp, newLevel
 }

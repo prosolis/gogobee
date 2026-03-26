@@ -266,16 +266,17 @@ func (p *AdventurePlugin) midnightReset() {
 				_ = saveAdvCharacter(&char)
 			}
 		} else {
-			// Update streak
-			if char.LastActionDate == time.Now().UTC().Add(-24*time.Hour).Format("2006-01-02") {
+			// Update streak — LastActionDate was set at action time
+			yesterday := time.Now().UTC().Add(-24 * time.Hour).Format("2006-01-02")
+			if char.LastActionDate == yesterday || char.LastActionDate == today {
 				char.CurrentStreak++
-			} else if char.LastActionDate != today {
+			} else {
+				// Gap in activity — start fresh
 				char.CurrentStreak = 1
 			}
 			if char.CurrentStreak > char.BestStreak {
 				char.BestStreak = char.CurrentStreak
 			}
-			char.LastActionDate = today
 			_ = saveAdvCharacter(&char)
 		}
 	}
@@ -293,6 +294,12 @@ func (p *AdventurePlugin) midnightReset() {
 	// Clear flavor history to prevent unbounded memory growth.
 	// Entries are only used for dedup within a day, so clearing at midnight is fine.
 	advClearFlavorHistory()
+
+	// Clear DM reminder dedup — entries are date-keyed so stale after midnight.
+	p.dmRemindedDate.Range(func(key, _ any) bool {
+		p.dmRemindedDate.Delete(key)
+		return true
+	})
 }
 
 // ── Helper ───────────────────────────────────────────────────────────────────

@@ -119,18 +119,26 @@ func (p *MoviesPlugin) Init() error { return nil }
 func (p *MoviesPlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *MoviesPlugin) OnMessage(ctx MessageContext) error {
-	if p.IsCommand(ctx.Body, "movie") {
-		return p.handleMovie(ctx)
-	}
-	if p.IsCommand(ctx.Body, "tv") {
-		return p.handleTV(ctx)
-	}
-	if p.IsCommand(ctx.Body, "upcoming") {
+	var handler func(MessageContext) error
+	switch {
+	case p.IsCommand(ctx.Body, "movie"):
+		handler = p.handleMovie
+	case p.IsCommand(ctx.Body, "tv"):
+		handler = p.handleTV
+	case p.IsCommand(ctx.Body, "upcoming"):
 		args := p.GetArgs(ctx.Body, "upcoming")
 		if strings.ToLower(strings.TrimSpace(args)) == "movies" {
-			return p.handleUpcoming(ctx)
+			handler = p.handleUpcoming
 		}
 	}
+	if handler == nil {
+		return nil
+	}
+	go func() {
+		if err := handler(ctx); err != nil {
+			slog.Error("movies: handler error", "err", err)
+		}
+	}()
 	return nil
 }
 
@@ -221,14 +229,11 @@ func (p *MoviesPlugin) fetchMovieDetail(movieID int) (*tmdbMovieDetail, error) {
 
 	// Update cache
 	data, _ := json.Marshal(detail)
-	_, err = d.Exec(
+	db.Exec("movies: cache write",
 		`INSERT INTO movie_cache (tmdb_id, data, cached_at) VALUES (?, ?, ?)
 		 ON CONFLICT(tmdb_id) DO UPDATE SET data = ?, cached_at = ?`,
 		movieID, string(data), time.Now().Unix(), string(data), time.Now().Unix(),
 	)
-	if err != nil {
-		slog.Error("movies: cache write", "err", err)
-	}
 
 	return &detail, nil
 }

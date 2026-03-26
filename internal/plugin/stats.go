@@ -37,6 +37,7 @@ func (p *StatsPlugin) Commands() []CommandDef {
 		{Name: "stats", Description: "Show message statistics for a user", Usage: "!stats [@user]", Category: "Leveling & Stats"},
 		{Name: "rankings", Description: "Show rankings for a stat category", Usage: "!rankings [words|links|questions|emojis]", Category: "Leveling & Stats"},
 		{Name: "personality", Description: "Show your chat personality archetype", Usage: "!personality", Category: "Leveling & Stats"},
+		{Name: "superstatsexplusalpha", Description: "Everything we know about you", Usage: "!superstatsexplusalpha [@user]", Category: "Leveling & Stats"},
 	}
 }
 
@@ -54,6 +55,9 @@ func (p *StatsPlugin) OnMessage(ctx MessageContext) error {
 	}
 	if p.IsCommand(ctx.Body, "personality") {
 		return p.handlePersonality(ctx)
+	}
+	if p.IsCommand(ctx.Body, "superstatsexplusalpha") {
+		return p.handleSuperStats(ctx)
 	}
 
 	// Skip tracking for bot commands
@@ -315,4 +319,239 @@ func (p *StatsPlugin) handlePersonality(ctx MessageContext) error {
 		string(ctx.Sender), archetype.Name, archetype.Description, formatNumber(totalMsg),
 	)
 	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
+}
+
+func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
+	target := ctx.Sender
+	args := p.GetArgs(ctx.Body, "superstatsexplusalpha")
+	if args != "" {
+		if resolved, ok := p.ResolveUser(args, ctx.RoomID); ok {
+			target = resolved
+		}
+	}
+
+	d := db.Get()
+	uid := string(target)
+	displayName := p.DisplayName(target)
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("📋 **SUPER STATS EX+α — %s**\n", displayName))
+	sb.WriteString("═══════════════════════════════\n\n")
+
+	// ── Level & Economy ──
+	var xp, level int
+	var balance float64
+	_ = d.QueryRow(`SELECT xp, level FROM users WHERE user_id = ?`, uid).Scan(&xp, &level)
+	_ = d.QueryRow(`SELECT balance FROM euro_balances WHERE user_id = ?`, uid).Scan(&balance)
+
+	var achievementCount int
+	_ = d.QueryRow(`SELECT COUNT(*) FROM achievements WHERE user_id = ?`, uid).Scan(&achievementCount)
+
+	sb.WriteString(fmt.Sprintf("⭐ **Level %d** · %s XP · 💰 €%.0f · 🏅 %d achievements\n\n",
+		level, formatNumber(xp), balance, achievementCount))
+
+	// ── Chat Stats ──
+	var totalMsg, totalWords, totalLinks, totalEmojis, totalQuestions int
+	err := d.QueryRow(
+		`SELECT total_messages, total_words, total_links, total_emojis, total_questions
+		 FROM user_stats WHERE user_id = ?`, uid,
+	).Scan(&totalMsg, &totalWords, &totalLinks, &totalEmojis, &totalQuestions)
+	if err == nil && totalMsg > 0 {
+		sb.WriteString(fmt.Sprintf("💬 **Chat:** %s msgs · %s words · %s links · %s emoji · %s questions\n",
+			formatNumber(totalMsg), formatNumber(totalWords), formatNumber(totalLinks),
+			formatNumber(totalEmojis), formatNumber(totalQuestions)))
+
+		// Personality
+		msgStats := util.MessageStats{Words: totalWords, Links: totalLinks, Emojis: totalEmojis, Questions: totalQuestions}
+		archetype := util.DeriveArchetype(msgStats, totalMsg)
+		sb.WriteString(fmt.Sprintf("   Personality: **%s**\n", archetype.Name))
+	}
+
+	// ── Sentiment ──
+	var positive, negative, neutral int
+	err = d.QueryRow(
+		`SELECT COALESCE(positive,0), COALESCE(negative,0), COALESCE(neutral,0)
+		 FROM sentiment_stats WHERE user_id = ?`, uid,
+	).Scan(&positive, &negative, &neutral)
+	if err == nil {
+		total := positive + negative + neutral
+		if total > 0 {
+			sb.WriteString(fmt.Sprintf("   Sentiment: +%d / -%d / ~%d", positive, negative, neutral))
+			pct := float64(positive) / float64(total) * 100
+			if pct >= 60 {
+				sb.WriteString(" 😊")
+			} else if float64(negative)/float64(total)*100 >= 40 {
+				sb.WriteString(" 😤")
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	// ── Potty Mouth ──
+	var mild, moderate, scorching int
+	err = d.QueryRow(
+		`SELECT COALESCE(mild,0), COALESCE(moderate,0), COALESCE(scorching,0)
+		 FROM potty_mouth WHERE user_id = ?`, uid,
+	).Scan(&mild, &moderate, &scorching)
+	if err == nil && (mild+moderate+scorching) > 0 {
+		sb.WriteString(fmt.Sprintf("   Potty mouth: 🤬 %d mild · %d moderate · %d scorching\n", mild, moderate, scorching))
+	}
+	sb.WriteString("\n")
+
+	// ── Adventure ──
+	var combatLv, miningLv, forageLv, combatXP, miningXP, forageXP int
+	var alive bool
+	var streak, bestStreak int
+	err = d.QueryRow(
+		`SELECT combat_level, mining_skill, foraging_skill,
+		        combat_xp, mining_xp, foraging_xp,
+		        alive, current_streak, best_streak
+		 FROM adventure_characters WHERE user_id = ?`, uid,
+	).Scan(&combatLv, &miningLv, &forageLv, &combatXP, &miningXP, &forageXP,
+		&alive, &streak, &bestStreak)
+	if err == nil {
+		status := "Alive"
+		if !alive {
+			status = "💀 Dead"
+		}
+		sb.WriteString(fmt.Sprintf("⚔️ **Adventure:** %s\n", status))
+		sb.WriteString(fmt.Sprintf("   Combat Lv.%d (%d XP) · Mining Lv.%d (%d XP) · Forage Lv.%d (%d XP)\n",
+			combatLv, combatXP, miningLv, miningXP, forageLv, forageXP))
+		if streak > 0 || bestStreak > 0 {
+			sb.WriteString(fmt.Sprintf("   🔥 Streak: %d days (best: %d)\n", streak, bestStreak))
+		}
+
+		// Equipment score (use canonical scoring function)
+		equip, eqErr := loadAdvEquipment(id.UserID(uid))
+		if eqErr == nil && len(equip) > 0 {
+			sb.WriteString(fmt.Sprintf("   Equipment score: %d\n", advEquipmentScore(equip)))
+		}
+		sb.WriteString("\n")
+	}
+
+	// ── Game Records ──
+	sb.WriteString("🎮 **Games:**\n")
+	hasGames := false
+
+	// Holdem
+	var hPlayed int
+	var hWon, hLost, hBiggest int64
+	err = d.QueryRow(
+		`SELECT hands_played, total_won, total_lost, biggest_pot
+		 FROM holdem_scores WHERE user_id = ?`, uid,
+	).Scan(&hPlayed, &hWon, &hLost, &hBiggest)
+	if err == nil && hPlayed > 0 {
+		net := hWon - hLost
+		sign := "+"
+		if net < 0 {
+			sign = ""
+		}
+		sb.WriteString(fmt.Sprintf("   🃏 Holdem: %d hands · %s€%d net · biggest pot €%d\n",
+			hPlayed, sign, net, hBiggest))
+		hasGames = true
+	}
+
+	// Blackjack
+	var bjPlayed, bjWon int
+	var bjEarned float64
+	err = d.QueryRow(
+		`SELECT games_played, games_won, total_earned
+		 FROM blackjack_scores WHERE user_id = ?`, uid,
+	).Scan(&bjPlayed, &bjWon, &bjEarned)
+	if err == nil && bjPlayed > 0 {
+		sb.WriteString(fmt.Sprintf("   🂡 Blackjack: %d/%d W/L · €%.0f earned\n",
+			bjWon, bjPlayed-bjWon, bjEarned))
+		hasGames = true
+	}
+
+	// Hangman
+	var hmPlayed, hmWon int
+	var hmEarned float64
+	err = d.QueryRow(
+		`SELECT games_played, games_won, total_earned
+		 FROM hangman_scores WHERE user_id = ?`, uid,
+	).Scan(&hmPlayed, &hmWon, &hmEarned)
+	if err == nil && hmPlayed > 0 {
+		sb.WriteString(fmt.Sprintf("   📝 Hangman: %d/%d W/L · €%.0f earned\n",
+			hmWon, hmPlayed-hmWon, hmEarned))
+		hasGames = true
+	}
+
+	// Wordle
+	var wPlayed, wSolved, wGuesses int
+	err = d.QueryRow(
+		`SELECT puzzles_played, puzzles_solved, total_guesses
+		 FROM wordle_stats WHERE user_id = ?`, uid,
+	).Scan(&wPlayed, &wSolved, &wGuesses)
+	if err == nil && wPlayed > 0 {
+		avg := float64(wGuesses) / float64(wPlayed)
+		sb.WriteString(fmt.Sprintf("   🟩 Wordle: %d/%d solved · %.1f avg guesses\n",
+			wSolved, wPlayed, avg))
+		hasGames = true
+	}
+
+	// Trivia
+	var tCorrect, tWrong int
+	var tFastest int64
+	err = d.QueryRow(
+		`SELECT COALESCE(SUM(correct),0), COALESCE(SUM(wrong),0), COALESCE(MIN(fastest_ms),0)
+		 FROM trivia_scores WHERE user_id = ?`, uid,
+	).Scan(&tCorrect, &tWrong, &tFastest)
+	if (tCorrect + tWrong) > 0 {
+		fastStr := ""
+		if tFastest > 0 {
+			fastStr = fmt.Sprintf(" · fastest: %.1fs", float64(tFastest)/1000)
+		}
+		sb.WriteString(fmt.Sprintf("   🧠 Trivia: %d/%d correct%s\n",
+			tCorrect, tCorrect+tWrong, fastStr))
+		hasGames = true
+	}
+
+	// UNO (single + multi combined)
+	var unoSingleWins, unoSingleTotal int
+	_ = d.QueryRow(
+		`SELECT COUNT(*), COALESCE(SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END), 0)
+		 FROM uno_games WHERE player_id = ?`, uid,
+	).Scan(&unoSingleTotal, &unoSingleWins)
+	var unoMultiWins, unoMultiTotal int
+	_ = d.QueryRow(
+		`SELECT COUNT(*), COALESCE(SUM(CASE WHEN winner_id = ? THEN 1 ELSE 0 END), 0)
+		 FROM uno_multi_games WHERE player_ids LIKE ?`, uid, "%"+uid+"%",
+	).Scan(&unoMultiTotal, &unoMultiWins)
+	unoTotal := unoSingleTotal + unoMultiTotal
+	unoWins := unoSingleWins + unoMultiWins
+	if unoTotal > 0 {
+		sb.WriteString(fmt.Sprintf("   🎴 UNO: %d/%d W/L\n",
+			unoWins, unoTotal-unoWins))
+		hasGames = true
+	}
+
+	// Bot defeats
+	var botDefeats int
+	_ = d.QueryRow(`SELECT COALESCE(SUM(losses), 0) FROM bot_defeats WHERE user_id = ?`, uid).Scan(&botDefeats)
+	if botDefeats > 0 {
+		sb.WriteString(fmt.Sprintf("   🤖 Lost to TwinBee: %d times\n", botDefeats))
+		hasGames = true
+	}
+
+	if !hasGames {
+		sb.WriteString("   No game records yet.\n")
+	}
+
+	// ── Commands ──
+	var cmdCount int
+	_ = d.QueryRow(`SELECT COALESCE(SUM(count), 0) FROM command_usage WHERE user_id = ?`, uid).Scan(&cmdCount)
+	if cmdCount > 0 {
+		sb.WriteString(fmt.Sprintf("\n⌨️ %s commands used\n", formatNumber(cmdCount)))
+	}
+
+	// ── Account Age ──
+	var createdAt time.Time
+	err = d.QueryRow(`SELECT created_at FROM users WHERE user_id = ?`, uid).Scan(&createdAt)
+	if err == nil {
+		days := int(time.Since(createdAt).Hours() / 24)
+		sb.WriteString(fmt.Sprintf("📅 Member for %d days\n", days))
+	}
+
+	return p.SendMessage(ctx.RoomID, sb.String())
 }

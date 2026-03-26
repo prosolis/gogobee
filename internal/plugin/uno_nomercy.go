@@ -151,7 +151,7 @@ func (p *UnoPlugin) checkMultiMercyElimination(game *unoMultiGame, player *unoMu
 	}
 
 	player.active = false
-	name := p.unoDisplayName(player.userID)
+	name := p.DisplayName(player.userID)
 	if player.isBot {
 		name = unoBotName()
 	}

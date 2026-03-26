@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -234,8 +233,7 @@ func (p *EuroPlugin) GetBalance(userID id.UserID) float64 {
 }
 
 func (p *EuroPlugin) logTransaction(userID id.UserID, amount float64, reason string) {
-	d := db.Get()
-	_, _ = d.Exec(
+	db.Exec("euro: log transaction",
 		"INSERT INTO euro_transactions (user_id, amount, reason) VALUES (?, ?, ?)",
 		string(userID), amount, reason,
 	)
@@ -309,7 +307,7 @@ func (p *EuroPlugin) handleBaltop(ctx MessageContext) error {
 		var balance float64
 		rows.Scan(&userID, &balance)
 		rank++
-		name := p.displayName(id.UserID(userID))
+		name := p.DisplayName(id.UserID(userID))
 		medal := ""
 		switch rank {
 		case 1:
@@ -362,16 +360,9 @@ func (p *EuroPlugin) handleTransfer(ctx MessageContext) error {
 	}
 	p.Credit(targetID, amount, fmt.Sprintf("transfer from %s", ctx.Sender))
 
-	senderName := p.displayName(ctx.Sender)
-	targetName := p.displayName(targetID)
+	senderName := p.DisplayName(ctx.Sender)
+	targetName := p.DisplayName(targetID)
 	return p.SendReply(ctx.RoomID, ctx.EventID,
 		fmt.Sprintf("💸 **%s** sent €%d to **%s**.", senderName, int(amount), targetName))
 }
 
-func (p *EuroPlugin) displayName(userID id.UserID) string {
-	resp, err := p.Client.GetDisplayName(context.Background(), userID)
-	if err != nil || resp.DisplayName == "" {
-		return string(userID)
-	}
-	return resp.DisplayName
-}

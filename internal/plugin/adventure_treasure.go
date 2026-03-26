@@ -281,6 +281,7 @@ func advSaveTreasure(userID id.UserID, def *AdvTreasureDef) error {
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
 	for _, bonus := range def.Bonuses {
 		_, err := tx.Exec(`
@@ -288,7 +289,6 @@ func advSaveTreasure(userID id.UserID, def *AdvTreasureDef) error {
 			VALUES (?, ?, ?, ?, ?, ?)`,
 			string(userID), def.Key, def.Name, def.Tier, bonus.Type, bonus.Value)
 		if err != nil {
-			tx.Rollback()
 			return err
 		}
 	}

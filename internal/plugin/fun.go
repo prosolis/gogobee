@@ -321,7 +321,7 @@ func (p *FunPlugin) handleHLTB(ctx MessageContext) error {
 	}
 
 	// Cache result
-	_, _ = db.Get().Exec(
+	db.Exec("hltb: cache result",
 		`INSERT INTO hltb_cache (game_name, data, cached_at) VALUES (?, ?, ?)
 		 ON CONFLICT(game_name) DO UPDATE SET data = ?, cached_at = ?`,
 		strings.ToLower(gameName), result, time.Now().Unix(), result, time.Now().Unix(),

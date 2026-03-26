@@ -55,14 +55,10 @@ func (p *ReactionsPlugin) OnReaction(ctx ReactionContext) error {
 		return nil
 	}
 
-	d := db.Get()
-	_, err = d.Exec(
+	db.Exec("reactions: log reaction",
 		`INSERT INTO reaction_log (room_id, event_id, sender, target_user, emoji) VALUES (?, ?, ?, ?, ?)`,
 		string(ctx.RoomID), string(ctx.TargetEvent), string(ctx.Sender), string(targetUser), ctx.Emoji,
 	)
-	if err != nil {
-		slog.Error("reactions: log reaction", "err", err)
-	}
 
 	return nil
 }

@@ -65,14 +65,15 @@ func (p *HowAmIPlugin) OnMessage(ctx MessageContext) error {
 		slog.Error("howami: send thinking", "err", err)
 	}
 
-	profile := p.gatherProfile(target)
+	go func() {
+		profile := p.gatherProfile(target)
 
-	botName := os.Getenv("BOT_DISPLAY_NAME")
-	if botName == "" {
-		botName = "GogoBee"
-	}
-	prompt := fmt.Sprintf(
-		`You are a witty, playful community bot called %s. Based on the following user profile data, write a fun, lighthearted "roast" of this user in 3-5 sentences. Be creative, funny, and reference specific stats. Keep it friendly — no truly mean insults.
+		botName := os.Getenv("BOT_DISPLAY_NAME")
+		if botName == "" {
+			botName = "GogoBee"
+		}
+		prompt := fmt.Sprintf(
+			`You are a witty, playful community bot called %s. Based on the following user profile data, write a fun, lighthearted "roast" of this user in 3-5 sentences. Be creative, funny, and reference specific stats. Keep it friendly — no truly mean insults.
 
 User: %s
 
@@ -80,16 +81,20 @@ Profile data:
 %s
 
 Write the roast now. Do not include any preamble or explanation, just the roast text.`,
-		botName, string(target), profile,
-	)
+			botName, string(target), profile,
+		)
 
-	response, err := callOllama(ollamaHost, ollamaModel, prompt)
-	if err != nil {
-		slog.Error("howami: ollama call", "err", err)
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to generate profile. LLM might be offline.")
-	}
+		response, err := callOllama(ollamaHost, ollamaModel, prompt)
+		if err != nil {
+			slog.Error("howami: ollama call", "err", err)
+			p.SendReply(ctx.RoomID, ctx.EventID, "Failed to generate profile. LLM might be offline.")
+			return
+		}
 
-	return p.SendReply(ctx.RoomID, ctx.EventID, response)
+		p.SendReply(ctx.RoomID, ctx.EventID, response)
+	}()
+
+	return nil
 }
 
 func (p *HowAmIPlugin) gatherProfile(userID id.UserID) string {

@@ -87,12 +87,20 @@ func (p *RetroPlugin) Init() error { return nil }
 func (p *RetroPlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *RetroPlugin) OnMessage(ctx MessageContext) error {
-	if p.IsCommand(ctx.Body, "game") {
-		return p.handleSearch(ctx, p.GetArgs(ctx.Body, "game"))
+	var query string
+	switch {
+	case p.IsCommand(ctx.Body, "game"):
+		query = p.GetArgs(ctx.Body, "game")
+	case p.IsCommand(ctx.Body, "retro"):
+		query = p.GetArgs(ctx.Body, "retro")
+	default:
+		return nil
 	}
-	if p.IsCommand(ctx.Body, "retro") {
-		return p.handleSearch(ctx, p.GetArgs(ctx.Body, "retro"))
-	}
+	go func() {
+		if err := p.handleSearch(ctx, query); err != nil {
+			slog.Error("retro: handler error", "err", err)
+		}
+	}()
 	return nil
 }
 
@@ -187,14 +195,11 @@ func (p *RetroPlugin) fetchGames(query string) (*retroCacheEntry, error) {
 
 	// Update cache
 	data, _ := json.Marshal(entry)
-	_, err = d.Exec(
+	db.Exec("retro: cache write",
 		`INSERT INTO retro_cache (search_term, data, cached_at) VALUES (?, ?, ?)
 		 ON CONFLICT(search_term) DO UPDATE SET data = ?, cached_at = ?`,
 		cacheKey, string(data), time.Now().Unix(), string(data), time.Now().Unix(),
 	)
-	if err != nil {
-		slog.Error("retro: cache write", "err", err)
-	}
 
 	return entry, nil
 }

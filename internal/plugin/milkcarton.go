@@ -240,36 +240,44 @@ func (p *MilkCartonPlugin) getMissingMembers() []missingMember {
 	}
 	defer rows.Close()
 
-	var result []missingMember
+	type candidate struct {
+		userID, lastDate string
+	}
+	var candidates []candidate
 	for rows.Next() {
-		var userID, lastDate string
-		if err := rows.Scan(&userID, &lastDate); err != nil {
+		var c candidate
+		if err := rows.Scan(&c.userID, &c.lastDate); err != nil {
 			continue
 		}
+		candidates = append(candidates, c)
+	}
+	rows.Close()
 
+	var result []missingMember
+	for _, c := range candidates {
 		// Skip excluded users
-		if p.excludeUsers[userID] {
+		if p.excludeUsers[c.userID] {
 			continue
 		}
 
 		// Skip bots (our own user ID)
-		if id.UserID(userID) == p.Client.UserID {
+		if id.UserID(c.userID) == p.Client.UserID {
 			continue
 		}
 
 		// Skip users with active away/afk status
 		var awayStatus int
-		_ = d.QueryRow(`SELECT 1 FROM presence WHERE user_id = ? AND status IN ('away', 'afk')`, userID).Scan(&awayStatus)
+		_ = d.QueryRow(`SELECT 1 FROM presence WHERE user_id = ? AND status IN ('away', 'afk')`, c.userID).Scan(&awayStatus)
 		if awayStatus == 1 {
 			continue
 		}
 
-		lastTime, err := time.Parse("2006-01-02", lastDate)
+		lastTime, err := time.Parse("2006-01-02", c.lastDate)
 		if err != nil {
 			continue
 		}
 		days := int(now.Sub(lastTime).Hours() / 24)
-		result = append(result, missingMember{userID: userID, daysSince: days})
+		result = append(result, missingMember{userID: c.userID, daysSince: days})
 	}
 	return result
 }

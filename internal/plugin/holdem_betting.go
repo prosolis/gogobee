@@ -56,8 +56,8 @@ func (g *HoldemGame) postBlinds() (sbIdx, bbIdx int) {
 
 // firstToActPreflop returns the seat index of the first player to act preflop.
 func (g *HoldemGame) firstToActPreflop(bbIdx int) int {
-	n := len(g.Players)
-	if n == 2 {
+	inHand := len(g.inHandPlayers())
+	if inHand == 2 {
 		// Heads-up: dealer/SB acts first preflop.
 		return g.DealerIdx
 	}
@@ -83,6 +83,7 @@ type ActionResult struct {
 func (g *HoldemGame) doFold(seatIdx int) ActionResult {
 	p := g.Players[seatIdx]
 	p.State = PlayerFolded
+	p.HasActed = true
 	g.StreetHistory += "f"
 
 	ann := renderActionAnnouncement(p.DisplayName, "fold", 0)
@@ -105,6 +106,7 @@ func (g *HoldemGame) doCheck(seatIdx int) (ActionResult, string) {
 		return ActionResult{}, "You must call, raise, or fold — there's a bet to you."
 	}
 
+	p.HasActed = true
 	g.StreetHistory += "c"
 	ann := renderActionAnnouncement(p.DisplayName, "check", 0)
 	return ActionResult{
@@ -127,6 +129,7 @@ func (g *HoldemGame) doCall(seatIdx int) (ActionResult, string) {
 	p.Stack -= toCall
 	p.Bet += toCall
 	p.TotalBet += toCall
+	p.HasActed = true
 
 	action := "call"
 	if p.Stack == 0 {
@@ -171,6 +174,7 @@ func (g *HoldemGame) doRaise(seatIdx int, raiseTo int64) (ActionResult, string) 
 	p.Stack -= raiseAmount
 	p.Bet = raiseTo
 	p.TotalBet += raiseAmount
+	p.HasActed = true
 
 	if actualRaise > 0 {
 		g.MinRaise = actualRaise
@@ -214,6 +218,7 @@ func (g *HoldemGame) doAllIn(seatIdx int) ActionResult {
 	p.Bet = totalBet
 	p.TotalBet += allInAmount
 	p.State = PlayerAllIn
+	p.HasActed = true
 
 	if totalBet > g.CurrentBet {
 		actualRaise := totalBet - g.CurrentBet
@@ -247,9 +252,14 @@ func (g *HoldemGame) isStreetComplete(nextIdx int) bool {
 		return true
 	}
 
-	// Check if all Active players have matched the bet.
+	// Check if all Active players have matched the bet AND have acted at least once.
+	// The acted check is critical for preflop: BB posts a blind but hasn't voluntarily
+	// acted yet, so the street can't end before BB gets their option.
 	for _, p := range g.Players {
 		if p.State == PlayerActive && p.Bet != g.CurrentBet {
+			return false
+		}
+		if p.State == PlayerActive && !p.HasActed {
 			return false
 		}
 	}
@@ -364,10 +374,8 @@ func (g *HoldemGame) returnUncalledBet() (name string, amount int64) {
 		p := g.Players[highestIdx]
 		p.Stack += excess
 		p.TotalBet -= excess
-		p.Bet -= excess
-		if p.Bet < 0 {
-			p.Bet = 0
-		}
+		// Don't adjust per-street Bet — it may be smaller than the hand-total
+		// excess, and it's irrelevant since the hand is ending.
 		return p.DisplayName, excess
 	}
 
