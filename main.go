@@ -132,6 +132,11 @@ func main() {
 	registry.Register(plugin.NewMarkovPlugin(client))
 	registry.Register(plugin.NewURLsPlugin(client))
 
+	// Automation
+	minifluxPlugin := plugin.NewMinifluxPlugin(client)
+	plugin.RegisterMinifluxPlugin(minifluxPlugin)
+	registry.Register(minifluxPlugin)
+
 	// LLM-powered (passive)
 	registry.Register(plugin.NewLLMPassivePlugin(client, xpPlugin))
 
@@ -280,7 +285,7 @@ func main() {
 
 	// ---- Set up cron scheduler ----
 	scheduler := cron.New(cron.WithChain(cron.Recover(cronLogger{})))
-	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin, esteemedPlugin, forexPlugin)
+	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin, esteemedPlugin, forexPlugin, minifluxPlugin)
 	scheduler.Start()
 
 	// ---- Start syncing ----
@@ -332,6 +337,7 @@ func setupScheduledJobs(
 	concerts *plugin.ConcertsPlugin,
 	esteemed *plugin.EsteemPlugin,
 	forex *plugin.ForexPlugin,
+	miniflux *plugin.MinifluxPlugin,
 ) {
 	rooms := getRooms()
 
@@ -421,10 +427,25 @@ func setupScheduledJobs(
 		plugin.RefreshSpaceGroups()
 	})
 
+	// Markov corpus TTL purge at 03:30 daily
+	c.AddFunc("30 3 * * *", func() {
+		slog.Info("scheduler: purging expired markov entries")
+		plugin.MarkovPurgeExpired()
+	})
+
+	// Miniflux RSS polling
+	if miniflux != nil {
+		interval := fmt.Sprintf("@every %dm", miniflux.PollInterval())
+		c.AddFunc(interval, func() {
+			plugin.MinifluxPoll(client)
+		})
+	}
+
 	// Database maintenance at 03:00 daily
 	c.AddFunc("0 3 * * *", func() {
 		slog.Info("scheduler: running database maintenance")
 		db.RunMaintenance()
+		plugin.MinifluxPurgeSeen()
 	})
 }
 

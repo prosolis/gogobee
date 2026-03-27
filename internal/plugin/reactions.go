@@ -2,14 +2,15 @@ package plugin
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"gogobee/internal/db"
 
 	"maunium.net/go/mautrix"
+	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -29,7 +30,7 @@ func (p *ReactionsPlugin) Name() string { return "reactions" }
 
 func (p *ReactionsPlugin) Commands() []CommandDef {
 	return []CommandDef{
-		{Name: "emojiboard", Description: "Top emoji givers, receivers, and most used emojis", Usage: "!emojiboard", Category: "Reactions"},
+		{Name: "emojiboard", Description: "Top emoji givers, receivers, and most used emojis", Usage: "!emojiboard [@user | received [@user] | givers <emoji> | week]", Category: "Reactions"},
 	}
 }
 
@@ -72,80 +73,88 @@ func (p *ReactionsPlugin) resolveEventSender(roomID id.RoomID, eventID id.EventI
 	return evt.Sender, nil
 }
 
+// roomDisplayName returns a human-readable room name, falling back to the room ID.
+func (p *ReactionsPlugin) roomDisplayName(roomID id.RoomID) string {
+	var nameEvt event.RoomNameEventContent
+	err := p.Client.StateEvent(context.Background(), roomID, event.StateRoomName, "", &nameEvt)
+	if err == nil && nameEvt.Name != "" {
+		return nameEvt.Name
+	}
+	return string(roomID)
+}
+
 func (p *ReactionsPlugin) handleEmojiboard(ctx MessageContext) error {
-	members := p.RoomMembers(ctx.RoomID)
+	args := strings.TrimSpace(p.GetArgs(ctx.Body, "emojiboard"))
+	lower := strings.ToLower(args)
 
+	switch {
+	case args == "":
+		return p.emojiboardTop(ctx, 0)
+	case lower == "week":
+		return p.emojiboardTop(ctx, 7)
+	case strings.HasPrefix(lower, "received"):
+		rest := args[len("received"):]
+		return p.emojiboardReceived(ctx, strings.TrimSpace(rest))
+	case strings.HasPrefix(lower, "givers "):
+		rest := args[len("givers "):]
+		return p.emojiboardGivers(ctx, strings.TrimSpace(rest))
+	default:
+		// Treat as @user lookup (emojis given by user)
+		return p.emojiboardUser(ctx, args)
+	}
+}
+
+// emojiboardTop shows the top 10 most-used reaction emojis in the room.
+// If days > 0, scopes to that many days.
+func (p *ReactionsPlugin) emojiboardTop(ctx MessageContext, days int) error {
 	d := db.Get()
-	var sb strings.Builder
+	roomID := string(ctx.RoomID)
 
-	// Top 10 emoji givers
-	sb.WriteString("--- Top 10 Emoji Givers ---\n\n")
-	rows, err := d.Query(
-		`SELECT sender, COUNT(*) as cnt FROM reaction_log GROUP BY sender ORDER BY cnt DESC`,
+	var timeClause string
+	var queryArgs []any
+	queryArgs = append(queryArgs, roomID)
+	if days > 0 {
+		cutoff := time.Now().Unix() - int64(days*86400)
+		timeClause = " AND created_at >= ?"
+		queryArgs = append(queryArgs, cutoff)
+	}
+
+	// Get total reactions
+	var total int
+	row := d.QueryRow(
+		`SELECT COALESCE(COUNT(*), 0) FROM reaction_log WHERE room_id = ?`+timeClause,
+		queryArgs...,
 	)
-	if err != nil {
-		slog.Error("reactions: givers query", "err", err)
+	if err := row.Scan(&total); err != nil {
+		slog.Error("reactions: emojiboard total query", "err", err)
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
 	}
-	giverCount := appendUserBoard(&sb, rows, members)
-	rows.Close()
 
-	// Top 10 emoji receivers
-	sb.WriteString("\n--- Top 10 Emoji Receivers ---\n\n")
-	rows, err = d.Query(
-		`SELECT target_user, COUNT(*) as cnt FROM reaction_log GROUP BY target_user ORDER BY cnt DESC`,
-	)
-	if err != nil {
-		slog.Error("reactions: receivers query", "err", err)
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
-	}
-	receiverCount := appendUserBoard(&sb, rows, members)
-	rows.Close()
-
-	// Top 10 most used emojis (no user filtering needed)
-	sb.WriteString("\n--- Top 10 Most Used Emojis ---\n\n")
-	rows, err = d.Query(
-		`SELECT emoji, COUNT(*) as cnt FROM reaction_log GROUP BY emoji ORDER BY cnt DESC LIMIT 10`,
-	)
-	if err != nil {
-		slog.Error("reactions: emoji query", "err", err)
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
-	}
-	emojiCount := appendEmojiBoard(&sb, rows)
-	rows.Close()
-
-	if giverCount == 0 && receiverCount == 0 && emojiCount == 0 {
+	if total == 0 {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "No reaction data yet.")
 	}
 
-	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
-}
-
-// appendUserBoard writes ranked user lines from query rows, filtered by room members.
-func appendUserBoard(sb *strings.Builder, rows *sql.Rows, members map[id.UserID]bool) int {
-	medals := []string{"🥇", "🥈", "🥉"}
-	i := 0
-	for rows.Next() && i < 10 {
-		var name string
-		var cnt int
-		if err := rows.Scan(&name, &cnt); err != nil {
-			continue
-		}
-		if members != nil && !members[id.UserID(name)] {
-			continue
-		}
-		prefix := fmt.Sprintf("#%d", i+1)
-		if i < len(medals) {
-			prefix = medals[i]
-		}
-		sb.WriteString(fmt.Sprintf("%s %s — %s reactions\n", prefix, name, formatNumber(cnt)))
-		i++
+	// Get top 10 emojis
+	rows, err := d.Query(
+		`SELECT emoji, COUNT(*) as cnt FROM reaction_log WHERE room_id = ?`+timeClause+
+			` GROUP BY emoji ORDER BY cnt DESC LIMIT 10`,
+		queryArgs...,
+	)
+	if err != nil {
+		slog.Error("reactions: emojiboard query", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
 	}
-	return i
-}
+	defer rows.Close()
 
-// appendEmojiBoard writes ranked emoji lines.
-func appendEmojiBoard(sb *strings.Builder, rows *sql.Rows) int {
+	roomName := p.roomDisplayName(ctx.RoomID)
+	var sb strings.Builder
+
+	header := "🏆 Emoji Leaderboard"
+	if days > 0 {
+		header += fmt.Sprintf(" (last %d days)", days)
+	}
+	sb.WriteString(fmt.Sprintf("%s — %s\n\n", header, roomName))
+
 	i := 0
 	for rows.Next() {
 		var emoji string
@@ -153,8 +162,181 @@ func appendEmojiBoard(sb *strings.Builder, rows *sql.Rows) int {
 		if err := rows.Scan(&emoji, &cnt); err != nil {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("%d. %s — %s times\n", i+1, emoji, formatNumber(cnt)))
+		pct := cnt * 100 / total
+		sb.WriteString(fmt.Sprintf("%d. %s — %s (%d%%)\n", i+1, emoji, formatNumber(cnt), pct))
 		i++
 	}
-	return i
+
+	sb.WriteString(fmt.Sprintf("\nTotal reactions: %s\n", formatNumber(total)))
+
+	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
+}
+
+// emojiboardUser shows the top emojis given by a specific user.
+func (p *ReactionsPlugin) emojiboardUser(ctx MessageContext, userArg string) error {
+	userID, ok := p.ResolveUser(userArg, ctx.RoomID)
+	if !ok {
+		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Could not resolve user: %s", userArg))
+	}
+
+	d := db.Get()
+	roomID := string(ctx.RoomID)
+
+	// Total for this user in this room
+	var total int
+	row := d.QueryRow(
+		`SELECT COALESCE(COUNT(*), 0) FROM reaction_log WHERE room_id = ? AND sender = ?`,
+		roomID, string(userID),
+	)
+	if err := row.Scan(&total); err != nil {
+		slog.Error("reactions: emojiboard user total", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
+	}
+
+	if total == 0 {
+		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("%s has no reactions in this room.", p.DisplayName(userID)))
+	}
+
+	rows, err := d.Query(
+		`SELECT emoji, COUNT(*) as cnt FROM reaction_log WHERE room_id = ? AND sender = ? GROUP BY emoji ORDER BY cnt DESC LIMIT 10`,
+		roomID, string(userID),
+	)
+	if err != nil {
+		slog.Error("reactions: emojiboard user query", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
+	}
+	defer rows.Close()
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🏆 Emojis Given by %s — %s\n\n", p.DisplayName(userID), p.roomDisplayName(ctx.RoomID)))
+
+	i := 0
+	for rows.Next() {
+		var emoji string
+		var cnt int
+		if err := rows.Scan(&emoji, &cnt); err != nil {
+			continue
+		}
+		pct := cnt * 100 / total
+		sb.WriteString(fmt.Sprintf("%d. %s — %s (%d%%)\n", i+1, emoji, formatNumber(cnt), pct))
+		i++
+	}
+
+	sb.WriteString(fmt.Sprintf("\nTotal reactions given: %s\n", formatNumber(total)))
+
+	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
+}
+
+// emojiboardReceived shows the top emojis received by a user.
+func (p *ReactionsPlugin) emojiboardReceived(ctx MessageContext, userArg string) error {
+	// If no user specified, default to the sender
+	var userID id.UserID
+	if userArg == "" {
+		userID = ctx.Sender
+	} else {
+		var ok bool
+		userID, ok = p.ResolveUser(userArg, ctx.RoomID)
+		if !ok {
+			return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Could not resolve user: %s", userArg))
+		}
+	}
+
+	d := db.Get()
+	roomID := string(ctx.RoomID)
+
+	var total int
+	row := d.QueryRow(
+		`SELECT COALESCE(COUNT(*), 0) FROM reaction_log WHERE room_id = ? AND target_user = ?`,
+		roomID, string(userID),
+	)
+	if err := row.Scan(&total); err != nil {
+		slog.Error("reactions: emojiboard received total", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
+	}
+
+	if total == 0 {
+		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("%s has received no reactions in this room.", p.DisplayName(userID)))
+	}
+
+	rows, err := d.Query(
+		`SELECT emoji, COUNT(*) as cnt FROM reaction_log WHERE room_id = ? AND target_user = ? GROUP BY emoji ORDER BY cnt DESC LIMIT 10`,
+		roomID, string(userID),
+	)
+	if err != nil {
+		slog.Error("reactions: emojiboard received query", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
+	}
+	defer rows.Close()
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🏆 Emojis Received by %s — %s\n\n", p.DisplayName(userID), p.roomDisplayName(ctx.RoomID)))
+
+	i := 0
+	for rows.Next() {
+		var emoji string
+		var cnt int
+		if err := rows.Scan(&emoji, &cnt); err != nil {
+			continue
+		}
+		pct := cnt * 100 / total
+		sb.WriteString(fmt.Sprintf("%d. %s — %s (%d%%)\n", i+1, emoji, formatNumber(cnt), pct))
+		i++
+	}
+
+	sb.WriteString(fmt.Sprintf("\nTotal reactions received: %s\n", formatNumber(total)))
+
+	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
+}
+
+// emojiboardGivers shows the top 5 users who used a specific emoji most.
+func (p *ReactionsPlugin) emojiboardGivers(ctx MessageContext, emoji string) error {
+	if emoji == "" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !emojiboard givers <emoji>")
+	}
+
+	d := db.Get()
+	roomID := string(ctx.RoomID)
+
+	var total int
+	row := d.QueryRow(
+		`SELECT COALESCE(COUNT(*), 0) FROM reaction_log WHERE room_id = ? AND emoji = ?`,
+		roomID, emoji,
+	)
+	if err := row.Scan(&total); err != nil {
+		slog.Error("reactions: emojiboard givers total", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
+	}
+
+	if total == 0 {
+		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("No one has used %s in this room.", emoji))
+	}
+
+	rows, err := d.Query(
+		`SELECT sender, COUNT(*) as cnt FROM reaction_log WHERE room_id = ? AND emoji = ? GROUP BY sender ORDER BY cnt DESC LIMIT 5`,
+		roomID, emoji,
+	)
+	if err != nil {
+		slog.Error("reactions: emojiboard givers query", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load emojiboard.")
+	}
+	defer rows.Close()
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🏆 Top %s Givers — %s\n\n", emoji, p.roomDisplayName(ctx.RoomID)))
+
+	i := 0
+	for rows.Next() {
+		var sender string
+		var cnt int
+		if err := rows.Scan(&sender, &cnt); err != nil {
+			continue
+		}
+		pct := cnt * 100 / total
+		sb.WriteString(fmt.Sprintf("%d. %s — %s (%d%%)\n", i+1, p.DisplayName(id.UserID(sender)), formatNumber(cnt), pct))
+		i++
+	}
+
+	sb.WriteString(fmt.Sprintf("\nTotal %s reactions: %s\n", emoji, formatNumber(total)))
+
+	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
 }

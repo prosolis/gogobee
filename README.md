@@ -1,6 +1,6 @@
 # GogoBee
 
-Matrix community bot with E2EE, 47 plugins, passive tracking, scheduled posts, and optional LLM features.
+Matrix community bot with E2EE, 48 plugins, passive tracking, scheduled posts, and optional LLM features.
 
 Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption and [modernc.org/sqlite](https://modernc.org/sqlite) for storage.
 
@@ -29,7 +29,7 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
-- **43 plugins** with dependency injection and ordered registration
+- **48 plugins** with dependency injection and ordered registration
 - **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, Wordnik-powered, 5-7 letter words, video game themed bonus words with category hints, dupe prevention across last 500 puzzles), Adventure (daily idle RPG via DMs — dungeon, mine, forage, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
@@ -128,7 +128,17 @@ Everything is configured through environment variables or a `.env` file.
 
 | Variable | Description |
 |----------|-------------|
-| `QUOTE_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256 key for encrypted quote storage. Generate with `openssl rand -base64 32`. If unset, `!quote` is disabled. |
+| `QUOTE_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256 key for encrypted quote storage and Markov corpus. Generate with `openssl rand -base64 32`. If unset, `!quote` and `!markov` are disabled. |
+
+### Miniflux RSS (optional)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MINIFLUX_URL` | | Miniflux instance URL, e.g. `https://rss.example.com` |
+| `MINIFLUX_API_KEY` | | Miniflux API key (Settings → API Keys) |
+| `MINIFLUX_POLL_INTERVAL` | `15` | Minutes between polls |
+| `MINIFLUX_DEFAULT_ROOM` | `BROADCAST_ROOMS` | Default room for posts |
+| `MINIFLUX_MAX_PER_POLL` | `5` | Max entries per feed per poll cycle |
 
 ### Feature Flags
 
@@ -604,6 +614,28 @@ Three activity types across 5 tiers of locations (15 total). Higher tiers requir
 | `!missing post [@user]` | Generate a milk carton poster for the longest-absent (or specified) member |
 | `!haveyouseenthem @user` | Generate a milk carton missing poster for a user |
 
+### Markov
+| Command | Description |
+|---------|-------------|
+| `!markov [@user]` | Generate a sentence in the style of a user (or yourself) |
+| `!markov me` | Alias for generating from your own corpus |
+| `!markov @user1 @user2` | Mashup — interleave both users' corpora |
+| `!impersonate @user` | Alias for `!markov @user` |
+| `!ghostwrite @user <prompt>` | Seed the Markov chain with a starting phrase |
+| `!markov stats [@user]` | Corpus size, unique words, top 5 words, earliest date |
+| `!markov forget` | Delete your own Markov corpus (DM confirmation) |
+| `!markov forget @user` | Admin-only: clear another user's corpus |
+| `!markov leaderboard` | Top 10 by corpus size |
+
+### Emojiboard
+| Command | Description |
+|---------|-------------|
+| `!emojiboard` | Top 10 most-used reaction emojis in this room |
+| `!emojiboard @user` | Top emojis given by a specific user |
+| `!emojiboard received [@user]` | Top emojis received by a user |
+| `!emojiboard givers <emoji>` | Top 5 users who used a specific emoji most |
+| `!emojiboard week` | Same as `!emojiboard` but last 7 days only |
+
 ### LLM (requires Ollama)
 | Command | Description |
 |---------|-------------|
@@ -632,6 +664,18 @@ Three activity types across 5 tiers of locations (15 total). Higher tiers requir
 | `!mod status` | Show current moderation config |
 | `!mod test @user` | Simulate next violation without taking action |
 
+### RSS / Miniflux (requires `MINIFLUX_URL`)
+| Command | Description |
+|---------|-------------|
+| `!rss feeds` | List all feeds from Miniflux with IDs and categories |
+| `!rss subscribe <feed_id> [#room]` | Route a feed to this room (admin only) |
+| `!rss unsubscribe <feed_id>` | Stop routing a feed (admin only) |
+| `!rss subscriptions` | List active subscriptions for this room |
+| `!rss latest <feed_id>` | Manually fetch and post the latest entry |
+| `!rss pause <feed_id>` | Pause feed routing (admin only) |
+| `!rss resume <feed_id>` | Resume a paused feed (admin only) |
+| `!rss status` | Show polling status (admin only) |
+
 ### Other
 | Command | Description |
 |---------|-------------|
@@ -650,8 +694,8 @@ All of these run in the background without any commands:
 - **Stats** - tracks words, chars, links, images, questions, emojis, and time-of-day patterns
 - **Streaks** - consecutive days active, first poster of the day
 - **Reputation** - detects "thanks", "ty", "thx", etc. with 24h cooldown per pair
-- **Achievements** - 32 of them, checked silently on every message
-- **Markov chains** - collects messages for `!markov` generation (10k cap per user)
+- **Achievements** - 80 of them, checked silently on every message
+- **Markov chains** - collects encrypted messages for `!markov` generation (10k cap per user, 90-day TTL)
 - **Keyword alerts** - DMs you when someone says your watched keywords
 - **Presence** - auto-clears away/afk when you send a message
 - **Room milestones** - announces at 1k, 5k, 10k, 25k, 50k, 100k, 250k, 500k, 1M messages
@@ -681,27 +725,47 @@ Uses [robfig/cron](https://github.com/robfig/cron). All times UTC.
 | 13:00 Wed/Sun | Esteemed | Satirical esteemed community member posts (feature-flagged) |
 | Every 30s | Reminders | Fires pending reminders |
 | Hourly | Space groups | Refreshes room membership overlap and group mappings |
-| 03:00 | Maintenance | Purges stale caches, old rate limits, expired logs; runs SQLite optimize |
+| 03:00 | Maintenance | Purges stale caches, old rate limits, expired logs, miniflux seen entries; runs SQLite optimize |
+| 03:30 | Markov TTL | Purges markov corpus entries older than 90 days |
+| Every N min | Miniflux | Polls Miniflux for new feed entries (configurable, default 15m) |
 
 ---
 
 ## Achievements
 
-32 achievements:
+80 achievements across 14 categories:
 
-**Message Milestones** - first_message, 100_messages, 1000_messages, 10000_messages
+**Message Milestones** - first_message, 100_messages, 500_messages, 1000_messages, 5000_messages, 10000_messages
 
-**Time-Based** - night_owl (100 night msgs), early_bird (100 morning msgs)
+**Time-Based** - night_owl, early_bird, night_dweller, dawn_patrol
 
-**Content** - wordsmith (avg >8 words), link_collector (50 links), shutterbug (20 images), question_master (100 questions)
+**Content** - wordsmith, link_collector, link_hoarder, shutterbug, photographer, question_master, emoji_lover, exclaimer
 
-**Social** - welcome_wagon (first message), rep_magnet (10 rep received)
+**Social** - welcome_wagon, rep_magnet, rep_star
 
-**Streaks** - week_streak (7 days), month_streak (30 days)
+**Streaks** - week_streak, two_week_streak, month_streak, quarter_streak, year_streak
 
-**Trivia** - trivia_novice (10 correct), trivia_master (100 correct)
+**Trivia** - trivia_novice, trivia_master, trivia_legend
 
-**Special** - markov_victim (got markov'd), logophile (used 10 WOTDs)
+**Economy** - euro_first, euro_1k, euro_10k, euro_broke, euro_comeback, euro_generous
+
+**Blackjack** - bj_first_win, bj_blackjack, bj_bust, bj_beat_twinbee, bj_100_hands
+
+**UNO** - uno_first_win, uno_nomercy_win, uno_draw_stack, uno_comeback
+
+**Texas Hold'em** - holdem_first_win, holdem_royal_flush, holdem_bluff, holdem_beat_npc, holdem_allin_win, holdem_bounty
+
+**Hangman** - hangman_solve, hangman_first_guess, hangman_submitted, hangman_executioner
+
+**Wordle** - wordle_solve, wordle_first_guess, wordle_streak_3, wordle_bonus, wordle_closer
+
+**Adventure** - adv_first, adv_died, adv_revived, adv_streak_7, adv_streak_30, adv_max_level, adv_treasure_cap, adv_grudge_win, adv_party, adv_twinbee_gift
+
+**Community** - quote_saved, quote_saved_10, missing_poster, tarot_spread
+
+**WOTD** - wotd_first, wotd_week, wotd_30, logophile
+
+**Special** - markov_victim, birthday_set, timezone_set, profile_complete
 
 ---
 
@@ -768,6 +832,7 @@ All optional. The bot works fine without any of them, you just won't have those 
 | [HowLongToBeat](https://howlongtobeat.com) | Yes, no key | Game completion times |
 | [LibreTranslate](https://libretranslate.com) | Self-host | Translation |
 | [Ollama](https://ollama.ai) | Self-host | LLM features (sentiment, tarot, vibes, roasts) |
+| [Miniflux](https://miniflux.app) | Self-host | RSS feed routing |
 
 ---
 
@@ -792,7 +857,7 @@ gogobee/
 │   ├── crypto/
 │   │   └── crypto.go        # AES-256-GCM encryption, HMAC-SHA256
 │   ├── db/
-│   │   └── db.go            # SQLite schema (40+ tables), migrations
+│   │   └── db.go            # SQLite schema (80+ tables), migrations
 │   ├── plugin/
 │   │   ├── plugin.go        # Plugin interface, Base helpers, context types
 │   │   ├── xp.go            # XP & leveling
@@ -823,6 +888,7 @@ gogobee/
 │   │   ├── concerts.go      # Concerts
 │   │   ├── anime.go         # Anime
 │   │   ├── movies.go        # Movies/TV
+│   │   ├── miniflux.go      # Miniflux RSS feed routing
 │   │   ├── botinfo.go       # Admin diagnostics
 │   │   ├── howami.go        # LLM roasts
 │   │   ├── vibe.go          # Room vibe, TLDR
@@ -886,7 +952,7 @@ gogobee/
 
 Single SQLite file at `$DATA_DIR/gogobee.db`. Schema auto-creates on first run. WAL mode enabled.
 
-40+ tables covering users, XP, stats, streaks, reputation, reminders, trivia, achievements, encrypted quotes (AES-256-GCM), backlog, keyword watches, scheduler config, birthdays, horoscopes, LLM classifications, stocks, forex rates/alerts, concerts, anime, movies, countdowns, presence, markov corpus, reaction log, and various caches.
+80+ tables covering users, XP, stats, streaks, reputation, reminders, trivia, achievements, encrypted quotes (AES-256-GCM), backlog, keyword watches, scheduler config, birthdays, horoscopes, LLM classifications, stocks, forex rates/alerts, concerts, anime, movies, countdowns, presence, encrypted markov corpus, reaction log, miniflux RSS subscriptions, and various caches.
 
 ### Backup
 

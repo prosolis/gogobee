@@ -966,6 +966,23 @@ CREATE TABLE IF NOT EXISTS forex_alerts (
 	PRIMARY KEY (user_id, currency, threshold)
 );
 
+-- Miniflux RSS
+CREATE TABLE IF NOT EXISTS miniflux_subscriptions (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	feed_id     INTEGER NOT NULL,
+	room_id     TEXT NOT NULL,
+	paused      INTEGER NOT NULL DEFAULT 0,
+	created_at  INTEGER NOT NULL,
+	UNIQUE(feed_id, room_id)
+);
+
+CREATE TABLE IF NOT EXISTS miniflux_seen (
+	feed_id     INTEGER NOT NULL,
+	entry_id    INTEGER NOT NULL,
+	seen_at     INTEGER NOT NULL,
+	PRIMARY KEY (feed_id, entry_id)
+);
+
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

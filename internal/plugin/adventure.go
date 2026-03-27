@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"gogobee/internal/db"
-
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
 )
@@ -76,13 +74,12 @@ func (p *AdventurePlugin) Init() error {
 		slog.Info("adventure: rehydrated DM rooms", "count", len(chars))
 	}
 
-	// Catch up on missed jobs (e.g. after a redeploy or SQLite busy failure)
-	dateKey := time.Now().UTC().Format("2006-01-02")
-	if !db.JobCompleted("adventure_midnight", dateKey) {
-		slog.Info("adventure: missed midnight reset detected, running catch-up")
-		if err := resetAllAdvDailyActions(); err != nil {
-			slog.Error("adventure: catch-up daily reset failed", "err", err)
-		}
+	// Always reset daily actions at startup — idempotent (WHERE clause
+	// only touches characters whose last_action_date < today). This handles
+	// the case where the old buggy code marked the midnight job as completed
+	// even though the actual reset failed due to SQLite contention.
+	if err := resetAllAdvDailyActions(); err != nil {
+		slog.Error("adventure: startup daily reset failed", "err", err)
 	}
 	// Revive any characters whose DeadUntil has expired
 	p.catchUpRespawns(chars)
