@@ -12,7 +12,7 @@ import (
 
 // ── Currency Configuration ──────────────────────────────────────────────────
 
-var fxTrackedCurrencies = []string{"EUR", "JPY"}
+var fxTrackedCurrencies = []string{"EUR", "JPY", "CAD"}
 
 type fxCurrencyMeta struct {
 	Emoji string
@@ -22,6 +22,7 @@ type fxCurrencyMeta struct {
 var fxMeta = map[string]fxCurrencyMeta{
 	"EUR": {Emoji: "🇪🇺", Label: "Euro"},
 	"JPY": {Emoji: "🇯🇵", Label: "Japanese Yen"},
+	"CAD": {Emoji: "🇨🇦", Label: "Canadian Dollar"},
 }
 
 func fxIsTracked(cur string) bool {

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"gogobee/internal/db"
+
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
 )
@@ -74,6 +76,17 @@ func (p *AdventurePlugin) Init() error {
 		slog.Info("adventure: rehydrated DM rooms", "count", len(chars))
 	}
 
+	// Catch up on missed jobs (e.g. after a redeploy or SQLite busy failure)
+	dateKey := time.Now().UTC().Format("2006-01-02")
+	if !db.JobCompleted("adventure_midnight", dateKey) {
+		slog.Info("adventure: missed midnight reset detected, running catch-up")
+		if err := resetAllAdvDailyActions(); err != nil {
+			slog.Error("adventure: catch-up daily reset failed", "err", err)
+		}
+	}
+	// Revive any characters whose DeadUntil has expired
+	p.catchUpRespawns(chars)
+
 	// Start schedulers
 	go p.morningTicker()
 	go p.summaryTicker()
@@ -81,6 +94,25 @@ func (p *AdventurePlugin) Init() error {
 	go p.eventTicker()
 
 	return nil
+}
+
+func (p *AdventurePlugin) catchUpRespawns(chars []AdventureCharacter) {
+	now := time.Now().UTC()
+	for _, char := range chars {
+		if !char.Alive && char.DeadUntil != nil && now.After(*char.DeadUntil) {
+			char.Alive = true
+			char.DeadUntil = nil
+			if err := saveAdvCharacter(&char); err != nil {
+				slog.Error("adventure: catch-up revive failed", "user", char.UserID, "err", err)
+				continue
+			}
+			slog.Info("adventure: catch-up revived player", "user", char.UserID)
+			text := renderAdvRespawnDM(&char)
+			if err := p.SendDM(char.UserID, text); err != nil {
+				slog.Error("adventure: catch-up respawn DM failed", "user", char.UserID, "err", err)
+			}
+		}
+	}
 }
 
 func (p *AdventurePlugin) OnReaction(_ ReactionContext) error { return nil }

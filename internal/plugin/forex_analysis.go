@@ -8,7 +8,8 @@ import (
 
 // ForexSignal holds the computed analysis for a currency pair.
 type ForexSignal struct {
-	Currency   string
+	Currency   string  // single currency (e.g. "EUR") for USD-base signals
+	Pair       *fxPair // non-nil for cross-pair signals
 	Rate       float64
 	Avg30      float64
 	Avg90      float64
@@ -35,8 +36,14 @@ func (p *ForexPlugin) fxComputeSignal(currency string, currentRate float64) (*Fo
 	}
 	rates[len(records)] = currentRate
 
-	n := len(rates)
+	sig := fxComputeSignalFromRates(rates, currentRate)
+	sig.Currency = currency
+	return sig, nil
+}
 
+// fxComputeSignalFromRates computes the signal from a raw rate series.
+// The rates slice should be in chronological order with currentRate as the last element.
+func fxComputeSignalFromRates(rates []float64, currentRate float64) *ForexSignal {
 	// 30-day and 90-day moving averages (trading days, not calendar)
 	avg30 := fxAvg(rates, 30)
 	avg90 := fxAvg(rates, 90)
@@ -61,7 +68,7 @@ func (p *ForexPlugin) fxComputeSignal(currency string, currentRate float64) (*Fo
 	}
 
 	// Score: weighted combination of percentile position and deviation from averages
-	// Higher = USD is stronger = better time to convert
+	// Higher = base currency is stronger
 	devScore := fxDeviationScore(currentRate, avg30, avg90)
 	rawScore := percentile/100*10*0.6 + devScore*0.4
 	score := int(math.Round(rawScore))
@@ -74,10 +81,7 @@ func (p *ForexPlugin) fxComputeSignal(currency string, currentRate float64) (*Fo
 
 	label, emoji := fxScoreLabel(score)
 
-	_ = n // rates slice used above
-
 	return &ForexSignal{
-		Currency:   currency,
 		Rate:       currentRate,
 		Avg30:      avg30,
 		Avg90:      avg90,
@@ -87,7 +91,84 @@ func (p *ForexPlugin) fxComputeSignal(currency string, currentRate float64) (*Fo
 		Score:      score,
 		Label:      label,
 		Emoji:      emoji,
-	}, nil
+	}
+}
+
+// fxComputePairSignal computes a signal for a cross-pair by combining stored
+// USD-base histories. For pairs involving USD, it inverts or uses the rate
+// directly. For non-USD crosses (e.g. EUR/JPY), it joins by date and divides.
+func fxComputePairSignal(pair *fxPair, currentRate float64) (*ForexSignal, error) {
+	var sig *ForexSignal
+	var err error
+
+	if pair.Base == "USD" {
+		sig, err = fxComputePairSignalSingleCurrency(pair.Quote, currentRate, false)
+	} else if pair.Quote == "USD" {
+		sig, err = fxComputePairSignalSingleCurrency(pair.Base, currentRate, true)
+	} else {
+		sig, err = fxComputePairSignalCross(pair, currentRate)
+	}
+	if err != nil {
+		return nil, err
+	}
+	sig.Pair = pair
+	return sig, nil
+}
+
+func fxComputePairSignalCross(pair *fxPair, currentRate float64) (*ForexSignal, error) {
+	// Non-USD cross: load both, join by date, compute cross-rates
+	baseRecords, err := fxGetRatesByLimit(pair.Base, 260)
+	if err != nil || len(baseRecords) < 10 {
+		return nil, fmt.Errorf("insufficient data for %s", pair.Base)
+	}
+	quoteRecords, err := fxGetRatesByLimit(pair.Quote, 260)
+	if err != nil || len(quoteRecords) < 10 {
+		return nil, fmt.Errorf("insufficient data for %s", pair.Quote)
+	}
+
+	// Index quote rates by date for join
+	quoteByDate := make(map[string]float64, len(quoteRecords))
+	for _, r := range quoteRecords {
+		quoteByDate[r.Date] = r.Rate
+	}
+
+	// Compute cross-rates for matching dates
+	var crossRates []float64
+	for _, br := range baseRecords {
+		if qr, ok := quoteByDate[br.Date]; ok && br.Rate != 0 {
+			crossRates = append(crossRates, qr/br.Rate)
+		}
+	}
+	if len(crossRates) < 10 {
+		return nil, fmt.Errorf("insufficient overlapping data for %s/%s (%d records)", pair.Base, pair.Quote, len(crossRates))
+	}
+
+	crossRates = append(crossRates, currentRate)
+	sig := fxComputeSignalFromRates(crossRates, currentRate)
+	sig.Currency = pair.Base + "/" + pair.Quote
+	return sig, nil
+}
+
+// fxComputePairSignalSingleCurrency computes a signal for a pair where one side
+// is USD. If invert is true, all stored rates are inverted (1/rate).
+func fxComputePairSignalSingleCurrency(currency string, currentRate float64, invert bool) (*ForexSignal, error) {
+	records, err := fxGetRatesByLimit(currency, 260)
+	if err != nil || len(records) < 10 {
+		return nil, fmt.Errorf("insufficient data for %s (%d records)", currency, len(records))
+	}
+
+	rates := make([]float64, len(records)+1)
+	for i, r := range records {
+		if invert {
+			rates[i] = 1.0 / r.Rate
+		} else {
+			rates[i] = r.Rate
+		}
+	}
+	rates[len(records)] = currentRate
+
+	sig := fxComputeSignalFromRates(rates, currentRate)
+	return sig, nil
 }
 
 // fxAvg computes the average of the last n values in a slice.
@@ -142,6 +223,9 @@ func fxScoreLabel(score int) (string, string) {
 
 // FormatQuick returns a one-line summary.
 func (s *ForexSignal) FormatQuick() string {
+	if s.Pair != nil {
+		return s.formatQuickPair()
+	}
 	meta := fxMeta[s.Currency]
 	return fmt.Sprintf("%s **%s** 1 USD = **%s** %s · 30d avg: %s · USD strength: %d/10 %s %s",
 		meta.Emoji, s.Currency, fxFormatRate(s.Currency, s.Rate), s.Currency,
@@ -149,8 +233,24 @@ func (s *ForexSignal) FormatQuick() string {
 		s.Score, s.Emoji, s.Label)
 }
 
+func (s *ForexSignal) formatQuickPair() string {
+	meta := fxMeta[s.Pair.Base]
+	emoji := meta.Emoji
+	if emoji == "" {
+		emoji = "🇺🇸"
+	}
+	return fmt.Sprintf("%s **%s/%s** 1 %s = **%s** %s · 30d avg: %s · %s strength: %d/10 %s %s",
+		emoji, s.Pair.Base, s.Pair.Quote,
+		s.Pair.Base, fxFormatRate(s.Pair.Quote, s.Rate), s.Pair.Quote,
+		fxFormatRate(s.Pair.Quote, s.Avg30),
+		s.Pair.Base, s.Score, s.Emoji, s.Label)
+}
+
 // FormatReport returns a detailed analysis block.
 func (s *ForexSignal) FormatReport() string {
+	if s.Pair != nil {
+		return s.formatReportPair()
+	}
 	meta := fxMeta[s.Currency]
 	var sb strings.Builder
 
@@ -158,20 +258,9 @@ func (s *ForexSignal) FormatReport() string {
 	sb.WriteString(fmt.Sprintf("**Current:** 1 USD = **%s %s**\n\n", fxFormatRate(s.Currency, s.Rate), s.Currency))
 
 	// Moving averages
-	sb.WriteString(fmt.Sprintf("  30-day avg: %s", fxFormatRate(s.Currency, s.Avg30)))
-	if s.Rate > s.Avg30 {
-		sb.WriteString(fmt.Sprintf(" _(+%.1f%% above)_", (s.Rate-s.Avg30)/s.Avg30*100))
-	} else if s.Rate < s.Avg30 {
-		sb.WriteString(fmt.Sprintf(" _(%.1f%% below)_", (s.Rate-s.Avg30)/s.Avg30*100))
-	}
+	fxWriteAvgLine(&sb, "30-day", s.Currency, s.Rate, s.Avg30)
+	fxWriteAvgLine(&sb, "90-day", s.Currency, s.Rate, s.Avg90)
 	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("  90-day avg: %s", fxFormatRate(s.Currency, s.Avg90)))
-	if s.Rate > s.Avg90 {
-		sb.WriteString(fmt.Sprintf(" _(+%.1f%% above)_", (s.Rate-s.Avg90)/s.Avg90*100))
-	} else if s.Rate < s.Avg90 {
-		sb.WriteString(fmt.Sprintf(" _(%.1f%% below)_", (s.Rate-s.Avg90)/s.Avg90*100))
-	}
-	sb.WriteString("\n\n")
 
 	// 52-week range bar
 	sb.WriteString(fmt.Sprintf("  52-week range: %s — %s\n",
@@ -184,6 +273,52 @@ func (s *ForexSignal) FormatReport() string {
 	sb.WriteString("  _Higher = USD buys more — good time to convert USD._")
 
 	return sb.String()
+}
+
+func (s *ForexSignal) formatReportPair() string {
+	meta := fxMeta[s.Pair.Base]
+	emoji := meta.Emoji
+	label := meta.Label
+	if emoji == "" {
+		emoji = "🇺🇸"
+		label = "US Dollar"
+	}
+
+	quoteCur := s.Pair.Quote
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%s **%s/%s — %s**\n", emoji, s.Pair.Base, s.Pair.Quote, label))
+	sb.WriteString(fmt.Sprintf("**Current:** 1 %s = **%s %s**\n\n", s.Pair.Base, fxFormatRate(quoteCur, s.Rate), s.Pair.Quote))
+
+	// Moving averages
+	fxWriteAvgLine(&sb, "30-day", quoteCur, s.Rate, s.Avg30)
+	fxWriteAvgLine(&sb, "90-day", quoteCur, s.Rate, s.Avg90)
+	sb.WriteString("\n")
+
+	// 52-week range bar
+	sb.WriteString(fmt.Sprintf("  52-week range: %s — %s\n",
+		fxFormatRate(quoteCur, s.Low52w), fxFormatRate(quoteCur, s.High52w)))
+	sb.WriteString(fmt.Sprintf("  %s\n", fxRangeBar(s.Percentile)))
+	sb.WriteString(fmt.Sprintf("  Position: %.0f%%\n\n", s.Percentile))
+
+	// Score
+	sb.WriteString(fmt.Sprintf("  **%s Strength: %d/10** %s %s\n", s.Pair.Base, s.Score, s.Emoji, s.Label))
+	sb.WriteString(fmt.Sprintf("  _Higher = %s buys more %s._", s.Pair.Base, s.Pair.Quote))
+
+	return sb.String()
+}
+
+func fxWriteAvgLine(sb *strings.Builder, label, currency string, rate, avg float64) {
+	sb.WriteString(fmt.Sprintf("  %s avg: %s", label, fxFormatRate(currency, avg)))
+	if avg != 0 {
+		pct := (rate - avg) / avg * 100
+		if pct > 0 {
+			sb.WriteString(fmt.Sprintf(" _(+%.1f%% above)_", pct))
+		} else if pct < 0 {
+			sb.WriteString(fmt.Sprintf(" _(%.1f%% below)_", pct))
+		}
+	}
+	sb.WriteString("\n")
 }
 
 // fxRangeBar renders a text-based position indicator.

@@ -233,17 +233,19 @@ func (p *AdventurePlugin) midnightTicker() {
 		}
 
 		slog.Info("adventure: midnight reset")
-		p.midnightReset()
+		if err := p.midnightReset(); err != nil {
+			slog.Error("adventure: midnight reset failed, will retry next tick", "err", err)
+			continue
+		}
 		db.MarkJobCompleted(jobName, dateKey)
 	}
 }
 
-func (p *AdventurePlugin) midnightReset() {
+func (p *AdventurePlugin) midnightReset() error {
 	// Send idle shame DMs to players who didn't act
 	chars, err := loadAllAdvCharacters()
 	if err != nil {
-		slog.Error("adventure: midnight reset failed to load chars", "err", err)
-		return
+		return fmt.Errorf("load chars: %w", err)
 	}
 
 	today := time.Now().UTC().Format("2006-01-02")
@@ -281,9 +283,18 @@ func (p *AdventurePlugin) midnightReset() {
 		}
 	}
 
-	// Reset all daily actions
-	if err := resetAllAdvDailyActions(); err != nil {
-		slog.Error("adventure: failed to reset daily actions", "err", err)
+	// Reset all daily actions — retry up to 3 times to handle SQLite busy errors
+	// from concurrent writers (e.g. reminder fire loop).
+	var resetErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if resetErr = resetAllAdvDailyActions(); resetErr == nil {
+			break
+		}
+		slog.Warn("adventure: daily action reset failed, retrying", "attempt", attempt+1, "err", resetErr)
+		time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
+	}
+	if resetErr != nil {
+		return fmt.Errorf("reset daily actions after 3 attempts: %w", resetErr)
 	}
 
 	// Prune expired buffs
@@ -300,6 +311,8 @@ func (p *AdventurePlugin) midnightReset() {
 		p.dmRemindedDate.Delete(key)
 		return true
 	})
+
+	return nil
 }
 
 // ── Helper ───────────────────────────────────────────────────────────────────

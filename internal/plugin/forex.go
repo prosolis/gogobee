@@ -91,8 +91,9 @@ func (p *ForexPlugin) OnMessage(ctx MessageContext) error {
 }
 
 const fxHelpText = "**Forex Commands**\n\n" +
-	"`!fx rate [EUR|JPY]` — current rate + quick signal\n" +
-	"`!fx report [EUR|JPY]` — full analysis (averages, 52w range, buy score)\n" +
+	"`!fx rate [EUR|JPY|CAD]` — current rate + quick signal\n" +
+	"`!fx rate EUR/USD` — cross-pair rate from first currency's perspective\n" +
+	"`!fx report [EUR|JPY|CAD]` — full analysis (averages, 52w range, buy score)\n" +
 	"`!fx setalert <currency> <rate>` — alert when USD/currency reaches threshold\n" +
 	"`!fx alerts` — list active alerts in this room\n" +
 	"`!fx delalert <currency> <rate>` — remove an alert\n" +
@@ -101,6 +102,11 @@ const fxHelpText = "**Forex Commands**\n\n" +
 // ── Command Handlers ────────────────────────────────────────────────────────
 
 func (p *ForexPlugin) cmdRate(ctx MessageContext, args []string) error {
+	// Check for cross-pair syntax like EUR/USD or USD/JPY
+	if pair := fxParsePair(args); pair != nil {
+		return p.cmdPairRateOrReport(ctx, pair, false)
+	}
+
 	currencies := fxParseCurrencies(args)
 	rates, err := p.fxLiveRates(currencies)
 	if err != nil {
@@ -123,7 +129,113 @@ func (p *ForexPlugin) cmdRate(ctx MessageContext, args []string) error {
 	return p.SendReply(ctx.RoomID, ctx.EventID, strings.Join(lines, "\n"))
 }
 
+// fxPair represents a currency cross-pair like EUR/USD.
+type fxPair struct {
+	Base  string // first currency (perspective)
+	Quote string // second currency
+}
+
+// fxParsePair detects "XXX/YYY" syntax in args. Both sides must be USD or a
+// tracked currency. Returns nil if no pair is found.
+func fxParsePair(args []string) *fxPair {
+	if len(args) == 0 {
+		return nil
+	}
+	raw := strings.ToUpper(args[0])
+	// Accept common pair separators: EUR/USD, EUR|USD, EUR-USD
+	var parts []string
+	for _, sep := range []string{"/", "|", "-"} {
+		if strings.Contains(raw, sep) {
+			parts = strings.SplitN(raw, sep, 2)
+			break
+		}
+	}
+	if len(parts) != 2 {
+		return nil
+	}
+	base, quote := parts[0], parts[1]
+	if !fxIsSupported(base) || !fxIsSupported(quote) {
+		return nil
+	}
+	if base == quote {
+		return nil
+	}
+	return &fxPair{Base: base, Quote: quote}
+}
+
+// fxIsSupported returns true if the currency is USD or a tracked currency.
+func fxIsSupported(cur string) bool {
+	return cur == "USD" || fxIsTracked(cur)
+}
+
+// cmdPairRateOrReport handles cross-pair display for both rate and report.
+func (p *ForexPlugin) cmdPairRateOrReport(ctx MessageContext, pair *fxPair, full bool) error {
+	currentRate, err := p.fxLivePairRate(pair)
+	if err != nil {
+		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Could not fetch rates: %v", err))
+	}
+
+	sig, err := fxComputePairSignal(pair, currentRate)
+	if err != nil {
+		// Fall back to just the rate if insufficient history
+		meta := fxMeta[pair.Base]
+		emoji := meta.Emoji
+		if emoji == "" {
+			emoji = "🇺🇸"
+		}
+		return p.SendReply(ctx.RoomID, ctx.EventID,
+			fmt.Sprintf("%s **%s/%s** 1 %s = **%s** %s (insufficient data for analysis)",
+				emoji, pair.Base, pair.Quote, pair.Base, fxFormatRate(pair.Quote, currentRate), pair.Quote))
+	}
+
+	if full {
+		return p.SendReply(ctx.RoomID, ctx.EventID, sig.FormatReport())
+	}
+	return p.SendReply(ctx.RoomID, ctx.EventID, sig.FormatQuick())
+}
+
+// fxLivePairRate computes the live cross-pair rate from USD-base rates.
+func (p *ForexPlugin) fxLivePairRate(pair *fxPair) (float64, error) {
+	var currencies []string
+	if pair.Base != "USD" {
+		currencies = append(currencies, pair.Base)
+	}
+	if pair.Quote != "USD" {
+		currencies = append(currencies, pair.Quote)
+	}
+
+	rates, err := p.fxLiveRates(currencies)
+	if err != nil {
+		return 0, err
+	}
+
+	switch {
+	case pair.Base == "USD":
+		r, ok := rates[pair.Quote]
+		if !ok {
+			return 0, fmt.Errorf("no rate data for %s", pair.Quote)
+		}
+		return r, nil
+	case pair.Quote == "USD":
+		r, ok := rates[pair.Base]
+		if !ok || r == 0 {
+			return 0, fmt.Errorf("no rate data for %s", pair.Base)
+		}
+		return 1.0 / r, nil
+	default:
+		br, ok1 := rates[pair.Base]
+		qr, ok2 := rates[pair.Quote]
+		if !ok1 || !ok2 || br == 0 {
+			return 0, fmt.Errorf("missing rate data for cross-pair")
+		}
+		return qr / br, nil
+	}
+}
+
 func (p *ForexPlugin) cmdReport(ctx MessageContext, args []string) error {
+	if pair := fxParsePair(args); pair != nil {
+		return p.cmdPairRateOrReport(ctx, pair, true)
+	}
 	currencies := fxParseCurrencies(args)
 	rates, err := p.fxLiveRates(currencies)
 	if err != nil {

@@ -531,8 +531,10 @@ Three activity types across 5 tiers of locations (15 total). Higher tiers requir
 |---------|-------------|
 | `!stock <ticker>` | Stock quote (Finnhub) |
 | `!stockwatch add\|list\|remove` | Stock watchlist |
-| `!fx rate [EUR\|JPY]` | Live USD exchange rate + quick signal |
-| `!fx report [EUR\|JPY]` | Full analysis (averages, 52w range, buy score) |
+| `!fx rate [EUR\|JPY\|CAD]` | Live USD exchange rate + quick signal |
+| `!fx rate EUR/USD` | Cross-pair rate from first currency's perspective |
+| `!fx report [EUR\|JPY\|CAD]` | Full analysis (averages, 52w range, buy score) |
+| `!fx report EUR/JPY` | Cross-pair full analysis with computed history |
 | `!fx setalert <currency> <rate>` | DM alert when rate hits threshold |
 | `!fx alerts` | List your active alerts |
 | `!fx delalert <currency> <rate>` | Remove an alert |
