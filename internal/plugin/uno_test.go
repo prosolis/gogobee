@@ -216,7 +216,7 @@ func TestCanPlayOnStacking(t *testing.T) {
 		{"draw two on draw two same color", unoCard{unoRed, unoDrawTwo}, unoRed, 2, true},
 		{"draw two wrong color", unoCard{unoBlue, unoDrawTwo}, unoRed, 2, false},
 		{"number cant stack", unoCard{unoRed, unoFive}, unoRed, 2, false},
-		{"draw two cant stack on 4", unoCard{unoRed, unoDrawTwo}, unoRed, 4, false},
+		{"draw two stacks on 4 same color", unoCard{unoRed, unoDrawTwo}, unoRed, 4, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

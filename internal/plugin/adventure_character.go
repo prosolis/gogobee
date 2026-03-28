@@ -37,8 +37,9 @@ type AdventureCharacter struct {
 	FishingXP        int // v2
 	Alive            bool
 	DeadUntil        *time.Time
-	ActionTakenToday bool
-	ArenaWins        int    // v2
+	ActionTakenToday   bool
+	HolidayActionTaken bool
+	ArenaWins          int // v2
 	ArenaLosses      int    // v2
 	InvasionScore    int    // v2
 	Title            string // v2
@@ -213,14 +214,14 @@ func checkAdvLevelUp(char *AdventureCharacter, skill string) (bool, int) {
 func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	d := db.Get()
 	c := &AdventureCharacter{}
-	var alive, actionTaken int
+	var alive, actionTaken, holidayTaken int
 	var deadUntil sql.NullTime
 
 	err := d.QueryRow(`
 		SELECT user_id, display_name,
 		       combat_level, mining_skill, foraging_skill, fishing_skill,
 		       combat_xp, mining_xp, foraging_xp, fishing_xp,
-		       alive, dead_until, action_taken_today,
+		       alive, dead_until, action_taken_today, holiday_action_taken,
 		       arena_wins, arena_losses, invasion_score, title,
 		       current_streak, best_streak, last_action_date, grudge_location,
 		       created_at, last_active_at
@@ -228,7 +229,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
 		&c.CombatXP, &c.MiningXP, &c.ForagingXP, &c.FishingXP,
-		&alive, &deadUntil, &actionTaken,
+		&alive, &deadUntil, &actionTaken, &holidayTaken,
 		&c.ArenaWins, &c.ArenaLosses, &c.InvasionScore, &c.Title,
 		&c.CurrentStreak, &c.BestStreak, &c.LastActionDate, &c.GrudgeLocation,
 		&c.CreatedAt, &c.LastActiveAt,
@@ -238,6 +239,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	}
 	c.Alive = alive == 1
 	c.ActionTakenToday = actionTaken == 1
+	c.HolidayActionTaken = holidayTaken == 1
 	if deadUntil.Valid {
 		c.DeadUntil = &deadUntil.Time
 	}
@@ -283,19 +285,23 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 	if char.ActionTakenToday {
 		actionTaken = 1
 	}
+	holidayTaken := 0
+	if char.HolidayActionTaken {
+		holidayTaken = 1
+	}
 
 	_, err := d.Exec(`
 		UPDATE adventure_characters SET
 			display_name = ?, combat_level = ?, mining_skill = ?, foraging_skill = ?, fishing_skill = ?,
 			combat_xp = ?, mining_xp = ?, foraging_xp = ?, fishing_xp = ?,
-			alive = ?, dead_until = ?, action_taken_today = ?,
+			alive = ?, dead_until = ?, action_taken_today = ?, holiday_action_taken = ?,
 			arena_wins = ?, arena_losses = ?, invasion_score = ?, title = ?,
 			current_streak = ?, best_streak = ?, last_action_date = ?, grudge_location = ?,
 			last_active_at = CURRENT_TIMESTAMP
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
-		alive, char.DeadUntil, actionTaken,
+		alive, char.DeadUntil, actionTaken, holidayTaken,
 		char.ArenaWins, char.ArenaLosses, char.InvasionScore, char.Title,
 		char.CurrentStreak, char.BestStreak, char.LastActionDate, char.GrudgeLocation,
 		string(char.UserID),
@@ -400,7 +406,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		SELECT user_id, display_name,
 		       combat_level, mining_skill, foraging_skill, fishing_skill,
 		       combat_xp, mining_xp, foraging_xp, fishing_xp,
-		       alive, dead_until, action_taken_today,
+		       alive, dead_until, action_taken_today, holiday_action_taken,
 		       arena_wins, arena_losses, invasion_score, title,
 		       current_streak, best_streak, last_action_date, grudge_location,
 		       created_at, last_active_at
@@ -413,13 +419,13 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 	var chars []AdventureCharacter
 	for rows.Next() {
 		c := AdventureCharacter{}
-		var alive, actionTaken int
+		var alive, actionTaken, holidayTaken int
 		var deadUntil sql.NullTime
 		if err := rows.Scan(
 			&c.UserID, &c.DisplayName,
 			&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
 			&c.CombatXP, &c.MiningXP, &c.ForagingXP, &c.FishingXP,
-			&alive, &deadUntil, &actionTaken,
+			&alive, &deadUntil, &actionTaken, &holidayTaken,
 			&c.ArenaWins, &c.ArenaLosses, &c.InvasionScore, &c.Title,
 			&c.CurrentStreak, &c.BestStreak, &c.LastActionDate, &c.GrudgeLocation,
 			&c.CreatedAt, &c.LastActiveAt,
@@ -428,6 +434,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		}
 		c.Alive = alive == 1
 		c.ActionTakenToday = actionTaken == 1
+		c.HolidayActionTaken = holidayTaken == 1
 		if deadUntil.Valid {
 			c.DeadUntil = &deadUntil.Time
 		}
@@ -441,7 +448,7 @@ func resetAllAdvDailyActions() error {
 	// Only reset actions taken before today — protects against race if a player
 	// resolves their action at exactly midnight.
 	today := time.Now().UTC().Format("2006-01-02")
-	_, err := d.Exec(`UPDATE adventure_characters SET action_taken_today = 0 WHERE last_action_date < ? OR last_action_date IS NULL`, today)
+	_, err := d.Exec(`UPDATE adventure_characters SET action_taken_today = 0, holiday_action_taken = 0 WHERE last_action_date < ? OR last_action_date IS NULL`, today)
 	return err
 }
 

@@ -117,7 +117,8 @@ func main() {
 	registry.Register(plugin.NewBlackjackPlugin(client, euroPlugin))
 	registry.Register(plugin.NewUnoPlugin(client, euroPlugin))
 	registry.Register(plugin.NewHoldemPlugin(client, euroPlugin))
-	registry.Register(plugin.NewAdventurePlugin(client, euroPlugin))
+	adventurePlugin := plugin.NewAdventurePlugin(client, euroPlugin)
+	registry.Register(adventurePlugin)
 	wordlePlugin := plugin.NewWordlePlugin(client, euroPlugin)
 	registry.Register(wordlePlugin)
 
@@ -127,7 +128,9 @@ func main() {
 	registry.Register(plugin.NewTarotPlugin(client, ratePlugin))
 
 	// Tracking (passive)
-	registry.Register(plugin.NewAchievementsPlugin(client, registry))
+	achievementsPlugin := plugin.NewAchievementsPlugin(client, registry)
+	registry.Register(achievementsPlugin)
+	adventurePlugin.SetAchievements(achievementsPlugin)
 	registry.Register(plugin.NewReactionsPlugin(client))
 	registry.Register(plugin.NewMarkovPlugin(client))
 	registry.Register(plugin.NewURLsPlugin(client))
@@ -147,7 +150,7 @@ func main() {
 	registry.Register(holidaysPlugin)
 	gamingPlugin := plugin.NewGamingPlugin(client)
 	registry.Register(gamingPlugin)
-	birthdayPlugin := plugin.NewBirthdayPlugin(client, xpPlugin)
+	birthdayPlugin := plugin.NewBirthdayPlugin(client, xpPlugin, euroPlugin)
 	registry.Register(birthdayPlugin)
 
 	// Satirical
@@ -157,6 +160,10 @@ func main() {
 	// Horoscope
 	horoscopePlugin := plugin.NewHoroscopePlugin(client)
 	registry.Register(horoscopePlugin)
+
+	// Finance — Market overview
+	marketPlugin := plugin.NewMarketPlugin(client)
+	registry.Register(marketPlugin)
 
 	// Utility / Meta
 	registry.Register(plugin.NewBotInfoPlugin(client))
@@ -285,7 +292,7 @@ func main() {
 
 	// ---- Set up cron scheduler ----
 	scheduler := cron.New(cron.WithChain(cron.Recover(cronLogger{})))
-	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin, esteemedPlugin, forexPlugin, minifluxPlugin)
+	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin, esteemedPlugin, forexPlugin, minifluxPlugin, marketPlugin)
 	scheduler.Start()
 
 	// ---- Start syncing ----
@@ -338,6 +345,7 @@ func setupScheduledJobs(
 	esteemed *plugin.EsteemPlugin,
 	forex *plugin.ForexPlugin,
 	miniflux *plugin.MinifluxPlugin,
+	market *plugin.MarketPlugin,
 ) {
 	rooms := getRooms()
 
@@ -419,6 +427,12 @@ func setupScheduledJobs(
 	c.AddFunc("1 17 * * *", func() {
 		slog.Info("scheduler: forex daily poll")
 		forex.DailyPoll()
+	})
+
+	// Market data daily pull at 23:00 UTC (after all target markets close)
+	c.AddFunc("0 23 * * *", func() {
+		slog.Info("scheduler: market daily pull")
+		market.DailyPull()
 	})
 
 	// Space groups refresh every hour

@@ -31,11 +31,10 @@ func isDrawCard(v unoValue) bool {
 }
 
 // canPlayOnStacking checks if a card can be played during a stacking phase.
-// Only draw cards with value >= stackMinValue are allowed.
+// Any draw card can stack on any other draw card (no escalation requirement).
 // Wild draws always match; colored draws must match topColor.
-func (c unoCard) canPlayOnStacking(topColor unoColor, stackMinValue int) bool {
-	dv := cardDrawValue(c.Value)
-	if dv < stackMinValue {
+func (c unoCard) canPlayOnStacking(topColor unoColor, _ int) bool {
+	if cardDrawValue(c.Value) == 0 {
 		return false
 	}
 	if c.isWild() {

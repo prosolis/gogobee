@@ -744,8 +744,8 @@ func (p *UnoPlugin) handlePlayerPlay(game *unoGame, idx int) error {
 	if game.noMercy && game.stackMinValue > 0 {
 		if !card.canPlayOnStacking(game.topColor, game.stackMinValue) {
 			return p.SendMessage(game.dmRoomID,
-				fmt.Sprintf("You can't stack %s — need a draw card worth +%d or more. Type **accept** to draw %d.",
-					card.Display(), game.stackMinValue, game.stackTotal))
+				fmt.Sprintf("You can't stack %s — need a draw card (matching color or wild). Type **accept** to draw %d.",
+					card.Display(), game.stackTotal))
 		}
 	} else if !card.canPlayOn(game.discardTop, game.topColor) {
 		return p.SendMessage(game.dmRoomID, fmt.Sprintf("You can't play %s on %s. Choose another card or **draw**.",

@@ -206,13 +206,16 @@ func (sg *SpaceGroupManager) Refresh() {
 		return
 	}
 
-	// Fetch members for each room
+	// Fetch members for each room, skipping DM rooms (≤2 members)
 	roomMembers := make(map[id.RoomID]map[id.UserID]bool, len(rooms))
 	for _, roomID := range rooms {
 		resp, err := sg.client.JoinedMembers(ctx, roomID)
 		if err != nil {
 			slog.Warn("space_groups: failed to get members", "room", roomID, "err", err)
 			continue
+		}
+		if len(resp.Joined) <= 2 {
+			continue // skip DM rooms
 		}
 		members := make(map[id.UserID]bool, len(resp.Joined))
 		for uid := range resp.Joined {
@@ -472,9 +475,9 @@ func (b *Base) ResolveUser(input string, roomIDs ...id.RoomID) (id.UserID, bool)
 // (**bold**, _italic_, `code`, newlines) to Matrix-compatible HTML.
 var (
 	mdBoldRe   = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	mdItalicRe = regexp.MustCompile(`(?:^|[ (])_([^_]+?)_(?:$|[ ).,!?])`)
+	mdItalicRe = regexp.MustCompile(`(?:^|[\n (])_([^_]+?)_(?:$|[\n ).,!?])`)
 	mdCodeRe   = regexp.MustCompile("`([^`]+)`")
-	mdHasFmt   = regexp.MustCompile(`\*\*|(?:^|[ (])_[^_]+_(?:$|[ ).,!?])|` + "`")
+	mdHasFmt   = regexp.MustCompile(`\*\*|(?:^|[\n (])_[^_]+_(?:$|[\n ).,!?])|` + "`")
 )
 
 func simpleMarkdownToHTML(text string) string {

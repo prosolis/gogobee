@@ -3,6 +3,7 @@ package plugin
 import (
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"time"
 
 	"gogobee/internal/db"
@@ -41,9 +42,23 @@ func (p *AdventurePlugin) sendMorningDMs() {
 	}
 
 	now := time.Now().UTC()
+	isHol, holName := isHolidayToday()
+	if isHol {
+		slog.Info("adventure: holiday detected for morning DMs", "holiday", holName)
+	}
 
-	for _, char := range chars {
+	// Shuffle to avoid always hitting the same users first if early sends
+	// get rate-limited and later ones don't go out.
+	rand.Shuffle(len(chars), func(i, j int) { chars[i], chars[j] = chars[j], chars[i] })
+
+	for i, char := range chars {
 		char := char
+
+		// Jitter between DMs to avoid Matrix rate limits.
+		// Skip delay before the first one.
+		if i > 0 {
+			time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
+		}
 
 		// Check if dead and ready to respawn
 		if !char.Alive && char.DeadUntil != nil && now.After(*char.DeadUntil) {
@@ -88,7 +103,12 @@ func (p *AdventurePlugin) sendMorningDMs() {
 		bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, false)
 		balance := p.euro.GetBalance(char.UserID)
 
-		text := renderAdvMorningDM(&char, equip, balance, bonuses)
+		holidayLabel := ""
+		if isHol {
+			holidayLabel = holName
+		}
+		text := renderAdvMorningDM(&char, equip, balance, bonuses, holidayLabel)
+		p.advMarkMenuSent(char.UserID)
 		if err := p.SendDM(char.UserID, text); err != nil {
 			slog.Error("adventure: failed to send morning DM", "user", char.UserID, "err", err)
 			continue
@@ -141,10 +161,26 @@ func (p *AdventurePlugin) postDailySummary() {
 	}
 
 	todayLogs, _ := loadAdvTodayLogs()
-	logMap := make(map[id.UserID]*AdvDayLog)
+	// Group logs per user — holiday days may produce 2 entries per user
+	logsPerUser := make(map[id.UserID][]*AdvDayLog)
 	for i := range todayLogs {
-		logMap[todayLogs[i].UserID] = &todayLogs[i]
+		uid := todayLogs[i].UserID
+		logsPerUser[uid] = append(logsPerUser[uid], &todayLogs[i])
 	}
+	// logMap picks the last (most recent) log entry for summary display
+	// lootSums aggregates loot across all actions (relevant on holiday double-action days)
+	logMap := make(map[id.UserID]*AdvDayLog)
+	lootSums := make(map[id.UserID]int64)
+	for uid, logs := range logsPerUser {
+		logMap[uid] = logs[len(logs)-1]
+		var total int64
+		for _, l := range logs {
+			total += l.LootValue
+		}
+		lootSums[uid] = total
+	}
+
+	isHol, holName := isHolidayToday()
 
 	// Build player summaries
 	var players []AdvPlayerDaySummary
@@ -154,6 +190,11 @@ func (p *AdventurePlugin) postDailySummary() {
 			CombatLevel:   c.CombatLevel,
 			MiningSkill:   c.MiningSkill,
 			ForagingSkill: c.ForagingSkill,
+		}
+
+		// Holiday action count from log entries
+		if isHol {
+			ps.HolidayActions = len(logsPerUser[c.UserID])
 		}
 
 		if !c.Alive {
@@ -166,8 +207,8 @@ func (p *AdventurePlugin) postDailySummary() {
 				ps.Activity = log.ActivityType
 				ps.Location = log.Location
 				ps.Outcome = log.Outcome
-				ps.LootValue = log.LootValue
-				ps.SummaryLine = advSummaryOneLiner(c.UserID, AdvActivityType(log.ActivityType), AdvOutcomeType(log.Outcome), log.LootValue, log.Location)
+				ps.LootValue = lootSums[c.UserID] // aggregate across all actions
+				ps.SummaryLine = advSummaryOneLiner(c.UserID, AdvActivityType(log.ActivityType), AdvOutcomeType(log.Outcome), lootSums[c.UserID], log.Location)
 			}
 			players = append(players, ps)
 			continue
@@ -187,8 +228,8 @@ func (p *AdventurePlugin) postDailySummary() {
 			ps.Activity = log.ActivityType
 			ps.Location = log.Location
 			ps.Outcome = log.Outcome
-			ps.LootValue = log.LootValue
-			ps.SummaryLine = advSummaryOneLiner(c.UserID, AdvActivityType(log.ActivityType), AdvOutcomeType(log.Outcome), log.LootValue, log.Location)
+			ps.LootValue = lootSums[c.UserID] // aggregate across all actions
+			ps.SummaryLine = advSummaryOneLiner(c.UserID, AdvActivityType(log.ActivityType), AdvOutcomeType(log.Outcome), lootSums[c.UserID], log.Location)
 		}
 
 		players = append(players, ps)
@@ -207,7 +248,11 @@ func (p *AdventurePlugin) postDailySummary() {
 	}
 
 	date := time.Now().UTC().Format("2006-01-02")
-	summary := renderAdvDailySummary(date, tbResult, tbRewards, players)
+	summaryHolName := ""
+	if isHol {
+		summaryHolName = holName
+	}
+	summary := renderAdvDailySummary(date, tbResult, tbRewards, players, summaryHolName)
 
 	if err := p.SendMessage(id.RoomID(gr), summary); err != nil {
 		slog.Error("adventure: failed to post daily summary", "err", err)
@@ -250,12 +295,19 @@ func (p *AdventurePlugin) midnightReset() error {
 
 	today := time.Now().UTC().Format("2006-01-02")
 
+	dmsSent := 0
 	for _, char := range chars {
 		if !char.Alive {
 			continue
 		}
 
 		if !char.ActionTakenToday {
+			// Jitter between DMs to avoid Matrix rate limits
+			if dmsSent > 0 {
+				time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
+			}
+			dmsSent++
+
 			// Idle shame DM
 			text := renderAdvIdleShameDM(&char)
 			if err := p.SendDM(char.UserID, text); err != nil {

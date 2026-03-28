@@ -916,6 +916,105 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 				return false
 			},
 		},
+
+		// ── Arena ──────────────────────────────────────────────────────────
+		{
+			ID: "arena_first_blood", Name: "First Blood", Description: "The Arena has noted your existence.",
+			Emoji: "⚔️",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by arena plugin on first round survived
+				return false
+			},
+		},
+		{
+			ID: "arena_tier1", Name: "Scrub Slayer", Description: "Gelatinous Homunculus has been avenged by no one.",
+			Emoji: "⚔️",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var count int
+				_ = d.QueryRow(`SELECT COUNT(*) FROM arena_history WHERE user_id = ? AND tier = 1 AND outcome IN ('completed','cashed_out')`, string(u)).Scan(&count)
+				return count > 0
+			},
+		},
+		{
+			ID: "arena_tier2", Name: "Promoted to Violence", Description: "The Impersonator was not, in fact, a chest.",
+			Emoji: "⚔️",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var count int
+				_ = d.QueryRow(`SELECT COUNT(*) FROM arena_history WHERE user_id = ? AND tier = 2 AND outcome IN ('completed','cashed_out')`, string(u)).Scan(&count)
+				return count > 0
+			},
+		},
+		{
+			ID: "arena_tier3", Name: "Brute Force", Description: "The Inevitable was, on this occasion, avoidable.",
+			Emoji: "⚔️",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var count int
+				_ = d.QueryRow(`SELECT COUNT(*) FROM arena_history WHERE user_id = ? AND tier = 3 AND outcome IN ('completed','cashed_out')`, string(u)).Scan(&count)
+				return count > 0
+			},
+		},
+		{
+			ID: "arena_tier4", Name: "Horror Show", Description: "The Collector of Faces does not have yours. Yet.",
+			Emoji: "⚔️",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var count int
+				_ = d.QueryRow(`SELECT COUNT(*) FROM arena_history WHERE user_id = ? AND tier = 4 AND outcome IN ('completed','cashed_out')`, string(u)).Scan(&count)
+				return count > 0
+			},
+		},
+		{
+			ID: "arena_tier5", Name: "World Eater", Description: "That Which Has Always Been has now lost once.",
+			Emoji: "⚔️",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var count int
+				_ = d.QueryRow(`SELECT COUNT(*) FROM arena_history WHERE user_id = ? AND tier = 5 AND outcome = 'completed'`, string(u)).Scan(&count)
+				return count > 0
+			},
+		},
+		{
+			ID: "arena_descend", Name: "Going Deeper", Description: "Greed is a valid strategy.",
+			Emoji: "⚔️",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by arena plugin on descend
+				return false
+			},
+		},
+		{
+			ID: "arena_full_run", Name: "All the Way Down", Description: "Statistically impossible. Empirically: you.",
+			Emoji: "🏆",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// A full run = cleared all 5 tiers without cashing out
+				var count int
+				_ = d.QueryRow(`SELECT COUNT(*) FROM arena_history WHERE user_id = ? AND tier = 5 AND outcome = 'completed' AND rounds_survived = 20`, string(u)).Scan(&count)
+				return count > 0
+			},
+		},
+		{
+			ID: "arena_death_t5", Name: "Acceptable Losses", Description: "You made it to Tier 5. That's something.",
+			Emoji: "💀",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var count int
+				_ = d.QueryRow(`SELECT COUNT(*) FROM arena_history WHERE user_id = ? AND tier = 5 AND outcome = 'dead'`, string(u)).Scan(&count)
+				return count > 0
+			},
+		},
+		{
+			ID: "arena_omega", Name: "The Test", Description: "The machine has logged a loss for the first time.",
+			Emoji: "🤖",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by arena plugin when defeating Omega Mk. Zero
+				return false
+			},
+		},
+		{
+			ID: "arena_cashout_big", Name: "Take the Money", Description: "Discretion. Valor. Etc.",
+			Emoji: "💰",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var count int
+				_ = d.QueryRow(`SELECT COUNT(*) FROM arena_history WHERE user_id = ? AND outcome = 'cashed_out' AND earnings >= 10000`, string(u)).Scan(&count)
+				return count > 0
+			},
+		},
 	}
 }
 

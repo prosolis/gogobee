@@ -1,6 +1,6 @@
 # GogoBee
 
-Matrix community bot with E2EE, 48 plugins, passive tracking, scheduled posts, and optional LLM features.
+Matrix community bot with E2EE, 49 plugins, passive tracking, scheduled posts, and optional LLM features.
 
 Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption and [modernc.org/sqlite](https://modernc.org/sqlite) for storage.
 
@@ -29,8 +29,8 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
-- **48 plugins** with dependency injection and ordered registration
-- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, Wordnik-powered, 5-7 letter words, video game themed bonus words with category hints, dupe prevention across last 500 puzzles), Adventure (daily idle RPG via DMs — dungeon, mine, forage, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying), all with channel restriction
+- **49 plugins** with dependency injection and ordered registration
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, Wordnik-powered, 5-7 letter words, video game themed bonus words with category hints, dupe prevention across last 500 puzzles), Adventure (daily idle RPG via DMs — dungeon, mine, forage, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - WOTD, holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
@@ -150,6 +150,8 @@ Everything is configured through environment variables or a `.env` file.
 | `FEATURE_ESTEEMED` | Set to anything to enable satirical esteemed member posts |
 | `ESTEEMED_ROOM` | Room ID for esteemed member posts (separate from broadcast rooms) |
 | `FEATURE_MODERATION` | Set to `true` to enable the moderation system (disabled by default) |
+| `FEATURE_MARKET` | Set to `true` to enable the market overview plugin |
+| `MARKET_BROADCAST_SUMMARY` | Set to `true` to auto-post daily market summary to broadcast rooms |
 
 ### Games & Economy
 
@@ -464,7 +466,7 @@ No economy integration — stats and leaderboard position are the reward.
 
 A daily DM-driven idle RPG where each player takes one action per day — dungeon, mine, forage, visit the shop, or rest. Outcomes resolve with flavor text and loot is credited to your euro balance. An evening summary posts to the games room. TwinBee is a permanent NPC adventurer who distributes rewards to active players.
 
-Characters auto-create on first `!adventure` command. All gameplay happens in DMs — reply to the bot's morning prompt with your choice.
+Characters auto-create on first `!adventure` command. All gameplay happens in DMs — reply to the bot's morning prompt with your choice. DM replies are only interpreted as adventure choices for 15 minutes after a menu is sent, so other DM-based games (UNO, Hold'em) won't conflict.
 
 | Command | Description |
 |---------|-------------|
@@ -497,9 +499,33 @@ Three activity types across 5 tiers of locations (15 total). Higher tiers requir
 - **Streaks** — consecutive days of activity grant escalating bonuses (XP, loot quality, death chance reduction). Resting or dying resets your streak.
 - **Grudge** — dying at a location marks it as your grudge. Returning there grants +10% success and +25% XP. Clears on success.
 - **Party bonus** — if two players independently visit the same location on the same day, both get +10% loot value.
-- **Death** — 24-hour lockout. You're automatically revived when the timer expires.
+- **Death** — locked out until midnight UTC. You're automatically revived when the next day starts.
+- **Holidays** — on recognized holidays (~20/year across religious and cultural calendars), you get a second daily action. Hebrew and Islamic calendar support for floating holidays.
 - **TwinBee NPC** — takes a daily action (location tier capped by best player's combined level), distributes loot share to active players scaled quadratically by level, and occasionally gifts random buffs.
 - **Mid-day events** — random events can trigger between actions, delivering bonus loot, buffs, or narrative encounters.
+
+#### Arena (`!arena`)
+
+A multi-tier combat gauntlet independent of the daily adventure action. Fight through 5 tiers of 4 rounds each — 20 unique named monsters with escalating lethality. Earnings accumulate across rounds but are forfeited on death. After clearing a tier, choose to descend deeper (keep earnings at risk) or cash out. Death locks you out of both arena and adventure until midnight UTC.
+
+| Command | Description |
+|---------|-------------|
+| `!arena` | Show the arena tier menu |
+| `!arena tier <1-5>` | Select a tier (shows confirmation with R1 opponent) |
+| `!arena fight` | Confirm entry / fight current round |
+| `!arena cancel` | Back out of tier selection |
+| `!arena descend` | Descend to next tier after clearing (earnings carry over, still at risk) |
+| `!arena cashout` | Take your earnings and leave |
+| `!arena stats` | Your personal arena stats |
+| `!arena status` | Current run state |
+| `!arena leaderboard` | Top arena players |
+| `!arena help` | Arena help text |
+
+**Mechanics:**
+- **Death chance** — based on monster lethality, combat level, equipment tier, and battle skill. Clamped between 1% and 98%.
+- **Rewards** — tier base payout * round number + battle skill * tier multiplier. Higher tiers and later rounds pay more.
+- **Auto-cashout** — 10 minutes to decide after clearing a tier. GogoBee cashes out on your behalf if you're slow.
+- **Tier entry confirmation** — `!arena tier N` previews the first opponent; `!arena fight` commits.
 
 ### Reminders
 | Command | Description |
@@ -548,6 +574,11 @@ Three activity types across 5 tiers of locations (15 total). Higher tiers requir
 | `!fx setalert <currency> <rate>` | DM alert when rate hits threshold |
 | `!fx alerts` | List your active alerts |
 | `!fx delalert <currency> <rate>` | Remove an alert |
+| `!howsthemarket` | Daily market snapshot with Ollama commentary (7 global indices) |
+| `!marketstatus` | Exchange open/closed status (NYSE, LSE, Euronext, TSE) |
+| `!marketreport week\|month\|year` | Historical trend report with Ollama narrative |
+| `!marketreport vix` | VIX fear/greed trajectory |
+| `!marketreport compare <index> <days>` | Single index over N days |
 
 ### Entertainment
 | Command | Description |
@@ -694,7 +725,7 @@ All of these run in the background without any commands:
 - **Stats** - tracks words, chars, links, images, questions, emojis, and time-of-day patterns
 - **Streaks** - consecutive days active, first poster of the day
 - **Reputation** - detects "thanks", "ty", "thx", etc. with 24h cooldown per pair
-- **Achievements** - 80 of them, checked silently on every message
+- **Achievements** - 93 of them, checked silently on every message
 - **Markov chains** - collects encrypted messages for `!markov` generation (10k cap per user, 90-day TTL)
 - **Keyword alerts** - DMs you when someone says your watched keywords
 - **Presence** - auto-clears away/afk when you send a message
@@ -715,7 +746,7 @@ Uses [robfig/cron](https://github.com/robfig/cron). All times UTC.
 | Time | Job | What it does |
 |------|-----|--------------|
 | 00:05 | Prefetch | Grabs WOTD data ahead of time |
-| 06:00 | Birthdays | Birthday shoutouts + 100 XP |
+| 06:00 | Birthdays | Birthday shoutouts + 100 XP + €1,000 |
 | 07:00 | Holidays | Multi-calendar holidays (US, Asian, Jewish, Islamic) |
 | 08:00 | WOTD | Posts the Word of the Day |
 | 09:00 Mon | Releases | Weekly game releases |
@@ -727,13 +758,14 @@ Uses [robfig/cron](https://github.com/robfig/cron). All times UTC.
 | Hourly | Space groups | Refreshes room membership overlap and group mappings |
 | 03:00 | Maintenance | Purges stale caches, old rate limits, expired logs, miniflux seen entries; runs SQLite optimize |
 | 03:30 | Markov TTL | Purges markov corpus entries older than 90 days |
+| 23:00 | Market | Daily market index pull (Yahoo Finance + Finnhub fallback, Ollama summary) |
 | Every N min | Miniflux | Polls Miniflux for new feed entries (configurable, default 15m) |
 
 ---
 
 ## Achievements
 
-80 achievements across 14 categories:
+93 achievements across 15 categories:
 
 **Message Milestones** - first_message, 100_messages, 500_messages, 1000_messages, 5000_messages, 10000_messages
 
@@ -760,6 +792,8 @@ Uses [robfig/cron](https://github.com/robfig/cron). All times UTC.
 **Wordle** - wordle_solve, wordle_first_guess, wordle_streak_3, wordle_bonus, wordle_closer
 
 **Adventure** - adv_first, adv_died, adv_revived, adv_streak_7, adv_streak_30, adv_max_level, adv_treasure_cap, adv_grudge_win, adv_party, adv_twinbee_gift
+
+**Arena** - arena_first_blood, arena_tier1, arena_tier2, arena_tier3, arena_tier4, arena_tier5, arena_descend, arena_full_run, arena_death_t5, arena_omega, arena_cashout_big
 
 **Community** - quote_saved, quote_saved_10, missing_poster, tarot_spread
 
@@ -818,7 +852,8 @@ All optional. The bot works fine without any of them, you just won't have those 
 | [HebCal](https://www.hebcal.com) | Yes, no key | Jewish holidays |
 | [Aladhan](https://aladhan.com/prayer-times-api) | Yes, no key | Islamic dates |
 | [OpenWeather](https://openweathermap.org/api) | Yes (1k/day) | Weather |
-| [Finnhub](https://finnhub.io) | Yes | Stock quotes |
+| [Finnhub](https://finnhub.io) | Yes | Stock quotes, market index fallback |
+| [Yahoo Finance](https://finance.yahoo.com) | Yes, no key | Market index snapshots (unofficial API) |
 | [Frankfurter](https://frankfurter.dev) | Yes, no key | Forex rates (ECB-sourced) |
 | [Bandsintown](https://artists.bandsintown.com) | Yes | Concert data |
 | [Jikan/MAL](https://jikan.moe) | Yes, no key | Anime data |
@@ -871,7 +906,7 @@ gogobee/
 │   │   ├── tools.go         # Calculator, QR codes
 │   │   ├── user.go          # Timezone, quotes, backlog, keyword watches
 │   │   ├── welcome.go       # New user detection, !help
-│   │   ├── achievements.go  # 32 achievements
+│   │   ├── achievements.go  # 93 achievements
 │   │   ├── reactions.go     # Reaction logging, emojiboard
 │   │   ├── markov.go        # Markov chains
 │   │   ├── urls.go          # URL previews
@@ -884,6 +919,7 @@ gogobee/
 │   │   ├── lookup.go        # Wiki, dictionary, urban, translate
 │   │   ├── countdown.go     # Countdowns
 │   │   ├── stocks.go        # Stocks
+│   │   ├── market.go        # Market indices (Yahoo Finance + Finnhub fallback)
 │   │   ├── forex*.go        # Forex rates & alerts (Frankfurter v2)
 │   │   ├── concerts.go      # Concerts
 │   │   ├── anime.go         # Anime
@@ -926,6 +962,10 @@ gogobee/
 │   │   ├── adventure_render.go # Character sheet, DMs, daily summary, leaderboard
 │   │   ├── adventure_events.go  # Mid-day random events
 │   │   ├── adventure_scheduler.go # Morning DM, evening summary, midnight reset tickers
+│   │   ├── adventure_holidays.go # Holiday detection (Hebrew/Islamic calendar, fixed dates)
+│   │   ├── adventure_arena.go    # Arena commands, combat resolution, DB CRUD, auto-cashout
+│   │   ├── adventure_arena_monsters.go # 5 tiers, 20 monsters, death messages
+│   │   ├── adventure_arena_render.go   # Arena UI rendering (menus, stats, leaderboard)
 │   │   ├── adventure_flavor_*.go # Flavor text pools (dungeon, mining, treasure, twinbee, events, closing)
 │   │   ├── esteemed.go      # Satirical esteemed member posts
 │   │   ├── moderation.go   # Moderation system (strikes, word list, flood detection)
@@ -952,7 +992,7 @@ gogobee/
 
 Single SQLite file at `$DATA_DIR/gogobee.db`. Schema auto-creates on first run. WAL mode enabled.
 
-80+ tables covering users, XP, stats, streaks, reputation, reminders, trivia, achievements, encrypted quotes (AES-256-GCM), backlog, keyword watches, scheduler config, birthdays, horoscopes, LLM classifications, stocks, forex rates/alerts, concerts, anime, movies, countdowns, presence, encrypted markov corpus, reaction log, miniflux RSS subscriptions, and various caches.
+80+ tables covering users, XP, stats, streaks, reputation, reminders, trivia, achievements, encrypted quotes (AES-256-GCM), backlog, keyword watches, scheduler config, birthdays, horoscopes, LLM classifications, stocks, market snapshots, forex rates/alerts, concerts, anime, movies, countdowns, presence, encrypted markov corpus, reaction log, miniflux RSS subscriptions, and various caches.
 
 ### Backup
 

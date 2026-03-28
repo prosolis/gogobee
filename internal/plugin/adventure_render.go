@@ -177,8 +177,13 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 
 // ── Morning DM ───────────────────────────────────────────────────────────────
 
-func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, balance float64, bonuses *AdvBonusSummary) string {
+func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, balance float64, bonuses *AdvBonusSummary, holidayName string) string {
 	var sb strings.Builder
+
+	// Holiday notice (before greeting)
+	if holidayName != "" {
+		sb.WriteString(fmt.Sprintf("🎉 Happy %s! In recognition of %s, you are able to take **two actions** today.\n\n", holidayName, holidayName))
+	}
 
 	// Pick a morning greeting
 	greeting, _ := advPickFlavor(MorningDM, char.UserID, "morning_dm")
@@ -251,6 +256,47 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 
 	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`\n")
 	sb.WriteString("You have until midnight UTC to choose.")
+
+	return sb.String()
+}
+
+// ── Holiday Second Action Prompt ──────────────────────────────────────────────
+
+func renderAdvHolidaySecondPrompt(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, bonuses *AdvBonusSummary) string {
+	var sb strings.Builder
+
+	sb.WriteString("✅ Action 1 complete.\n\nNow choose your **second action**:\n\n")
+
+	sb.WriteString("**1️⃣ Dungeon:**\n")
+	for _, el := range advEligibleLocations(char, equip, AdvActivityDungeon, bonuses) {
+		warn := ""
+		if el.InPenaltyZone {
+			warn = " ⚠️"
+		}
+		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
+	}
+
+	sb.WriteString("**2️⃣ Mine:**\n")
+	for _, el := range advEligibleLocations(char, equip, AdvActivityMining, bonuses) {
+		warn := ""
+		if el.InPenaltyZone {
+			warn = " ⚠️"
+		}
+		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
+	}
+
+	sb.WriteString("**3️⃣ Forage:**\n")
+	for _, el := range advEligibleLocations(char, equip, AdvActivityForaging, bonuses) {
+		warn := ""
+		if el.InPenaltyZone {
+			warn = " ⚠️"
+		}
+		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
+	}
+
+	sb.WriteString("**4️⃣ Shop** — buy/sell gear and loot\n")
+	sb.WriteString("**5️⃣ Rest** — skip the second action\n\n")
+	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`")
 
 	return sb.String()
 }
@@ -418,24 +464,29 @@ func renderAdvOnboardingDM(char *AdventureCharacter) string {
 // ── Daily Summary ────────────────────────────────────────────────────────────
 
 type AdvPlayerDaySummary struct {
-	DisplayName string
-	CombatLevel int
-	MiningSkill int
-	ForagingSkill int
-	Activity    string
-	Location    string
-	Outcome     string
-	LootValue   int64
-	IsDead      bool
-	DeadUntil   string
-	IsResting   bool
-	SummaryLine string
+	DisplayName    string
+	CombatLevel    int
+	MiningSkill    int
+	ForagingSkill  int
+	Activity       string
+	Location       string
+	Outcome        string
+	LootValue      int64
+	IsDead         bool
+	DeadUntil      string
+	IsResting      bool
+	SummaryLine    string
+	HolidayActions int // 0 = not holiday or no action; 1 = took one; 2 = took both
 }
 
-func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewardSummary, players []AdvPlayerDaySummary) string {
+func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewardSummary, players []AdvPlayerDaySummary, holidayName string) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("📜 **ADVENTURER DAILY REPORT**\n%s\n\n", date))
+
+	if holidayName != "" {
+		sb.WriteString(fmt.Sprintf("🎉 In recognition of **%s**, adventurers had two actions today.\n\n", holidayName))
+	}
 
 	// TwinBee section
 	if tb != nil {
@@ -528,6 +579,48 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 			sb.WriteString(fmt.Sprintf("   %s\n", r.DisplayName))
 		}
 		sb.WriteString("\n")
+	}
+
+	// Holiday stats
+	if holidayName != "" {
+		tookBoth := 0
+		totalActive := 0
+		for _, p := range players {
+			if p.IsDead || p.IsResting {
+				if p.HolidayActions > 0 {
+					totalActive++
+				}
+				if p.HolidayActions >= 2 {
+					tookBoth++
+				}
+				continue
+			}
+			if p.Activity != "" {
+				totalActive++
+			}
+			if p.HolidayActions >= 2 {
+				tookBoth++
+			}
+		}
+		if totalActive > 0 {
+			sb.WriteString(fmt.Sprintf("🎉 %s double-action day — %d of %d adventurers took both actions.\n\n", holidayName, tookBoth, totalActive))
+		}
+
+		// Note players who died before their second action
+		for _, d := range dead {
+			if d.HolidayActions == 1 {
+				sb.WriteString(fmt.Sprintf("• %s — died in %s before their second action. Rough holiday.\n", d.DisplayName, d.Location))
+			}
+		}
+		if len(dead) > 0 {
+			// Check if any had HolidayActions == 1
+			for _, d := range dead {
+				if d.HolidayActions == 1 {
+					sb.WriteString("\n")
+					break
+				}
+			}
+		}
 	}
 
 	// Standout

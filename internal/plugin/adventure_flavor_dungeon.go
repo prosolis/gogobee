@@ -27,7 +27,7 @@ var DungeonDeath = map[int][]string{
 			"found themselves in the position regardless. Here we are.",
 
 		"GAME OVER. INSERT COIN TO CONTINUE. You do not have a coin. You have " +
-			"a copay and a 24-hour wait and a healthcare system that is processing " +
+			"a copay and a wait-until-tomorrow and a healthcare system that is processing " +
 			"your claim and will get back to you. The arcade never prepared you for this. " +
 			"Nothing prepared you for this. You went into a cellar.",
 
@@ -58,7 +58,7 @@ var DungeonDeath = map[int][]string{
 			"most people get in this situation. You used it to feel regret.",
 
 		"Press F. Just press F. The Soggy Cellar has won this round, which is " +
-			"a sentence that should embarrass everyone involved. Respawn in 24 hours. " +
+			"a sentence that should embarrass everyone involved. Respawn tomorrow. " +
 			"Use the time to consider whether 'adventurer' was the right career path " +
 			"or whether it is simply the path you are on.",
 
@@ -95,7 +95,7 @@ var DungeonDeath = map[int][]string{
 		"You had a plan. The plan was good. The plan did not account for there " +
 			"being two rats instead of one, which in retrospect is the kind of " +
 			"assumption that ends careers. Your career has not ended. It has paused, " +
-			"for 24 hours, in a medical facility, reconsidering its assumptions.",
+			"until tomorrow, in a medical facility, reconsidering its assumptions.",
 
 		"An Angry Badger and a Wet Slime and a Giant Rat walked into a cellar. " +
 			"You were already in the cellar. This is not a joke. There is no punchline. " +
@@ -144,7 +144,7 @@ var DungeonDeath = map[int][]string{
 		"The goblins coordinated. Actually coordinated — flanked you, " +
 			"drew your attention left while the attack came right, " +
 			"used the terrain. You did not know goblins did that. " +
-			"You know now. The knowledge cost 24 hours and some dignity.",
+			"You know now. The knowledge cost a day and some dignity.",
 
 		"A Kobold with a crossbow. In the dark. Across a room you couldn't " +
 			"see clearly. This is not a fair fight. Nothing about the Goblin Warrens " +
@@ -171,7 +171,7 @@ var DungeonDeath = map[int][]string{
 		"The goblin was smaller than you. The goblin was faster than you. " +
 			"The goblin had friends and you had a Slightly Less Shit Iron Sword " +
 			"and misplaced confidence. The misplaced confidence did not survive " +
-			"the encounter. Neither did you, technically, for 24 hours.",
+			"the encounter. Neither did you, technically, until tomorrow.",
 
 		"You got lost. In the warrens. Which are, by definition, a warren — " +
 			"a maze of tunnels built by creatures who live there and know " +
@@ -256,7 +256,7 @@ var DungeonDeath = map[int][]string{
 			"a melee crypt — close quarters, low ceilings, short sight lines. " +
 			"The skeleton archers had compensated for this " +
 			"by being very accurate at short range. Live and learn. " +
-			"In 24 hours. When you are alive again.",
+			"Tomorrow. When you are alive again.",
 
 		"Something in the Cursed Crypt cursed you specifically, " +
 			"which is both an achievement and a disaster. " +
@@ -267,7 +267,7 @@ var DungeonDeath = map[int][]string{
 		"The Draugr spoke. You did not know they spoke. Nobody warned you. " +
 			"You stopped, briefly, because something in you wanted to hear " +
 			"what a Draugr had to say. The Draugr used this pause efficiently. " +
-			"You will not stop next time. There will be a next time in 24 hours.",
+			"You will not stop next time. There will be a next time tomorrow.",
 
 		"Dark room. Something in it. You had a torch. The torch went out. " +
 			"The something in the room did not require light to function. " +
@@ -368,7 +368,7 @@ var DungeonDeath = map[int][]string{
 	5: {
 		"The demon didn't fight you. It waited until you were tired " +
 			"and then it stopped waiting. There's a lesson in that. " +
-			"The lesson is available in 24 hours.",
+			"The lesson is available tomorrow.",
 
 		"An Elder Drake. You know what that means. " +
 			"You knew before you went in. You went in anyway. " +
@@ -395,7 +395,7 @@ var DungeonDeath = map[int][]string{
 		"YOU DIED in the Abyssal Maw. In large, honest letters. " +
 			"The large, honest letters are impressed, which is " +
 			"more than the large honest letters usually feel. " +
-			"Recovery in 24 hours. The Maw will be there.",
+			"Recovery tomorrow. The Maw will be there.",
 
 		"The floor in the deepest chamber of the Abyssal Maw is not a floor. " +
 			"You know this now. What it is remains unclear " +

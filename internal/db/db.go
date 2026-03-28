@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,8 +57,23 @@ func Get() *sql.DB {
 }
 
 func runMigrations(d *sql.DB) error {
-	_, err := d.Exec(schema)
-	return err
+	if _, err := d.Exec(schema); err != nil {
+		return err
+	}
+	// Column migrations — ALTER TABLE ADD COLUMN is a no-op if it already
+	// exists in SQLite (we just swallow "duplicate column name" errors).
+	columnMigrations := []string{
+		`ALTER TABLE adventure_characters ADD COLUMN holiday_action_taken INTEGER NOT NULL DEFAULT 0`,
+	}
+	for _, stmt := range columnMigrations {
+		if _, err := d.Exec(stmt); err != nil {
+			// "duplicate column name" means it already exists — safe to ignore.
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("migration %q: %w", stmt, err)
+			}
+		}
+	}
+	return nil
 }
 
 // JobCompleted checks if a scheduled job has already completed for the given date key.
@@ -148,6 +164,10 @@ func RunMaintenance() {
 
 		// Forex rates older than 2 years (analysis needs 52 weeks, keep buffer)
 		{"forex_rates", `DELETE FROM forex_rates WHERE date < ?`, []interface{}{now.AddDate(-2, 0, 0).Format("2006-01-02")}},
+
+		// Market snapshots older than 1 year
+		{"market_snapshots", `DELETE FROM market_snapshots WHERE snapshot_date < ?`, []interface{}{now.AddDate(-1, 0, 0).Format("2006-01-02")}},
+		{"market_daily_summary", `DELETE FROM market_daily_summary WHERE snapshot_date < ?`, []interface{}{now.AddDate(-1, 0, 0).Format("2006-01-02")}},
 	}
 
 	totalDeleted := int64(0)
@@ -813,6 +833,7 @@ CREATE TABLE IF NOT EXISTS adventure_characters (
 	alive                INTEGER NOT NULL DEFAULT 1,
 	dead_until           DATETIME,
 	action_taken_today   INTEGER NOT NULL DEFAULT 0,
+	holiday_action_taken INTEGER NOT NULL DEFAULT 0,
 	arena_wins           INTEGER NOT NULL DEFAULT 0,
 	arena_losses         INTEGER NOT NULL DEFAULT 0,
 	invasion_score       INTEGER NOT NULL DEFAULT 0,
@@ -950,6 +971,44 @@ CREATE TABLE IF NOT EXISTS adventure_events_log (
 );
 CREATE INDEX IF NOT EXISTS idx_adv_events_user_outcome ON adventure_events_log(user_id, outcome);
 
+-- Arena (Phase 2)
+CREATE TABLE IF NOT EXISTS arena_runs (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id         TEXT NOT NULL,
+	room_id         TEXT NOT NULL,
+	start_tier      INTEGER NOT NULL,
+	tier            INTEGER NOT NULL,
+	round           INTEGER NOT NULL DEFAULT 1,
+	status          TEXT NOT NULL DEFAULT 'active',
+	earnings        INTEGER NOT NULL DEFAULT 0,
+	rounds_survived INTEGER NOT NULL DEFAULT 0,
+	last_monster    TEXT NOT NULL DEFAULT '',
+	started_at      INTEGER NOT NULL,
+	ended_at        INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS arena_history (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id         TEXT NOT NULL,
+	start_tier      INTEGER NOT NULL,
+	tier            INTEGER NOT NULL,
+	rounds_survived INTEGER NOT NULL,
+	earnings        INTEGER NOT NULL,
+	outcome         TEXT NOT NULL,
+	monster_name    TEXT NOT NULL,
+	created_at      INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS arena_stats (
+	user_id             TEXT PRIMARY KEY,
+	total_runs          INTEGER NOT NULL DEFAULT 0,
+	total_earnings      INTEGER NOT NULL DEFAULT 0,
+	total_deaths        INTEGER NOT NULL DEFAULT 0,
+	highest_tier        INTEGER NOT NULL DEFAULT 0,
+	tier5_completions   INTEGER NOT NULL DEFAULT 0,
+	updated_at          INTEGER NOT NULL
+);
+
 -- Forex
 CREATE TABLE IF NOT EXISTS forex_rates (
 	currency TEXT NOT NULL,
@@ -981,6 +1040,27 @@ CREATE TABLE IF NOT EXISTS miniflux_seen (
 	entry_id    INTEGER NOT NULL,
 	seen_at     INTEGER NOT NULL,
 	PRIMARY KEY (feed_id, entry_id)
+);
+
+-- Market snapshots (daily index data)
+CREATE TABLE IF NOT EXISTS market_snapshots (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	snapshot_date   TEXT NOT NULL,
+	symbol          TEXT NOT NULL,
+	display_name    TEXT NOT NULL,
+	price           REAL,
+	prev_close      REAL,
+	change_pct      REAL,
+	source          TEXT NOT NULL,
+	pulled_at       INTEGER NOT NULL,
+	UNIQUE(snapshot_date, symbol)
+);
+CREATE INDEX IF NOT EXISTS idx_market_snap_date ON market_snapshots(snapshot_date, symbol);
+
+CREATE TABLE IF NOT EXISTS market_daily_summary (
+	snapshot_date   TEXT PRIMARY KEY,
+	summary         TEXT,
+	generated_at    INTEGER
 );
 
 `

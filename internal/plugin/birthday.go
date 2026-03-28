@@ -17,14 +17,16 @@ import (
 // BirthdayPlugin manages user birthdays with reminders and announcements.
 type BirthdayPlugin struct {
 	Base
-	xp *XPPlugin
+	xp   *XPPlugin
+	euro *EuroPlugin
 }
 
 // NewBirthdayPlugin creates a new BirthdayPlugin.
-func NewBirthdayPlugin(client *mautrix.Client, xp *XPPlugin) *BirthdayPlugin {
+func NewBirthdayPlugin(client *mautrix.Client, xp *XPPlugin, euro *EuroPlugin) *BirthdayPlugin {
 	return &BirthdayPlugin{
 		Base: NewBase(client),
 		xp:   xp,
+		euro: euro,
 	}
 }
 
@@ -273,7 +275,7 @@ func (p *BirthdayPlugin) CheckAndPost(roomID id.RoomID) error {
 			ageStr = fmt.Sprintf(" They're turning %d!", age)
 		}
 
-		announcement := fmt.Sprintf("Happy Birthday to %s!%s Have an amazing day!", m.userID, ageStr)
+		announcement := fmt.Sprintf("Happy Birthday to %s!%s Have an amazing day! Everyone gets 10 XP and €100 to celebrate!", m.userID, ageStr)
 		if err := p.SendMessage(roomID, announcement); err != nil {
 			slog.Error("birthday: send announcement", "user", m.userID, "err", err)
 			continue
@@ -290,8 +292,13 @@ func (p *BirthdayPlugin) CheckAndPost(roomID id.RoomID) error {
 			continue // Already granted XP and sent DM
 		}
 
+		// Grant 1,000 euros
+		if p.euro != nil {
+			p.euro.Credit(id.UserID(m.userID), 1000, "birthday gift")
+		}
+
 		// Send DM to the birthday person
-		dmMsg := fmt.Sprintf("Happy Birthday! The community wishes you a wonderful day!%s You've been granted 100 bonus XP as a birthday gift!", ageStr)
+		dmMsg := fmt.Sprintf("Happy Birthday! The community wishes you a wonderful day!%s You've been granted 100 bonus XP and €1,000 as a birthday gift!", ageStr)
 		if err := p.SendDM(id.UserID(m.userID), dmMsg); err != nil {
 			slog.Error("birthday: send DM", "user", m.userID, "err", err)
 		}
@@ -302,6 +309,9 @@ func (p *BirthdayPlugin) CheckAndPost(roomID id.RoomID) error {
 		} else {
 			p.grantBirthdayXP(id.UserID(m.userID), 100)
 		}
+
+		// Grant 10 XP (10% of birthday award) to every other user as a community celebration
+		p.grantCommunityBirthdayXP(m.userID)
 
 		// Mark as fired (for XP/DM dedup)
 		db.Exec("birthday: mark fired",
@@ -337,6 +347,45 @@ func (p *BirthdayPlugin) grantBirthdayXP(userID id.UserID, amount int) {
 	db.Exec("birthday: log xp",
 		`INSERT INTO xp_log (user_id, amount, reason) VALUES (?, ?, ?)`,
 		string(userID), amount, "birthday")
+}
+
+// grantCommunityBirthdayXP awards 10 XP and €100 to every user except the birthday person.
+func (p *BirthdayPlugin) grantCommunityBirthdayXP(birthdayUserID string) {
+	d := db.Get()
+	now := time.Now().UTC().Unix()
+
+	// Bulk-update XP for all users except the birthday person
+	res, err := d.Exec(
+		`UPDATE users SET xp = xp + 10, last_xp_at = ? WHERE user_id != ?`,
+		now, birthdayUserID,
+	)
+	if err != nil {
+		slog.Error("birthday: community xp grant", "err", err)
+		return
+	}
+	n, _ := res.RowsAffected()
+	slog.Info("birthday: community celebration", "users", n, "xp_each", 10, "euro_each", 100)
+
+	// Grant €100 to each user
+	if p.euro != nil {
+		rows, err := d.Query(`SELECT user_id FROM users WHERE user_id != ?`, birthdayUserID)
+		if err != nil {
+			slog.Error("birthday: community euro query", "err", err)
+			return
+		}
+		var userIDs []string
+		for rows.Next() {
+			var uid string
+			if err := rows.Scan(&uid); err != nil {
+				continue
+			}
+			userIDs = append(userIDs, uid)
+		}
+		rows.Close()
+		for _, uid := range userIDs {
+			p.euro.Credit(id.UserID(uid), 100, "birthday celebration")
+		}
+	}
 }
 
 // parseBirthdayDate parses MM-DD or MM-DD-YYYY format.

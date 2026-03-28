@@ -643,10 +643,24 @@ func (p *UnoPlugin) initMultiGame(players []playerDMPair, roomID id.RoomID, ante
 func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 	var roomBuf strings.Builder
 	botTurnsInRow := 0
+	loopMsgsSent := 0 // track messages sent across loop iterations to add jitter
 
 	for {
 		if game.done {
 			return
+		}
+
+		// Jitter between rapid-fire messages to avoid Matrix rate limits.
+		// Drop the lock during sleep so DM handlers aren't blocked.
+		if loopMsgsSent > 0 {
+			savedTurn := game.turnID
+			game.mu.Unlock()
+			time.Sleep(time.Duration(300+rand.IntN(400)) * time.Millisecond)
+			game.mu.Lock()
+			// A DM handler may have advanced the game while we slept.
+			if game.done || game.turnID != savedTurn {
+				return
+			}
 		}
 
 		player := game.currentPlayer()
@@ -665,6 +679,7 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 				break
 			}
 			p.botMultiTurn(game, &roomBuf)
+			loopMsgsSent++
 			if game.done {
 				if roomBuf.Len() > 0 {
 					p.SendMessage(game.roomID, roomBuf.String())
@@ -688,11 +703,13 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 				player.hand = append(player.hand, drawn...)
 				p.SendMessage(player.dmRoomID, fmt.Sprintf("💥 No stackable card! You draw %d cards.\n%s",
 					game.stackTotal, pickNoMercyCommentary("stack_absorbed")))
-				p.SendMessage(game.roomID, fmt.Sprintf("💥 %s absorbs the stack! Draws %d cards. (%d cards now)",
-					name, game.stackTotal, len(player.hand)))
+				absorbMsg := fmt.Sprintf("💥 %s absorbs the stack! Draws %d cards. (%d cards now)",
+					name, game.stackTotal, len(player.hand))
 				game.stackTotal = 0
 				game.stackMinValue = 0
 				if p.checkMultiMercyElimination(game, player) {
+					p.SendMessage(game.roomID, absorbMsg)
+					loopMsgsSent++
 					if game.done {
 						return
 					}
@@ -703,6 +720,8 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 				// Skip this player's turn
 				game.currentIdx = game.nextActiveIdx()
 				game.turnID++
+				p.SendMessage(game.roomID, absorbMsg+"\n"+p.nextTurnLabel(game))
+				loopMsgsSent++
 				continue
 			}
 			// Player has stackable cards — show stacking prompt
@@ -744,10 +763,11 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 				}
 				name := p.DisplayName(player.userID)
 				if len(allDrawn) == 0 {
-					p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s has no playable cards and deck is empty. Turn passes. (%d cards)", name, len(player.hand)))
 					p.SendMessage(player.dmRoomID, "No playable cards and deck is empty. Turn passes.")
 					game.currentIdx = game.nextActiveIdx()
 					game.turnID++
+					p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s has no playable cards and deck is empty. Turn passes. (%d cards)\n%s", name, len(player.hand), p.nextTurnLabel(game)))
+					loopMsgsSent += 2
 					continue
 				}
 				if playableCard != nil {
@@ -762,9 +782,10 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 				}
 				p.SendMessage(player.dmRoomID,
 					fmt.Sprintf("No playable cards — drew %d card(s). None playable. Turn passes.", len(allDrawn)))
-				p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws %d card(s). Turn passes. (%d cards)", name, len(allDrawn), len(player.hand)))
 				game.currentIdx = game.nextActiveIdx()
 				game.turnID++
+				p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws %d card(s). Turn passes. (%d cards)\n%s", name, len(allDrawn), len(player.hand), p.nextTurnLabel(game)))
+				loopMsgsSent += 2
 				continue
 			}
 
@@ -772,10 +793,11 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 			drawn := game.draw(1)
 			if len(drawn) == 0 {
 				name := p.DisplayName(player.userID)
-				p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s has no playable cards and deck is empty. Turn passes. (%d cards)", name, len(player.hand)))
 				p.SendMessage(player.dmRoomID, "No playable cards and deck is empty. Turn passes.")
 				game.currentIdx = game.nextActiveIdx()
 				game.turnID++
+				p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s has no playable cards and deck is empty. Turn passes. (%d cards)\n%s", name, len(player.hand), p.nextTurnLabel(game)))
+				loopMsgsSent += 2
 				continue
 			}
 
@@ -794,9 +816,10 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 			name := p.DisplayName(player.userID)
 			p.SendMessage(player.dmRoomID,
 				fmt.Sprintf("No playable cards — drew automatically: %s\nNot playable. Turn passes.", card.Display()))
-			p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes. (%d cards)", name, len(player.hand)))
 			game.currentIdx = game.nextActiveIdx()
 			game.turnID++
+			p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s draws a card. Turn passes. (%d cards)\n%s", name, len(player.hand), p.nextTurnLabel(game)))
+			loopMsgsSent += 2
 			continue
 		}
 
@@ -815,6 +838,16 @@ func (p *UnoPlugin) advanceAndExecute(game *unoMultiGame) {
 	game.turnID++
 	game.turns++
 	p.executeMultiTurn(game)
+}
+
+// nextTurnLabel returns "It's X's turn." for the current player.
+func (p *UnoPlugin) nextTurnLabel(game *unoMultiGame) string {
+	next := game.currentPlayer()
+	name := p.DisplayName(next.userID)
+	if next.isBot {
+		name = unoBotName()
+	}
+	return fmt.Sprintf("It's %s's turn.", name)
 }
 
 // ---------------------------------------------------------------------------
@@ -891,20 +924,26 @@ func (p *UnoPlugin) handleMultiDMInput(ctx MessageContext, game *unoMultiGame) e
 			player.hand = append(player.hand, drawn...)
 			p.SendMessage(player.dmRoomID, fmt.Sprintf("💥 You accept the stack and draw %d cards.\n%s",
 				game.stackTotal, pickNoMercyCommentary("stack_absorbed")))
-			p.SendMessage(game.roomID, fmt.Sprintf("💥 %s absorbs the stack! Draws %d cards. (%d cards now)",
-				name, game.stackTotal, len(player.hand)))
+			absorbMsg := fmt.Sprintf("💥 %s absorbs the stack! Draws %d cards. (%d cards now)",
+				name, game.stackTotal, len(player.hand))
 			game.stackTotal = 0
 			game.stackMinValue = 0
 			if p.checkMultiMercyElimination(game, player) {
+				p.SendMessage(game.roomID, absorbMsg)
 				if game.done {
 					return nil
 				}
 				p.advanceAndExecute(game)
 				return nil
 			}
-			p.advanceAndExecute(game)
+			game.currentIdx = game.nextActiveIdx()
+			game.turnID++
+			game.turns++
+			p.SendMessage(game.roomID, absorbMsg+"\n"+p.nextTurnLabel(game))
+			p.executeMultiTurn(game)
 			return nil
 		}
+		// "accept" alias handled above; "draw" during stacking = same as accept
 		if input == "draw" {
 			if game.noMercy && game.stackMinValue > 0 {
 				p.SendMessage(player.dmRoomID, "You must play a draw card to stack, or type **accept** to draw the stack.")
@@ -954,8 +993,8 @@ func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPl
 	if game.noMercy && game.stackMinValue > 0 {
 		if !card.canPlayOnStacking(game.topColor, game.stackMinValue) {
 			p.SendMessage(player.dmRoomID,
-				fmt.Sprintf("You can't stack %s — need a draw card worth +%d or more. Type **accept** to draw %d.",
-					card.Display(), game.stackMinValue, game.stackTotal))
+				fmt.Sprintf("You can't stack %s — need a draw card (matching color or wild). Type **accept** to draw %d.",
+					card.Display(), game.stackTotal))
 			return nil
 		}
 	} else if !card.canPlayOn(game.discardTop, game.topColor) {
