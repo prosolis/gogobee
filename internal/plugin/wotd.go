@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"bytes"
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -14,42 +13,23 @@ import (
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/dreamclient"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
 )
 
-// wordnikWOTDResponse is the top-level Wordnik Word of the Day response.
-type wordnikWOTDResponse struct {
-	Word        string            `json:"word"`
-	Definitions []wordnikWOTDDef  `json:"definitions"`
-	Examples    []wordnikWOTDEx   `json:"examples"`
-}
-
-type wordnikWOTDDef struct {
-	Text         string `json:"text"`
-	PartOfSpeech string `json:"partOfSpeech"`
-}
-
-type wordnikWOTDEx struct {
-	Text string `json:"text"`
-}
-
-// WOTDPlugin provides a Word of the Day feature using the Wordnik API.
+// WOTDPlugin provides a Word of the Day feature using DreamDict.
 type WOTDPlugin struct {
 	Base
-	apiKey     string
-	httpClient *http.Client
+	dict *dreamclient.Client
 }
 
 // NewWOTDPlugin creates a new WOTDPlugin.
-func NewWOTDPlugin(client *mautrix.Client) *WOTDPlugin {
+func NewWOTDPlugin(client *mautrix.Client, dict *dreamclient.Client) *WOTDPlugin {
 	return &WOTDPlugin{
-		Base:   NewBase(client),
-		apiKey: os.Getenv("WORDNIK_API_KEY"),
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		Base: NewBase(client),
+		dict: dict,
 	}
 }
 
@@ -57,7 +37,7 @@ func (p *WOTDPlugin) Name() string { return "wotd" }
 
 func (p *WOTDPlugin) Commands() []CommandDef {
 	return []CommandDef{
-		{Name: "wotd", Description: "Show today's Word of the Day", Usage: "!wotd", Category: "Lookup & Reference"},
+		{Name: "wotd", Description: "Show today's Palavra do Dia", Usage: "!wotd [force]", Category: "Lookup & Reference"},
 	}
 }
 
@@ -68,8 +48,15 @@ func (p *WOTDPlugin) OnReaction(_ ReactionContext) error { return nil }
 func (p *WOTDPlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "wotd") {
 		go func() {
-			if err := p.handleWOTD(ctx); err != nil {
-				slog.Error("wotd: handler error", "err", err)
+			args := strings.TrimSpace(p.GetArgs(ctx.Body, "wotd"))
+			if strings.ToLower(args) == "force" {
+				if err := p.handleWOTDForce(ctx); err != nil {
+					slog.Error("wotd: force handler error", "err", err)
+				}
+			} else {
+				if err := p.handleWOTD(ctx); err != nil {
+					slog.Error("wotd: handler error", "err", err)
+				}
 			}
 		}()
 		return nil
@@ -83,68 +70,96 @@ func (p *WOTDPlugin) OnMessage(ctx MessageContext) error {
 	return nil
 }
 
-// Prefetch fetches today's Word of the Day from Wordnik and stores it in the database.
+// Prefetch picks today's Palavra do Dia from DreamDict and stores it in the database.
+// Prefers pt-PT words with at least one definition and one English translation.
 func (p *WOTDPlugin) Prefetch() error {
-	if p.apiKey == "" {
-		slog.Warn("wotd: WORDNIK_API_KEY not set, skipping prefetch")
+	return p.prefetchWord(false)
+}
+
+func (p *WOTDPlugin) prefetchWord(force bool) error {
+	if p.dict == nil {
+		slog.Warn("wotd: DreamDict not configured, skipping prefetch")
 		return nil
 	}
 
 	today := time.Now().UTC().Format("2006-01-02")
-
-	// Check if already fetched
 	d := db.Get()
-	var exists int
-	err := d.QueryRow(`SELECT 1 FROM wotd_log WHERE date = ?`, today).Scan(&exists)
-	if err == nil {
-		slog.Info("wotd: already fetched for today", "date", today)
-		return nil
+
+	if !force {
+		var exists int
+		err := d.QueryRow(`SELECT 1 FROM wotd_log WHERE date = ?`, today).Scan(&exists)
+		if err == nil {
+			slog.Info("wotd: already fetched for today", "date", today)
+			return nil
+		}
 	}
 
-	url := fmt.Sprintf("https://api.wordnik.com/v4/words.json/wordOfTheDay?api_key=%s", p.apiKey)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
-	if err != nil {
-		return fmt.Errorf("wotd: create request: %w", err)
+	// Pick a random pt-PT word with definitions; prefer one with English translations.
+	var word, definition, partOfSpeech, translationsJSON string
+
+	for attempt := 0; attempt < 10; attempt++ {
+		candidate, err := p.dict.RandomWord("pt-PT", "", 4, 14)
+		if err != nil {
+			slog.Warn("wotd: random word attempt failed", "attempt", attempt+1, "err", err)
+			continue
+		}
+
+		defs, err := p.dict.Define(candidate, "pt-PT")
+		if err != nil || len(defs) == 0 {
+			continue
+		}
+
+		// Check for English translation (preferred but not required after 5 attempts)
+		enTrans, _ := p.dict.Translate(candidate, "pt-PT", "en")
+		if len(enTrans) == 0 && attempt < 5 {
+			continue
+		}
+
+		frTrans, _ := p.dict.Translate(candidate, "pt-PT", "fr")
+
+		word = candidate
+		definition = defs[0].Gloss
+		partOfSpeech = defs[0].POS
+
+		// Store translations as JSON in the example column
+		transMap := map[string][]string{}
+		if len(enTrans) > 0 {
+			transMap["en"] = enTrans
+		}
+		if len(frTrans) > 0 {
+			transMap["fr"] = frTrans
+		}
+		if data, err := json.Marshal(transMap); err == nil {
+			translationsJSON = string(data)
+		}
+		break
 	}
 
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("wotd: fetch: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("wotd: API returned status %d", resp.StatusCode)
+	if word == "" {
+		return fmt.Errorf("wotd: failed to find a pt-PT word with definitions after 10 attempts")
 	}
 
-	var wotd wordnikWOTDResponse
-	if err := json.NewDecoder(resp.Body).Decode(&wotd); err != nil {
-		return fmt.Errorf("wotd: decode response: %w", err)
+	if force {
+		// Delete existing entry for today so the INSERT below replaces it
+		if _, delErr := d.Exec(`DELETE FROM wotd_log WHERE date = ?`, today); delErr != nil {
+			slog.Error("wotd: force delete failed", "err", delErr)
+		}
+		// Also clear job-completed flags so PostWOTD will re-post
+		d.Exec(`DELETE FROM job_completed WHERE job_name = 'wotd' AND job_key LIKE ?`, today+"%")
 	}
 
-	definition := ""
-	partOfSpeech := ""
-	if len(wotd.Definitions) > 0 {
-		definition = wotd.Definitions[0].Text
-		partOfSpeech = wotd.Definitions[0].PartOfSpeech
-	}
-
-	example := ""
-	if len(wotd.Examples) > 0 {
-		example = wotd.Examples[0].Text
-	}
-
-	_, err = d.Exec(
+	_, err := d.Exec(
 		`INSERT INTO wotd_log (date, word, definition, part_of_speech, example, posted)
 		 VALUES (?, ?, ?, ?, ?, 0)
-		 ON CONFLICT(date) DO NOTHING`,
-		today, wotd.Word, definition, partOfSpeech, example,
+		 ON CONFLICT(date) DO UPDATE SET word = ?, definition = ?, part_of_speech = ?, example = ?, posted = 0`,
+		today, word, definition, partOfSpeech, translationsJSON,
+		word, definition, partOfSpeech, translationsJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("wotd: store: %w", err)
 	}
 
-	slog.Info("wotd: prefetched", "date", today, "word", wotd.Word)
+	slog.Info("wotd: prefetched", "date", today, "word", word)
 	return nil
 }
 
@@ -216,24 +231,62 @@ func (p *WOTDPlugin) handleWOTD(ctx MessageContext) error {
 	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
-func (p *WOTDPlugin) formatWOTD(word, definition, partOfSpeech, example string) string {
+func (p *WOTDPlugin) formatWOTD(word, definition, partOfSpeech, translationsJSON string) string {
+	now := time.Now().UTC()
+	dateStr := now.Format("Monday, 2 January 2006")
+
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Word of the Day: %s", word))
+	sb.WriteString(fmt.Sprintf("📖 **Palavra do Dia** — %s\n\n", dateStr))
 
 	if partOfSpeech != "" {
-		sb.WriteString(fmt.Sprintf(" (%s)", partOfSpeech))
+		sb.WriteString(fmt.Sprintf("✨ **%s**  (%s)\n\n", word, partOfSpeech))
+	} else {
+		sb.WriteString(fmt.Sprintf("✨ **%s**\n\n", word))
 	}
 
+	// Portuguese definition
 	if definition != "" {
-		sb.WriteString(fmt.Sprintf("\n\nDefinition: %s", definition))
+		sb.WriteString(fmt.Sprintf("🇵🇹 pt-PT\n  %s\n\n", definition))
 	}
 
-	if example != "" {
-		sb.WriteString(fmt.Sprintf("\n\nExample: \"%s\"", example))
+	// Parse translations from JSON stored in example column
+	if translationsJSON != "" {
+		var transMap map[string][]string
+		if json.Unmarshal([]byte(translationsJSON), &transMap) == nil {
+			if enTrans, ok := transMap["en"]; ok && len(enTrans) > 0 {
+				display := enTrans
+				if len(display) > 5 {
+					display = display[:5]
+				}
+				sb.WriteString(fmt.Sprintf("🇬🇧 en\n  %s\n\n", strings.Join(display, ", ")))
+			}
+			if frTrans, ok := transMap["fr"]; ok && len(frTrans) > 0 {
+				display := frTrans
+				if len(display) > 5 {
+					display = display[:5]
+				}
+				sb.WriteString(fmt.Sprintf("🇫🇷 fr\n  %s\n\n", strings.Join(display, ", ")))
+			}
+		}
 	}
 
-	sb.WriteString("\n\nUse this word in a message today to earn 25 XP!")
+	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n")
+	sb.WriteString(fmt.Sprintf("Learn more: `!define %s pt-PT`\n", word))
+	sb.WriteString("Use this word in a message today to earn 25 XP!")
 	return sb.String()
+}
+
+func (p *WOTDPlugin) handleWOTDForce(ctx MessageContext) error {
+	if !p.IsAdmin(ctx.Sender) {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Only moderators can force a new Word of the Day.")
+	}
+
+	if err := p.prefetchWord(true); err != nil {
+		slog.Error("wotd: force prefetch failed", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to fetch a new Word of the Day. Try again later.")
+	}
+
+	return p.handleWOTD(ctx)
 }
 
 // trackUsage checks if the user used the WOTD in their message and rewards them.

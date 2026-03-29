@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"gogobee/internal/db"
+	"gogobee/internal/dreamclient"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
@@ -121,6 +122,9 @@ type hangmanGame struct {
 	solvedBy     id.UserID
 	earlySolve   bool
 	threadID     id.EventID // thread root event for this game
+	lang         string     // puzzle word language (e.g. "pt-PT")
+	clueLang     string     // clue language (e.g. "en")
+	clueWord     string     // translated clue word
 }
 
 func newHangmanGame(phrase string, maxWrong int) *hangmanGame {
@@ -272,6 +276,7 @@ func (g *hangmanGame) wrongGuessStr() string {
 type HangmanPlugin struct {
 	Base
 	euro     *EuroPlugin
+	dict     *dreamclient.Client
 	phrases  []string
 	maxWrong int
 	bonusMul float64
@@ -280,10 +285,11 @@ type HangmanPlugin struct {
 	games map[id.RoomID]*hangmanGame
 }
 
-func NewHangmanPlugin(client *mautrix.Client, euro *EuroPlugin) *HangmanPlugin {
+func NewHangmanPlugin(client *mautrix.Client, euro *EuroPlugin, dict *dreamclient.Client) *HangmanPlugin {
 	return &HangmanPlugin{
 		Base:     NewBase(client),
 		euro:     euro,
+		dict:     dict,
 		maxWrong: envInt("HANGMAN_MAX_WRONG_GUESSES", 6),
 		bonusMul: envFloat("HANGMAN_SOLUTION_BONUS_MULTIPLIER", 2),
 		games:    make(map[id.RoomID]*hangmanGame),
@@ -294,7 +300,7 @@ func (p *HangmanPlugin) Name() string { return "hangman" }
 
 func (p *HangmanPlugin) Commands() []CommandDef {
 	return []CommandDef{
-		{Name: "hangman", Description: "Collaborative Hangman game", Usage: "!hangman start [easy|medium|hard|extreme] | !hangman [letter/phrase] | !hangman submit [phrase]", Category: "Games"},
+		{Name: "hangman", Description: "Collaborative Hangman game", Usage: "!hangman start [easy|medium|hard|extreme] | !hangman [lang] [--clue <lang>] | !hangman submit [phrase]", Category: "Games"},
 		{Name: "hangboard", Description: "Hangman leaderboard", Usage: "!hangboard", Category: "Games"},
 	}
 }
@@ -347,16 +353,47 @@ func (p *HangmanPlugin) OnMessage(ctx MessageContext) error {
 	lower := strings.ToLower(args)
 	switch {
 	case args == "" || lower == "start":
-		return p.handleStart(ctx, "")
+		return p.handleStart(ctx, "", "", "")
 	case strings.HasPrefix(lower, "start "):
-		return p.handleStart(ctx, strings.TrimSpace(args[6:]))
+		return p.handleStart(ctx, strings.TrimSpace(args[6:]), "", "")
 	case strings.HasPrefix(lower, "submit "):
 		return p.handleSubmit(ctx, strings.TrimSpace(args[7:]))
 	case lower == "skip":
 		return p.handleSkip(ctx)
 	default:
+		// Check if this is a multilingual start: !hangman <lang> [--clue <lang>]
+		if lang, clueLang, ok := p.parseMultilingualArgs(args); ok {
+			return p.handleStart(ctx, "", lang, clueLang)
+		}
 		return p.handleGuess(ctx, args)
 	}
+}
+
+// parseMultilingualArgs parses "pt-PT --clue en" or "fr --clue en" style args.
+// Returns (lang, clueLang, true) if the first token is a valid language tag.
+func (p *HangmanPlugin) parseMultilingualArgs(args string) (string, string, bool) {
+	parts := strings.Fields(args)
+	if len(parts) == 0 {
+		return "", "", false
+	}
+
+	lang := normaliseLang(parts[0])
+	if lang == "" {
+		return "", "", false
+	}
+
+	clueLang := ""
+	for i := 1; i < len(parts); i++ {
+		if strings.ToLower(parts[i]) == "--clue" && i+1 < len(parts) {
+			clueLang = normaliseLang(parts[i+1])
+			if clueLang == "" {
+				return lang, "", false // invalid clue lang, will be handled in handleStart
+			}
+			break
+		}
+	}
+
+	return lang, clueLang, true
 }
 
 // ---------------------------------------------------------------------------
@@ -415,12 +452,37 @@ func (p *HangmanPlugin) addPhrase(phrase string) error {
 // Game commands
 // ---------------------------------------------------------------------------
 
-func (p *HangmanPlugin) handleStart(ctx MessageContext, difficulty string) error {
+func (p *HangmanPlugin) handleStart(ctx MessageContext, difficulty, lang, clueLang string) error {
 	p.mu.Lock()
 
 	if _, active := p.games[ctx.RoomID]; active {
 		p.mu.Unlock()
 		return p.SendReply(ctx.RoomID, ctx.EventID, "A Hangman game is already in progress!")
+	}
+
+	// Multilingual mode: use DreamDict for word selection
+	if lang != "" {
+		// Validate before reserving the slot
+		if p.dict == nil {
+			p.mu.Unlock()
+			return p.SendReply(ctx.RoomID, ctx.EventID, "❌ Dictionary service unavailable. Try again shortly.")
+		}
+		if clueLang != "" && clueLang == lang {
+			p.mu.Unlock()
+			return p.SendReply(ctx.RoomID, ctx.EventID, "❌ Clue language must differ from the puzzle language.")
+		}
+		if clueLang != "" {
+			if normaliseLang(clueLang) == "" {
+				p.mu.Unlock()
+				return p.SendReply(ctx.RoomID, ctx.EventID,
+					fmt.Sprintf("❌ Unknown clue language \"%s\". Supported: en, fr, pt-PT", clueLang))
+			}
+		}
+
+		// Reserve the slot so no concurrent start can race us during network I/O
+		p.games[ctx.RoomID] = &hangmanGame{} // placeholder
+		p.mu.Unlock()
+		return p.startMultilingualGame(ctx, lang, clueLang)
 	}
 
 	if len(p.phrases) == 0 {
@@ -487,6 +549,107 @@ func (p *HangmanPlugin) handleStart(ctx MessageContext, difficulty string) error
 	p.mu.Unlock()
 
 	// Send an initial thread reply to materialize the thread in clients
+	return p.SendThread(ctx.RoomID, eventID, fmt.Sprintf(
+		"```\n%s\n```\n%s\n\nWrong guesses: none",
+		gallows[0], game.displayPhrase(),
+	))
+}
+
+// startMultilingualGame picks a DreamDict word and starts a multilingual hangman game.
+// Caller must have already reserved p.games[ctx.RoomID] with a placeholder.
+func (p *HangmanPlugin) startMultilingualGame(ctx MessageContext, lang, clueLang string) error {
+	rollback := func() {
+		p.mu.Lock()
+		if g := p.games[ctx.RoomID]; g != nil && g.phrase == "" {
+			delete(p.games, ctx.RoomID)
+		}
+		p.mu.Unlock()
+	}
+
+	langName := dreamdictLangNames[lang]
+	if langName == "" {
+		langName = lang
+	}
+
+	// Pick a word, optionally with a translatable clue
+	var word, clueWord string
+	for attempt := 0; attempt < 3; attempt++ {
+		candidate, err := p.dict.RandomWord(lang, "", 4, 12)
+		if err != nil {
+			slog.Error("hangman: random word failed", "lang", lang, "err", err)
+			rollback()
+			return p.SendReply(ctx.RoomID, ctx.EventID, "❌ Dictionary service unavailable. Try again shortly.")
+		}
+
+		if clueLang == "" {
+			word = candidate
+			break
+		}
+
+		translations, err := p.dict.Translate(candidate, lang, clueLang)
+		if err != nil || len(translations) == 0 {
+			continue // retry with a different word
+		}
+		word = candidate
+		clueWord = translations[0]
+		break
+	}
+
+	if word == "" {
+		// Fallback: start without a clue
+		candidate, err := p.dict.RandomWord(lang, "", 4, 12)
+		if err != nil {
+			rollback()
+			return p.SendReply(ctx.RoomID, ctx.EventID, "❌ Dictionary service unavailable. Try again shortly.")
+		}
+		word = candidate
+	}
+
+	game := newHangmanGame(word, p.maxWrong)
+	game.lang = lang
+	game.clueLang = clueLang
+	game.clueWord = clueWord
+
+	// Replace the placeholder reserved by handleStart
+	p.mu.Lock()
+	p.games[ctx.RoomID] = game
+	p.mu.Unlock()
+
+	// Build thread root
+	var sb strings.Builder
+	if clueLang != "" {
+		clueLangName := dreamdictLangNames[clueLang]
+		if clueLangName == "" {
+			clueLangName = clueLang
+		}
+		sb.WriteString(fmt.Sprintf("🐝 **Hangman — %s** (clue: %s)\n", langName, clueLangName))
+	} else {
+		sb.WriteString(fmt.Sprintf("🐝 **Hangman — %s**\n", langName))
+	}
+	sb.WriteString(fmt.Sprintf("Word: %s   (%d letters)\n", game.displayPhrase(), len([]rune(word))))
+
+	if clueWord != "" {
+		sb.WriteString(fmt.Sprintf("💡 Clue: %s\n", clueWord))
+	} else if clueLang != "" {
+		sb.WriteString("💡 No clue available for this word.\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("\nWrong guesses: 0/%d\n", game.maxWrong))
+	sb.WriteString("Guess a letter: `!hangman <letter>`")
+
+	eventID, err := p.SendMessageID(ctx.RoomID, sb.String())
+	if err != nil {
+		p.mu.Lock()
+		delete(p.games, ctx.RoomID)
+		p.mu.Unlock()
+		return err
+	}
+
+	p.mu.Lock()
+	game.threadID = eventID
+	p.mu.Unlock()
+
+	// Materialize thread
 	return p.SendThread(ctx.RoomID, eventID, fmt.Sprintf(
 		"```\n%s\n```\n%s\n\nWrong guesses: none",
 		gallows[0], game.displayPhrase(),

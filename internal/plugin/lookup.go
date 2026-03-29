@@ -7,11 +7,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/dreamclient"
 
 	"maunium.net/go/mautrix"
 )
@@ -22,13 +22,15 @@ var httpClient = &http.Client{Timeout: 15 * time.Second}
 type LookupPlugin struct {
 	Base
 	rateLimiter *RateLimitsPlugin
+	dict        *dreamclient.Client
 }
 
 // NewLookupPlugin creates a new lookup plugin.
-func NewLookupPlugin(client *mautrix.Client, rateLimiter *RateLimitsPlugin) *LookupPlugin {
+func NewLookupPlugin(client *mautrix.Client, rateLimiter *RateLimitsPlugin, dict *dreamclient.Client) *LookupPlugin {
 	return &LookupPlugin{
 		Base:        NewBase(client),
 		rateLimiter: rateLimiter,
+		dict:        dict,
 	}
 }
 
@@ -39,7 +41,7 @@ func (p *LookupPlugin) Commands() []CommandDef {
 		{Name: "wiki", Description: "Look up a Wikipedia summary", Usage: "!wiki <topic>", Category: "Lookup & Reference"},
 		{Name: "define", Description: "Look up a word definition", Usage: "!define <word>", Category: "Lookup & Reference"},
 		{Name: "urban", Description: "Look up Urban Dictionary definition", Usage: "!urban <term>", Category: "Lookup & Reference"},
-		{Name: "translate", Description: "Translate text (pt/es/fr/de/ja/ko/zh/ar/ru/it)", Usage: "!translate [lang] <text>", Category: "Lookup & Reference"},
+		{Name: "translate", Description: "Look up word translations (en/fr/pt-PT)", Usage: "!translate <word> [lang]", Category: "Lookup & Reference"},
 	}
 }
 
@@ -283,78 +285,114 @@ func (p *LookupPlugin) handleUrban(ctx MessageContext) error {
 	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
-var supportedLangs = map[string]bool{
-	"pt": true, "es": true, "fr": true, "de": true, "ja": true,
-	"ko": true, "zh": true, "ar": true, "ru": true, "it": true,
+// dreamdictLangs are the supported DreamDict languages in lookup order.
+var dreamdictLangs = []string{"en", "fr", "pt-PT"}
+
+// dreamdictLangNames maps language tags to display names.
+var dreamdictLangNames = map[string]string{
+	"en":    "English",
+	"fr":    "French",
+	"pt-PT": "Portuguese",
+}
+
+// normaliseLang normalises a language tag to the canonical DreamDict form.
+func normaliseLang(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	switch s {
+	case "en":
+		return "en"
+	case "fr":
+		return "fr"
+	case "pt-pt", "pt":
+		return "pt-PT"
+	default:
+		return ""
+	}
 }
 
 func (p *LookupPlugin) handleTranslate(ctx MessageContext) error {
 	args := strings.TrimSpace(p.GetArgs(ctx.Body, "translate"))
 	if args == "" {
 		return p.SendReply(ctx.RoomID, ctx.EventID,
-			"Usage: !translate [lang] <text>\nSupported: pt, es, fr, de, ja, ko, zh, ar, ru, it")
+			"Usage: !translate <word> [lang]\nSupported languages: en, fr, pt-PT")
 	}
 
-	ltURL := os.Getenv("LIBRETRANSLATE_URL")
-	if ltURL == "" {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Translation service is not configured.")
+	if p.dict == nil {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "❌ Dictionary service unavailable. Try again shortly.")
 	}
 
-	// Rate limit (configurable, default 20/day to match TS version)
-	translateLimit := 20
-	if v := os.Getenv("RATELIMIT_TRANSLATE"); v != "" {
-		if n, err := fmt.Sscanf(v, "%d", &translateLimit); n != 1 || err != nil {
-			translateLimit = 20
+	parts := strings.Fields(args)
+	word := parts[0]
+	var sourceLang string
+
+	if len(parts) >= 2 {
+		sourceLang = normaliseLang(parts[1])
+		if sourceLang == "" {
+			return p.SendReply(ctx.RoomID, ctx.EventID,
+				fmt.Sprintf("❌ Unknown language \"%s\". Supported: en, fr, pt-PT", parts[1]))
 		}
 	}
-	if p.rateLimiter != nil && !p.rateLimiter.CheckLimit(ctx.Sender, "translate", translateLimit) {
-		remaining := p.rateLimiter.Remaining(ctx.Sender, "translate", translateLimit)
-		return p.SendReply(ctx.RoomID, ctx.EventID,
-			fmt.Sprintf("Translation rate limit reached. %d remaining today.", remaining))
+
+	// If lang specified, validate word exists in that language
+	if sourceLang != "" {
+		valid, err := p.dict.IsValidWord(word, sourceLang)
+		if err != nil {
+			slog.Error("lookup: translate valid check", "err", err)
+			return p.SendReply(ctx.RoomID, ctx.EventID, "❌ Dictionary service unavailable. Try again shortly.")
+		}
+		if !valid {
+			return p.SendReply(ctx.RoomID, ctx.EventID,
+				fmt.Sprintf("❌ \"%s\" not found in %s.", word, dreamdictLangNames[sourceLang]))
+		}
+	} else {
+		// Auto-detect: try each language in order
+		for _, lang := range dreamdictLangs {
+			valid, err := p.dict.IsValidWord(word, lang)
+			if err != nil {
+				slog.Error("lookup: translate auto-detect", "lang", lang, "err", err)
+				return p.SendReply(ctx.RoomID, ctx.EventID, "❌ Dictionary service unavailable. Try again shortly.")
+			}
+			if valid {
+				sourceLang = lang
+				break
+			}
+		}
+		if sourceLang == "" {
+			return p.SendReply(ctx.RoomID, ctx.EventID,
+				fmt.Sprintf("❌ \"%s\" not found in any supported language.", word))
+		}
 	}
 
-	// Parse lang code and text
-	parts := strings.SplitN(args, " ", 2)
-	targetLang := "es" // default
-	text := args
+	// Translate to other languages
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🔤 %s (%s)\n", word, sourceLang))
 
-	if len(parts) >= 2 && supportedLangs[strings.ToLower(parts[0])] {
-		targetLang = strings.ToLower(parts[0])
-		text = parts[1]
+	for _, targetLang := range dreamdictLangs {
+		if targetLang == sourceLang {
+			continue
+		}
+		translations, err := p.dict.Translate(word, sourceLang, targetLang)
+		if err != nil {
+			slog.Error("lookup: translate call", "from", sourceLang, "to", targetLang, "err", err)
+			sb.WriteString(fmt.Sprintf("  → %s: (no direct translation)\n", targetLang))
+			continue
+		}
+		if len(translations) == 0 {
+			sb.WriteString(fmt.Sprintf("  → %s: (no direct translation)\n", targetLang))
+			continue
+		}
+		display := translations
+		extra := 0
+		if len(display) > 5 {
+			extra = len(display) - 5
+			display = display[:5]
+		}
+		line := strings.Join(display, ", ")
+		if extra > 0 {
+			line += fmt.Sprintf(" (+%d more)", extra)
+		}
+		sb.WriteString(fmt.Sprintf("  → %s: %s\n", targetLang, line))
 	}
 
-	// Call LibreTranslate
-	payload := fmt.Sprintf(`{"q":%q,"source":"auto","target":%q}`, text, targetLang)
-	req, err := http.NewRequest("POST", strings.TrimRight(ltURL, "/")+"/translate", strings.NewReader(payload))
-	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to create translation request.")
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		slog.Error("lookup: translate request", "err", err)
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to reach translation service.")
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to read translation response.")
-	}
-
-	var result struct {
-		TranslatedText string `json:"translatedText"`
-		Error          string `json:"error"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to parse translation response.")
-	}
-
-	if result.Error != "" {
-		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Translation error: %s", result.Error))
-	}
-
-	msg := fmt.Sprintf("Translation (-> %s):\n%s", targetLang, result.TranslatedText)
-	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
+	return p.SendReply(ctx.RoomID, ctx.EventID, strings.TrimRight(sb.String(), "\n"))
 }

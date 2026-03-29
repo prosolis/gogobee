@@ -12,6 +12,7 @@ import (
 
 	"gogobee/internal/bot"
 	"gogobee/internal/db"
+	"gogobee/internal/dreamclient"
 	"gogobee/internal/plugin"
 	"gogobee/internal/util"
 
@@ -95,9 +96,22 @@ func main() {
 	registry.Register(plugin.NewToolsPlugin(client))
 	registry.Register(plugin.NewUserPlugin(client))
 
+	// Dictionary service
+	var dictClient *dreamclient.Client
+	if dictURL := os.Getenv("DREAMDICT_URL"); dictURL != "" {
+		dictClient = dreamclient.New(dictURL)
+		if h, err := dictClient.Health(); err != nil {
+			slog.Warn("dreamdict not reachable — dictionary features degraded", "url", dictURL, "err", err)
+		} else {
+			slog.Info("dreamdict connected", "url", dictURL, "words_en", h.WordCounts["en"])
+		}
+	} else {
+		slog.Warn("DREAMDICT_URL not set — dictionary features disabled")
+	}
+
 	// Entertainment / Lookup
 	registry.Register(plugin.NewRetroPlugin(client))
-	registry.Register(plugin.NewLookupPlugin(client, ratePlugin))
+	registry.Register(plugin.NewLookupPlugin(client, ratePlugin, dictClient))
 	registry.Register(plugin.NewCountdownPlugin(client))
 	registry.Register(plugin.NewStocksPlugin(client))
 	forexPlugin := plugin.NewForexPlugin(client)
@@ -113,13 +127,13 @@ func main() {
 	euroPlugin := plugin.NewEuroPlugin(client)
 	registry.Register(euroPlugin)
 	registry.Register(plugin.NewFlipPlugin(client))
-	registry.Register(plugin.NewHangmanPlugin(client, euroPlugin))
+	registry.Register(plugin.NewHangmanPlugin(client, euroPlugin, dictClient))
 	registry.Register(plugin.NewBlackjackPlugin(client, euroPlugin))
 	registry.Register(plugin.NewUnoPlugin(client, euroPlugin))
 	registry.Register(plugin.NewHoldemPlugin(client, euroPlugin))
 	adventurePlugin := plugin.NewAdventurePlugin(client, euroPlugin)
 	registry.Register(adventurePlugin)
-	wordlePlugin := plugin.NewWordlePlugin(client, euroPlugin)
+	wordlePlugin := plugin.NewWordlePlugin(client, euroPlugin, dictClient)
 	registry.Register(wordlePlugin)
 
 	// Community
@@ -144,7 +158,7 @@ func main() {
 	registry.Register(plugin.NewLLMPassivePlugin(client, xpPlugin))
 
 	// Scheduled
-	wotdPlugin := plugin.NewWOTDPlugin(client)
+	wotdPlugin := plugin.NewWOTDPlugin(client, dictClient)
 	registry.Register(wotdPlugin)
 	holidaysPlugin := plugin.NewHolidaysPlugin(client)
 	registry.Register(holidaysPlugin)
