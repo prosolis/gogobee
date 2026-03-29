@@ -30,10 +30,10 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
 - **49 plugins** with dependency injection and ordered registration
-- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, Wordnik-powered, 5-7 letter words, video game themed bonus words with category hints, dupe prevention across last 500 puzzles), Adventure (daily idle RPG via DMs — dungeon, mine, forage, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), all with channel restriction
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-7 letter words, video game themed bonus words with category hints, dupe prevention across last 500 puzzles), Adventure (daily idle RPG via DMs — dungeon, mine, forage, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
-- **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - WOTD, holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
+- **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - Palavra do Dia (Portuguese WOTD with en/fr translations), holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
 - **LLM integration** (optional) - Ollama-powered sentiment analysis, roast profiles, room vibes, tarot readings, conversation summaries
 - **Markdown rendering** - auto-detects `**bold**`, `_italic_`, and `` `code` `` in messages and sends proper HTML to Matrix clients
 - **Encrypted quote wall** - AES-256-GCM encrypted quotes at rest, reply-to-save, search, leaderboard
@@ -107,7 +107,7 @@ Everything is configured through environment variables or a `.env` file.
 | Variable | Service | Used By |
 |----------|---------|---------|
 | `RAWG_API_KEY` | [RAWG](https://rawg.io/apidocs) | `!game`, `!retro`, `!releases` |
-| `WORDNIK_API_KEY` | [Wordnik](https://developer.wordnik.com) | Word of the Day, Wordle (guess validation + definitions) |
+| `DREAMDICT_URL` | DreamDict (self-hosted) | `!translate`, `!wotd`, Hangman multilingual clues, Wordle (guess validation + definitions) |
 | `CALENDARIFIC_API_KEY` | [Calendarific](https://calendarific.com) | Holiday posts |
 | `OPENWEATHER_API_KEY` | [OpenWeather](https://openweathermap.org/api) | `!weather` |
 | `FINNHUB_API_KEY` | [Finnhub](https://finnhub.io) | `!stock` |
@@ -121,7 +121,7 @@ Everything is configured through environment variables or a `.env` file.
 |----------|-------------|
 | `OLLAMA_HOST` | Ollama server URL, e.g. `http://localhost:11434` |
 | `OLLAMA_MODEL` | Model name, e.g. `llama3.2` |
-| `LIBRETRANSLATE_URL` | LibreTranslate instance for `!translate` |
+| `DREAMDICT_URL` | DreamDict instance for `!translate`, `!wotd`, Hangman clues (e.g. `http://127.0.0.1:7777`) |
 | `LLM_SAMPLE_RATE` | Fraction of messages to classify (0.0–1.0, default `0.15`) |
 
 ### Encryption
@@ -241,7 +241,6 @@ All moderation settings are optional. The system is disabled unless `FEATURE_MOD
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RATELIMIT_WEATHER` | `5` | Daily weather lookups per user |
-| `RATELIMIT_TRANSLATE` | `20` | Daily translation limit per user |
 | `RATELIMIT_CONCERTS` | `10` | Daily concert searches per user |
 
 ---
@@ -318,6 +317,7 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 | `!flip` | Coin flip |
 | `!games` | List available games |
 | `!hangman start [easy\|medium\|hard\|extreme]` | Start a Hangman game (optional difficulty) |
+| `!hangman <lang> [--clue <lang>]` | Start a multilingual game (en/fr/pt-PT) with optional clue |
 | `!hangman [letter]` | Guess a letter |
 | `!hangman [phrase]` | Attempt full solution |
 | `!hangman submit [phrase]` | Submit a phrase to the pool |
@@ -600,7 +600,7 @@ A multi-tier combat gauntlet independent of the daily adventure action. Fight th
 | `!wiki <topic>` | Wikipedia summary |
 | `!define <word>` | Dictionary definition |
 | `!urban <term>` | Urban Dictionary |
-| `!translate [lang] <text>` | Translate (needs LibreTranslate) |
+| `!translate <word> [lang]` | Cross-language word lookup (en/fr/pt-PT, auto-detects source) |
 
 ### Personal
 | Command | Description |
@@ -711,7 +711,8 @@ A multi-tier combat gauntlet independent of the daily adventure action. Fight th
 | Command | Description |
 |---------|-------------|
 | `!achievements [@user]` | Unlocked achievements |
-| `!wotd` | Today's Word of the Day (use it in chat for 25 XP) |
+| `!wotd` | Today's Palavra do Dia — Portuguese word with en/fr translations (use it in chat for 25 XP) |
+| `!wotd force` | Pick a new word for today (moderator only) |
 | `!botinfo` | Bot diagnostics (admin only) |
 | `!help` | DMs the full command list |
 
@@ -847,7 +848,7 @@ All optional. The bot works fine without any of them, you just won't have those 
 | Service | Free? | What for |
 |---------|-------|----------|
 | [RAWG](https://rawg.io/apidocs) | Yes | Game lookups, releases |
-| [Wordnik](https://developer.wordnik.com) | Yes | Word of the Day |
+| DreamDict | Self-host | Translations, WOTD, Hangman clues, Wordle validation |
 | [Calendarific](https://calendarific.com) | Yes (1k/mo) | Holiday calendar |
 | [HebCal](https://www.hebcal.com) | Yes, no key | Jewish holidays |
 | [Aladhan](https://aladhan.com/prayer-times-api) | Yes, no key | Islamic dates |
@@ -865,7 +866,6 @@ All optional. The bot works fine without any of them, you just won't have those 
 | [icanhazdadjoke](https://icanhazdadjoke.com) | Yes, no key | Dad jokes |
 | [SerpAPI](https://serpapi.com) | Free (100/mo) | Image search for esteemed members |
 | [HowLongToBeat](https://howlongtobeat.com) | Yes, no key | Game completion times |
-| [LibreTranslate](https://libretranslate.com) | Self-host | Translation |
 | [Ollama](https://ollama.ai) | Self-host | LLM features (sentiment, tarot, vibes, roasts) |
 | [Miniflux](https://miniflux.app) | Self-host | RSS feed routing |
 
