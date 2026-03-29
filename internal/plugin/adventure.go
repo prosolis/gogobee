@@ -185,6 +185,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleShopCmd(ctx, strings.TrimSpace(strings.TrimPrefix(lower, "shop")))
 	case strings.HasPrefix(lower, "buy "):
 		return p.handleBuyCmd(ctx, strings.TrimSpace(args[4:]))
+	case lower == "equip":
+		return p.handleEquipCmd(ctx)
 	case lower == "inventory" || lower == "inv":
 		return p.handleInventoryCmd(ctx)
 	case lower == "leaderboard" || lower == "lb":
@@ -209,6 +211,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure shop`" + ` — Browse equipment categories
 ` + "`!adventure shop <category>`" + ` — View a category (weapon, armor, helmet, boots, tool)
 ` + "`!adventure buy <item>`" + ` — Buy equipment (e.g. ` + "`buy Enchanted Blade`" + ` or ` + "`buy 4 sword`" + `)
+` + "`!adventure equip`" + ` — Equip Masterwork gear from inventory
 ` + "`!adventure sell <item>`" + ` — Sell an inventory item (or ` + "`sell all`" + `)
 ` + "`!adventure inventory`" + ` — View your inventory
 ` + "`!adventure leaderboard`" + ` — View the leaderboard
@@ -446,6 +449,10 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 	switch interaction.Type {
 	case "treasure_discard":
 		return p.handleTreasureDiscard(ctx, interaction)
+	case "masterwork_equip":
+		return p.handleMasterworkEquipReply(ctx, interaction)
+	case "masterwork_equip_confirm":
+		return p.handleMasterworkEquipConfirm(ctx, interaction)
 	}
 	return nil
 }
@@ -523,13 +530,13 @@ func (p *AdventurePlugin) parseAndResolveChoice(ctx MessageContext, body string)
 
 	lower := strings.ToLower(body)
 
-	// Parse "5" or "rest"
-	if lower == "5" || lower == "rest" {
+	// Parse "6" or "rest"
+	if lower == "6" || lower == "rest" {
 		return p.resolveRest(ctx, char)
 	}
 
-	// Parse "4" or "shop"
-	if lower == "4" || lower == "shop" {
+	// Parse "5" or "shop"
+	if lower == "5" || lower == "shop" {
 		equip, _ := loadAdvEquipment(ctx.Sender)
 		balance := p.euro.GetBalance(ctx.Sender)
 		return p.SendDM(ctx.Sender, advShopOverview(equip, balance))
@@ -566,9 +573,11 @@ func (p *AdventurePlugin) parseActivityLocation(input string, char *AdventureCha
 		activity = AdvActivityMining
 	case "3", "forage", "f", "forest":
 		activity = AdvActivityForaging
+	case "4", "fish", "fishing":
+		activity = AdvActivityFishing
 	default:
 		// Try matching location name directly
-		for _, act := range []AdvActivityType{AdvActivityDungeon, AdvActivityMining, AdvActivityForaging} {
+		for _, act := range []AdvActivityType{AdvActivityDungeon, AdvActivityMining, AdvActivityForaging, AdvActivityFishing} {
 			if loc := findAdvLocation(act, input); loc != nil {
 				return act, loc
 			}
@@ -637,18 +646,41 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		char.MiningXP += result.XPGained
 	case "foraging":
 		char.ForagingXP += result.XPGained
+	case "fishing":
+		char.FishingXP += result.XPGained
 	}
 
 	// Check level up
 	result.LeveledUp, result.NewLevel = checkAdvLevelUp(char, result.XPSkill)
 
 	// Handle death
+	deathReprieved := false
 	if result.Outcome == AdvOutcomeDeath {
-		char.Alive = false
-		now := time.Now().UTC()
-		deadUntil := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
-		char.DeadUntil = &deadUntil
-		char.GrudgeLocation = loc.Name
+		// Sovereign set: Death's Reprieve — survive lethal outcome
+		if advEquippedArenaSets(equip)["sovereign"] && char.DeathReprieveAvailable() {
+			deathReprieved = true
+			now := time.Now().UTC()
+			char.DeathReprieveLast = &now
+			char.GrudgeLocation = loc.Name
+			// Gear absorbs the blow — all equipment set to 1 condition
+			for _, slot := range allSlots {
+				if eq, ok := equip[slot]; ok {
+					eq.Condition = 1
+				}
+			}
+			// Post room announcement
+			nextWindow := now.Add(168 * time.Hour)
+			gr := gamesRoom()
+			if gr != "" {
+				p.SendMessage(gr, renderArenaDeathReprieve(char.DisplayName, loc.Name, nextWindow))
+			}
+		} else {
+			char.Alive = false
+			now := time.Now().UTC()
+			deadUntil := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+			char.DeadUntil = &deadUntil
+			char.GrudgeLocation = loc.Name
+		}
 	} else if hasGrudge && (result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional) {
 		// Clear grudge on successful return
 		char.GrudgeLocation = ""
@@ -672,7 +704,7 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	// Holiday flags: mark second action done, or mark it done on death during action 1
 	if isAction2 {
 		char.HolidayActionTaken = true
-	} else if isHol && result.Outcome == AdvOutcomeDeath {
+	} else if isHol && result.Outcome == AdvOutcomeDeath && !deathReprieved {
 		char.HolidayActionTaken = true // died on action 1 — no second action
 	}
 
@@ -713,6 +745,12 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 
 	// Send resolution DM with closing block
 	text := renderAdvResolutionDM(result, char)
+	if deathReprieved {
+		nextWindow := char.DeathReprieveLast.Add(168 * time.Hour)
+		text += fmt.Sprintf("\n\n⚔️ **Death's Reprieve activated.** Your Sovereign gear absorbed the killing blow. "+
+			"You survived — barely. All equipment took heavy damage.\n"+
+			"Next reprieve window: %s", nextWindow.Format("2006-01-02 15:04 UTC"))
+	}
 	closing := advClosingBlock(result.Outcome, char.UserID, loc.Name, p.morningHour, p.summaryHour)
 	if closing != "" {
 		text += "\n" + closing
@@ -724,12 +762,13 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	// Check for treasure drop
 	if result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional {
 		p.checkTreasureDrop(ctx.Sender, char, loc)
+		p.checkMasterworkDrop(ctx.Sender, char, equip, loc, result.Outcome)
 	}
 
 	// TODO: holiday achievement hooks
 
 	// Holiday: offer second action if this was action 1 and player survived
-	if !isAction2 && isHol && result.Outcome != AdvOutcomeDeath {
+	if !isAction2 && isHol && (result.Outcome != AdvOutcomeDeath || deathReprieved) {
 		equip2, _ := loadAdvEquipment(char.UserID)
 		treasures2, _ := loadAdvTreasureBonuses(char.UserID)
 		buffs2, _ := loadAdvActiveBuffs(char.UserID)
@@ -964,6 +1003,26 @@ func (p *AdventurePlugin) selectFlavorText(char *AdventureCharacter, result *Adv
 			pool = ForagingRiver
 		case AdvOutcomeSuccess, AdvOutcomeExceptional:
 			if tierPool, ok := ForagingGoodHaul[loc.Tier]; ok {
+				pool = tierPool
+			}
+		}
+
+	case AdvActivityFishing:
+		switch result.Outcome {
+		case AdvOutcomeDeath:
+			if tierPool, ok := FishingDeath[loc.Tier]; ok {
+				pool = tierPool
+			}
+		case AdvOutcomeEmpty:
+			if tierPool, ok := FishingEmpty[loc.Tier]; ok {
+				pool = tierPool
+			}
+		case AdvOutcomeSuccess:
+			if tierPool, ok := FishingSuccess[loc.Tier]; ok {
+				pool = tierPool
+			}
+		case AdvOutcomeExceptional:
+			if tierPool, ok := FishingExceptional[loc.Tier]; ok {
 				pool = tierPool
 			}
 		}

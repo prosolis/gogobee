@@ -78,7 +78,7 @@ func renderWordleStartAnnouncement(puzzleNumber, wordLength int, hint string) st
 		puzzleNumber, wordLength,
 	)
 	if hint != "" {
-		base += fmt.Sprintf("\n🎮 **Hint:** %s", hint)
+		base += fmt.Sprintf("\n💡 **Hint:** %s", hint)
 	}
 	base += "\n\nGuess with: `!wordle <word>`"
 	return base

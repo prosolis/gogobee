@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/dreamclient"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
@@ -21,8 +21,7 @@ import (
 type WordlePlugin struct {
 	Base
 	euro          *EuroPlugin
-	apiKey        string
-	httpClient    *http.Client
+	dict          *dreamclient.Client
 	defaultLength int
 
 	mu      sync.Mutex
@@ -33,7 +32,7 @@ type WordlePlugin struct {
 }
 
 // NewWordlePlugin creates a new WordlePlugin.
-func NewWordlePlugin(client *mautrix.Client, euro *EuroPlugin) *WordlePlugin {
+func NewWordlePlugin(client *mautrix.Client, euro *EuroPlugin, dict *dreamclient.Client) *WordlePlugin {
 	length := 5
 	if v := os.Getenv("WORDLE_DEFAULT_LENGTH"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 5 && n <= 7 {
@@ -44,8 +43,7 @@ func NewWordlePlugin(client *mautrix.Client, euro *EuroPlugin) *WordlePlugin {
 	return &WordlePlugin{
 		Base:          NewBase(client),
 		euro:          euro,
-		apiKey:        os.Getenv("WORDNIK_API_KEY"),
-		httpClient:    &http.Client{Timeout: 10 * time.Second},
+		dict:          dict,
 		defaultLength: length,
 		puzzles:       make(map[id.RoomID]*WordlePuzzle),
 		validCache:    make(map[string]map[string]bool),
@@ -113,6 +111,8 @@ func (p *WordlePlugin) handleHelp(ctx MessageContext) error {
 			"`!wordle stats` — All-time leaderboard\n"+
 			"`!wordle new` — Start a new puzzle (admin)\n"+
 			"`!wordle new <5|6|7>` — New puzzle with specific length (admin)\n"+
+			"`!wordle new pt` — Portuguese puzzle (admin)\n"+
+			"`!wordle new fr` — French puzzle (admin)\n"+
 			"`!wordle skip` — Reveal answer and end puzzle (admin)")
 }
 
@@ -152,8 +152,8 @@ func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 		}
 	}
 
-	// Validate word via Wordnik (with caching).
-	valid, apiErr := p.isValidWord(puzzle.PuzzleID, guess)
+	// Validate word via DreamDict (with caching).
+	valid, apiErr := p.isValidWord(puzzle.PuzzleID, guess, puzzle.Category)
 	if apiErr {
 		return p.SendReply(ctx.RoomID, ctx.EventID,
 			"Word validation is temporarily unavailable. Try again in a moment.")
@@ -218,10 +218,7 @@ func (p *WordlePlugin) handleGrid(ctx MessageContext) error {
 	}
 
 	if len(puzzle.Guesses) == 0 {
-		hint := ""
-		if isCustomAllowedWord(puzzle.Answer) {
-			hint = "Today's word is video game related"
-		}
+		hint := wordleCategoryHint(puzzle.Category)
 		return p.SendReply(ctx.RoomID, ctx.EventID,
 			renderWordleStartAnnouncement(puzzle.PuzzleNumber, puzzle.WordLength, hint))
 	}
@@ -235,12 +232,21 @@ func (p *WordlePlugin) handleNew(ctx MessageContext, args string) error {
 	}
 
 	wordLength := p.defaultLength
+	category := WordleCategoryEN
 	parts := strings.Fields(args)
-	if len(parts) > 1 {
-		if n, err := strconv.Atoi(parts[1]); err == nil && n >= 5 && n <= 7 {
-			wordLength = n
-		} else {
-			return p.SendReply(ctx.RoomID, ctx.EventID, "Word length must be 5, 6, or 7.")
+
+	// Parse optional arguments: language (pt/fr) and/or length (5/6/7)
+	for _, part := range parts[1:] {
+		lower := strings.ToLower(part)
+		switch lower {
+		case "pt", "portuguese":
+			category = WordleCategoryPT
+		case "fr", "french":
+			category = WordleCategoryFR
+		default:
+			if n, err := strconv.Atoi(part); err == nil && n >= 5 && n <= 7 {
+				wordLength = n
+			}
 		}
 	}
 
@@ -253,7 +259,7 @@ func (p *WordlePlugin) handleNew(ctx MessageContext, args string) error {
 	}
 	p.mu.Unlock()
 
-	return p.createAndPostPuzzle(ctx.RoomID, wordLength)
+	return p.createAndPostPuzzle(ctx.RoomID, wordLength, category)
 }
 
 func (p *WordlePlugin) handleSkip(ctx MessageContext) error {
@@ -311,12 +317,22 @@ func (p *WordlePlugin) handleStats(ctx MessageContext) error {
 }
 
 // createAndPostPuzzle creates a new puzzle, persists it, and posts the announcement.
-func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int) error {
-	// Use local word list for puzzle selection. Wordnik's randomWord endpoint
-	// requires a paid API tier; we keep Wordnik for guess validation and definitions only.
-	word := pickFallbackWord(wordLength)
+func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int, category WordleCategory) error {
+	// Pick word from the appropriate pool.
+	var word string
+	switch category {
+	case WordleCategoryPT, WordleCategoryFR:
+		word = pickLanguageWord(category, wordLength)
+	default:
+		word = pickFallbackWord(wordLength)
+	}
 	if word == "" {
-		return p.SendMessage(roomID, "Failed to select a puzzle word — no words available for that length.")
+		return p.SendMessage(roomID, "Failed to select a puzzle word — no words available for that length/language.")
+	}
+
+	// Detect game words within the English pool.
+	if category == WordleCategoryEN && isCustomAllowedWord(word) {
+		category = WordleCategoryGames
 	}
 
 	puzzleNumber := p.nextPuzzleNumber()
@@ -330,17 +346,18 @@ func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int) err
 		Answer:       word,
 		WordLength:   wordLength,
 		MaxGuesses:   6,
+		Category:     category,
 		StartedAt:    now,
 		LetterStates: make(map[rune]LetterResult),
 	}
 
 	// Persist to DB.
 	db.Exec("wordle: persist puzzle",
-		`INSERT INTO wordle_puzzles (puzzle_id, room_id, answer, word_length, solved, guess_count, started_at)
-		 VALUES (?, ?, ?, ?, 0, 0, ?)
-		 ON CONFLICT(puzzle_id, room_id) DO UPDATE SET answer = ?, word_length = ?, solved = 0, guess_count = 0, started_at = ?`,
-		today, string(roomID), word, wordLength, now,
-		word, wordLength, now,
+		`INSERT INTO wordle_puzzles (puzzle_id, room_id, answer, word_length, category, solved, guess_count, started_at)
+		 VALUES (?, ?, ?, ?, ?, 0, 0, ?)
+		 ON CONFLICT(puzzle_id, room_id) DO UPDATE SET answer = ?, word_length = ?, category = ?, solved = 0, guess_count = 0, started_at = ?`,
+		today, string(roomID), word, wordLength, string(category), now,
+		word, wordLength, string(category), now,
 	)
 
 	p.mu.Lock()
@@ -354,11 +371,21 @@ func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int) err
 	p.validCache[today] = make(map[string]bool)
 	p.mu.Unlock()
 
-	hint := ""
-	if isCustomAllowedWord(word) {
-		hint = "Today's word is video game related"
-	}
+	hint := wordleCategoryHint(category)
 	return p.SendMessage(roomID, renderWordleStartAnnouncement(puzzleNumber, wordLength, hint))
+}
+
+// wordleCategoryHint returns the hint string for a puzzle category.
+func wordleCategoryHint(category WordleCategory) string {
+	switch category {
+	case WordleCategoryPT:
+		return "Today's word is in European Portuguese 🇵🇹"
+	case WordleCategoryFR:
+		return "Today's word is in French 🇫🇷"
+	case WordleCategoryGames:
+		return "Today's word is video game related"
+	}
+	return ""
 }
 
 // PostDailyPuzzle is called by the scheduler to post today's puzzle.
@@ -374,13 +401,13 @@ func (p *WordlePlugin) PostDailyPuzzle(roomID id.RoomID) error {
 	}
 	p.mu.Unlock()
 
-	return p.createAndPostPuzzle(roomID, p.defaultLength)
+	return p.createAndPostPuzzle(roomID, p.defaultLength, WordleCategoryEN)
 }
 
 // isValidWord checks if a word is valid, using the in-memory cache first,
-// then the custom allow-list, then Wordnik.
-// Returns (valid, apiError). apiError is true when the API is unreachable.
-func (p *WordlePlugin) isValidWord(puzzleID, word string) (bool, bool) {
+// then the custom allow-list, then DreamDict.
+// Returns (valid, apiError). apiError is true when the service is unreachable.
+func (p *WordlePlugin) isValidWord(puzzleID, word string, category WordleCategory) (bool, bool) {
 	cache := p.validCache[puzzleID]
 	if cache == nil {
 		cache = make(map[string]bool)
@@ -391,21 +418,49 @@ func (p *WordlePlugin) isValidWord(puzzleID, word string) (bool, bool) {
 		return valid, false
 	}
 
-	// Check custom allow-list (game titles, etc.) before hitting the API.
+	// Check custom allow-list (game titles, etc.) before hitting the service.
 	if isCustomAllowedWord(word) {
 		cache[word] = true
 		return true, false
 	}
 
-	valid, apiErr := wordnikValidateWord(p.apiKey, p.httpClient, word)
-	if !apiErr {
-		cache[word] = valid // only cache definitive results
+	// Check the puzzle's language first.
+	lang := categoryLang(category)
+	valid, apiErr := dictValidateWord(p.dict, word, lang)
+	if apiErr {
+		return false, true
 	}
-	return valid, apiErr
+	if valid {
+		cache[word] = true
+		return true, false
+	}
+
+	// For non-English puzzles, also accept English words as guesses.
+	if lang != "en" {
+		valid, apiErr = dictValidateWord(p.dict, word, "en")
+		if apiErr {
+			return false, true
+		}
+		if valid {
+			cache[word] = true
+			return true, false
+		}
+	}
+
+	cache[word] = false
+	return false, false
 }
 
-func (p *WordlePlugin) fetchDefinition(word string) string {
-	return wordnikFetchDefinitionText(p.apiKey, p.httpClient, word)
+func (p *WordlePlugin) fetchDefinition(answer string) string {
+	// Determine language from active puzzle if possible.
+	lang := "en"
+	for _, puzzle := range p.puzzles {
+		if puzzle.Answer == answer {
+			lang = categoryLang(puzzle.Category)
+			break
+		}
+	}
+	return dictFetchDefinitionText(p.dict, answer, lang)
 }
 
 
@@ -589,11 +644,12 @@ func (p *WordlePlugin) rehydratePuzzles() {
 		roomStr    string
 		answer     string
 		wordLength int
+		category   string
 		startedAt  time.Time
 	}
 
 	rows, err := d.Query(
-		`SELECT puzzle_id, room_id, answer, word_length, solved, guess_count, started_at
+		`SELECT puzzle_id, room_id, answer, word_length, COALESCE(category, ''), solved, guess_count, started_at
 		 FROM wordle_puzzles WHERE puzzle_id = ?`, today)
 	if err != nil {
 		slog.Warn("wordle: rehydrate query failed", "err", err)
@@ -602,10 +658,10 @@ func (p *WordlePlugin) rehydratePuzzles() {
 
 	var pending []puzzleRow
 	for rows.Next() {
-		var pid, roomStr, answer string
+		var pid, roomStr, answer, category string
 		var wordLength, solved, guessCount int
 		var startedAt time.Time
-		if err := rows.Scan(&pid, &roomStr, &answer, &wordLength, &solved, &guessCount, &startedAt); err != nil {
+		if err := rows.Scan(&pid, &roomStr, &answer, &wordLength, &category, &solved, &guessCount, &startedAt); err != nil {
 			continue
 		}
 
@@ -613,7 +669,7 @@ func (p *WordlePlugin) rehydratePuzzles() {
 			continue // already done
 		}
 
-		pending = append(pending, puzzleRow{pid, roomStr, answer, wordLength, startedAt})
+		pending = append(pending, puzzleRow{pid, roomStr, answer, wordLength, category, startedAt})
 	}
 	rows.Close()
 
@@ -634,6 +690,7 @@ func (p *WordlePlugin) rehydratePuzzles() {
 			Answer:       pr.answer,
 			WordLength:   pr.wordLength,
 			MaxGuesses:   6,
+			Category:     WordleCategory(pr.category),
 			StartedAt:    pr.startedAt,
 			LetterStates: make(map[rune]LetterResult),
 		}
@@ -689,7 +746,7 @@ func (p *WordlePlugin) checkAndPostDaily() {
 	}
 
 	slog.Info("wordle: posting daily puzzle", "room", gr)
-	if err := p.createAndPostPuzzle(gr, p.defaultLength); err != nil {
+	if err := p.createAndPostPuzzle(gr, p.defaultLength, WordleCategoryEN); err != nil {
 		slog.Error("wordle: daily puzzle failed", "err", err)
 	}
 }

@@ -3,6 +3,7 @@ package plugin
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ── Arena Tier Menu ─────────────────────────────────────────────────────────
@@ -30,7 +31,10 @@ func renderArenaTierMenu(char *AdventureCharacter, stats *ArenaPersonalStats) st
 			stats.TotalRuns, stats.TotalDeaths, stats.TotalEarnings))
 	}
 
-	b.WriteString("\n`!arena tier <1-5>` — Enter a tier\n")
+	b.WriteString("\n⛑️ _Today's helmets are provided by Brim & Battle — celebrated makers of baseball hats — and proud sponsors of the Arena. ")
+	b.WriteString("Their new VeriFort line of field-evaluated combat headgear represents an exciting expansion beyond their area of expertise. ")
+	b.WriteString("Winners may receive a complimentary sample. Brim & Battle thanks you for your participation in their ongoing verification process._\n\n")
+	b.WriteString("`!arena tier <1-5>` — Enter a tier\n")
 	b.WriteString("`!arena stats` — Your arena stats\n")
 	b.WriteString("`!arena leaderboard` — Top arena players\n")
 	return b.String()
@@ -260,6 +264,39 @@ func renderArenaLevelGate(tier *ArenaTier, playerLevel int) string {
 		"⚔️ Tier %d — %s requires Combat Level %d. You are Level %d. "+
 			"The Arena does not negotiate.",
 		tier.Number, tier.Name, tier.MinLevel, playerLevel)
+}
+
+// ── Helmet Drop ────────────────────────────────────────────────────────────
+
+func renderArenaHelmetDrop(gear *ArenaGearSet) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("⛑️ **Equipment Drop: %s**\n\n", gear.HelmetName))
+	b.WriteString(fmt.Sprintf("_%s_\n\n", gear.Description))
+	b.WriteString(fmt.Sprintf("Tier %d Arena gear — 1.5x effectiveness. ", gear.Tier))
+
+	switch gear.SetKey {
+	case "bloodied":
+		b.WriteString("Set bonus: **Survivor's Instinct** — +3% to all activity success rates.")
+	case "ironclad":
+		b.WriteString("Set bonus: **Battle-Hardened** — +5% XP gain from all activities.")
+	case "tempered":
+		b.WriteString("Set bonus: **Seasoned** — Equipment condition degrades 25% slower across all slots.")
+	case "champions":
+		b.WriteString("Set bonus: **Commanding Presence** — +10% to equipment score in all probability calculations.")
+	case "sovereign":
+		b.WriteString("Set bonus: **Death's Reprieve** — Once per 7 days, survive a lethal outcome instead of dying.")
+	}
+
+	b.WriteString("\n\nEquipped automatically.")
+	return b.String()
+}
+
+// ── Death's Reprieve Announcement ──────────────────────────────────────────
+
+func renderArenaDeathReprieve(playerName, location string, nextWindow time.Time) string {
+	return fmt.Sprintf("⚔️ **%s**'s Sovereign gear activated **Death's Reprieve**. "+
+		"They should be dead. They are not. %s will have to try harder. Next window: %s.",
+		playerName, location, nextWindow.Format("2006-01-02 15:04 UTC"))
 }
 
 // ── Already In Run Message ──────────────────────────────────────────────────

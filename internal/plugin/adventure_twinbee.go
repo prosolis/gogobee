@@ -227,7 +227,7 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 		return summary
 	}
 
-	// Find eligible players: alive + took action today
+	// Find eligible players: anyone who took action today (including dead)
 	chars, err := loadAllAdvCharacters()
 	if err != nil {
 		slog.Error("adventure: twinbee rewards failed to load chars", "err", err)
@@ -236,7 +236,7 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 
 	var eligible []id.UserID
 	for _, c := range chars {
-		if c.ActionTakenToday && c.Alive {
+		if c.ActionTakenToday {
 			eligible = append(eligible, c.UserID)
 		}
 	}

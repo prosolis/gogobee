@@ -182,11 +182,15 @@ func (p *AdventurePlugin) handleArenaFight(ctx MessageContext) error {
 	roll := rand.Float64()
 	died := roll < deathChance
 
+	// Generate combat log (cosmetic — outcome already determined)
+	closeness := 1.0 - math.Abs(roll-deathChance)/math.Max(deathChance, 1-deathChance)
+	combatLog := generateArenaCombatLog(!died, closeness)
+
 	if died {
-		return p.resolveArenaDeath(ctx, run, char, tier, monster)
+		return p.resolveArenaDeath(ctx, run, char, tier, monster, combatLog)
 	}
 
-	return p.resolveArenaSurvival(ctx, run, char, tier, monster)
+	return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog)
 }
 
 func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext, tierNum int) error {
@@ -235,11 +239,14 @@ func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext, tierNum in
 	roll := rand.Float64()
 	died := roll < deathChance
 
+	closeness := 1.0 - math.Abs(roll-deathChance)/math.Max(deathChance, 1-deathChance)
+	combatLog := generateArenaCombatLog(!died, closeness)
+
 	if died {
-		return p.resolveArenaDeath(ctx, run, char, tier, monster)
+		return p.resolveArenaDeath(ctx, run, char, tier, monster, combatLog)
 	}
 
-	return p.resolveArenaSurvival(ctx, run, char, tier, monster)
+	return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog)
 }
 
 func (p *AdventurePlugin) handleArenaCancel(ctx MessageContext) error {
@@ -347,22 +354,29 @@ func (p *AdventurePlugin) handleArenaLeaderboard(ctx MessageContext) error {
 
 // ── Combat Resolution ───────────────────────────────────────────────────────
 
-func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster) error {
+func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, combatLog *ArenaCombatLog) error {
 	// Calculate reward
 	reward := arenaRoundReward(tier, run.Round, char.CombatLevel)
 	run.Earnings += reward
 	run.RoundsSurvived++
 	run.LastMonster = monster.Name
 
-	// Award battle XP
-	char.CombatXP += tier.BattleXP
+	// Award battle XP (Ironclad set: Battle-Hardened — +5% XP)
+	battleXP := tier.BattleXP
+	equip, _ := loadAdvEquipment(ctx.Sender)
+	if advEquippedArenaSets(equip)["ironclad"] {
+		battleXP = int(float64(battleXP) * 1.05)
+	}
+	char.CombatXP += battleXP
 	leveled, newLevel := checkAdvLevelUp(char, "combat")
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("arena: failed to save character after survival", "user", ctx.Sender, "err", err)
 	}
 
-	// Build survival message
-	text := renderArenaSurvival(tier, run.Round, monster, reward, tier.BattleXP, run.Earnings)
+	// Build survival message with combat log
+	closer := arenaWinCloser(monster.Name, len(combatLog.Rounds))
+	text := renderArenaCombatLog(combatLog, monster, true, reward, tier.BattleXP, closer)
+	text += fmt.Sprintf("\nRun total: €%d\n", run.Earnings)
 	if leveled {
 		text += fmt.Sprintf("\n🎉 **Combat Level %d!**", newLevel)
 	}
@@ -400,6 +414,12 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 
 		text += "\n\n" + renderArenaTierComplete(tier, tier.CompletionBonus, run.Earnings)
 
+		// Check for arena helmet drop
+		if dropped := p.arenaRollHelmetDrop(ctx.Sender, run.Tier); dropped != nil {
+			text += "\n\n" + renderArenaHelmetDrop(dropped)
+			p.postArenaDropAnnouncement(char.DisplayName, dropped)
+		}
+
 		// Grant tier achievement
 		p.grantArenaTierAchievement(ctx.Sender, run.Tier)
 
@@ -424,9 +444,95 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 	return p.SendDM(ctx.Sender, text)
 }
 
-func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster) error {
-	lostEarnings := run.Earnings
+func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, combatLog *ArenaCombatLog) error {
 	run.LastMonster = monster.Name
+
+	// Sovereign set: Death's Reprieve — survive lethal arena outcome
+	equip, _ := loadAdvEquipment(ctx.Sender)
+	if advEquippedArenaSets(equip)["sovereign"] && char.DeathReprieveAvailable() {
+		now := time.Now().UTC()
+		char.DeathReprieveLast = &now
+		if err := saveAdvCharacter(char); err != nil {
+			slog.Error("arena: failed to save character after reprieve", "user", ctx.Sender, "err", err)
+		}
+
+		// Gear absorbs the blow — all equipment set to 1 condition
+		for _, slot := range allSlots {
+			if eq, ok := equip[slot]; ok {
+				eq.Condition = 1
+				saveAdvEquipment(ctx.Sender, eq)
+			}
+		}
+
+		// Run continues — not dead, earnings preserved
+		nextWindow := now.Add(168 * time.Hour)
+		gr := gamesRoom()
+		if gr != "" {
+			p.SendMessage(gr, renderArenaDeathReprieve(char.DisplayName, monster.Name, nextWindow))
+		}
+
+		// Show combat log (player "lost" but was saved by reprieve)
+		closer := arenaLoseCloser(monster.Name, len(combatLog.Rounds))
+		text := renderArenaCombatLog(combatLog, monster, false, 0, 0, closer)
+		text += fmt.Sprintf("\n💀→⚔️ **%s nearly killed you.**\n\n"+
+			"Your Sovereign gear activated **Death's Reprieve**. You survived — barely.\n"+
+			"All equipment set to 1 condition.\n\n"+
+			"Next reprieve window: %s\n",
+			monster.Name, nextWindow.Format("2006-01-02 15:04 UTC"))
+
+		run.RoundsSurvived++
+
+		// Check if this was round 4 — tier completion via reprieve
+		if run.Round >= 4 {
+			run.Earnings += tier.CompletionBonus
+			run.Round = 4
+
+			if run.Tier >= 5 {
+				// Tier 5 complete — hand off to the normal T5 completion path
+				return p.arenaCompleteTier5(ctx, run, char, tier, text)
+			}
+
+			// Tier complete, awaiting descend/cashout
+			run.Status = "awaiting"
+			if err := saveArenaRun(run); err != nil {
+				slog.Error("arena: failed to save run after reprieve tier complete", "user", ctx.Sender, "err", err)
+			}
+
+			deadline := time.Now().UTC().Add(10 * time.Minute)
+			p.arenaDeadlines.Store(string(ctx.Sender), deadline)
+
+			text += "\n" + renderArenaTierComplete(tier, tier.CompletionBonus, run.Earnings)
+
+			// Check for arena helmet drop
+			if dropped := p.arenaRollHelmetDrop(ctx.Sender, run.Tier); dropped != nil {
+				text += "\n\n" + renderArenaHelmetDrop(dropped)
+				p.postArenaDropAnnouncement(char.DisplayName, dropped)
+			}
+
+			p.grantArenaTierAchievement(ctx.Sender, run.Tier)
+			return p.SendDM(ctx.Sender, text)
+		}
+
+		// Not round 4 — advance to next round
+		run.Round++
+		if err := saveArenaRun(run); err != nil {
+			slog.Error("arena: failed to save run after reprieve", "user", ctx.Sender, "err", err)
+		}
+
+		text += fmt.Sprintf("\nRun earnings: €%d (still at risk)\n", run.Earnings)
+
+		nextMonster := arenaGetMonster(run.Tier, run.Round)
+		if nextMonster != nil {
+			text += fmt.Sprintf("\n─────────────────────────────\n\n")
+			text += fmt.Sprintf("**Round %d/4 — %s**\n", run.Round, nextMonster.Name)
+			text += fmt.Sprintf("_%s_\n\n", nextMonster.Flavor)
+			text += "`!arena fight` — Face this opponent"
+		}
+
+		return p.SendDM(ctx.Sender, text)
+	}
+
+	lostEarnings := run.Earnings
 
 	// Kill the character (locked out until next midnight UTC)
 	char.Alive = false
@@ -434,6 +540,7 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	deadUntil := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
 	char.DeadUntil = &deadUntil
 	char.ArenaLosses++
+	char.CombatXP += arenaParticipationXP // +60 flat participation XP
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("arena: failed to save character after death", "user", ctx.Sender, "err", err)
 	}
@@ -457,10 +564,11 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 		p.achievements.GrantAchievement(ctx.Sender, "arena_death_t5")
 	}
 
-	// Pick death message
-	deathMsg := arenaPickDeathMessage(monster, run.Tier, run.Round)
+	// Build death message with combat log
+	closer := arenaLoseCloser(monster.Name, len(combatLog.Rounds))
+	text := renderArenaCombatLog(combatLog, monster, false, 0, arenaParticipationXP, closer)
+	text += fmt.Sprintf("\nLost earnings: €%d\n", lostEarnings)
 
-	text := renderArenaDeath(tier, run.Round, monster, lostEarnings, deathMsg)
 	return p.SendDM(ctx.Sender, text)
 }
 
@@ -499,6 +607,13 @@ func (p *AdventurePlugin) arenaCompleteTier5(ctx MessageContext, run *ArenaRun, 
 	}
 
 	text := prefixText + "\n\n" + renderArenaTier5Complete(run.Earnings, run.StartTier)
+
+	// Check for arena helmet drop
+	if dropped := p.arenaRollHelmetDrop(ctx.Sender, 5); dropped != nil {
+		text += "\n\n" + renderArenaHelmetDrop(dropped)
+		p.postArenaDropAnnouncement(char.DisplayName, dropped)
+	}
+
 	return p.SendDM(ctx.Sender, text)
 }
 
@@ -835,4 +950,127 @@ func loadArenaPersonalStats(userID id.UserID) *ArenaPersonalStats {
 		return nil
 	}
 	return stats
+}
+
+// ── Arena Gear ──────────────────────────────────────────────────────────────
+
+type ArenaGearSet struct {
+	Tier        int
+	SetKey      string  // DB key: "bloodied", "ironclad", etc.
+	SetName     string  // Display: "Bloodied", "Ironclad", etc.
+	HelmetName  string
+	Description string
+	DropRate    float64
+}
+
+var arenaGearSets = [5]ArenaGearSet{
+	{
+		Tier: 1, SetKey: "bloodied", SetName: "Bloodied", HelmetName: "Bloodied Helm",
+		Description: "A Brim & Battle VeriFort Series 1. The foam padding smells like a sporting goods store. " +
+			"The chin strap is the kind used on baseball helmets, which this technically isn't anymore. " +
+			"It held up. Brim & Battle would like you to know it held up.",
+		DropRate: 0.05,
+	},
+	{
+		Tier: 2, SetKey: "ironclad", SetName: "Ironclad", HelmetName: "Ironclad Helm",
+		Description: "VeriFort Series 2. Brim & Battle made some adjustments after Series 1 feedback, " +
+			"which they received exclusively from observing what happened to Series 1. " +
+			"The rivets are new. The rivets are good.",
+		DropRate: 0.04,
+	},
+	{
+		Tier: 3, SetKey: "tempered", SetName: "Tempered", HelmetName: "Tempered Helm",
+		Description: "VeriFort Series 3. At this point Brim & Battle has stopped calling these prototypes in public. " +
+			"The internal documentation still says prototype. " +
+			"The helmet does not know this and performs accordingly.",
+		DropRate: 0.03,
+	},
+	{
+		Tier: 4, SetKey: "champions", SetName: "Champion's", HelmetName: "Champion's Crown",
+		Description: "VeriFort Series 4. Brim & Battle's premium tier, priced for the \"serious enthusiast combatant market\" " +
+			"according to a pitch deck that was definitely never meant to be seen publicly. " +
+			"The branding is subtle. The performance is not. " +
+			"The QR code goes to a waitlist page for a product that does not yet exist.",
+		DropRate: 0.02,
+	},
+	{
+		Tier: 5, SetKey: "sovereign", SetName: "Sovereign", HelmetName: "Sovereign Crown",
+		Description: "VeriFort Series 5. Brim & Battle did not design this. " +
+			"They are not certain where it came from. It appeared in their warehouse inventory in Q3 " +
+			"with no purchase order attached. They have claimed it anyway. " +
+			"The feedback survey in the lining links to a page that returns a 404. " +
+			"Brim & Battle appreciates all feedback.",
+		DropRate: 0.005,
+	},
+}
+
+func arenaGearByTier(tier int) *ArenaGearSet {
+	if tier < 1 || tier > 5 {
+		return nil
+	}
+	return &arenaGearSets[tier-1]
+}
+
+// arenaRollHelmetDrop checks if a helmet should drop and equips it if the player
+// doesn't already have an arena helmet at this tier or higher. If they do, the
+// drop is silently discarded (no duplicate drops).
+// Returns the gear set if a drop was equipped, nil otherwise.
+func (p *AdventurePlugin) arenaRollHelmetDrop(userID id.UserID, tier int) *ArenaGearSet {
+	gear := arenaGearByTier(tier)
+	if gear == nil {
+		return nil
+	}
+
+	// Roll for drop
+	if rand.Float64() >= gear.DropRate {
+		return nil
+	}
+
+	// Check current helmet
+	equip, err := loadAdvEquipment(userID)
+	if err != nil {
+		slog.Error("arena: failed to load equipment for drop check", "user", userID, "err", err)
+		return nil
+	}
+
+	helmet, hasHelmet := equip[SlotHelmet]
+	if hasHelmet && helmet.ArenaTier >= tier {
+		// Already has same or better arena helmet — silent discard
+		return nil
+	}
+
+	// Equip the arena helmet
+	if !hasHelmet {
+		// Shouldn't happen (all slots created at character creation), but be safe
+		helmet = &AdvEquipment{Slot: SlotHelmet}
+	}
+	helmet.Tier = tier
+	helmet.Condition = 100
+	helmet.Name = gear.HelmetName
+	helmet.ActionsUsed = 0
+	helmet.ArenaTier = tier
+	helmet.ArenaSet = gear.SetKey
+
+	if err := saveAdvEquipment(userID, helmet); err != nil {
+		slog.Error("arena: failed to save arena helmet drop", "user", userID, "err", err)
+		return nil
+	}
+
+	return gear
+}
+
+func (p *AdventurePlugin) postArenaDropAnnouncement(playerName string, gear *ArenaGearSet) {
+	gr := gamesRoom()
+	if gr == "" {
+		return
+	}
+	var announce string
+	if gear.Tier == 5 {
+		announce = fmt.Sprintf("⚔️ **%s** has claimed **%s** from Tier 5 of the Arena. This is Sovereign gear. There are very few of these.",
+			playerName, gear.HelmetName)
+	} else {
+		announce = fmt.Sprintf("⚔️ **%s** cleared Tier %d of the Arena and walked away with **%s**. %s Helmet. The monsters were unavailable for comment.",
+			playerName, gear.Tier, gear.HelmetName, gear.SetName)
+	}
+	p.SendMessage(id.RoomID(gr), announce)
 }

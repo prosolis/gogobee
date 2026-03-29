@@ -190,6 +190,7 @@ func (p *AdventurePlugin) postDailySummary() {
 			CombatLevel:   c.CombatLevel,
 			MiningSkill:   c.MiningSkill,
 			ForagingSkill: c.ForagingSkill,
+			FishingSkill:  c.FishingSkill,
 		}
 
 		// Holiday action count from log entries
@@ -237,9 +238,9 @@ func (p *AdventurePlugin) postDailySummary() {
 
 	// Check party bonuses and add to summary
 	for i := range players {
-		if players[i].Location != "" && !players[i].IsDead && !players[i].IsResting {
+		if players[i].Location != "" && !players[i].IsResting {
 			for j := i + 1; j < len(players); j++ {
-				if players[j].Location == players[i].Location && !players[j].IsDead && !players[j].IsResting {
+				if players[j].Location == players[i].Location && !players[j].IsResting {
 					players[i].SummaryLine += fmt.Sprintf(" (Party bonus with %s!)", players[j].DisplayName)
 					players[j].SummaryLine += fmt.Sprintf(" (Party bonus with %s!)", players[i].DisplayName)
 				}

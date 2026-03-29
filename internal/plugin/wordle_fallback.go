@@ -14,6 +14,10 @@ import (
 var (
 	fallbackWords     map[int][]string
 	customAllowSet    map[string]bool // words valid as guesses but not in dictionary
+	ptWords           map[int][]string
+	frWords           map[int][]string
+	ptWordSet         map[string]bool
+	frWordSet         map[string]bool
 	fallbackWordsOnce sync.Once
 )
 
@@ -51,6 +55,10 @@ func loadFallbackWords() {
 	// puzzle pool AND accepted as valid guesses even if not in the dictionary.
 	customAllowSet = make(map[string]bool)
 	loadCustomWordFile("data/wordle_games.txt")
+
+	// Load Portuguese and French word lists.
+	ptWords, ptWordSet = loadLanguageWordFile("data/wordle_pt.txt", "pt")
+	frWords, frWordSet = loadLanguageWordFile("data/wordle_fr.txt", "fr")
 }
 
 func loadCustomWordFile(path string) {
@@ -79,6 +87,41 @@ func loadCustomWordFile(path string) {
 	slog.Info("wordle: loaded custom words", "path", path, "count", count)
 }
 
+// loadLanguageWordFile loads a language-specific word list and returns both
+// the length-grouped map and a flat set for guess validation.
+func loadLanguageWordFile(path, lang string) (map[int][]string, map[string]bool) {
+	words := make(map[int][]string)
+	wordSet := make(map[string]bool)
+
+	f, err := os.Open(path)
+	if err != nil {
+		slog.Warn("wordle: language word list not found", "lang", lang, "path", path)
+		return words, wordSet
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		word := strings.TrimSpace(scanner.Text())
+		if word == "" || strings.HasPrefix(word, "#") {
+			continue
+		}
+		word = strings.ToUpper(word)
+		n := len([]rune(word))
+		if n >= 5 && n <= 7 {
+			words[n] = append(words[n], word)
+			wordSet[word] = true
+		}
+	}
+
+	total := 0
+	for _, w := range words {
+		total += len(w)
+	}
+	slog.Info("wordle: loaded language words", "lang", lang, "count", total)
+	return words, wordSet
+}
+
 // pickFallbackWord picks a random word of the given length from the fallback list,
 // excluding words used in the last 500 puzzles.
 func pickFallbackWord(length int) string {
@@ -103,6 +146,52 @@ func pickFallbackWord(length int) string {
 		candidates = words
 	}
 	return candidates[rand.IntN(len(candidates))]
+}
+
+// pickLanguageWord picks a random word from a language-specific list.
+func pickLanguageWord(category WordleCategory, length int) string {
+	fallbackWordsOnce.Do(loadFallbackWords)
+
+	var pool map[int][]string
+	switch category {
+	case WordleCategoryPT:
+		pool = ptWords
+	case WordleCategoryFR:
+		pool = frWords
+	default:
+		return pickFallbackWord(length)
+	}
+
+	words := pool[length]
+	if len(words) == 0 {
+		return ""
+	}
+
+	recent := loadRecentWordleAnswers(500)
+
+	var candidates []string
+	for _, w := range words {
+		if !recent[w] {
+			candidates = append(candidates, w)
+		}
+	}
+	if len(candidates) == 0 {
+		candidates = words
+	}
+	return candidates[rand.IntN(len(candidates))]
+}
+
+// isLanguageWord checks if a word exists in a language's word set (for guess validation).
+func isLanguageWord(category WordleCategory, word string) bool {
+	fallbackWordsOnce.Do(loadFallbackWords)
+	word = strings.ToUpper(word)
+	switch category {
+	case WordleCategoryPT:
+		return ptWordSet[word]
+	case WordleCategoryFR:
+		return frWordSet[word]
+	}
+	return false
 }
 
 // isCustomAllowedWord checks if a word is in the custom allow-list (game titles, etc.).

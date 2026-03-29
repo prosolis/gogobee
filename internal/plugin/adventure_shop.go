@@ -221,6 +221,16 @@ func (p *AdventurePlugin) advBuyEquipment(userID id.UserID, slot EquipmentSlot, 
 		return fmt.Sprintf("You already have %s (Tier %d). %s is Tier %d. That's not an upgrade, that's a lateral move at best.",
 			current.Name, current.Tier, def.Name, def.Tier)
 	}
+	// Block shop purchases that would overwrite arena or masterwork gear
+	if current != nil && (current.ArenaTier > 0 || current.Masterwork) {
+		label := "Masterwork"
+		if current.ArenaTier > 0 {
+			label = "Arena"
+		}
+		return fmt.Sprintf("You already have **%s** (%s gear). A shop item cannot replace this. "+
+			"You earned that. Don't throw it away.",
+			current.Name, label)
+	}
 
 	balance := p.euro.GetBalance(userID)
 	if balance < def.Price {
@@ -258,7 +268,7 @@ func (p *AdventurePlugin) advBuyEquipment(userID id.UserID, slot EquipmentSlot, 
 // ── Sell Items ────────────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) advSellAll(userID id.UserID) string {
-	items, err := clearAdvInventory(userID)
+	items, err := loadAdvInventory(userID)
 	if err != nil {
 		return "Failed to access your inventory. Try again."
 	}
@@ -267,15 +277,36 @@ func (p *AdventurePlugin) advSellAll(userID id.UserID) string {
 	}
 
 	var total float64
+	var sold int
+	var keptSpecial int
 	for _, item := range items {
+		if item.Type == "MasterworkGear" || item.Type == "ArenaGear" {
+			keptSpecial++
+			continue
+		}
+		if err := removeAdvInventoryItem(item.ID); err != nil {
+			continue
+		}
 		total += float64(item.Value)
+		sold++
+	}
+
+	if sold == 0 {
+		if keptSpecial > 0 {
+			return "Your inventory only contains Masterwork and Arena gear. The merchant doesn't deal in that. Use `!adventure equip` instead."
+		}
+		return "Your inventory is empty. There is nothing to sell. This is a metaphor for something but now is not the time."
 	}
 
 	p.euro.Credit(userID, total, "adventure_sell_all")
 
-	return fmt.Sprintf("Sold %d items for **€%.0f**.\n\nThe merchant took everything without comment. "+
+	msg := fmt.Sprintf("Sold %d items for **€%.0f**.\n\nThe merchant took everything without comment. "+
 		"This is the most respect anyone has shown your loot collection. Take the money.",
-		len(items), total)
+		sold, total)
+	if keptSpecial > 0 {
+		msg += fmt.Sprintf("\n\n(%d special gear items kept — the merchant knows better than to touch those.)", keptSpecial)
+	}
+	return msg
 }
 
 func (p *AdventurePlugin) advSellItem(userID id.UserID, itemName string) string {
@@ -287,6 +318,9 @@ func (p *AdventurePlugin) advSellItem(userID id.UserID, itemName string) string 
 	// Fuzzy match
 	for _, item := range items {
 		if containsFold(item.Name, itemName) {
+			if item.Type == "MasterworkGear" || item.Type == "ArenaGear" {
+				return fmt.Sprintf("**%s** is special gear. The merchant won't touch it. Use `!adventure equip` to equip it.", item.Name)
+			}
 			if err := removeAdvInventoryItem(item.ID); err != nil {
 				return "Failed to sell that item."
 			}
@@ -314,10 +348,17 @@ func advInventoryDisplay(userID id.UserID) string {
 
 	var total int64
 	for _, item := range items {
-		sb.WriteString(fmt.Sprintf("  %s (T%d %s) — €%d\n", item.Name, item.Tier, item.Type, item.Value))
-		total += item.Value
+		if item.Type == "MasterworkGear" {
+			sb.WriteString(fmt.Sprintf("  ⭐ %s (T%d Masterwork %s)\n", item.Name, item.Tier, slotTitle(item.Slot)))
+		} else if item.Type == "ArenaGear" {
+			sb.WriteString(fmt.Sprintf("  ⚔️ %s (T%d Arena %s)\n", item.Name, item.Tier, slotTitle(item.Slot)))
+		} else {
+			sb.WriteString(fmt.Sprintf("  %s (T%d %s) — €%d\n", item.Name, item.Tier, item.Type, item.Value))
+			total += item.Value
+		}
 	}
-	sb.WriteString(fmt.Sprintf("\n%d items — total value ~€%d", len(items), total))
+	sb.WriteString(fmt.Sprintf("\n%d items — sellable value ~€%d", len(items), total))
 	sb.WriteString("\n\nTo sell: `!adventure sell all` or `!adventure sell <item>`")
+	sb.WriteString("\nTo equip Masterwork gear: `!adventure equip`")
 	return sb.String()
 }

@@ -15,6 +15,7 @@ const (
 	AdvActivityDungeon  AdvActivityType = "dungeon"
 	AdvActivityMining   AdvActivityType = "mining"
 	AdvActivityForaging AdvActivityType = "foraging"
+	AdvActivityFishing  AdvActivityType = "fishing"
 	AdvActivityRest     AdvActivityType = "rest"
 	AdvActivityShop     AdvActivityType = "shop"
 )
@@ -76,6 +77,14 @@ var advForests = []AdvLocation{
 	{"Primal Wilds", AdvActivityForaging, 5, "Primordial Bark, Spirit Herbs, Starfruit", 20, 10, 40, 4},
 }
 
+var advFishingSpots = []AdvLocation{
+	{"Muddy Pond", AdvActivityFishing, 1, "Sad Fish, Boots, Tin Cans", 5, 20, 1, 0},
+	{"Iron Creek", AdvActivityFishing, 2, "Creek Fish, Cheep Cheeps, Wet Rocks", 12, 18, 8, 1},
+	{"Silver Lake", AdvActivityFishing, 3, "Lake Fish, Bloopers, Legends", 22, 16, 18, 2},
+	{"The Deep Current", AdvActivityFishing, 4, "River Monsters, Sea Serpents, Whirlpools", 35, 14, 30, 3},
+	{"Abyssal Trench", AdvActivityFishing, 5, "Ancient Things, The Unnamed, The Deep", 50, 12, 44, 4},
+}
+
 // allAdvLocations returns all locations for a given activity type.
 func allAdvLocations(activity AdvActivityType) []AdvLocation {
 	switch activity {
@@ -85,6 +94,8 @@ func allAdvLocations(activity AdvActivityType) []AdvLocation {
 		return advMines
 	case AdvActivityForaging:
 		return advForests
+	case AdvActivityFishing:
+		return advFishingSpots
 	}
 	return nil
 }
@@ -137,6 +148,14 @@ var advForagingLoot = map[int][]AdvLootDef{
 	5: {{"Primordial Bark", "wood", 600, 1500}, {"Spirit Herbs", "fruit", 800, 2000}, {"Starfruit", "fruit", 1000, 3000}},
 }
 
+var advFishingLoot = map[int][]AdvLootDef{
+	1: {{"Sad Fish", "fish", 1, 4}, {"Old Boot", "junk", 2, 5}, {"Tin Can", "junk", 1, 3}},
+	2: {{"Creek Trout", "fish", 12, 22}, {"Iron Scale", "fish", 15, 28}, {"River Pearl", "gem", 20, 40}},
+	3: {{"Silver Bass", "fish", 50, 90}, {"Lake Sturgeon", "fish", 60, 110}, {"Blooper Ink", "treasure", 80, 150}},
+	4: {{"Deep Eel", "fish", 180, 350}, {"River Serpent Scale", "treasure", 250, 500}, {"Abyssal Pearl", "gem", 300, 600}},
+	5: {{"Ancient Leviathan Tooth", "treasure", 800, 2000}, {"Trench Horror", "fish", 1200, 3000}, {"Void Pearl", "gem", 1500, 4000}},
+}
+
 func advLootTable(activity AdvActivityType) map[int][]AdvLootDef {
 	switch activity {
 	case AdvActivityDungeon:
@@ -145,6 +164,8 @@ func advLootTable(activity AdvActivityType) map[int][]AdvLootDef {
 		return advMiningLoot
 	case AdvActivityForaging:
 		return advForagingLoot
+	case AdvActivityFishing:
+		return advFishingLoot
 	}
 	return nil
 }
@@ -180,6 +201,13 @@ var advXPTable = map[AdvActivityType]map[int]advXPEntry{
 		4: {165, 48, 18, 248},
 		5: {230, 62, 22, 345},
 	},
+	AdvActivityFishing: {
+		1: {45, 16, 8, 68},
+		2: {78, 25, 12, 117},
+		3: {120, 38, 16, 180},
+		4: {180, 52, 20, 270},
+		5: {250, 68, 25, 375},
+	},
 }
 
 func advXPForOutcome(activity AdvActivityType, tier int, outcome AdvOutcomeType) int {
@@ -213,6 +241,8 @@ func advXPSkill(activity AdvActivityType) string {
 		return "mining"
 	case AdvActivityForaging:
 		return "foraging"
+	case AdvActivityFishing:
+		return "fishing"
 	}
 	return ""
 }
@@ -223,6 +253,7 @@ type AdvBonusSummary struct {
 	CombatBonus      int
 	MiningBonus      int
 	ForagingBonus    int
+	FishingBonus     int
 	DeathModifier    float64 // negative = less death
 	LootQuality      float64 // percentage modifier
 	XPMultiplier     float64 // percentage modifier
@@ -242,10 +273,13 @@ func computeAdvBonuses(treasures []AdvTreasureBonus, buffs []AdvBuff, streak int
 			b.MiningBonus += int(t.BonusValue)
 		case "foraging_skill":
 			b.ForagingBonus += int(t.BonusValue)
+		case "fishing_skill":
+			b.FishingBonus += int(t.BonusValue)
 		case "all_skills":
 			b.CombatBonus += int(t.BonusValue)
 			b.MiningBonus += int(t.BonusValue)
 			b.ForagingBonus += int(t.BonusValue)
+			b.FishingBonus += int(t.BonusValue)
 		case "death_chance":
 			b.DeathModifier += t.BonusValue
 		case "loot_quality":
@@ -344,6 +378,8 @@ func advEffectiveSkill(char *AdventureCharacter, activity AdvActivityType, bonus
 		return char.MiningSkill + bonuses.MiningBonus
 	case AdvActivityForaging:
 		return char.ForagingSkill + bonuses.ForagingBonus
+	case AdvActivityFishing:
+		return char.FishingSkill + bonuses.FishingBonus
 	}
 	return 1
 }
@@ -374,6 +410,17 @@ func calculateAdvProbabilities(char *AdventureCharacter, equip map[EquipmentSlot
 	// Success modifiers
 	baseSuccess := 100 - deathPct - emptyPct
 	successMod := (eqScore * 1.2) + (skillLevel * 0.8) + bonuses.SuccessBonus
+
+	// Masterwork gear: +5% skill-specific success bonus (mining sword → mining, etc.)
+	if advMasterworkSkillBonus(equip, loc.Activity) {
+		successMod += 5
+	}
+
+	// Bloodied set: Survivor's Instinct — +3% to all activity success rates
+	arenaSets := advEquippedArenaSets(equip)
+	if arenaSets["bloodied"] {
+		successMod += 3
+	}
 	if inPenaltyZone {
 		successMod -= 15
 	}
@@ -483,11 +530,17 @@ func applyAdvEquipDegradation(equip map[EquipmentSlot]*AdvEquipment, outcome Adv
 		// No equipment damage — they don't care about your sword
 	}
 
+	// Tempered set: Seasoned — condition degrades 25% slower (applied once per set)
+	tempered := advEquippedArenaSets(equip)["tempered"]
+
 	// Apply damage and check for breaks
 	for slot, dmg := range damage {
 		eq, ok := equip[slot]
 		if !ok {
 			continue
+		}
+		if tempered {
+			dmg = int(float64(dmg) * 0.75)
 		}
 		// Equipment mastery: well-used gear degrades slower
 		if eq.ActionsUsed >= 20 {
@@ -516,6 +569,10 @@ func advCheckBrokenEquipment(equip map[EquipmentSlot]*AdvEquipment) []EquipmentS
 		eq.Condition = 100
 		eq.Name = def.Name
 		eq.ActionsUsed = 0
+		eq.ArenaTier = 0
+		eq.ArenaSet = ""
+		eq.Masterwork = false
+		eq.SkillSource = ""
 		broken = append(broken, slot)
 	}
 	return broken
@@ -595,6 +652,10 @@ func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEqui
 	if bonuses.XPMultiplier != 0 {
 		xp = int(float64(xp) * (1 + bonuses.XPMultiplier/100))
 	}
+	// Ironclad set: Battle-Hardened — +5% XP gain
+	if advEquippedArenaSets(equip)["ironclad"] {
+		xp = int(float64(xp) * 1.05)
+	}
 	result.XPGained = xp
 
 	// Equipment degradation on bad outcomes
@@ -636,6 +697,10 @@ func resolveAdvEmptyOutcome(loc *AdvLocation, _ float64) AdvOutcomeType {
 		default:
 			return AdvOutcomeEmpty
 		}
+
+	case AdvActivityFishing:
+		// Fishing empty is just empty — no sub-outcomes
+		return AdvOutcomeEmpty
 
 	default:
 		return AdvOutcomeEmpty

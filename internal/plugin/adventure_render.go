@@ -98,6 +98,7 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 	sb.WriteString(fmt.Sprintf("  Combat:  Lv.%d  (%d/%d XP)\n", char.CombatLevel, char.CombatXP, xpToNextLevel(char.CombatLevel)))
 	sb.WriteString(fmt.Sprintf("  Mining:  Lv.%d  (%d/%d XP)\n", char.MiningSkill, char.MiningXP, xpToNextLevel(char.MiningSkill)))
 	sb.WriteString(fmt.Sprintf("  Forage:  Lv.%d  (%d/%d XP)\n", char.ForagingSkill, char.ForagingXP, xpToNextLevel(char.ForagingSkill)))
+	sb.WriteString(fmt.Sprintf("  Fishing: Lv.%d  (%d/%d XP)\n", char.FishingSkill, char.FishingXP, xpToNextLevel(char.FishingSkill)))
 
 	// Status
 	if char.Alive {
@@ -129,8 +130,14 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 			mastery = " ✦"
 		}
 		if eq != nil {
-			sb.WriteString(fmt.Sprintf("  %s %s: %s (Tier %d | %d%% condition%s)\n",
-				slotEmoji(slot), slotTitle(slot), eq.Name, eq.Tier, eq.Condition, mastery))
+			marker := ""
+			if eq.Masterwork {
+				marker = " ⭐"
+			} else if eq.ArenaTier > 0 {
+				marker = " ⚔️"
+			}
+			sb.WriteString(fmt.Sprintf("  %s %s: %s%s (Tier %d | %d%% condition%s)\n",
+				slotEmoji(slot), slotTitle(slot), eq.Name, marker, eq.Tier, eq.Condition, mastery))
 		}
 	}
 	sb.WriteString(fmt.Sprintf("  Equipment Score: %d\n", eqScore))
@@ -190,8 +197,8 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 	vars := map[string]string{
 		"{name}": char.DisplayName,
 		"{character_sheet}": fmt.Sprintf(
-			"  ⚔️ Combat Lv.%d  ⛏️ Mining Lv.%d  🌿 Foraging Lv.%d\n  💰 €%.0f",
-			char.CombatLevel, char.MiningSkill, char.ForagingSkill, balance),
+			"  ⚔️ Combat Lv.%d  ⛏️ Mining Lv.%d  🌿 Foraging Lv.%d  🎣 Fishing Lv.%d\n  💰 €%.0f",
+			char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill, balance),
 	}
 	sb.WriteString(advSubstituteFlavor(greeting, vars))
 	sb.WriteString("\n\n")
@@ -251,8 +258,17 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
 	}
 
-	sb.WriteString("**4️⃣ Shop** — buy/sell gear and loot\n")
-	sb.WriteString("**5️⃣ Rest** — skip today, bank your luck\n\n")
+	sb.WriteString("**4️⃣ Fish:**\n")
+	for _, el := range advEligibleLocations(char, equip, AdvActivityFishing, bonuses) {
+		warn := ""
+		if el.InPenaltyZone {
+			warn = " ⚠️"
+		}
+		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
+	}
+
+	sb.WriteString("**5️⃣ Shop** — buy/sell gear and loot\n")
+	sb.WriteString("**6️⃣ Rest** — skip today, bank your luck\n\n")
 
 	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`\n")
 	sb.WriteString("You have until midnight UTC to choose.")
@@ -294,8 +310,17 @@ func renderAdvHolidaySecondPrompt(char *AdventureCharacter, equip map[EquipmentS
 		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
 	}
 
-	sb.WriteString("**4️⃣ Shop** — buy/sell gear and loot\n")
-	sb.WriteString("**5️⃣ Rest** — skip the second action\n\n")
+	sb.WriteString("**4️⃣ Fish:**\n")
+	for _, el := range advEligibleLocations(char, equip, AdvActivityFishing, bonuses) {
+		warn := ""
+		if el.InPenaltyZone {
+			warn = " ⚠️"
+		}
+		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
+	}
+
+	sb.WriteString("**5️⃣ Shop** — buy/sell gear and loot\n")
+	sb.WriteString("**6️⃣ Rest** — skip the second action\n\n")
 	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`")
 
 	return sb.String()
@@ -468,6 +493,7 @@ type AdvPlayerDaySummary struct {
 	CombatLevel    int
 	MiningSkill    int
 	ForagingSkill  int
+	FishingSkill   int
 	Activity       string
 	Location       string
 	Outcome        string
@@ -529,7 +555,7 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 				sb.WriteString(fmt.Sprintf("  ⭐ %d players received a gift item\n", tbRewards.GiftCount))
 			}
 		}
-		sb.WriteString("\n(Players who rested today received nothing. TwinBee noticed.)\n\n")
+		sb.WriteString("\n(Players who rested today received nothing. Fallen adventurers still earn their share. TwinBee noticed.)\n\n")
 		sb.WriteString("───────────────────\n\n")
 	}
 
@@ -543,8 +569,15 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 		p := &players[i]
 		if p.IsDead {
 			dead = append(dead, *p)
-			if worstPlayer == nil {
-				worstPlayer = p
+			// Dead players who acted today still show in the main section
+			if p.Location != "" {
+				sb.WriteString(fmt.Sprintf("💀 **%s** — Combat Lv.%d | Mining Lv.%d | Forage Lv.%d | Fishing Lv.%d\n",
+					p.DisplayName, p.CombatLevel, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
+				sb.WriteString(fmt.Sprintf("   Went to: %s\n", p.Location))
+				sb.WriteString(fmt.Sprintf("   Outcome: %s\n\n", p.SummaryLine))
+				if worstPlayer == nil {
+					worstPlayer = p
+				}
 			}
 			continue
 		}
@@ -553,8 +586,8 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 			continue
 		}
 
-		sb.WriteString(fmt.Sprintf("⚔️ **%s** — Combat Lv.%d | Mining Lv.%d | Forage Lv.%d\n",
-			p.DisplayName, p.CombatLevel, p.MiningSkill, p.ForagingSkill))
+		sb.WriteString(fmt.Sprintf("⚔️ **%s** — Combat Lv.%d | Mining Lv.%d | Forage Lv.%d | Fishing Lv.%d\n",
+			p.DisplayName, p.CombatLevel, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
 		sb.WriteString(fmt.Sprintf("   Went to: %s\n", p.Location))
 		sb.WriteString(fmt.Sprintf("   Outcome: %s\n\n", p.SummaryLine))
 
@@ -563,10 +596,16 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 		}
 	}
 
-	// Dead list
-	if len(dead) > 0 {
+	// Dead list (players who didn't act today but are still dead from before)
+	var deadNoAction []AdvPlayerDaySummary
+	for _, d := range dead {
+		if d.Location == "" {
+			deadNoAction = append(deadNoAction, d)
+		}
+	}
+	if len(deadNoAction) > 0 {
 		sb.WriteString("💀 **Currently Dead:**\n")
-		for _, d := range dead {
+		for _, d := range deadNoAction {
 			sb.WriteString(fmt.Sprintf("   %s — returns %s\n", d.DisplayName, d.DeadUntil))
 		}
 		sb.WriteString("\n")
@@ -777,6 +816,15 @@ func advSummaryOneLiner(userID id.UserID, activity AdvActivityType, outcome AdvO
 			pool = SummaryForagingEmpty
 		case AdvOutcomeSuccess, AdvOutcomeExceptional:
 			pool = SummaryForagingSuccess
+		}
+	case AdvActivityFishing:
+		switch outcome {
+		case AdvOutcomeDeath:
+			pool = SummaryFishingDeath
+		case AdvOutcomeEmpty:
+			pool = SummaryFishingEmpty
+		case AdvOutcomeSuccess, AdvOutcomeExceptional:
+			pool = SummaryFishingSuccess
 		}
 	}
 

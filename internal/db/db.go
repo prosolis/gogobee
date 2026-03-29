@@ -64,6 +64,15 @@ func runMigrations(d *sql.DB) error {
 	// exists in SQLite (we just swallow "duplicate column name" errors).
 	columnMigrations := []string{
 		`ALTER TABLE adventure_characters ADD COLUMN holiday_action_taken INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE wordle_puzzles ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_equipment ADD COLUMN arena_tier INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_equipment ADD COLUMN arena_set TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_equipment ADD COLUMN masterwork INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN death_reprieve_last DATETIME`,
+		`ALTER TABLE adventure_equipment ADD COLUMN skill_source TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN masterwork_drops_received INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_inventory ADD COLUMN slot TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_inventory ADD COLUMN skill_source TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -803,6 +812,7 @@ CREATE TABLE IF NOT EXISTS wordle_puzzles (
 	room_id       TEXT NOT NULL,
 	answer        TEXT NOT NULL,
 	word_length   INTEGER NOT NULL,
+	category      TEXT NOT NULL DEFAULT '',
 	solved        INTEGER NOT NULL DEFAULT 0,
 	guess_count   INTEGER NOT NULL DEFAULT 0,
 	started_at    DATETIME NOT NULL,
@@ -843,16 +853,22 @@ CREATE TABLE IF NOT EXISTS adventure_characters (
 	last_action_date     TEXT NOT NULL DEFAULT '',
 	grudge_location      TEXT NOT NULL DEFAULT '',
 	created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	last_active_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	last_active_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	death_reprieve_last  DATETIME,
+	masterwork_drops_received INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS adventure_equipment (
-	user_id     TEXT NOT NULL,
-	slot        TEXT NOT NULL,
-	tier        INTEGER NOT NULL DEFAULT 0,
-	condition   INTEGER NOT NULL DEFAULT 100,
-	name        TEXT NOT NULL,
+	user_id      TEXT NOT NULL,
+	slot         TEXT NOT NULL,
+	tier         INTEGER NOT NULL DEFAULT 0,
+	condition    INTEGER NOT NULL DEFAULT 100,
+	name         TEXT NOT NULL,
 	actions_used INTEGER NOT NULL DEFAULT 0,
+	arena_tier   INTEGER NOT NULL DEFAULT 0,
+	arena_set    TEXT NOT NULL DEFAULT '',
+	masterwork   INTEGER NOT NULL DEFAULT 0,
+	skill_source TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (user_id, slot)
 );
 
@@ -862,7 +878,9 @@ CREATE TABLE IF NOT EXISTS adventure_inventory (
 	name        TEXT NOT NULL,
 	item_type   TEXT NOT NULL,
 	tier        INTEGER NOT NULL,
-	value       INTEGER NOT NULL
+	value       INTEGER NOT NULL,
+	slot         TEXT NOT NULL DEFAULT '',
+	skill_source TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_adv_inv_user ON adventure_inventory(user_id);
 

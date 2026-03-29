@@ -49,22 +49,30 @@ type AdventureCharacter struct {
 	GrudgeLocation   string
 	CreatedAt        time.Time
 	LastActiveAt     time.Time
+	DeathReprieveLast      *time.Time
+	MasterworkDropsReceived int
 }
 
 type AdvEquipment struct {
-	Slot       EquipmentSlot
-	Tier       int
-	Condition  int
-	Name       string
+	Slot        EquipmentSlot
+	Tier        int
+	Condition   int
+	Name        string
 	ActionsUsed int
+	ArenaTier   int
+	ArenaSet    string
+	Masterwork  bool
+	SkillSource string
 }
 
 type AdvItem struct {
-	ID    int64
-	Name  string
-	Type  string // ore, wood, fruit, treasure, gem
-	Tier  int
-	Value int64
+	ID          int64
+	Name        string
+	Type        string // ore, wood, fruit, treasure, gem, MasterworkGear
+	Tier        int
+	Value       int64
+	Slot        EquipmentSlot // non-empty for MasterworkGear
+	SkillSource string        // non-empty for MasterworkGear
 }
 
 type AdvBuff struct {
@@ -142,16 +150,69 @@ func equipmentDefByTier(slot EquipmentSlot, tier int) EquipmentDef {
 	return defs[tier]
 }
 
+// ── Arena Gear Helpers ──────────────────────────────────────────────────────
+
+// advEquippedArenaSets returns the unique arena set names currently equipped.
+func advEquippedArenaSets(equip map[EquipmentSlot]*AdvEquipment) map[string]bool {
+	sets := make(map[string]bool)
+	for _, eq := range equip {
+		if eq.ArenaSet != "" {
+			sets[eq.ArenaSet] = true
+		}
+	}
+	return sets
+}
+
+// advMasterworkSkillBonus returns true if any equipped masterwork piece's
+// SkillSource matches the given activity type.
+func advMasterworkSkillBonus(equip map[EquipmentSlot]*AdvEquipment, activity AdvActivityType) bool {
+	source := ""
+	switch activity {
+	case AdvActivityMining:
+		source = "mining"
+	case AdvActivityFishing:
+		source = "fishing"
+	case AdvActivityForaging:
+		source = "foraging"
+	}
+	if source == "" {
+		return false
+	}
+	for _, eq := range equip {
+		if eq.Masterwork && eq.SkillSource == source {
+			return true
+		}
+	}
+	return false
+}
+
+// DeathReprieveAvailable returns true if the Sovereign Death's Reprieve
+// cooldown has expired (or was never triggered).
+func (c *AdventureCharacter) DeathReprieveAvailable() bool {
+	if c.DeathReprieveLast == nil {
+		return true
+	}
+	return time.Since(*c.DeathReprieveLast) >= 168*time.Hour
+}
+
 // ── Equipment Score ──────────────────────────────────────────────────────────
 
 func advEquipmentScore(equip map[EquipmentSlot]*AdvEquipment) int {
 	score := 0
+	arenaSets := advEquippedArenaSets(equip)
 	for _, slot := range allSlots {
 		eq, ok := equip[slot]
 		if !ok {
 			continue
 		}
 		tierContrib := eq.Tier
+		// Arena gear: 1.5x effectiveness
+		if eq.ArenaTier > 0 {
+			tierContrib = int(float64(tierContrib) * 1.5)
+		} else if eq.Masterwork {
+			// Masterwork: 1.25x effectiveness
+			tierContrib = int(float64(tierContrib) * 1.25)
+		}
 		if slot == SlotWeapon {
 			tierContrib *= 2
 		}
@@ -160,6 +221,10 @@ func advEquipmentScore(equip map[EquipmentSlot]*AdvEquipment) int {
 			tierContrib /= 2
 		}
 		score += tierContrib
+	}
+	// Champion's set: Commanding Presence — +10% equipment score
+	if arenaSets["champions"] {
+		score = int(float64(score) * 1.10)
 	}
 	return score
 }
@@ -188,6 +253,9 @@ func checkAdvLevelUp(char *AdventureCharacter, skill string) (bool, int) {
 	case "foraging":
 		xp = &char.ForagingXP
 		level = &char.ForagingSkill
+	case "fishing":
+		xp = &char.FishingXP
+		level = &char.FishingSkill
 	default:
 		return false, 0
 	}
@@ -215,7 +283,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	d := db.Get()
 	c := &AdventureCharacter{}
 	var alive, actionTaken, holidayTaken int
-	var deadUntil sql.NullTime
+	var deadUntil, reprieveLast sql.NullTime
 
 	err := d.QueryRow(`
 		SELECT user_id, display_name,
@@ -224,7 +292,8 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		       alive, dead_until, action_taken_today, holiday_action_taken,
 		       arena_wins, arena_losses, invasion_score, title,
 		       current_streak, best_streak, last_action_date, grudge_location,
-		       created_at, last_active_at
+		       created_at, last_active_at, death_reprieve_last,
+		       masterwork_drops_received
 		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -232,7 +301,8 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&alive, &deadUntil, &actionTaken, &holidayTaken,
 		&c.ArenaWins, &c.ArenaLosses, &c.InvasionScore, &c.Title,
 		&c.CurrentStreak, &c.BestStreak, &c.LastActionDate, &c.GrudgeLocation,
-		&c.CreatedAt, &c.LastActiveAt,
+		&c.CreatedAt, &c.LastActiveAt, &reprieveLast,
+		&c.MasterworkDropsReceived,
 	)
 	if err != nil {
 		return nil, err
@@ -242,6 +312,9 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	c.HolidayActionTaken = holidayTaken == 1
 	if deadUntil.Valid {
 		c.DeadUntil = &deadUntil.Time
+	}
+	if reprieveLast.Valid {
+		c.DeathReprieveLast = &reprieveLast.Time
 	}
 	return c, nil
 }
@@ -265,8 +338,8 @@ func createAdvCharacter(userID id.UserID, displayName string) error {
 	for _, slot := range allSlots {
 		def := equipmentTiers[slot][0]
 		_, err = tx.Exec(`
-			INSERT INTO adventure_equipment (user_id, slot, tier, condition, name, actions_used)
-			VALUES (?, ?, 0, 100, ?, 0)`, string(userID), string(slot), def.Name)
+			INSERT INTO adventure_equipment (user_id, slot, tier, condition, name, actions_used, arena_tier, arena_set, masterwork, skill_source)
+			VALUES (?, ?, 0, 100, ?, 0, 0, '', 0, '')`, string(userID), string(slot), def.Name)
 		if err != nil {
 			return err
 		}
@@ -297,14 +370,15 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 			alive = ?, dead_until = ?, action_taken_today = ?, holiday_action_taken = ?,
 			arena_wins = ?, arena_losses = ?, invasion_score = ?, title = ?,
 			current_streak = ?, best_streak = ?, last_action_date = ?, grudge_location = ?,
-			last_active_at = CURRENT_TIMESTAMP
+			last_active_at = CURRENT_TIMESTAMP, death_reprieve_last = ?,
+			masterwork_drops_received = ?
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
 		alive, char.DeadUntil, actionTaken, holidayTaken,
 		char.ArenaWins, char.ArenaLosses, char.InvasionScore, char.Title,
 		char.CurrentStreak, char.BestStreak, char.LastActionDate, char.GrudgeLocation,
-		string(char.UserID),
+		char.DeathReprieveLast, char.MasterworkDropsReceived, string(char.UserID),
 	)
 	return err
 }
@@ -312,7 +386,7 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 func loadAdvEquipment(userID id.UserID) (map[EquipmentSlot]*AdvEquipment, error) {
 	d := db.Get()
 	rows, err := d.Query(`
-		SELECT slot, tier, condition, name, actions_used
+		SELECT slot, tier, condition, name, actions_used, arena_tier, arena_set, masterwork, skill_source
 		FROM adventure_equipment WHERE user_id = ?`, string(userID))
 	if err != nil {
 		return nil, err
@@ -323,10 +397,12 @@ func loadAdvEquipment(userID id.UserID) (map[EquipmentSlot]*AdvEquipment, error)
 	for rows.Next() {
 		e := &AdvEquipment{}
 		var slot string
-		if err := rows.Scan(&slot, &e.Tier, &e.Condition, &e.Name, &e.ActionsUsed); err != nil {
+		var mw int
+		if err := rows.Scan(&slot, &e.Tier, &e.Condition, &e.Name, &e.ActionsUsed, &e.ArenaTier, &e.ArenaSet, &mw, &e.SkillSource); err != nil {
 			return nil, err
 		}
 		e.Slot = EquipmentSlot(slot)
+		e.Masterwork = mw == 1
 		equip[e.Slot] = e
 	}
 	return equip, rows.Err()
@@ -334,11 +410,15 @@ func loadAdvEquipment(userID id.UserID) (map[EquipmentSlot]*AdvEquipment, error)
 
 func saveAdvEquipment(userID id.UserID, eq *AdvEquipment) error {
 	d := db.Get()
+	mw := 0
+	if eq.Masterwork {
+		mw = 1
+	}
 	_, err := d.Exec(`
 		UPDATE adventure_equipment
-		SET tier = ?, condition = ?, name = ?, actions_used = ?
+		SET tier = ?, condition = ?, name = ?, actions_used = ?, arena_tier = ?, arena_set = ?, masterwork = ?, skill_source = ?
 		WHERE user_id = ? AND slot = ?`,
-		eq.Tier, eq.Condition, eq.Name, eq.ActionsUsed,
+		eq.Tier, eq.Condition, eq.Name, eq.ActionsUsed, eq.ArenaTier, eq.ArenaSet, mw, eq.SkillSource,
 		string(userID), string(eq.Slot))
 	return err
 }
@@ -346,7 +426,7 @@ func saveAdvEquipment(userID id.UserID, eq *AdvEquipment) error {
 func loadAdvInventory(userID id.UserID) ([]AdvItem, error) {
 	d := db.Get()
 	rows, err := d.Query(`
-		SELECT id, name, item_type, tier, value
+		SELECT id, name, item_type, tier, value, slot, skill_source
 		FROM adventure_inventory WHERE user_id = ?
 		ORDER BY tier DESC, value DESC`, string(userID))
 	if err != nil {
@@ -357,9 +437,11 @@ func loadAdvInventory(userID id.UserID) ([]AdvItem, error) {
 	var items []AdvItem
 	for rows.Next() {
 		var it AdvItem
-		if err := rows.Scan(&it.ID, &it.Name, &it.Type, &it.Tier, &it.Value); err != nil {
+		var slot string
+		if err := rows.Scan(&it.ID, &it.Name, &it.Type, &it.Tier, &it.Value, &slot, &it.SkillSource); err != nil {
 			return nil, err
 		}
+		it.Slot = EquipmentSlot(slot)
 		items = append(items, it)
 	}
 	return items, rows.Err()
@@ -368,9 +450,9 @@ func loadAdvInventory(userID id.UserID) ([]AdvItem, error) {
 func addAdvInventoryItem(userID id.UserID, item AdvItem) error {
 	d := db.Get()
 	_, err := d.Exec(`
-		INSERT INTO adventure_inventory (user_id, name, item_type, tier, value)
-		VALUES (?, ?, ?, ?, ?)`,
-		string(userID), item.Name, item.Type, item.Tier, item.Value)
+		INSERT INTO adventure_inventory (user_id, name, item_type, tier, value, slot, skill_source)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		string(userID), item.Name, item.Type, item.Tier, item.Value, string(item.Slot), item.SkillSource)
 	return err
 }
 
@@ -409,7 +491,8 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		       alive, dead_until, action_taken_today, holiday_action_taken,
 		       arena_wins, arena_losses, invasion_score, title,
 		       current_streak, best_streak, last_action_date, grudge_location,
-		       created_at, last_active_at
+		       created_at, last_active_at, death_reprieve_last,
+		       masterwork_drops_received
 		FROM adventure_characters`)
 	if err != nil {
 		return nil, err
@@ -420,7 +503,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 	for rows.Next() {
 		c := AdventureCharacter{}
 		var alive, actionTaken, holidayTaken int
-		var deadUntil sql.NullTime
+		var deadUntil, reprieveLast sql.NullTime
 		if err := rows.Scan(
 			&c.UserID, &c.DisplayName,
 			&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -428,7 +511,8 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 			&alive, &deadUntil, &actionTaken, &holidayTaken,
 			&c.ArenaWins, &c.ArenaLosses, &c.InvasionScore, &c.Title,
 			&c.CurrentStreak, &c.BestStreak, &c.LastActionDate, &c.GrudgeLocation,
-			&c.CreatedAt, &c.LastActiveAt,
+			&c.CreatedAt, &c.LastActiveAt, &reprieveLast,
+			&c.MasterworkDropsReceived,
 		); err != nil {
 			return nil, err
 		}
@@ -437,6 +521,9 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		c.HolidayActionTaken = holidayTaken == 1
 		if deadUntil.Valid {
 			c.DeadUntil = &deadUntil.Time
+		}
+		if reprieveLast.Valid {
+			c.DeathReprieveLast = &reprieveLast.Time
 		}
 		chars = append(chars, c)
 	}

@@ -24,6 +24,16 @@ type WordleGuess struct {
 	Timestamp  time.Time
 }
 
+// WordleCategory identifies the language/category of a puzzle.
+type WordleCategory string
+
+const (
+	WordleCategoryEN    WordleCategory = ""     // English (default)
+	WordleCategoryPT    WordleCategory = "pt"   // European Portuguese
+	WordleCategoryFR    WordleCategory = "fr"   // French
+	WordleCategoryGames WordleCategory = "games" // Video game words (English)
+)
+
 // WordlePuzzle holds all state for one day's puzzle.
 type WordlePuzzle struct {
 	PuzzleID     string // YYYY-MM-DD
@@ -32,6 +42,7 @@ type WordlePuzzle struct {
 	Answer       string // uppercased
 	WordLength   int
 	MaxGuesses   int // always 6
+	Category     WordleCategory
 	Guesses      []WordleGuess
 	Solved       bool
 	Failed       bool
