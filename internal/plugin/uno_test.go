@@ -288,3 +288,58 @@ func TestUnoColor_Emoji(t *testing.T) {
 		t.Errorf("blue emoji: got %q", unoBlue.Emoji())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Card point values (sudden death scoring)
+// ---------------------------------------------------------------------------
+
+func TestCardPointValue(t *testing.T) {
+	tests := []struct {
+		name string
+		card unoCard
+		want int
+	}{
+		{"zero", unoCard{unoRed, unoZero}, 0},
+		{"five", unoCard{unoBlue, unoFive}, 5},
+		{"nine", unoCard{unoGreen, unoNine}, 9},
+		{"skip", unoCard{unoRed, unoSkip}, 20},
+		{"reverse", unoCard{unoBlue, unoReverse}, 20},
+		{"draw two", unoCard{unoYellow, unoDrawTwo}, 20},
+		{"skip everyone", unoCard{unoRed, unoSkipEveryone}, 30},
+		{"draw four colored", unoCard{unoGreen, unoDrawFour}, 30},
+		{"discard all", unoCard{unoBlue, unoDiscardAll}, 30},
+		{"wild", unoCard{unoWild, unoWildCard}, 50},
+		{"wild draw four", unoCard{unoWild, unoWildDrawFour}, 50},
+		{"wild reverse draw 4", unoCard{unoWild, unoWildReverseDraw4}, 60},
+		{"wild draw six", unoCard{unoWild, unoWildDrawSix}, 60},
+		{"wild color roulette", unoCard{unoWild, unoWildColorRoulette}, 60},
+		{"wild draw ten", unoCard{unoWild, unoWildDrawTen}, 75},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := cardPointValue(tt.card); got != tt.want {
+				t.Errorf("cardPointValue(%v) = %d, want %d", tt.card, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestScoreHand(t *testing.T) {
+	hand := []unoCard{
+		{unoRed, unoFive},       // 5
+		{unoBlue, unoNine},      // 9
+		{unoGreen, unoSkip},     // 20
+		{unoWild, unoWildCard},  // 50
+	}
+	got := scoreHand(hand)
+	want := 84
+	if got != want {
+		t.Errorf("scoreHand() = %d, want %d", got, want)
+	}
+}
+
+func TestScoreHandEmpty(t *testing.T) {
+	if got := scoreHand(nil); got != 0 {
+		t.Errorf("scoreHand(nil) = %d, want 0", got)
+	}
+}

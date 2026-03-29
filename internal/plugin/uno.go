@@ -225,6 +225,10 @@ type unoGame struct {
 	stackTotal    int // cumulative draw penalty during stacking
 	stackMinValue int // minimum draw value to stack (0 = not stacking)
 
+	// Sudden death (long-game point scoring)
+	suddenDeath     bool
+	suddenDeathTurn int // turn at which game ends
+
 	idleTimer    *time.Timer
 	warningTimer *time.Timer
 }
@@ -345,6 +349,16 @@ var unoCommentary = map[string][]string{
 	},
 	"long_game": {
 		"\"Still going, are we? 💛\" *glances at bookmark*",
+	},
+	"sudden_death": {
+		"*GogoBee puts the book down.* \"This has gone on long enough. 💛\"",
+		"*GogoBee glances at the clock.* \"Time to settle this. 💛\"",
+	},
+	"sudden_death_win": {
+		"\"Well played. The numbers don't lie. 💛\" *resumes reading*",
+	},
+	"sudden_death_lose": {
+		"\"The math was on my side. 💛\" *turns a page*",
 	},
 }
 
@@ -1154,6 +1168,10 @@ func (p *UnoPlugin) soloBotHandleStack(game *unoGame) error {
 // ---------------------------------------------------------------------------
 
 func (p *UnoPlugin) botTurn(game *unoGame) error {
+	if p.checkSuddenDeath(game) {
+		return nil
+	}
+
 	// No Mercy stacking: if a stack is pending, bot must handle it
 	if game.noMercy && game.stackMinValue > 0 {
 		return p.soloBotHandleStack(game)
@@ -1572,9 +1590,132 @@ func (p *UnoPlugin) botChooseColor(game *unoGame) unoColor {
 	return botPickColor(game.botHand)
 }
 
+// ---------------------------------------------------------------------------
+// Sudden Death (long-game point scoring for 2-player matches)
+// ---------------------------------------------------------------------------
+
+const (
+	suddenDeathAnnounce  = 80 // turn to announce sudden death
+	suddenDeathCountdown = 20 // turns after announcement
+)
+
+// checkSuddenDeath checks whether sudden death should be announced or resolved.
+// Returns true if the game ended.
+func (p *UnoPlugin) checkSuddenDeath(game *unoGame) bool {
+	if game.done {
+		return true
+	}
+
+	// Resolve: game ends at the deadline
+	if game.suddenDeath && game.turns >= game.suddenDeathTurn {
+		p.suddenDeathWinner(game)
+		return true
+	}
+
+	// Announce
+	if !game.suddenDeath && game.turns >= suddenDeathAnnounce {
+		game.suddenDeath = true
+		game.suddenDeathTurn = game.turns + suddenDeathCountdown
+		remaining := game.suddenDeathTurn - game.turns
+
+		ann := fmt.Sprintf("⏰ **SUDDEN DEATH!** This match ends in %d turns — lowest hand value wins!\n\n%s",
+			remaining, pickCommentary("sudden_death"))
+		p.SendMessage(game.dmRoomID, ann)
+		p.SendMessage(game.roomID, fmt.Sprintf("⏰ **Sudden Death activated!** %s's match ends in %d turns.",
+			p.DisplayName(game.playerID), remaining))
+		return false
+	}
+
+	// Countdown reminders (DM only)
+	if game.suddenDeath {
+		remaining := game.suddenDeathTurn - game.turns
+		switch remaining {
+		case 10:
+			p.SendMessage(game.dmRoomID, "⏰ **10 turns remaining!**")
+		case 5:
+			p.SendMessage(game.dmRoomID, "⏰ **5 turns remaining!**")
+		}
+	}
+
+	return false
+}
+
+func (p *UnoPlugin) suddenDeathWinner(game *unoGame) {
+	p.mu.Lock()
+	if game.done {
+		p.mu.Unlock()
+		return
+	}
+	game.done = true
+	p.mu.Unlock()
+
+	playerScore := scoreHand(game.playerHand)
+	botScore := scoreHand(game.botHand)
+	bn := unoBotName()
+	playerName := p.DisplayName(game.playerID)
+
+	// Build score breakdown
+	breakdown := fmt.Sprintf("**Final Scores:**\n%s: %s\n%s: %s",
+		playerName, formatHandScore(game.playerHand),
+		bn, formatHandScore(game.botHand))
+
+	var playerWins bool
+	switch {
+	case playerScore < botScore:
+		playerWins = true
+	case botScore < playerScore:
+		playerWins = false
+	case len(game.playerHand) < len(game.botHand):
+		// Tiebreaker: fewer cards
+		playerWins = true
+		breakdown += "\n*Tiebreaker: fewer cards!*"
+	case len(game.botHand) < len(game.playerHand):
+		playerWins = false
+		breakdown += "\n*Tiebreaker: fewer cards!*"
+	default:
+		// Final tiebreaker: player wins (bot had the advantage of going second in the countdown)
+		playerWins = true
+		breakdown += "\n*Tiebreaker: dead even — player takes it!*"
+	}
+
+	p.SendMessage(game.dmRoomID, fmt.Sprintf("⏰ **TIME'S UP — SUDDEN DEATH!**\n\n%s", breakdown))
+
+	potBefore := p.getPot()
+
+	if playerWins {
+		payout := p.claimFromPot(game.wager)
+		totalPayout := game.wager + payout
+		p.euro.Credit(game.playerID, totalPayout, "uno_win")
+
+		newPot := p.getPot()
+		p.SendMessage(game.dmRoomID, "🎉 **You win on points!**")
+		p.SendMessage(game.roomID, fmt.Sprintf(
+			"⏰ **Sudden Death!** %s wins on points!\n%s\n€%d claimed from the community pot. (Pot: €%d)\n\n%s",
+			playerName, breakdown, int(payout), int(newPot), pickCommentary("sudden_death_win")))
+
+		p.recordGame(game, "sudden_death_player", potBefore)
+	} else {
+		p.addToPot(game.wager)
+		newPot := p.getPot()
+
+		p.SendMessage(game.dmRoomID, fmt.Sprintf("💀 **%s wins on points.** Better luck next time.", bn))
+		p.SendMessage(game.roomID, fmt.Sprintf(
+			"⏰ **Sudden Death!** %s wins on points!\n%s\n%s's €%d added to the community pot. (Pot: €%d)\n\n%s",
+			bn, breakdown, playerName, int(game.wager), int(newPot), pickCommentary("sudden_death_lose")))
+
+		recordBotDefeat(game.playerID, "uno")
+		p.recordGame(game, "sudden_death_bot", potBefore)
+	}
+
+	p.cleanupGame(game)
+}
+
 // afterBotTurn is called when the bot's turn was skipped (player played skip/reverse/draw two).
 // Shows the hand display for the player's next turn.
 func (p *UnoPlugin) afterBotTurn(game *unoGame) error {
+	if p.checkSuddenDeath(game) {
+		return nil
+	}
 	return p.playerTurnOrAutoDraw(game)
 }
 
@@ -1630,6 +1771,10 @@ func (p *UnoPlugin) sendHandDisplayStacking(game *unoGame) {
 // playerTurnOrAutoDraw shows the hand if the player has playable cards,
 // otherwise auto-draws and passes to the bot.
 func (p *UnoPlugin) playerTurnOrAutoDraw(game *unoGame) error {
+	if p.checkSuddenDeath(game) {
+		return nil
+	}
+
 	// No Mercy stacking: if a stack is pending, show stack prompt
 	if game.noMercy && game.stackMinValue > 0 {
 		if hasStackableCard(game.playerHand, game.topColor, game.stackMinValue) {

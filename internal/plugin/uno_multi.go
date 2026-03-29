@@ -67,6 +67,10 @@ type unoMultiGame struct {
 	stackTotal    int // cumulative draw penalty during stacking
 	stackMinValue int // minimum draw value to stack (0 = not stacking)
 
+	// Sudden death (long-game point scoring)
+	suddenDeath     bool
+	suddenDeathTurn int
+
 	timer         *time.Timer
 	inactiveTimer *time.Timer // 10-minute game timeout
 	mu            sync.Mutex  // per-game lock
@@ -686,10 +690,17 @@ func (p *UnoPlugin) executeMultiTurn(game *unoMultiGame) {
 				}
 				return
 			}
+			if p.checkMultiSuddenDeath(game) {
+				if roomBuf.Len() > 0 {
+					p.SendMessage(game.roomID, roomBuf.String())
+				}
+				return
+			}
 			continue
 		}
 
-		// Human's turn — flush room buffer
+		// Human's turn — flush bot play buffer first so the turn announcement arrives
+		// before any auto-action happens.
 		if roomBuf.Len() > 0 {
 			p.SendMessage(game.roomID, roomBuf.String())
 			roomBuf.Reset()
@@ -837,6 +848,9 @@ func (p *UnoPlugin) advanceAndExecute(game *unoMultiGame) {
 	game.currentIdx = game.nextActiveIdx()
 	game.turnID++
 	game.turns++
+	if p.checkMultiSuddenDeath(game) {
+		return
+	}
 	p.executeMultiTurn(game)
 }
 
@@ -940,6 +954,9 @@ func (p *UnoPlugin) handleMultiDMInput(ctx MessageContext, game *unoMultiGame) e
 			game.turnID++
 			game.turns++
 			p.SendMessage(game.roomID, absorbMsg+"\n"+p.nextTurnLabel(game))
+			if p.checkMultiSuddenDeath(game) {
+				return nil
+			}
 			p.executeMultiTurn(game)
 			return nil
 		}
@@ -1185,6 +1202,9 @@ func (p *UnoPlugin) handleMultiColorChoice(game *unoMultiGame, player *unoMultiP
 		game.currentIdx = nextIdx
 		game.currentIdx = game.nextActiveIdx()
 		game.turnID++
+		if p.checkMultiSuddenDeath(game) {
+			return nil
+		}
 		p.executeMultiTurn(game)
 		return nil
 	}
@@ -1554,6 +1574,9 @@ func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer,
 	roomMsg.WriteString(fmt.Sprintf("\n  It's %s's turn.", nextUpName))
 
 	p.SendMessage(game.roomID, roomMsg.String())
+	if p.checkMultiSuddenDeath(game) {
+		return
+	}
 	p.executeMultiTurn(game)
 }
 
@@ -1616,6 +1639,9 @@ func (p *UnoPlugin) resolveWD4Challenge(game *unoMultiGame, challenged bool) {
 			fmt.Sprintf("🃏 %s accepts the Wild Draw Four. Draws 4 and is skipped!", victimName))
 		game.currentIdx = game.nextActiveIdx()
 		game.turnID++
+		if p.checkMultiSuddenDeath(game) {
+			return
+		}
 		p.executeMultiTurn(game)
 		return
 	}
@@ -1638,6 +1664,9 @@ func (p *UnoPlugin) resolveWD4Challenge(game *unoMultiGame, challenged bool) {
 				wd4Name, game.wd4PrevColor.Emoji(), game.wd4PrevColor, wd4Name))
 		// Victim is NOT skipped — turn continues from victim
 		game.turnID++
+		if p.checkMultiSuddenDeath(game) {
+			return
+		}
 		p.executeMultiTurn(game)
 	} else {
 		// Challenge fails — victim draws 6 (4 + 2 penalty)
@@ -1649,6 +1678,9 @@ func (p *UnoPlugin) resolveWD4Challenge(game *unoMultiGame, challenged bool) {
 		// Victim is skipped
 		game.currentIdx = game.nextActiveIdx()
 		game.turnID++
+		if p.checkMultiSuddenDeath(game) {
+			return
+		}
 		p.executeMultiTurn(game)
 	}
 }
@@ -1980,6 +2012,14 @@ func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 		}
 	}
 
+	// Next turn label (applyCardEffects already advanced currentIdx)
+	nextUp := game.currentPlayer()
+	nextUpName := p.DisplayName(nextUp.userID)
+	if nextUp.isBot {
+		nextUpName = unoBotName()
+	}
+	roomBuf.WriteString(fmt.Sprintf("\n  It's %s's turn.", nextUpName))
+
 	game.turns++
 }
 
@@ -2130,6 +2170,9 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 			game.currentIdx = nextIdx
 			game.currentIdx = game.nextActiveIdx()
 			game.turnID++
+			if p.checkMultiSuddenDeath(game) {
+				return
+			}
 			p.executeMultiTurn(game)
 			return
 		}
@@ -2344,7 +2387,164 @@ func (p *UnoPlugin) applyAutoEffects(game *unoMultiGame, player *unoMultiPlayer,
 		p.startWD4Challenge(game, player)
 		return
 	}
+	if p.checkMultiSuddenDeath(game) {
+		return
+	}
 	p.executeMultiTurn(game)
+}
+
+// ---------------------------------------------------------------------------
+// Sudden Death (multiplayer — only when 2 active players remain)
+// ---------------------------------------------------------------------------
+
+// checkMultiSuddenDeath checks whether sudden death should be announced or resolved.
+// Only applies when exactly 2 active players remain. Returns true if the game ended.
+// Caller must hold game.mu.
+func (p *UnoPlugin) checkMultiSuddenDeath(game *unoMultiGame) bool {
+	if game.done {
+		return true
+	}
+
+	active := game.activePlayers()
+	if len(active) != 2 {
+		return false
+	}
+
+	// Resolve
+	if game.suddenDeath && game.turns >= game.suddenDeathTurn {
+		p.multiSuddenDeathWinner(game, active)
+		return true
+	}
+
+	// Announce
+	if !game.suddenDeath && game.turns >= suddenDeathAnnounce {
+		game.suddenDeath = true
+		game.suddenDeathTurn = game.turns + suddenDeathCountdown
+		remaining := game.suddenDeathTurn - game.turns
+
+		p.SendMessage(game.roomID, fmt.Sprintf(
+			"⏰ **SUDDEN DEATH!** Match ends in %d turns — lowest hand value wins!\n\n%s",
+			remaining, pickCommentary("sudden_death")))
+
+		for _, pl := range active {
+			if !pl.isBot {
+				p.SendMessage(pl.dmRoomID, fmt.Sprintf(
+					"⏰ **Sudden Death!** %d turns remaining — dump your high-value cards!", remaining))
+			}
+		}
+		return false
+	}
+
+	// Countdown reminders
+	if game.suddenDeath {
+		remaining := game.suddenDeathTurn - game.turns
+		switch remaining {
+		case 10:
+			p.SendMessage(game.roomID, "⏰ **10 turns remaining!**")
+		case 5:
+			p.SendMessage(game.roomID, "⏰ **5 turns remaining!**")
+		}
+	}
+
+	return false
+}
+
+func (p *UnoPlugin) multiSuddenDeathWinner(game *unoMultiGame, active []*unoMultiPlayer) {
+	if game.done {
+		return
+	}
+	game.done = true
+
+	if game.timer != nil {
+		game.timer.Stop()
+	}
+	if game.inactiveTimer != nil {
+		game.inactiveTimer.Stop()
+	}
+
+	a, b := active[0], active[1]
+	aScore := scoreHand(a.hand)
+	bScore := scoreHand(b.hand)
+
+	nameOf := func(pl *unoMultiPlayer) string {
+		if pl.isBot {
+			return unoBotName()
+		}
+		return p.DisplayName(pl.userID)
+	}
+
+	breakdown := fmt.Sprintf("**Final Scores:**\n%s: %s\n%s: %s",
+		nameOf(a), formatHandScore(a.hand),
+		nameOf(b), formatHandScore(b.hand))
+
+	var winner, loser *unoMultiPlayer
+	switch {
+	case aScore < bScore:
+		winner, loser = a, b
+	case bScore < aScore:
+		winner, loser = b, a
+	case len(a.hand) < len(b.hand):
+		winner, loser = a, b
+		breakdown += "\n*Tiebreaker: fewer cards!*"
+	case len(b.hand) < len(a.hand):
+		winner, loser = b, a
+		breakdown += "\n*Tiebreaker: fewer cards!*"
+	default:
+		// Tiebreaker: player whose turn it is NOT wins
+		current := game.currentPlayer()
+		if current == a {
+			winner, loser = b, a
+		} else {
+			winner, loser = a, b
+		}
+		breakdown += "\n*Tiebreaker: dead even — advantage to the opponent!*"
+	}
+	_ = loser // used implicitly via winner != loser
+
+	p.SendMessage(game.roomID, fmt.Sprintf(
+		"⏰ **SUDDEN DEATH!** %s wins on points!\n%s\n\n%s",
+		nameOf(winner), breakdown, pickCommentary("sudden_death_win")))
+
+	if winner.isBot {
+		p.multiBotWins2(game)
+	} else {
+		p.multiPlayerWins2(game, winner)
+	}
+}
+
+// multiPlayerWins2 / multiBotWins2 handle payout without duplicate done/timer logic
+// (already handled by multiSuddenDeathWinner).
+func (p *UnoPlugin) multiPlayerWins2(game *unoMultiGame, winner *unoMultiPlayer) {
+	humanCount := 0
+	for _, pl := range game.players {
+		if !pl.isBot {
+			humanCount++
+		}
+	}
+	totalPot := game.ante * float64(humanCount)
+	p.euro.Credit(winner.userID, totalPot, "uno_multi_win")
+
+	p.recordMultiGame(game, winner.userID, "sudden_death_win")
+	p.cleanupMultiGame(game)
+}
+
+func (p *UnoPlugin) multiBotWins2(game *unoMultiGame) {
+	humanCount := 0
+	for _, pl := range game.players {
+		if !pl.isBot {
+			humanCount++
+		}
+	}
+	totalPot := game.ante * float64(humanCount)
+	p.addToPot(totalPot)
+
+	for _, pl := range game.players {
+		if !pl.isBot {
+			recordBotDefeat(pl.userID, "uno_multi")
+		}
+	}
+	p.recordMultiGame(game, id.UserID("bot"), "sudden_death_bot")
+	p.cleanupMultiGame(game)
 }
 
 // ---------------------------------------------------------------------------

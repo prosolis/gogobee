@@ -26,6 +26,57 @@ func cardDrawValue(v unoValue) int {
 	}
 }
 
+// cardPointValue returns the point value of a card for sudden-death scoring.
+func cardPointValue(c unoCard) int {
+	switch c.Value {
+	case unoZero:
+		return 0
+	case unoOne:
+		return 1
+	case unoTwo:
+		return 2
+	case unoThree:
+		return 3
+	case unoFour:
+		return 4
+	case unoFive:
+		return 5
+	case unoSix:
+		return 6
+	case unoSeven:
+		return 7
+	case unoEight:
+		return 8
+	case unoNine:
+		return 9
+	case unoSkip, unoReverse, unoDrawTwo:
+		return 20
+	case unoSkipEveryone, unoDrawFour, unoDiscardAll:
+		return 30
+	case unoWildCard, unoWildDrawFour:
+		return 50
+	case unoWildReverseDraw4, unoWildDrawSix, unoWildColorRoulette:
+		return 60
+	case unoWildDrawTen:
+		return 75
+	default:
+		return 0
+	}
+}
+
+func scoreHand(hand []unoCard) int {
+	total := 0
+	for _, c := range hand {
+		total += cardPointValue(c)
+	}
+	return total
+}
+
+func formatHandScore(hand []unoCard) string {
+	score := scoreHand(hand)
+	return fmt.Sprintf("%d cards, %d points", len(hand), score)
+}
+
 func isDrawCard(v unoValue) bool {
 	return cardDrawValue(v) > 0
 }
