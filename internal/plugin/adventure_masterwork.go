@@ -19,7 +19,7 @@ type MasterworkDef struct {
 	Tier        int     // 1-5, matches location tier
 	Name        string
 	Description string  // character sheet / trade listing
-	DropRate    float64 // per-tier: 0.05, 0.04, 0.03, 0.02, 0.015
+	DropRate    float64 // per-tier: 0.05, 0.04, 0.03, 0.02, 0.005
 }
 
 var masterworkDefs = []MasterworkDef{
@@ -46,7 +46,7 @@ var masterworkDefs = []MasterworkDef{
 	},
 	{
 		Slot: SlotWeapon, Activity: AdvActivityMining, SkillSource: "mining", Tier: 5,
-		Name: "The Motherload", DropRate: 0.015,
+		Name: "The Motherload", DropRate: 0.005,
 		Description: "There is no good explanation for why this was in the rock. The rock isn't talking. You're not asking. You've decided to stop thinking about it and just use it.",
 	},
 
@@ -73,7 +73,7 @@ var masterworkDefs = []MasterworkDef{
 	},
 	{
 		Slot: SlotArmor, Activity: AdvActivityFishing, SkillSource: "fishing", Tier: 5,
-		Name: "The Deepforged Carapace", DropRate: 0.015,
+		Name: "The Deepforged Carapace", DropRate: 0.005,
 		Description: "This came up on the line from the Abyssal Trench and the line almost didn't hold. It is not from a fish. It is not from anything you have seen or want to see. It fits perfectly. You find this more unsettling than the alternative.",
 	},
 
@@ -100,7 +100,7 @@ var masterworkDefs = []MasterworkDef{
 	},
 	{
 		Slot: SlotBoots, Activity: AdvActivityForaging, SkillSource: "foraging", Tier: 5,
-		Name: "The Last Step", DropRate: 0.015,
+		Name: "The Last Step", DropRate: 0.005,
 		Description: "Found at the edge of the Fungal Dark where the light stops. You almost didn't go that far. Something about wearing them suggests you will always go that far, from now on. This is either good news or the other kind.",
 	},
 }

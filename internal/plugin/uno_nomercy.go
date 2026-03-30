@@ -201,10 +201,7 @@ func (p *UnoPlugin) checkMultiMercyElimination(game *unoMultiGame, player *unoMu
 	}
 
 	player.active = false
-	name := p.DisplayName(player.userID)
-	if player.isBot {
-		name = unoBotName()
-	}
+	name := p.multiName(player)
 
 	// Shuffle cards back into draw pile
 	game.drawPile = append(game.drawPile, player.hand...)
@@ -226,7 +223,7 @@ func (p *UnoPlugin) checkMultiMercyElimination(game *unoMultiGame, player *unoMu
 		if len(active) == 1 {
 			winner := active[0]
 			if winner.isBot {
-				p.multiBotWins(game)
+				p.multiBotWins(game, winner)
 			} else {
 				p.multiPlayerWins(game, winner)
 			}

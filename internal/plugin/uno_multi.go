@@ -29,6 +29,7 @@ const (
 
 type unoMultiPlayer struct {
 	userID      id.UserID
+	displayName string // set at creation; bots use their assigned name
 	dmRoomID    id.RoomID
 	hand        []unoCard
 	calledUno   bool
@@ -67,6 +68,9 @@ type unoMultiGame struct {
 	stackTotal    int // cumulative draw penalty during stacking
 	stackMinValue int // minimum draw value to stack (0 = not stacking)
 
+	// Antes paid by addbot bots (funded from community pot)
+	botAntes int
+
 	// Sudden death (long-game point scoring)
 	suddenDeath     bool
 	suddenDeathTurn int
@@ -81,15 +85,65 @@ type unoMultiLobby struct {
 	creator       id.UserID
 	ante          float64
 	players       []id.UserID
+	botNames      []string // bots added via !uno addbot
 	createdAt     time.Time
 	timer         *time.Timer
 	noMercy       bool
 	sevenZeroRule bool
 }
 
+// unoExtraBotNames are the names available for !uno addbot (in order).
+// The default bot name comes from unoBotName() and is always present.
+var unoExtraBotNames = []string{"WinBee", "GwinBee"}
+
+// lobbySlots returns the number of lobby slots taken (humans + addbot bots).
+func (l *unoMultiLobby) lobbySlots() int {
+	return len(l.players) + len(l.botNames)
+}
+
+// buildLobbyDisplay renders the lobby message. Caller should hold p.mu or
+// have a stable snapshot of the lobby fields.
+func (p *UnoPlugin) buildLobbyDisplay(lobby *unoMultiLobby) string {
+	var sb strings.Builder
+	modeTag := ""
+	if lobby.noMercy {
+		modeTag = " 🔥 NO MERCY"
+		if lobby.sevenZeroRule {
+			modeTag += " (7-0)"
+		}
+	}
+	slots := lobby.lobbySlots()
+	sb.WriteString(fmt.Sprintf("🃏 **UNO Lobby**%s — Ante: €%d\nPlayers (%d/4):\n", modeTag, int(lobby.ante), slots))
+	idx := 1
+	for _, uid := range lobby.players {
+		name := p.DisplayName(uid)
+		label := ""
+		if uid == lobby.creator {
+			label = " (host)"
+		}
+		sb.WriteString(fmt.Sprintf("  %d. %s%s\n", idx, name, label))
+		idx++
+	}
+	for _, bn := range lobby.botNames {
+		sb.WriteString(fmt.Sprintf("  %d. 🤖 %s\n", idx, bn))
+		idx++
+	}
+	sb.WriteString("\nType `!uno join` to join, `!uno addbot` for a bot, or `!uno go` to start!")
+	return sb.String()
+}
+
 // ---------------------------------------------------------------------------
 // Game helpers
 // ---------------------------------------------------------------------------
+
+// multiName returns the display name for a multiplayer UNO player.
+// Bots use their assigned displayName; humans use the Matrix display name.
+func (p *UnoPlugin) multiName(pl *unoMultiPlayer) string {
+	if pl.isBot {
+		return pl.displayName
+	}
+	return p.DisplayName(pl.userID)
+}
 
 func (g *unoMultiGame) currentPlayer() *unoMultiPlayer {
 	return g.players[g.currentIdx]
@@ -281,19 +335,10 @@ func (p *UnoPlugin) handleMultiStart(ctx MessageContext, amountStr string, noMer
 	})
 
 	p.lobbies[ctx.RoomID] = lobby
+	msg := p.buildLobbyDisplay(lobby)
 	p.mu.Unlock()
 
-	creatorName := p.DisplayName(ctx.Sender)
-	modeTag := ""
-	if noMercy {
-		modeTag = " 🔥 NO MERCY"
-		if sevenZeroRule {
-			modeTag += " (7-0)"
-		}
-	}
-	return p.SendMessage(ctx.RoomID, fmt.Sprintf(
-		"🃏 **UNO Lobby**%s — Ante: €%d\nPlayers (1/4):\n  1. %s (host)\n\nType `!uno join` to join or `!uno go` to start!",
-		modeTag, int(amount), creatorName))
+	return p.SendMessage(ctx.RoomID, msg)
 }
 
 func (p *UnoPlugin) handleMultiJoin(ctx MessageContext) error {
@@ -316,9 +361,9 @@ func (p *UnoPlugin) handleMultiJoin(ctx MessageContext) error {
 		}
 	}
 
-	if len(lobby.players) >= 4 {
+	if lobby.lobbySlots() >= 4 {
 		p.mu.Unlock()
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Lobby is full! (4/4 players)")
+		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Lobby is full! (%d/4)", lobby.lobbySlots()))
 	}
 
 	// Check player isn't in another game
@@ -344,30 +389,10 @@ func (p *UnoPlugin) handleMultiJoin(ctx MessageContext) error {
 	}
 
 	lobby.players = append(lobby.players, ctx.Sender)
-	count := len(lobby.players)
+	msg := p.buildLobbyDisplay(lobby)
 	p.mu.Unlock()
 
-	// Build player list
-	var sb strings.Builder
-	lobbyModeTag := ""
-	if lobby.noMercy {
-		lobbyModeTag = " 🔥 NO MERCY"
-		if lobby.sevenZeroRule {
-			lobbyModeTag += " (7-0)"
-		}
-	}
-	sb.WriteString(fmt.Sprintf("🃏 **UNO Lobby**%s — Ante: €%d\nPlayers (%d/4):\n", lobbyModeTag, int(lobby.ante), count))
-	for i, uid := range lobby.players {
-		name := p.DisplayName(uid)
-		label := ""
-		if uid == lobby.creator {
-			label = " (host)"
-		}
-		sb.WriteString(fmt.Sprintf("  %d. %s%s\n", i+1, name, label))
-	}
-	sb.WriteString("\nType `!uno join` to join or `!uno go` to start!")
-
-	return p.SendMessage(ctx.RoomID, sb.String())
+	return p.SendMessage(ctx.RoomID, msg)
 }
 
 func (p *UnoPlugin) handleMultiLeave(ctx MessageContext) error {
@@ -408,7 +433,7 @@ func (p *UnoPlugin) handleMultiLeave(ctx MessageContext) error {
 	// Refund the leaving player
 	p.euro.Credit(ctx.Sender, lobby.ante, "uno_multi_refund")
 	name := p.DisplayName(ctx.Sender)
-	return p.SendMessage(ctx.RoomID, fmt.Sprintf("🃏 **%s** left the lobby. (%d/4 players)", name, len(lobby.players)))
+	return p.SendMessage(ctx.RoomID, fmt.Sprintf("🃏 **%s** left the lobby. (%d/4)", name, lobby.lobbySlots()))
 }
 
 func (p *UnoPlugin) handleMultiCancel(ctx MessageContext) error {
@@ -435,6 +460,63 @@ func (p *UnoPlugin) handleMultiCancel(ctx MessageContext) error {
 	}
 
 	return p.SendMessage(ctx.RoomID, "🃏 Lobby cancelled — all antes refunded.")
+}
+
+func (p *UnoPlugin) handleMultiAddBot(ctx MessageContext) error {
+	if !isGamesRoom(ctx.RoomID) {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Use this command in the games channel!")
+	}
+
+	p.mu.Lock()
+	lobby, exists := p.lobbies[ctx.RoomID]
+	if !exists {
+		p.mu.Unlock()
+		return p.SendReply(ctx.RoomID, ctx.EventID, "No lobby open. Start one with `!uno start €amount`.")
+	}
+
+	if lobby.lobbySlots() >= 4 {
+		p.mu.Unlock()
+		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Lobby is full! (%d/4)", lobby.lobbySlots()))
+	}
+
+	botIdx := len(lobby.botNames)
+	if botIdx >= len(unoExtraBotNames) {
+		p.mu.Unlock()
+		return p.SendReply(ctx.RoomID, ctx.EventID,
+			fmt.Sprintf("Maximum %d extra bots already added.", len(unoExtraBotNames)))
+	}
+
+	lobby.botNames = append(lobby.botNames, unoExtraBotNames[botIdx])
+	msg := p.buildLobbyDisplay(lobby)
+	p.mu.Unlock()
+
+	return p.SendMessage(ctx.RoomID, msg)
+}
+
+func (p *UnoPlugin) handleMultiRemoveBot(ctx MessageContext) error {
+	if !isGamesRoom(ctx.RoomID) {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Use this command in the games channel!")
+	}
+
+	p.mu.Lock()
+	lobby, exists := p.lobbies[ctx.RoomID]
+	if !exists {
+		p.mu.Unlock()
+		return p.SendReply(ctx.RoomID, ctx.EventID, "No lobby open.")
+	}
+
+	if len(lobby.botNames) == 0 {
+		p.mu.Unlock()
+		return p.SendReply(ctx.RoomID, ctx.EventID, "No bots to remove.")
+	}
+
+	removed := lobby.botNames[len(lobby.botNames)-1]
+	lobby.botNames = lobby.botNames[:len(lobby.botNames)-1]
+	msg := p.buildLobbyDisplay(lobby)
+	p.mu.Unlock()
+
+	p.SendMessage(ctx.RoomID, fmt.Sprintf("🤖 %s removed from the lobby.", removed))
+	return p.SendMessage(ctx.RoomID, msg)
 }
 
 func (p *UnoPlugin) lobbyExpired(roomID id.RoomID) {
@@ -469,13 +551,16 @@ func (p *UnoPlugin) handleMultiGo(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Only the host can start the game.")
 	}
 
-	if len(lobby.players) < 2 {
+	// Need at least 2 total participants (humans + lobby bots + default bot)
+	totalParticipants := len(lobby.players) + len(lobby.botNames) + 1 // +1 for default bot
+	if totalParticipants < 2 {
 		p.mu.Unlock()
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Need at least 2 players to start.")
 	}
 
 	lobby.timer.Stop()
 	players := lobby.players
+	lobbyBots := lobby.botNames
 	ante := lobby.ante
 	roomID := lobby.roomID
 	noMercy := lobby.noMercy
@@ -498,8 +583,14 @@ func (p *UnoPlugin) handleMultiGo(ctx MessageContext) error {
 		resolved = append(resolved, playerDMPair{uid, dmRoom})
 	}
 
+	// Debit bot antes from community pot
+	for range lobbyBots {
+		p.claimFromPot(ante)
+	}
+
 	// Build game
-	game := p.initMultiGame(resolved, roomID, ante, noMercy, sevenZeroRule)
+	game := p.initMultiGame(resolved, lobbyBots, roomID, ante, noMercy, sevenZeroRule)
+	game.botAntes = len(lobbyBots)
 
 	p.mu.Lock()
 	p.multiGames[game.id] = game
@@ -512,7 +603,6 @@ func (p *UnoPlugin) handleMultiGo(ctx MessageContext) error {
 
 	// Announce
 	var sb strings.Builder
-	bn := unoBotName()
 	modeTag := ""
 	if noMercy {
 		modeTag = " 🔥 NO MERCY"
@@ -520,12 +610,10 @@ func (p *UnoPlugin) handleMultiGo(ctx MessageContext) error {
 			modeTag += " (7-0)"
 		}
 	}
-	sb.WriteString(fmt.Sprintf("🃏 **Multiplayer UNO!**%s Pot: €%d\n\nPlayers:\n", modeTag, int(ante)*len(players)))
+	totalPot := int(ante) * (len(players) + len(lobbyBots))
+	sb.WriteString(fmt.Sprintf("🃏 **Multiplayer UNO!**%s Pot: €%d\n\nPlayers:\n", modeTag, totalPot))
 	for i, pl := range game.players {
-		name := p.DisplayName(pl.userID)
-		if pl.isBot {
-			name = bn
-		}
+		name := p.multiName(pl)
 		marker := ""
 		if i == game.currentIdx {
 			marker = " ← first turn"
@@ -558,7 +646,7 @@ type playerDMPair struct {
 	dmRoomID id.RoomID
 }
 
-func (p *UnoPlugin) initMultiGame(players []playerDMPair, roomID id.RoomID, ante float64, noMercy, sevenZeroRule bool) *unoMultiGame {
+func (p *UnoPlugin) initMultiGame(players []playerDMPair, lobbyBots []string, roomID id.RoomID, ante float64, noMercy, sevenZeroRule bool) *unoMultiGame {
 	var deck []unoCard
 	if noMercy {
 		deck = newNoMercyDeck()
@@ -575,23 +663,33 @@ func (p *UnoPlugin) initMultiGame(players []playerDMPair, roomID id.RoomID, ante
 		copy(hand, deck[cardIdx:cardIdx+cardsPerPlayer])
 		cardIdx += cardsPerPlayer
 		unshuffled = append(unshuffled, &unoMultiPlayer{
-			userID:   pd.userID,
-			dmRoomID: pd.dmRoomID,
-			hand:     hand,
-			active:   true,
+			userID:      pd.userID,
+			displayName: p.DisplayName(pd.userID),
+			dmRoomID:    pd.dmRoomID,
+			hand:        hand,
+			active:      true,
 		})
 	}
-	// Bot
-	botHand := make([]unoCard, cardsPerPlayer)
-	copy(botHand, deck[cardIdx:cardIdx+cardsPerPlayer])
-	cardIdx += cardsPerPlayer
-	bot := &unoMultiPlayer{
-		userID: id.UserID(unoBotName()),
-		hand:   botHand,
-		isBot:  true,
-		active: true,
+
+	// Default bot (always present)
+	addBot := func(name string) {
+		botHand := make([]unoCard, cardsPerPlayer)
+		copy(botHand, deck[cardIdx:cardIdx+cardsPerPlayer])
+		cardIdx += cardsPerPlayer
+		unshuffled = append(unshuffled, &unoMultiPlayer{
+			userID:      id.UserID(name),
+			displayName: name,
+			hand:        botHand,
+			isBot:       true,
+			active:      true,
+		})
 	}
-	unshuffled = append(unshuffled, bot)
+	addBot(unoBotName())
+
+	// Additional bots from lobby
+	for _, bn := range lobbyBots {
+		addBot(bn)
+	}
 
 	// Shuffle turn order
 	rand.Shuffle(len(unshuffled), func(i, j int) { unshuffled[i], unshuffled[j] = unshuffled[j], unshuffled[i] })
@@ -856,12 +954,7 @@ func (p *UnoPlugin) advanceAndExecute(game *unoMultiGame) {
 
 // nextTurnLabel returns "It's X's turn." for the current player.
 func (p *UnoPlugin) nextTurnLabel(game *unoMultiGame) string {
-	next := game.currentPlayer()
-	name := p.DisplayName(next.userID)
-	if next.isBot {
-		name = unoBotName()
-	}
-	return fmt.Sprintf("It's %s's turn.", name)
+	return fmt.Sprintf("It's %s's turn.", p.multiName(game.currentPlayer()))
 }
 
 // ---------------------------------------------------------------------------
@@ -1087,10 +1180,7 @@ func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPl
 				if pl == player || !pl.active {
 					continue
 				}
-				name := p.DisplayName(pl.userID)
-				if pl.isBot {
-					name = unoBotName()
-				}
+				name := p.multiName(pl)
 				sb.WriteString(fmt.Sprintf("%d. %s (%d cards)\n", i, name, len(pl.hand)))
 				i++
 			}
@@ -1104,10 +1194,7 @@ func (p *UnoPlugin) handleMultiPlayerPlay(game *unoMultiGame, player *unoMultiPl
 				if pl != player && pl.active {
 					swapHandsMulti(player, pl)
 					name := p.DisplayName(player.userID)
-					otherName := p.DisplayName(pl.userID)
-					if pl.isBot {
-						otherName = unoBotName()
-					}
+					otherName := p.multiName(pl)
 					p.SendMessage(game.roomID, fmt.Sprintf("🔄 %s swaps hands with %s! %s",
 						name, otherName, pickNoMercyCommentary("hand_swap")))
 					if !pl.isBot {
@@ -1179,10 +1266,7 @@ func (p *UnoPlugin) handleMultiColorChoice(game *unoMultiGame, player *unoMultiP
 		name := p.DisplayName(player.userID)
 		nextIdx := game.nextActiveIdx()
 		target := game.players[nextIdx]
-		targetName := p.DisplayName(target.userID)
-		if target.isBot {
-			targetName = unoBotName()
-		}
+		targetName := p.multiName(target)
 
 		flipped := p.executeColorRouletteMulti(game, target, color)
 		p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s plays: %s (chose %s %s)\n🎰 Color Roulette! %s flips %d cards until finding %s.\n%s",
@@ -1377,10 +1461,7 @@ func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffec
 
 	nextIdx := game.nextActiveIdx()
 	nextPlayer := game.players[nextIdx]
-	nextName := p.DisplayName(nextPlayer.userID)
-	if nextPlayer.isBot {
-		nextName = unoBotName()
-	}
+	nextName := p.multiName(nextPlayer)
 
 	switch card.Value {
 	case unoSkip:
@@ -1395,10 +1476,7 @@ func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffec
 			var skippedNames []string
 			for _, pl := range game.players {
 				if pl != game.currentPlayer() && pl.active {
-					name := p.DisplayName(pl.userID)
-					if pl.isBot {
-						name = unoBotName()
-					}
+					name := p.multiName(pl)
 					skippedNames = append(skippedNames, name)
 				}
 			}
@@ -1473,10 +1551,7 @@ func (p *UnoPlugin) applyCardEffects(game *unoMultiGame, card unoCard) cardEffec
 			// After reverse, get next player in new direction
 			nextIdx = game.nextActiveIdx()
 			nextPlayer = game.players[nextIdx]
-			nextName = p.DisplayName(nextPlayer.userID)
-			if nextPlayer.isBot {
-				nextName = unoBotName()
-			}
+			nextName = p.multiName(nextPlayer)
 			result.skippedName = nextName
 			result.drawnCount = game.stackTotal
 			game.currentIdx = game.nextActiveIdx()
@@ -1566,11 +1641,7 @@ func (p *UnoPlugin) applyAndAnnounce(game *unoMultiGame, player *unoMultiPlayer,
 	}
 
 	// Next player
-	nextUp := game.currentPlayer()
-	nextUpName := p.DisplayName(nextUp.userID)
-	if nextUp.isBot {
-		nextUpName = unoBotName()
-	}
+	nextUpName := p.multiName(game.currentPlayer())
 	roomMsg.WriteString(fmt.Sprintf("\n  It's %s's turn.", nextUpName))
 
 	p.SendMessage(game.roomID, roomMsg.String())
@@ -1596,10 +1667,7 @@ func (p *UnoPlugin) startWD4Challenge(game *unoMultiGame, wd4Player *unoMultiPla
 	game.currentIdx = nextIdx
 	game.turnID++
 
-	playerName := p.DisplayName(wd4Player.userID)
-	if wd4Player.isBot {
-		playerName = unoBotName()
-	}
+	playerName := p.multiName(wd4Player)
 
 	if victim.isBot {
 		// Bot decides whether to challenge
@@ -1617,14 +1685,8 @@ func (p *UnoPlugin) startWD4Challenge(game *unoMultiGame, wd4Player *unoMultiPla
 func (p *UnoPlugin) resolveWD4Challenge(game *unoMultiGame, challenged bool) {
 	wd4Player := game.wd4Player
 	victim := game.wd4Victim
-	wd4Name := p.DisplayName(wd4Player.userID)
-	if wd4Player.isBot {
-		wd4Name = unoBotName()
-	}
-	victimName := p.DisplayName(victim.userID)
-	if victim.isBot {
-		victimName = unoBotName()
-	}
+	wd4Name := p.multiName(wd4Player)
+	victimName := p.multiName(victim)
 
 	// Clear challenge state
 	game.wd4Player = nil
@@ -1699,7 +1761,7 @@ func (p *UnoPlugin) botHandleWD4Challenge(game *unoMultiGame) {
 		threshold = 30
 	}
 	challenged := rand.IntN(100) < threshold
-	bn := unoBotName()
+	bn := game.currentPlayer().displayName
 
 	if challenged {
 		p.SendMessage(game.roomID, fmt.Sprintf("⚡ %s challenges the Wild Draw Four!", bn))
@@ -1716,7 +1778,7 @@ func (p *UnoPlugin) botHandleWD4Challenge(game *unoMultiGame) {
 
 func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 	bot := game.currentPlayer()
-	bn := unoBotName()
+	bn := bot.displayName
 
 	// No Mercy stacking: bot must stack or absorb
 	if game.noMercy && game.stackMinValue > 0 {
@@ -1931,7 +1993,7 @@ func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 			p.SendMessage(game.roomID, roomBuf.String())
 			roomBuf.Reset()
 		}
-		p.multiBotWins(game)
+		p.multiBotWins(game, bot)
 		return
 	}
 
@@ -1976,10 +2038,7 @@ func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 	// applyCardEffects already advanced currentIdx to the victim
 	if game.noMercy && card.Value == unoWildColorRoulette {
 		target := game.players[game.currentIdx]
-		targetName := p.DisplayName(target.userID)
-		if target.isBot {
-			targetName = bn
-		}
+		targetName := p.multiName(target)
 		flipped := p.executeColorRouletteMulti(game, target, game.topColor)
 		roomBuf.WriteString(fmt.Sprintf("\n  🎰 Color Roulette! %s flips %d cards until finding %s %s.",
 			targetName, len(flipped), game.topColor.Emoji(), game.topColor))
@@ -2013,11 +2072,7 @@ func (p *UnoPlugin) botMultiTurn(game *unoMultiGame, roomBuf *strings.Builder) {
 	}
 
 	// Next turn label (applyCardEffects already advanced currentIdx)
-	nextUp := game.currentPlayer()
-	nextUpName := p.DisplayName(nextUp.userID)
-	if nextUp.isBot {
-		nextUpName = unoBotName()
-	}
+	nextUpName := p.multiName(game.currentPlayer())
 	roomBuf.WriteString(fmt.Sprintf("\n  It's %s's turn.", nextUpName))
 
 	game.turns++
@@ -2151,10 +2206,7 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 		if game.noMercy && pendingCard != nil && pendingCard.Value == unoWildColorRoulette {
 			nextIdx := game.nextActiveIdx()
 			target := game.players[nextIdx]
-			targetName := p.DisplayName(target.userID)
-			if target.isBot {
-				targetName = unoBotName()
-			}
+			targetName := p.multiName(target)
 			flipped := p.executeColorRouletteMulti(game, target, color)
 			p.SendMessage(game.roomID, fmt.Sprintf("🎰 Color Roulette! %s flips %d cards until finding %s.\n%s",
 				targetName, len(flipped), color, pickNoMercyCommentary("color_roulette")))
@@ -2234,10 +2286,7 @@ func (p *UnoPlugin) autoPlayMultiTurn(game *unoMultiGame, player *unoMultiPlayer
 		target := botChooseSwapTarget(game, player)
 		if target != nil {
 			swapHandsMulti(player, target)
-			targetName := p.DisplayName(target.userID)
-			if target.isBot {
-				targetName = unoBotName()
-			}
+			targetName := p.multiName(target)
 			p.SendMessage(player.dmRoomID, fmt.Sprintf("*Auto-played:* Swapped hands with %s.", targetName))
 			p.SendMessage(game.roomID, fmt.Sprintf("🔄 *%s was auto-played.* Swaps hands with %s!", name, targetName))
 		}
@@ -2466,16 +2515,9 @@ func (p *UnoPlugin) multiSuddenDeathWinner(game *unoMultiGame, active []*unoMult
 	aScore := scoreHand(a.hand)
 	bScore := scoreHand(b.hand)
 
-	nameOf := func(pl *unoMultiPlayer) string {
-		if pl.isBot {
-			return unoBotName()
-		}
-		return p.DisplayName(pl.userID)
-	}
-
 	breakdown := fmt.Sprintf("**Final Scores:**\n%s: %s\n%s: %s",
-		nameOf(a), formatHandScore(a.hand),
-		nameOf(b), formatHandScore(b.hand))
+		p.multiName(a), formatHandScore(a.hand),
+		p.multiName(b), formatHandScore(b.hand))
 
 	var winner, loser *unoMultiPlayer
 	switch {
@@ -2503,7 +2545,7 @@ func (p *UnoPlugin) multiSuddenDeathWinner(game *unoMultiGame, active []*unoMult
 
 	p.SendMessage(game.roomID, fmt.Sprintf(
 		"⏰ **SUDDEN DEATH!** %s wins on points!\n%s\n\n%s",
-		nameOf(winner), breakdown, pickCommentary("sudden_death_win")))
+		p.multiName(winner), breakdown, pickCommentary("sudden_death_win")))
 
 	if winner.isBot {
 		p.multiBotWins2(game)
@@ -2521,7 +2563,7 @@ func (p *UnoPlugin) multiPlayerWins2(game *unoMultiGame, winner *unoMultiPlayer)
 			humanCount++
 		}
 	}
-	totalPot := game.ante * float64(humanCount)
+	totalPot := game.ante * float64(humanCount+game.botAntes)
 	p.euro.Credit(winner.userID, totalPot, "uno_multi_win")
 
 	p.recordMultiGame(game, winner.userID, "sudden_death_win")
@@ -2535,7 +2577,7 @@ func (p *UnoPlugin) multiBotWins2(game *unoMultiGame) {
 			humanCount++
 		}
 	}
-	totalPot := game.ante * float64(humanCount)
+	totalPot := game.ante * float64(humanCount+game.botAntes)
 	p.addToPot(totalPot)
 
 	for _, pl := range game.players {
@@ -2571,7 +2613,7 @@ func (p *UnoPlugin) multiPlayerWins(game *unoMultiGame, winner *unoMultiPlayer) 
 			humanCount++
 		}
 	}
-	totalPot := game.ante * float64(humanCount)
+	totalPot := game.ante * float64(humanCount+game.botAntes)
 
 	name := p.DisplayName(winner.userID)
 	p.euro.Credit(winner.userID, totalPot, "uno_multi_win")
@@ -2584,7 +2626,7 @@ func (p *UnoPlugin) multiPlayerWins(game *unoMultiGame, winner *unoMultiPlayer) 
 	p.cleanupMultiGame(game)
 }
 
-func (p *UnoPlugin) multiBotWins(game *unoMultiGame) {
+func (p *UnoPlugin) multiBotWins(game *unoMultiGame, winner *unoMultiPlayer) {
 	if game.done {
 		return
 	}
@@ -2603,12 +2645,12 @@ func (p *UnoPlugin) multiBotWins(game *unoMultiGame) {
 			humanCount++
 		}
 	}
-	totalPot := game.ante * float64(humanCount)
+	totalPot := game.ante * float64(humanCount+game.botAntes)
 
 	// Pot goes to community
 	p.addToPot(totalPot)
 
-	bn := unoBotName()
+	bn := winner.displayName
 	p.SendMessage(game.roomID, fmt.Sprintf(
 		"💀 **%s wins Multiplayer UNO!**\n€%d goes to the community pot.\n\n%s",
 		bn, int(totalPot), pickCommentary("bot_win")))
@@ -2638,7 +2680,7 @@ func (p *UnoPlugin) multiPlayerForfeit(game *unoMultiGame, player *unoMultiPlaye
 			winner := active[0]
 			if winner.isBot {
 				p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s forfeited. All humans out!", name))
-				p.multiBotWins(game)
+				p.multiBotWins(game, winner)
 			} else {
 				p.SendMessage(game.roomID, fmt.Sprintf("🃏 %s forfeited. Only one player remains!", name))
 				p.multiPlayerWins(game, winner)
@@ -2682,7 +2724,7 @@ func (p *UnoPlugin) recordMultiGame(game *unoMultiGame, winnerID id.UserID, resu
 	}
 
 	humanCount := len(playerIDs)
-	totalPot := game.ante * float64(humanCount)
+	totalPot := game.ante * float64(humanCount+game.botAntes)
 
 	db.Exec("uno_multi: record game",
 		`INSERT INTO uno_multi_games (room_id, ante, pot_total, winner_id, player_ids, result, turns, started_at, ended_at)
@@ -2700,12 +2742,7 @@ func (p *UnoPlugin) recordMultiGame(game *unoMultiGame, winnerID id.UserID, resu
 
 func (p *UnoPlugin) sendMultiStatus(game *unoMultiGame, player *unoMultiPlayer) {
 	var sb strings.Builder
-	bn := unoBotName()
-	current := game.currentPlayer()
-	currentName := p.DisplayName(current.userID)
-	if current.isBot {
-		currentName = bn
-	}
+	currentName := p.multiName(game.currentPlayer())
 
 	sb.WriteString(fmt.Sprintf("🃏 **UNO Status**\nDiscard pile: %s\nCurrent turn: %s\n\n",
 		game.discardTop.DisplayWithColor(game.topColor), currentName))
@@ -2725,11 +2762,7 @@ func (p *UnoPlugin) sendMultiStatus(game *unoMultiGame, player *unoMultiPlayer) 
 		if pl == player || !pl.active {
 			continue
 		}
-		name := p.DisplayName(pl.userID)
-		if pl.isBot {
-			name = bn
-		}
-		counts = append(counts, fmt.Sprintf("%s (%d)", name, len(pl.hand)))
+		counts = append(counts, fmt.Sprintf("%s (%d)", p.multiName(pl), len(pl.hand)))
 	}
 	sb.WriteString(strings.Join(counts, " | "))
 
@@ -2752,16 +2785,11 @@ func (p *UnoPlugin) sendMultiHandDisplay(game *unoMultiGame, player *unoMultiPla
 	// Card counts for all opponents
 	sb.WriteString("\nCard counts: ")
 	counts := make([]string, 0)
-	bn := unoBotName()
 	for _, pl := range game.players {
 		if pl == player || !pl.active {
 			continue
 		}
-		name := p.DisplayName(pl.userID)
-		if pl.isBot {
-			name = bn
-		}
-		counts = append(counts, fmt.Sprintf("%s (%d)", name, len(pl.hand)))
+		counts = append(counts, fmt.Sprintf("%s (%d)", p.multiName(pl), len(pl.hand)))
 	}
 	sb.WriteString(strings.Join(counts, " | "))
 
@@ -2790,16 +2818,11 @@ func (p *UnoPlugin) sendMultiHandDisplayStacking(game *unoMultiGame, player *uno
 
 	sb.WriteString("\nCard counts: ")
 	counts := make([]string, 0)
-	bn := unoBotName()
 	for _, pl := range game.players {
 		if pl == player || !pl.active {
 			continue
 		}
-		name := p.DisplayName(pl.userID)
-		if pl.isBot {
-			name = bn
-		}
-		counts = append(counts, fmt.Sprintf("%s (%d)", name, len(pl.hand)))
+		counts = append(counts, fmt.Sprintf("%s (%d)", p.multiName(pl), len(pl.hand)))
 	}
 	sb.WriteString(strings.Join(counts, " | "))
 
@@ -2840,10 +2863,7 @@ func (p *UnoPlugin) handleMultiSwapChoice(game *unoMultiGame, player *unoMultiPl
 	game.phase = unoMultiPhasePlay
 
 	name := p.DisplayName(player.userID)
-	targetName := p.DisplayName(target.userID)
-	if target.isBot {
-		targetName = unoBotName()
-	}
+	targetName := p.multiName(target)
 
 	p.SendMessage(player.dmRoomID, fmt.Sprintf("Swapped hands with %s! You now have %d cards.", targetName, len(player.hand)))
 	if !target.isBot {

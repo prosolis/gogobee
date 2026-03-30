@@ -415,7 +415,7 @@ func (p *UnoPlugin) Name() string { return "uno" }
 
 func (p *UnoPlugin) Commands() []CommandDef {
 	return []CommandDef{
-		{Name: "uno", Description: "Solo or multiplayer Uno", Usage: "!uno [nomercy [7-0]] €amount | !uno start [nomercy [7-0]] €amount | !uno join | !uno go", Category: "Games"},
+		{Name: "uno", Description: "Solo or multiplayer Uno", Usage: "!uno [nomercy [7-0]] €amount | !uno start [nomercy [7-0]] €amount | !uno join | !uno addbot | !uno removebot | !uno go | !uno leave | !uno cancel", Category: "Games"},
 		{Name: "uno_pot", Description: "Show the community pot balance", Usage: "!uno_pot", Category: "Games"},
 	}
 }
@@ -447,6 +447,10 @@ func (p *UnoPlugin) OnMessage(ctx MessageContext) error {
 			return p.handleMultiLeave(ctx)
 		case lower == "cancel":
 			return p.handleMultiCancel(ctx)
+		case lower == "addbot":
+			return p.handleMultiAddBot(ctx)
+		case lower == "removebot":
+			return p.handleMultiRemoveBot(ctx)
 		}
 
 		// Solo challenge: !uno [nomercy [7-0]] €amount

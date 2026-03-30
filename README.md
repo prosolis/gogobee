@@ -336,7 +336,7 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 
 ### UNO (games channel only)
 
-UNO can be played solo (vs GogoBee) or multiplayer (2-4 players + bot). All gameplay happens in DMs. The games channel is used for lobby management and public announcements.
+UNO can be played solo (vs GogoBee) or multiplayer (1-4 players + bots). All gameplay happens in DMs. The games channel is used for lobby management and public announcements.
 
 | Command | Description |
 |---------|-------------|
@@ -347,7 +347,9 @@ UNO can be played solo (vs GogoBee) or multiplayer (2-4 players + bot). All game
 | `!uno start nomercy €amount` | Multiplayer No Mercy lobby |
 | `!uno start nomercy 7-0 €amount` | Multiplayer No Mercy with 7-0 rule |
 | `!uno join` | Join an open lobby |
-| `!uno go` | Start the game (host only, 2+ players required) |
+| `!uno addbot` | Add a bot opponent to the lobby (max 2, funded from community pot) |
+| `!uno removebot` | Remove the last added bot from the lobby |
+| `!uno go` | Start the game (host only, 2+ participants required) |
 | `!uno leave` | Leave the lobby (refunds ante) |
 | `!uno cancel` | Cancel the lobby (host/admin, refunds all) |
 
@@ -384,6 +386,14 @@ Based on UNO Show 'Em No Mercy (2023, Mattel). Bigger 168-card deck, meaner rule
 Enabled by adding `7-0` to the command. When active:
 - **Play a 7** — swap hands with another player of your choice (in multiplayer, you pick the target)
 - **Play a 0** — all players pass their hand to the next player in play direction
+
+#### Sudden Death
+
+When a 2-player game (including bot matchups) exceeds 80 turns, a 20-turn countdown begins. At turn 100, both hands are scored by UNO card point values — lowest total wins. Tiebreaker: fewer cards, then advantage to the non-active player.
+
+#### Multiplayer Bots
+
+The default bot (GogoBee) is always present in multiplayer games. Up to 2 additional bots (WinBee, GwinBee) can be added via `!uno addbot` while the lobby is open. Addbot bots ante from the community pot, increasing the total pot. A single human can start a game if bots fill the remaining slots.
 
 ### Texas Hold'em (games channel only)
 
@@ -464,7 +474,7 @@ No economy integration — stats and leaderboard position are the reward.
 
 ### Adventure (DM-based idle RPG)
 
-A daily DM-driven idle RPG where each player takes one action per day — dungeon, mine, forage, visit the shop, or rest. Outcomes resolve with flavor text and loot is credited to your euro balance. An evening summary posts to the games room. TwinBee is a permanent NPC adventurer who distributes rewards to active players.
+A daily DM-driven idle RPG where each player takes one action per day — dungeon, mine, fish, forage, visit the shop, or rest. Outcomes resolve with flavor text and loot is credited to your euro balance. An evening summary posts to the games room. TwinBee is a permanent NPC adventurer who distributes rewards to active players.
 
 Characters auto-create on first `!adventure` command. All gameplay happens in DMs — reply to the bot's morning prompt with your choice. DM replies are only interpreted as adventure choices for 15 minutes after a menu is sent, so other DM-based games (UNO, Hold'em) won't conflict.
 
@@ -476,6 +486,7 @@ Characters auto-create on first `!adventure` command. All gameplay happens in DM
 | `!adventure buy <item>` | Buy equipment by name or tier shorthand (`3 sword`, `t4 boots`) |
 | `!adventure sell <item>` | Sell an inventory item (credits euro balance) |
 | `!adventure sell all` | Sell entire inventory |
+| `!adventure equip` | Equip masterwork gear from inventory |
 | `!adventure inventory` | List current inventory |
 | `!adventure leaderboard` | Top adventurers |
 | `!adventure revive @user` | Revive a dead player (admin) |
@@ -486,27 +497,29 @@ Characters auto-create on first `!adventure` command. All gameplay happens in DM
 
 #### Activities
 
-Three activity types across 5 tiers of locations (15 total). Higher tiers require higher character level and equipment.
+Four activity types across 5 tiers of locations. Higher tiers require higher character level and equipment.
 
 - **Dungeon** — combat XP, chance of death, best loot potential
 - **Mining** — mining XP, cave-in risk, ore and gem drops
+- **Fishing** — fishing XP, hazard risk, catch drops
 - **Foraging** — foraging XP, wildlife hazards, herb and reagent drops
 
 #### Mechanics
 
 - **Equipment** — 5 slots (weapon, armor, helmet, boots, tool) with tiered upgrades from the shop. Equipment degrades on bad outcomes and breaks at 0 condition.
+- **Masterwork gear** — rare skill-specific equipment drops from gathering activities (mining, fishing, foraging). 15 items across 5 tiers with decreasing drop rates (5% T1 down to 0.5% T5). Location-gated — drops only at matching tier. Auto-equips if better than current gear; otherwise goes to inventory for manual equipping via `!adventure equip`. Masterwork items provide a +5% skill bonus when the item's source skill matches the current activity. Character sheet marks masterwork items with a star.
 - **Treasures** — rare collectibles (up to 3) that provide passive bonuses (XP multipliers, death chance reduction, loot quality). Prompted to discard when at cap.
 - **Streaks** — consecutive days of activity grant escalating bonuses (XP, loot quality, death chance reduction). Resting or dying resets your streak.
 - **Grudge** — dying at a location marks it as your grudge. Returning there grants +10% success and +25% XP. Clears on success.
 - **Party bonus** — if two players independently visit the same location on the same day, both get +10% loot value.
-- **Death** — locked out until midnight UTC. You're automatically revived when the next day starts.
+- **Death** — locked out until midnight UTC. You're automatically revived when the next day starts. Death's Reprieve (surviving a lethal roll) sets all equipment to 1 condition instead of destroying it.
 - **Holidays** — on recognized holidays (~20/year across religious and cultural calendars), you get a second daily action. Hebrew and Islamic calendar support for floating holidays.
 - **TwinBee NPC** — takes a daily action (location tier capped by best player's combined level), distributes loot share to active players scaled quadratically by level, and occasionally gifts random buffs.
 - **Mid-day events** — random events can trigger between actions, delivering bonus loot, buffs, or narrative encounters.
 
 #### Arena (`!arena`)
 
-A multi-tier combat gauntlet independent of the daily adventure action. Fight through 5 tiers of 4 rounds each — 20 unique named monsters with escalating lethality. Earnings accumulate across rounds but are forfeited on death. After clearing a tier, choose to descend deeper (keep earnings at risk) or cash out. Death locks you out of both arena and adventure until midnight UTC.
+A multi-tier combat gauntlet independent of the daily adventure action. Fight through 5 tiers of 4 rounds each — 20 unique named monsters with escalating lethality. Earnings accumulate across rounds but are forfeited on death. After clearing a tier, choose to descend deeper (keep earnings at risk) or cash out. Death locks you out of both arena and adventure until midnight UTC. Each fight produces a turn-based combat log (Dragon Quest style) with fabricated HP pools and action narration — the outcome is determined by the roll, the log is assembled backward from the result. Arena losses award +60 participation XP.
 
 | Command | Description |
 |---------|-------------|
@@ -938,8 +951,9 @@ gogobee/
 │   │   ├── hangman.go       # Collaborative Hangman
 │   │   ├── blackjack.go     # Multiplayer Blackjack
 │   │   ├── uno.go           # Solo UNO vs bot (DM-based)
-│   │   ├── uno_multi.go     # Multiplayer UNO (lobby + DM turns)
+│   │   ├── uno_multi.go     # Multiplayer UNO (lobby + DM turns + addbot)
 │   │   ├── uno_nomercy.go   # No Mercy mode (deck, stacking, mercy rule, 7-0, bot AI)
+│   │   ├── uno_test.go      # UNO tests (sudden death, scoring)
 │   │   ├── holdem.go        # Texas Hold'em plugin (commands, game lifecycle, NPC)
 │   │   ├── holdem_game.go   # Game state, player types, deck, position labels
 │   │   ├── holdem_betting.go # Blinds, action validation, side pots
@@ -963,10 +977,12 @@ gogobee/
 │   │   ├── adventure_events.go  # Mid-day random events
 │   │   ├── adventure_scheduler.go # Morning DM, evening summary, midnight reset tickers
 │   │   ├── adventure_holidays.go # Holiday detection (Hebrew/Islamic calendar, fixed dates)
+│   │   ├── adventure_masterwork.go # Masterwork gear (15 tiered items, drop logic, equip command)
 │   │   ├── adventure_arena.go    # Arena commands, combat resolution, DB CRUD, auto-cashout
+│   │   ├── adventure_arena_combat.go # Arena combat log generator (action pools, HP narration)
 │   │   ├── adventure_arena_monsters.go # 5 tiers, 20 monsters, death messages
 │   │   ├── adventure_arena_render.go   # Arena UI rendering (menus, stats, leaderboard)
-│   │   ├── adventure_flavor_*.go # Flavor text pools (dungeon, mining, treasure, twinbee, events, closing)
+│   │   ├── adventure_flavor_*.go # Flavor text pools (dungeon, mining, fishing, treasure, twinbee, events, closing)
 │   │   ├── esteemed.go      # Satirical esteemed member posts
 │   │   ├── moderation.go   # Moderation system (strikes, word list, flood detection)
 │   │   └── ratelimits.go    # Rate limiting

@@ -399,15 +399,15 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 	sb.WriteString("\n")
 
 	// ── Adventure ──
-	var combatLv, miningLv, forageLv, combatXP, miningXP, forageXP int
+	var combatLv, miningLv, fishingLv, forageLv, combatXP, miningXP, fishingXP, forageXP int
 	var alive bool
 	var streak, bestStreak int
 	err = d.QueryRow(
-		`SELECT combat_level, mining_skill, foraging_skill,
-		        combat_xp, mining_xp, foraging_xp,
+		`SELECT combat_level, mining_skill, fishing_skill, foraging_skill,
+		        combat_xp, mining_xp, fishing_xp, foraging_xp,
 		        alive, current_streak, best_streak
 		 FROM adventure_characters WHERE user_id = ?`, uid,
-	).Scan(&combatLv, &miningLv, &forageLv, &combatXP, &miningXP, &forageXP,
+	).Scan(&combatLv, &miningLv, &fishingLv, &forageLv, &combatXP, &miningXP, &fishingXP, &forageXP,
 		&alive, &streak, &bestStreak)
 	if err == nil {
 		status := "Alive"
@@ -415,8 +415,8 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 			status = "💀 Dead"
 		}
 		sb.WriteString(fmt.Sprintf("⚔️ **Adventure:** %s\n", status))
-		sb.WriteString(fmt.Sprintf("   Combat Lv.%d (%d XP) · Mining Lv.%d (%d XP) · Forage Lv.%d (%d XP)\n",
-			combatLv, combatXP, miningLv, miningXP, forageLv, forageXP))
+		sb.WriteString(fmt.Sprintf("   Combat Lv.%d (%d XP) · Mining Lv.%d (%d XP) · Fishing Lv.%d (%d XP) · Forage Lv.%d (%d XP)\n",
+			combatLv, combatXP, miningLv, miningXP, fishingLv, fishingXP, forageLv, forageXP))
 		if streak > 0 || bestStreak > 0 {
 			sb.WriteString(fmt.Sprintf("   🔥 Streak: %d days (best: %d)\n", streak, bestStreak))
 		}
