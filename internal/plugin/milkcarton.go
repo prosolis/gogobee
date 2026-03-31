@@ -511,70 +511,26 @@ func (p *MilkCartonPlugin) renderCarton(
 	return buf.Bytes(), nil
 }
 
-// deriveCharacteristics generates flavor text from user stats.
+// deriveCharacteristics generates flavor text from cached archetypes.
 func (p *MilkCartonPlugin) deriveCharacteristics(userID string) []string {
-	d := db.Get()
+	archetypes := GetUserArchetypesLimited(userID)
+
+	// Pick up to 3 archetype flavor texts (highest signal score first)
 	var chars []string
-
-	var totalMsgs, totalWords, totalEmojis, totalQuestions, totalLinks int
-	err := d.QueryRow(
-		`SELECT COALESCE(total_messages,0), COALESCE(total_words,0), COALESCE(total_emojis,0),
-		        COALESCE(total_questions,0), COALESCE(total_links,0)
-		 FROM user_stats WHERE user_id = ?`, userID,
-	).Scan(&totalMsgs, &totalWords, &totalEmojis, &totalQuestions, &totalLinks)
-	if err != nil {
-		return []string{"Whereabouts unknown", "Considered a person of interest"}
-	}
-
-	avgWords := 0
-	if totalMsgs > 0 {
-		avgWords = totalWords / totalMsgs
-	}
-
-	// Sentiment data
-	var positive, negative, sarcastic, humorous int
-	_ = d.QueryRow(
-		`SELECT COALESCE(positive,0), COALESCE(negative,0), COALESCE(sarcastic,0), COALESCE(humorous,0)
-		 FROM sentiment_stats WHERE user_id = ?`, userID,
-	).Scan(&positive, &negative, &sarcastic, &humorous)
-
-	// Profanity
-	var profanityCount int
-	_ = d.QueryRow(`SELECT COALESCE(count,0) FROM potty_mouth WHERE user_id = ?`, userID).Scan(&profanityCount)
-
-	// Build characteristics based on stat thresholds
-	type trait struct {
-		condition bool
-		text      string
-	}
-
-	traits := []trait{
-		{totalMsgs > 1000, "Known to be extremely chatty"},
-		{totalMsgs > 500 && totalMsgs <= 1000, "Considered a regular contributor"},
-		{totalMsgs < 50 && totalMsgs > 0, "Frequently lurks, rarely commits"},
-		{avgWords > 12, "Known to post novellas"},
-		{avgWords > 0 && avgWords <= 3, "A person of few words"},
-		{totalQuestions > totalMsgs/4 && totalQuestions > 20, "Asks questions compulsively"},
-		{totalEmojis > totalMsgs/3 && totalEmojis > 30, "Communicates primarily in emoji"},
-		{totalLinks > totalMsgs/8 && totalLinks > 20, "Prone to sharing unsolicited links"},
-		{profanityCount > 100, "Has a mouth that could strip paint"},
-		{profanityCount > 30, "Known to use colorful language"},
-		{sarcastic > positive && sarcastic > 10, "Armed with weapons-grade sarcasm"},
-		{humorous > 20, "Considered dangerously funny"},
-		{negative > positive && negative > 15, "Last seen expressing strong opinions"},
-		{positive > 50, "Generally considered a ray of sunshine"},
-	}
-
-	for _, t := range traits {
-		if t.condition {
-			chars = append(chars, t.text)
+	for _, a := range archetypes {
+		if a.Flavor != "" {
+			chars = append(chars, a.Flavor)
 		}
 		if len(chars) >= 3 {
 			break
 		}
 	}
 
-	// Fallbacks
+	if len(chars) > 0 {
+		return chars
+	}
+
+	// Fallback when no archetypes cached yet
 	fallbacks := []string{
 		"Considered armed with strong opinions",
 		"May be found near a keyboard",

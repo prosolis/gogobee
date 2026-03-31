@@ -235,5 +235,11 @@ func (p *PresencePlugin) handleWhois(ctx MessageContext) error {
 		sb.WriteString("  Status: 🟢 Online\n")
 	}
 
+	// Archetypes
+	archetypes := GetUserArchetypesLimited(string(targetUser))
+	if len(archetypes) > 0 && archetypes[0].Name != "Regular" {
+		sb.WriteString(fmt.Sprintf("\n🎭 %s\n", FormatArchetypeNames(archetypes)))
+	}
+
 	return p.SendMessage(ctx.RoomID, sb.String())
 }

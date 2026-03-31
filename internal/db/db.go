@@ -1081,6 +1081,18 @@ CREATE TABLE IF NOT EXISTS market_daily_summary (
 	generated_at    INTEGER
 );
 
+-- Archetype cache (recalculated nightly)
+CREATE TABLE IF NOT EXISTS user_archetypes (
+	user_id      TEXT NOT NULL,
+	archetype    TEXT NOT NULL,
+	category     TEXT NOT NULL DEFAULT '',
+	signal_score REAL NOT NULL DEFAULT 0,
+	flavor       TEXT NOT NULL DEFAULT '',
+	assigned_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (user_id, archetype)
+);
+CREATE INDEX IF NOT EXISTS idx_user_archetypes_user ON user_archetypes(user_id, signal_score DESC);
+
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

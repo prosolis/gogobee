@@ -90,43 +90,6 @@ func ProgressBar(current, max, width int) string {
 	return "[" + strings.Repeat("#", filled) + strings.Repeat("-", empty) + "] " + strconv.Itoa(pct) + "%"
 }
 
-// Archetype definitions matching the TS version.
-type Archetype struct {
-	Name        string
-	Description string
-}
-
-var archetypes = []struct {
-	name string
-	desc string
-	check func(s MessageStats, totalMessages int) bool
-}{
-	{"Chatterbox", "You talk a LOT", func(s MessageStats, t int) bool { return t > 500 && s.Words > 0 }},
-	{"Novelist", "Long-form writer", func(s MessageStats, t int) bool { return s.Words > 0 && s.Chars/max1(s.Words) > 8 }},
-	{"Inquisitor", "Always asking questions", func(s MessageStats, t int) bool { return s.Questions > t/5 && s.Questions > 10 }},
-	{"Linkmaster", "Shares lots of links", func(s MessageStats, t int) bool { return s.Links > t/10 && s.Links > 5 }},
-	{"Shutterbug", "Posts lots of images", func(s MessageStats, t int) bool { return s.Images > t/10 && s.Images > 5 }},
-	{"Enthusiast", "Lots of exclamation marks!", func(s MessageStats, t int) bool { return s.Exclamations > t/4 && s.Exclamations > 10 }},
-	{"Regular", "A steady community member", func(_ MessageStats, _ int) bool { return true }},
-}
-
-// DeriveArchetype picks the best-fitting archetype based on aggregate stats.
-func DeriveArchetype(stats MessageStats, totalMessages int) Archetype {
-	for _, a := range archetypes {
-		if a.check(stats, totalMessages) {
-			return Archetype{Name: a.name, Description: a.desc}
-		}
-	}
-	return Archetype{Name: "Regular", Description: "A steady community member"}
-}
-
-func max1(n int) int {
-	if n < 1 {
-		return 1
-	}
-	return n
-}
-
 // IsCommand checks if body starts with prefix+command (case-insensitive).
 func IsCommand(body, prefix, command string) bool {
 	cmd := prefix + command

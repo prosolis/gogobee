@@ -283,41 +283,16 @@ func (p *StatsPlugin) handleRankings(ctx MessageContext) error {
 }
 
 func (p *StatsPlugin) handlePersonality(ctx MessageContext) error {
-	d := db.Get()
-	var totalMsg, totalWords, totalChars, totalLinks, totalImages int
-	var totalQuestions, totalExclamations, totalEmojis int
+	archetypes := GetUserArchetypesLimited(string(ctx.Sender))
 
-	err := d.QueryRow(
-		`SELECT total_messages, total_words, total_chars, total_links, total_images,
-		 total_questions, total_exclamations, total_emojis
-		 FROM user_stats WHERE user_id = ?`, string(ctx.Sender),
-	).Scan(&totalMsg, &totalWords, &totalChars, &totalLinks, &totalImages,
-		&totalQuestions, &totalExclamations, &totalEmojis)
-
-	if err == sql.ErrNoRows {
+	var totalMsg int
+	db.Get().QueryRow(`SELECT total_messages FROM user_stats WHERE user_id = ?`, string(ctx.Sender)).Scan(&totalMsg)
+	if totalMsg == 0 {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Not enough data to determine your personality yet. Keep chatting!")
 	}
-	if err != nil {
-		slog.Error("stats: personality query", "err", err)
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to analyze personality.")
-	}
 
-	msgStats := util.MessageStats{
-		Words:        totalWords,
-		Chars:        totalChars,
-		Links:        totalLinks,
-		Images:       totalImages,
-		Questions:    totalQuestions,
-		Exclamations: totalExclamations,
-		Emojis:       totalEmojis,
-	}
-
-	archetype := util.DeriveArchetype(msgStats, totalMsg)
-
-	msg := fmt.Sprintf(
-		"🧠 %s, your chat personality is: **%s**\n_%s_\n\nBased on %s messages analyzed.",
-		string(ctx.Sender), archetype.Name, archetype.Description, formatNumber(totalMsg),
-	)
+	msg := fmt.Sprintf("🧠 %s, your chat personality:\n\n%s\n\nBased on %s messages analyzed.",
+		string(ctx.Sender), FormatArchetypesFull(archetypes), formatNumber(totalMsg))
 	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
@@ -361,10 +336,9 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 			formatNumber(totalMsg), formatNumber(totalWords), formatNumber(totalLinks),
 			formatNumber(totalEmojis), formatNumber(totalQuestions)))
 
-		// Personality
-		msgStats := util.MessageStats{Words: totalWords, Links: totalLinks, Emojis: totalEmojis, Questions: totalQuestions}
-		archetype := util.DeriveArchetype(msgStats, totalMsg)
-		sb.WriteString(fmt.Sprintf("   Personality: **%s**\n", archetype.Name))
+		// Personality (from cached archetypes)
+		archetypes := GetUserArchetypesLimited(uid)
+		sb.WriteString(fmt.Sprintf("   Personality: **%s**\n", FormatArchetypeNames(archetypes)))
 	}
 
 	// ── Sentiment ──

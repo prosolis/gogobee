@@ -309,6 +309,9 @@ func main() {
 	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin, esteemedPlugin, forexPlugin, minifluxPlugin, marketPlugin)
 	scheduler.Start()
 
+	// ---- Initial archetype calculation ----
+	go plugin.RefreshAllArchetypes()
+
 	// ---- Start syncing ----
 	slog.Info("GogoBee starting sync...")
 
@@ -459,6 +462,12 @@ func setupScheduledJobs(
 	c.AddFunc("30 3 * * *", func() {
 		slog.Info("scheduler: purging expired markov entries")
 		plugin.MarkovPurgeExpired()
+	})
+
+	// Archetype refresh at 04:30 daily
+	c.AddFunc("30 4 * * *", func() {
+		slog.Info("scheduler: refreshing archetypes")
+		plugin.RefreshAllArchetypes()
 	})
 
 	// Miniflux RSS polling
