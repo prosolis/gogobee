@@ -166,6 +166,29 @@ func (c *Client) Translate(word, from, to string) ([]string, error) {
 	return result.Translations, nil
 }
 
+// Frequency returns the frequency score for a word in a language.
+// Higher values indicate more common words. Returns 0 if unknown.
+func (c *Client) Frequency(word, lang string) (int, error) {
+	u := c.baseURL + "/frequency?" + url.Values{"word": {word}, "lang": {lang}}.Encode()
+	resp, err := c.httpClient.Get(u)
+	if err != nil {
+		return 0, fmt.Errorf("dreamdict: frequency: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("dreamdict: frequency: status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Frequency int `json:"frequency"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("dreamdict: frequency: decode: %w", err)
+	}
+	return result.Frequency, nil
+}
+
 // Health checks if the DreamDict service is reachable and returns stats.
 func (c *Client) Health() (*HealthResponse, error) {
 	resp, err := c.httpClient.Get(c.baseURL + "/health")

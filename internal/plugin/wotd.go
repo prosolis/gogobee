@@ -94,13 +94,14 @@ func (p *WOTDPlugin) prefetchWord(force bool) error {
 		}
 	}
 
-	// Pick a random pt-PT word with definitions; prefer one with English translations.
+	// Pick a random pt-PT word with definitions and both English + French translations.
+	// Fall back to an English word if no valid pt-PT candidate is found.
 	var word, definition, partOfSpeech, translationsJSON string
 
-	for attempt := 0; attempt < 10; attempt++ {
+	for attempt := 0; attempt < 100; attempt++ {
 		candidate, err := p.dict.RandomWord("pt-PT", "", 4, 14)
 		if err != nil {
-			slog.Warn("wotd: random word attempt failed", "attempt", attempt+1, "err", err)
+			slog.Warn("wotd: random word attempt failed", "err", err)
 			continue
 		}
 
@@ -109,13 +110,16 @@ func (p *WOTDPlugin) prefetchWord(force bool) error {
 			continue
 		}
 
-		// Check for English translation (preferred but not required after 5 attempts)
+		// Require at least one English and one French translation
 		enTrans, _ := p.dict.Translate(candidate, "pt-PT", "en")
-		if len(enTrans) == 0 && attempt < 5 {
+		if len(enTrans) == 0 {
 			continue
 		}
 
 		frTrans, _ := p.dict.Translate(candidate, "pt-PT", "fr")
+		if len(frTrans) == 0 {
+			continue
+		}
 
 		word = candidate
 		definition = defs[0].Gloss
@@ -123,20 +127,35 @@ func (p *WOTDPlugin) prefetchWord(force bool) error {
 
 		// Store translations as JSON in the example column
 		transMap := map[string][]string{}
-		if len(enTrans) > 0 {
-			transMap["en"] = enTrans
-		}
-		if len(frTrans) > 0 {
-			transMap["fr"] = frTrans
-		}
+		transMap["en"] = enTrans
+		transMap["fr"] = frTrans
 		if data, err := json.Marshal(transMap); err == nil {
 			translationsJSON = string(data)
 		}
 		break
 	}
 
+	// Fallback: pick an English word if pt-PT search somehow fails
 	if word == "" {
-		return fmt.Errorf("wotd: failed to find a pt-PT word with definitions after 10 attempts")
+		slog.Warn("wotd: pt-PT search failed, falling back to English word")
+		for {
+			candidate, err := p.dict.RandomWord("en", "", 4, 14)
+			if err != nil {
+				continue
+			}
+			defs, err := p.dict.Define(candidate, "en")
+			if err != nil || len(defs) == 0 {
+				continue
+			}
+			word = candidate
+			definition = defs[0].Gloss
+			partOfSpeech = defs[0].POS
+			transMap := map[string][]string{"en": {candidate}}
+			if data, err := json.Marshal(transMap); err == nil {
+				translationsJSON = string(data)
+			}
+			break
+		}
 	}
 
 	if force {
@@ -161,6 +180,18 @@ func (p *WOTDPlugin) prefetchWord(force bool) error {
 
 	slog.Info("wotd: prefetched", "date", today, "word", word)
 	return nil
+}
+
+// hasEnglishTranslation checks whether the stored translations JSON includes English.
+func hasEnglishTranslation(translationsJSON string) bool {
+	if translationsJSON == "" {
+		return false
+	}
+	var transMap map[string][]string
+	if json.Unmarshal([]byte(translationsJSON), &transMap) != nil {
+		return false
+	}
+	return len(transMap["en"]) > 0
 }
 
 // PostWOTD posts today's Word of the Day to the given room and marks it as posted.
@@ -194,6 +225,20 @@ func (p *WOTDPlugin) PostWOTD(roomID id.RoomID) error {
 		return fmt.Errorf("wotd: query: %w", err)
 	}
 
+	// Re-prefetch if stored word is missing English translation
+	if !hasEnglishTranslation(example) {
+		slog.Warn("wotd: stored word missing English translation, forcing re-prefetch", "word", word)
+		if err := p.prefetchWord(true); err != nil {
+			return fmt.Errorf("wotd: re-prefetch failed: %w", err)
+		}
+		err = d.QueryRow(
+			`SELECT word, definition, part_of_speech, example FROM wotd_log WHERE date = ?`, today,
+		).Scan(&word, &definition, &partOfSpeech, &example)
+		if err != nil {
+			return fmt.Errorf("wotd: still no valid entry after re-prefetch: %w", err)
+		}
+	}
+
 	msg := p.formatWOTD(word, definition, partOfSpeech, example)
 	if err := p.SendMessage(roomID, msg); err != nil {
 		return fmt.Errorf("wotd: send message: %w", err)
@@ -225,6 +270,24 @@ func (p *WOTDPlugin) handleWOTD(ctx MessageContext) error {
 	if err != nil {
 		slog.Error("wotd: query", "err", err)
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to fetch Word of the Day.")
+	}
+
+	// Re-prefetch if stored word is missing English translation
+	if !hasEnglishTranslation(example) {
+		slog.Warn("wotd: stored word missing English translation, forcing re-prefetch", "word", word)
+		if err := p.prefetchWord(true); err != nil {
+			slog.Error("wotd: re-prefetch failed", "err", err)
+			return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to fetch Word of the Day. Try again later.")
+		}
+		d := db.Get()
+		err = d.QueryRow(
+			`SELECT word, definition, part_of_speech, example FROM wotd_log WHERE date = ?`,
+			time.Now().UTC().Format("2006-01-02"),
+		).Scan(&word, &definition, &partOfSpeech, &example)
+		if err != nil {
+			slog.Error("wotd: query after re-prefetch", "err", err)
+			return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to fetch Word of the Day.")
+		}
 	}
 
 	msg := p.formatWOTD(word, definition, partOfSpeech, example)

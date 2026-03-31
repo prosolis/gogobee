@@ -155,7 +155,7 @@ func main() {
 	registry.Register(minifluxPlugin)
 
 	// LLM-powered (passive)
-	registry.Register(plugin.NewLLMPassivePlugin(client, xpPlugin))
+	registry.Register(plugin.NewLLMPassivePlugin(client, xpPlugin, dictClient))
 
 	// Scheduled
 	wotdPlugin := plugin.NewWOTDPlugin(client, dictClient)

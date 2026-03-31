@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"gogobee/internal/db"
+	"gogobee/internal/dreamclient"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
@@ -57,6 +58,7 @@ type queueItem struct {
 type LLMPassivePlugin struct {
 	Base
 	xp         *XPPlugin
+	dict       *dreamclient.Client
 	ollamaHost  string
 	ollamaModel string
 	sampleRate  float64
@@ -71,7 +73,7 @@ type LLMPassivePlugin struct {
 }
 
 // NewLLMPassivePlugin creates a new LLM passive classification plugin.
-func NewLLMPassivePlugin(client *mautrix.Client, xp *XPPlugin) *LLMPassivePlugin {
+func NewLLMPassivePlugin(client *mautrix.Client, xp *XPPlugin, dict *dreamclient.Client) *LLMPassivePlugin {
 	host := os.Getenv("OLLAMA_HOST")
 	model := os.Getenv("OLLAMA_MODEL")
 	enabled := host != "" && model != ""
@@ -86,6 +88,7 @@ func NewLLMPassivePlugin(client *mautrix.Client, xp *XPPlugin) *LLMPassivePlugin
 	p := &LLMPassivePlugin{
 		Base:        NewBase(client),
 		xp:          xp,
+		dict:        dict,
 		ollamaHost:  host,
 		ollamaModel: model,
 		sampleRate:  sampleRate,
@@ -309,7 +312,12 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 		mentionHint = "\nMentioned users: " + strings.Join(parts, ", ")
 	}
 
-	result, err := p.callOllama(item.Body + mentionHint)
+	// Fetch today's WOTD so the LLM can check for correct usage
+	today := time.Now().UTC().Format("2006-01-02")
+	var todayWOTD string
+	db.Get().QueryRow(`SELECT word FROM wotd_log WHERE date = ?`, today).Scan(&todayWOTD)
+
+	result, err := p.callOllama(item.Body+mentionHint, todayWOTD)
 	if err != nil {
 		return fmt.Errorf("ollama call: %w", err)
 	}
@@ -454,7 +462,13 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 		}
 	}
 	if result.WOTDUsed {
-		_ = p.SendReact(item.RoomID, item.EventID, "\U0001f4d6") // open book
+		_ = p.SendReact(item.RoomID, item.EventID, "\U0001f4d6") // 📖 open book
+	}
+	// Check for rare/sophisticated words via DreamDict frequency data
+	if p.dict != nil {
+		if p.hasFancyWord(item.Body) {
+			_ = p.SendReact(item.RoomID, item.EventID, "\U0001f393") // 🎓 graduation cap
+		}
 	}
 	if result.GratitudeTarget != "" {
 		_ = p.SendReact(item.RoomID, item.EventID, "\U0001f49c") // purple heart
@@ -485,7 +499,12 @@ type ollamaResponse struct {
 }
 
 // callOllama sends a classification prompt to Ollama and parses the JSON result.
-func (p *LLMPassivePlugin) callOllama(messageText string) (*classificationResult, error) {
+func (p *LLMPassivePlugin) callOllama(messageText, wotd string) (*classificationResult, error) {
+	wotdInstruction := `"wotd_used": false`
+	if wotd != "" {
+		wotdInstruction = fmt.Sprintf(`"wotd_used": true | false (whether the message uses the word "%s" correctly and meaningfully — not just mentioning or quoting it)`, wotd)
+	}
+
 	prompt := fmt.Sprintf(`Classify the following chat message. Respond ONLY with valid JSON (no markdown, no explanation).
 
 JSON schema:
@@ -496,11 +515,11 @@ JSON schema:
   "profanity": true | false,
   "profanity_severity": 0 | 1 | 2 | 3 (0=none, 1=mild e.g. damn/hell/crap, 2=moderate e.g. shit/ass/bitch, 3=scorching e.g. fuck/cunt and slurs),
   "insult_target": "" or "@user:server" if someone is being insulted,
-  "wotd_used": true | false (if the message uses an unusual/sophisticated word),
+  %s,
   "gratitude_target": "" or "@user:server" if thanking someone
 }
 
-Message: %s`, messageText)
+Message: %s`, wotdInstruction, messageText)
 
 	reqBody := ollamaRequest{
 		Model:  p.ollamaModel,
@@ -540,6 +559,41 @@ Message: %s`, messageText)
 }
 
 // parseClassification parses a JSON classification response with repair logic.
+// fancyWordMaxFreq is the threshold below which a word is considered rare/sophisticated.
+// SCOWL tiers: 10=1000, 20=800, 35=600, 50=400, 60=200, 70=50.
+// A frequency of 100 or below corresponds to SCOWL tier 65-70 (rare words).
+const fancyWordMaxFreq = 100
+
+// fancyWordMinLength filters out short words that may just be uncommon abbreviations.
+const fancyWordMinLength = 6
+
+// hasFancyWord checks if any word in the message is a rare/sophisticated English word
+// by looking up its frequency score in DreamDict.
+func (p *LLMPassivePlugin) hasFancyWord(message string) bool {
+	words := strings.Fields(strings.ToLower(message))
+	for _, w := range words {
+		// Strip punctuation from edges
+		w = strings.Trim(w, ".,!?;:\"'()[]{}…—–-")
+		if len(w) < fancyWordMinLength {
+			continue
+		}
+		// Skip URLs and mentions
+		if strings.Contains(w, "://") || strings.HasPrefix(w, "@") {
+			continue
+		}
+		freq, err := p.dict.Frequency(w, "en")
+		if err != nil {
+			continue
+		}
+		// freq == 0 means unknown word (not in dictionary), skip it.
+		// Low but nonzero frequency means rare but real word.
+		if freq > 0 && freq <= fancyWordMaxFreq {
+			return true
+		}
+	}
+	return false
+}
+
 func parseClassification(raw string) (*classificationResult, error) {
 	cleaned := raw
 

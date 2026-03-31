@@ -534,10 +534,10 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 
 	lostEarnings := run.Earnings
 
-	// Kill the character (locked out until next midnight UTC)
+	// Kill the character (locked out for 2 hours)
 	char.Alive = false
 	now := time.Now().UTC()
-	deadUntil := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+	deadUntil := now.Add(2 * time.Hour)
 	char.DeadUntil = &deadUntil
 	char.ArenaLosses++
 	char.CombatXP += arenaParticipationXP // +60 flat participation XP
