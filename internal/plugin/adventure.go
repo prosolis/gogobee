@@ -675,10 +675,7 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 				p.SendMessage(gr, renderArenaDeathReprieve(char.DisplayName, loc.Name, nextWindow))
 			}
 		} else {
-			char.Alive = false
-			now := time.Now().UTC()
-			deadUntil := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
-			char.DeadUntil = &deadUntil
+			char.Kill()
 			char.GrudgeLocation = loc.Name
 		}
 	} else if hasGrudge && (result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional) {

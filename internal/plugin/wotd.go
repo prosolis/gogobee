@@ -37,7 +37,7 @@ func (p *WOTDPlugin) Name() string { return "wotd" }
 
 func (p *WOTDPlugin) Commands() []CommandDef {
 	return []CommandDef{
-		{Name: "wotd", Description: "Show today's Palavra do Dia", Usage: "!wotd [force]", Category: "Lookup & Reference"},
+		{Name: "wotd", Description: "Show today's Word of the Day", Usage: "!wotd [force]", Category: "Lookup & Reference"},
 	}
 }
 
@@ -70,8 +70,85 @@ func (p *WOTDPlugin) OnMessage(ctx MessageContext) error {
 	return nil
 }
 
-// Prefetch picks today's Palavra do Dia from DreamDict and stores it in the database.
-// Prefers pt-PT words with at least one definition and one English translation.
+// pickWord attempts to find a suitable word in the given language.
+// Returns word, definition, partOfSpeech, translationsJSON.
+// For non-English languages, requires English translations and filters cognates.
+// For all languages, fetches synonyms and cross-translations.
+func (p *WOTDPlugin) pickWord(lang string) (string, string, string, string) {
+	// Define which other languages to translate into
+	type transTarget struct {
+		lang string
+		key  string
+	}
+	var targets []transTarget
+	switch lang {
+	case "pt-PT":
+		targets = []transTarget{{"en", "en"}, {"fr", "fr"}}
+	case "fr":
+		targets = []transTarget{{"en", "en"}, {"pt-PT", "pt-PT"}}
+	case "en":
+		targets = []transTarget{{"fr", "fr"}, {"pt-PT", "pt-PT"}}
+	}
+
+	for attempt := 0; attempt < 100; attempt++ {
+		candidate, err := p.dict.RandomWord(lang, "", 4, 14)
+		if err != nil {
+			continue
+		}
+
+		defs, err := p.dict.Define(candidate, lang)
+		if err != nil || len(defs) == 0 {
+			continue
+		}
+
+		transMap := map[string][]string{}
+		valid := true
+
+		for _, t := range targets {
+			trans, _ := p.dict.Translate(candidate, lang, t.lang)
+			if len(trans) == 0 {
+				valid = false
+				break
+			}
+			transMap[t.key] = trans
+		}
+		if !valid {
+			continue
+		}
+
+		// For non-English words, filter cognates where the English translation
+		// is just the word itself
+		if lang != "en" {
+			if enTrans, ok := transMap["en"]; ok {
+				meaningfulEn := false
+				for _, t := range enTrans {
+					if !strings.EqualFold(t, candidate) {
+						meaningfulEn = true
+						break
+					}
+				}
+				if !meaningfulEn {
+					continue
+				}
+			}
+		}
+
+		// Fetch synonyms in the word's own language
+		synonyms, _ := p.dict.Synonyms(candidate, lang)
+		if len(synonyms) > 0 {
+			transMap["syn"] = synonyms
+		}
+
+		var translationsJSON string
+		if data, err := json.Marshal(transMap); err == nil {
+			translationsJSON = string(data)
+		}
+		return candidate, defs[0].Gloss, defs[0].POS, translationsJSON
+	}
+	return "", "", "", ""
+}
+
+// Prefetch picks today's Word of the Day from DreamDict and stores it in the database.
 func (p *WOTDPlugin) Prefetch() error {
 	return p.prefetchWord(false)
 }
@@ -94,68 +171,41 @@ func (p *WOTDPlugin) prefetchWord(force bool) error {
 		}
 	}
 
-	// Pick a random pt-PT word with definitions and both English + French translations.
-	// Fall back to an English word if no valid pt-PT candidate is found.
-	var word, definition, partOfSpeech, translationsJSON string
+	// Rotate language by day: pt-PT, fr, en
+	langs := []string{"pt-PT", "fr", "en"}
+	dayOfYear := time.Now().UTC().YearDay()
+	lang := langs[dayOfYear%len(langs)]
 
-	for attempt := 0; attempt < 100; attempt++ {
-		candidate, err := p.dict.RandomWord("pt-PT", "", 4, 14)
-		if err != nil {
-			slog.Warn("wotd: random word attempt failed", "err", err)
-			continue
+	word, definition, partOfSpeech, translationsJSON := p.pickWord(lang)
+
+	// Fallback through other languages if primary fails
+	if word == "" {
+		for _, fallback := range langs {
+			if fallback == lang {
+				continue
+			}
+			slog.Warn("wotd: failed to find word", "lang", lang, "fallback", fallback)
+			word, definition, partOfSpeech, translationsJSON = p.pickWord(fallback)
+			if word != "" {
+				lang = fallback
+				break
+			}
 		}
-
-		defs, err := p.dict.Define(candidate, "pt-PT")
-		if err != nil || len(defs) == 0 {
-			continue
-		}
-
-		// Require at least one English and one French translation
-		enTrans, _ := p.dict.Translate(candidate, "pt-PT", "en")
-		if len(enTrans) == 0 {
-			continue
-		}
-
-		frTrans, _ := p.dict.Translate(candidate, "pt-PT", "fr")
-		if len(frTrans) == 0 {
-			continue
-		}
-
-		word = candidate
-		definition = defs[0].Gloss
-		partOfSpeech = defs[0].POS
-
-		// Store translations as JSON in the example column
-		transMap := map[string][]string{}
-		transMap["en"] = enTrans
-		transMap["fr"] = frTrans
-		if data, err := json.Marshal(transMap); err == nil {
-			translationsJSON = string(data)
-		}
-		break
 	}
 
-	// Fallback: pick an English word if pt-PT search somehow fails
 	if word == "" {
-		slog.Warn("wotd: pt-PT search failed, falling back to English word")
-		for {
-			candidate, err := p.dict.RandomWord("en", "", 4, 14)
-			if err != nil {
-				continue
-			}
-			defs, err := p.dict.Define(candidate, "en")
-			if err != nil || len(defs) == 0 {
-				continue
-			}
-			word = candidate
-			definition = defs[0].Gloss
-			partOfSpeech = defs[0].POS
-			transMap := map[string][]string{"en": {candidate}}
-			if data, err := json.Marshal(transMap); err == nil {
-				translationsJSON = string(data)
-			}
-			break
-		}
+		return fmt.Errorf("wotd: failed to find a word in any language")
+	}
+
+	// Store the language in the translations JSON so formatWOTD knows which language was picked
+	var transMap map[string][]string
+	json.Unmarshal([]byte(translationsJSON), &transMap)
+	if transMap == nil {
+		transMap = map[string][]string{}
+	}
+	transMap["_lang"] = []string{lang}
+	if data, err := json.Marshal(transMap); err == nil {
+		translationsJSON = string(data)
 	}
 
 	if force {
@@ -182,8 +232,9 @@ func (p *WOTDPlugin) prefetchWord(force bool) error {
 	return nil
 }
 
-// hasEnglishTranslation checks whether the stored translations JSON includes English.
-func hasEnglishTranslation(translationsJSON string) bool {
+// hasTranslations checks whether the stored translations JSON has at least one translation
+// (excluding metadata keys like _lang and syn).
+func hasTranslations(translationsJSON string) bool {
 	if translationsJSON == "" {
 		return false
 	}
@@ -191,7 +242,15 @@ func hasEnglishTranslation(translationsJSON string) bool {
 	if json.Unmarshal([]byte(translationsJSON), &transMap) != nil {
 		return false
 	}
-	return len(transMap["en"]) > 0
+	for k, v := range transMap {
+		if strings.HasPrefix(k, "_") || k == "syn" {
+			continue
+		}
+		if len(v) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // PostWOTD posts today's Word of the Day to the given room and marks it as posted.
@@ -226,7 +285,7 @@ func (p *WOTDPlugin) PostWOTD(roomID id.RoomID) error {
 	}
 
 	// Re-prefetch if stored word is missing English translation
-	if !hasEnglishTranslation(example) {
+	if !hasTranslations(example) {
 		slog.Warn("wotd: stored word missing English translation, forcing re-prefetch", "word", word)
 		if err := p.prefetchWord(true); err != nil {
 			return fmt.Errorf("wotd: re-prefetch failed: %w", err)
@@ -273,7 +332,7 @@ func (p *WOTDPlugin) handleWOTD(ctx MessageContext) error {
 	}
 
 	// Re-prefetch if stored word is missing English translation
-	if !hasEnglishTranslation(example) {
+	if !hasTranslations(example) {
 		slog.Warn("wotd: stored word missing English translation, forcing re-prefetch", "word", word)
 		if err := p.prefetchWord(true); err != nil {
 			slog.Error("wotd: re-prefetch failed", "err", err)
@@ -294,12 +353,47 @@ func (p *WOTDPlugin) handleWOTD(ctx MessageContext) error {
 	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
+var wotdHeaders = map[string]string{
+	"pt-PT": "📖 **Palavra do Dia** — %s\n\n",
+	"fr":    "📖 **Mot du Jour** — %s\n\n",
+	"en":    "📖 **Word of the Day** — %s\n\n",
+}
+
+var wotdFlags = map[string]string{
+	"pt-PT": "🇵🇹",
+	"fr":    "🇫🇷",
+	"en":    "🇬🇧",
+}
+
+var wotdSynonymLabels = map[string]string{
+	"pt-PT": "Sinónimos",
+	"fr":    "Synonymes",
+	"en":    "Synonyms",
+}
+
 func (p *WOTDPlugin) formatWOTD(word, definition, partOfSpeech, translationsJSON string) string {
 	now := time.Now().UTC()
 	dateStr := now.Format("Monday, 2 January 2006")
 
+	// Determine the source language from stored metadata
+	lang := "pt-PT" // default for backwards compat with old entries
+	var transMap map[string][]string
+	if translationsJSON != "" {
+		json.Unmarshal([]byte(translationsJSON), &transMap)
+	}
+	if transMap != nil {
+		if l, ok := transMap["_lang"]; ok && len(l) > 0 {
+			lang = l[0]
+		}
+	}
+
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("📖 **Palavra do Dia** — %s\n\n", dateStr))
+
+	header := wotdHeaders[lang]
+	if header == "" {
+		header = "📖 **Word of the Day** — %s\n\n"
+	}
+	sb.WriteString(fmt.Sprintf(header, dateStr))
 
 	if partOfSpeech != "" {
 		sb.WriteString(fmt.Sprintf("✨ **%s**  (%s)\n\n", word, partOfSpeech))
@@ -307,34 +401,53 @@ func (p *WOTDPlugin) formatWOTD(word, definition, partOfSpeech, translationsJSON
 		sb.WriteString(fmt.Sprintf("✨ **%s**\n\n", word))
 	}
 
-	// Portuguese definition
+	// Definition in the word's own language
+	flag := wotdFlags[lang]
+	if flag == "" {
+		flag = lang
+	}
 	if definition != "" {
-		sb.WriteString(fmt.Sprintf("🇵🇹 pt-PT\n  %s\n\n", definition))
+		sb.WriteString(fmt.Sprintf("%s %s\n  %s\n", flag, lang, definition))
 	}
 
-	// Parse translations from JSON stored in example column
-	if translationsJSON != "" {
-		var transMap map[string][]string
-		if json.Unmarshal([]byte(translationsJSON), &transMap) == nil {
-			if enTrans, ok := transMap["en"]; ok && len(enTrans) > 0 {
-				display := enTrans
-				if len(display) > 5 {
-					display = display[:5]
-				}
-				sb.WriteString(fmt.Sprintf("🇬🇧 en\n  %s\n\n", strings.Join(display, ", ")))
+	// Synonyms
+	if transMap != nil {
+		if syns, ok := transMap["syn"]; ok && len(syns) > 0 {
+			display := syns
+			if len(display) > 5 {
+				display = display[:5]
 			}
-			if frTrans, ok := transMap["fr"]; ok && len(frTrans) > 0 {
-				display := frTrans
+			label := wotdSynonymLabels[lang]
+			if label == "" {
+				label = "Synonyms"
+			}
+			sb.WriteString(fmt.Sprintf("  %s: %s\n", label, strings.Join(display, ", ")))
+		}
+		sb.WriteString("\n")
+
+		// Translations into other languages
+		for _, tLang := range []string{"en", "fr", "pt-PT"} {
+			if tLang == lang {
+				continue
+			}
+			if trans, ok := transMap[tLang]; ok && len(trans) > 0 {
+				display := trans
 				if len(display) > 5 {
 					display = display[:5]
 				}
-				sb.WriteString(fmt.Sprintf("🇫🇷 fr\n  %s\n\n", strings.Join(display, ", ")))
+				tFlag := wotdFlags[tLang]
+				if tFlag == "" {
+					tFlag = tLang
+				}
+				sb.WriteString(fmt.Sprintf("%s %s\n  %s\n\n", tFlag, tLang, strings.Join(display, ", ")))
 			}
 		}
+	} else {
+		sb.WriteString("\n")
 	}
 
 	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n")
-	sb.WriteString(fmt.Sprintf("Learn more: `!define %s pt-PT`\n", word))
+	sb.WriteString(fmt.Sprintf("Learn more: `!define %s %s`\n", word, lang))
 	sb.WriteString("Use this word in a message today to earn 25 XP!")
 	return sb.String()
 }

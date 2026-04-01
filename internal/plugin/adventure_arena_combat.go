@@ -199,7 +199,12 @@ func distributeDamage(types []string, playerHP, enemyHP int, playerWon bool, pic
 			if currentPlayerHP < 0 {
 				currentPlayerHP = 0
 			}
-			r.Text = pickFrom(arenaEnemyActions, picker.enemy, dmg)
+			// Mix in player-miss actions (~30% of enemy_hit rounds)
+			if rand.IntN(100) < 30 {
+				r.Text = pickFrom(arenaPlayerMissActions, picker.playerMiss, dmg)
+			} else {
+				r.Text = pickFrom(arenaEnemyActions, picker.enemy, dmg)
+			}
 
 		case "block":
 			r.Text = pickFromNoFmt(arenaBlockActions, picker.block)
@@ -297,6 +302,7 @@ func splitDamage(total, n int) []int {
 type actionPicker struct {
 	enemy       map[int]bool
 	player      map[int]bool
+	playerMiss  map[int]bool
 	block       map[int]bool
 	environment map[int]bool
 }
@@ -305,6 +311,7 @@ func newActionPicker() *actionPicker {
 	return &actionPicker{
 		enemy:       make(map[int]bool),
 		player:      make(map[int]bool),
+		playerMiss:  make(map[int]bool),
 		block:       make(map[int]bool),
 		environment: make(map[int]bool),
 	}
@@ -407,12 +414,12 @@ func arenaLoseCloser(winnerName string, lastRound int) string {
 
 // Enemy actions — hit the player. %d is damage.
 var arenaEnemyActions = []string{
-	"The enemy insults your clothing choices. Spot-on. Hits you for %d emotional damage. They weren't wrong about the boots.",
-	"The enemy puts their weapon away, walks up to you, and Will Smiths you across the face. The audacity hurts more than the hit. %d damage.",
+	"The enemy insults your clothing choices. Spot-on. Hits you for %d emotional damage. They weren't wrong about the boots. They do not go with that top on this planet nor any other.",
+	"The enemy puts their weapon away, walks up to you, and Will Smiths you across the face. The audacity of the move hurts more than the hit itself. %d damage.",
 	"The enemy questions your life choices. You pause to genuinely reflect. They hit you during the pause. %d damage.",
 	"The enemy delivers a full monologue. You listen to the whole thing. It was actually pretty good. %d damage from the time lost.",
-	"The enemy compliments you unexpectedly. You thank them. They snicker. %d damage.",
-	"The enemy points at something behind you. You don't fall for it. They throw a projectile that bounces off the wall and hits you in the back of the head. %d damage.",
+	"The enemy compliments you unexpectedly. You thank them. They snicker because you actually believed them and revealed to everyone that you're somehow a bigger buffoon than previously known. %d damage.",
+	"The enemy points at something behind you. You don't fall for it. They throw a projectile which bounces off the wall and hits you in the back of the head. What an amazing trick shot. %d damage. The crowd roars in laughter at the spectacle. But mostly at you.",
 	"The enemy pulls out their phone and starts filming. You perform for the camera. This was a mistake. %d damage.",
 	"The enemy sneezes directly in your face. You lose your turn being disgusted. %d damage while you process this.",
 	"The enemy whispers something. You lean in to hear it. %d damage. There was nothing worth hearing.",
@@ -422,57 +429,76 @@ var arenaEnemyActions = []string{
 	"The enemy yawns mid-fight. Not performatively. Genuinely. %d damage while you process the disrespect.",
 	"The enemy pauses to stretch before attacking. You wait. You don't know why you waited. %d damage when they finish.",
 	"The enemy hits you with the flat of their blade. A choice. A message. %d damage. The message is received.",
-	"The enemy stares at you for an uncomfortably long time before attacking. You break eye contact first. %d damage.",
+	"The enemy stares at you for an uncomfortably long time before attacking. You break eye contact first. This was the plan. %d damage.",
 	"The enemy sighs before hitting you. Like they had somewhere better to be. %d damage.",
 	"The enemy recounts a mildly interesting story mid-fight. You get drawn in. %d damage before the ending, which was not worth it.",
 	"The enemy raises one eyebrow at you and then attacks. The eyebrow did more damage than the hit. %d damage total.",
-	"The enemy adjusts their grip, rolls their shoulders, and hits you with the bare minimum of effort. %d damage.",
+	"The enemy adjusts their grip, rolls their shoulders, and hits you with what is technically the bare minimum of effort. %d damage. You gave it everything. They did not.",
 }
 
-// Player actions — hit the enemy. %d is damage.
+// Player actions — hit the enemy. %d is damage to enemy.
 var arenaPlayerHitActions = []string{
-	"You make a joke using a painfully dated reference. While the enemy ponders what on earth you could mean, you strike. %d damage.",
+	"You make a joke using a painfully dated reference. While the enemy stands there pondering what on earth you could possibly be referring to, you seize the opportunity and land a critical hit. %d damage. Your jokes are always great at leaving people dazed and confused.",
 	"You attempt a battle cry. It comes out as a question. The enemy is briefly confused. You hit them for %d damage before they recover.",
 	"You wind up for a big hit and connect for %d damage. You pulled something. The enemy doesn't know this yet.",
 	"You hit the enemy for %d damage. They seem fine. You are less fine about this than they are.",
 	"You connect cleanly for %d damage and immediately look at your hand like you're surprised it worked. You were.",
-	"You score a clean hit for %d damage and immediately start explaining to no one how you did that. Nobody asked.",
+	"You score a clean hit for %d damage and immediately start explaining to no one in particular how you did that. Nobody asked. The fight is still happening.",
 	"You land a hit for %d damage and follow up with a second strike that connects with nothing. You style it out. Nobody is convinced.",
+}
+
+// Player actions — player's turn goes wrong. %d is damage to player.
+var arenaPlayerMissActions = []string{
+	"You reach for your weapon and grab the wrong item. You are holding a receipt. The enemy hits you for %d damage. You find this receipt later and it's actually useful.",
+	"You make prolonged eye contact with a spectator. It goes on too long. The enemy hits you for %d damage. The spectator looks away first.",
+	"Your shoelace comes untied. You are wearing boots. You address this. The enemy does not wait. %d damage.",
+	"You sneeze at a critical moment. The enemy respectfully waits. Then hits you for %d damage. There was no respect involved actually.",
+	"You perform a move you saw in a film once. It does not work like in the film. %d damage. The physics were always wrong in that film.",
+	"You get distracted by a food vendor passing the arena perimeter. So does the enemy. You recover second. %d damage.",
+	"You attempt to intimidate the enemy. They laugh. Genuinely. This is worse than if they hadn't. You take %d damage from the experience.",
+	"You slip on something. There is nothing to slip on. %d damage. The arena floor is flat and dry. You will be thinking about this.",
+	"You decide mid-swing to do something different. The original plan was better. %d damage.",
+	"You attempt a combo you've been mentally rehearsing for weeks. It goes fine until the third move. %d damage.",
+	"You feint left. The enemy doesn't move. You feint right. They still don't move. You just stand there feinting at someone who is not playing along. The enemy hits you. %d damage.",
+	"You remember reading something about fighting once. You implement it. It was about chess. %d damage.",
+	"You close your eyes for the strike because it feels more dramatic. You miss. The enemy doesn't. %d damage.",
+	"You decide this is the moment for something new. It is not the moment for something new. %d damage. File this under lessons.",
 }
 
 // Block/dodge actions — no damage.
 var arenaBlockActions = []string{
 	"You swing with conviction. The enemy sidesteps it with the energy of someone who has somewhere else to be. Nothing happens. You both reset.",
 	"The enemy lunges. You step aside. They continue past you for several feet and have to walk back. The pause is awkward for everyone.",
-	"You block the incoming strike so cleanly that the enemy looks at their weapon like it betrayed them personally.",
+	"You block the incoming strike so cleanly that the enemy looks at their weapon like it betrayed them personally. You don't know their relationship so it probably did, but also you were faster.",
 	"The enemy's attack grazes you but doesn't connect. They seem more annoyed by this than you are relieved.",
-	"You duck. The enemy's strike passes exactly where your head was. You both take a moment to appreciate how close that was.",
-	"The enemy deflects your attack with a move that was frankly unnecessary for the situation. It worked.",
-	"You parry. The enemy's weapon skids off yours and they stumble slightly. They recover before you can do anything about it.",
-	"The enemy blocks your poor-timed strike with their forearm. This speaks more about your striking abilities than their forearm.",
-	"You dodge sideways into a pillar. It hurts but it doesn't count as a hit. The pillar gets no credit.",
-	"The enemy telegraphs the attack so clearly that you block it before they've finished committing. They look briefly embarrassed.",
-	"You attempt a dodge and accidentally do something that looks extremely skilled. It was not intentional.",
-	"The enemy's strike is deflected off your shoulder guard and disappears somewhere into the arena.",
-	"You and the enemy swing at exactly the same moment. Both weapons meet in the middle. You stare at each other.",
-	"The enemy's attack comes in low. You jump. Not gracefully. But adequately. Nothing connects.",
-	"You sidestep a strike that wasn't aimed at you. The enemy had already redirected. Both end up slightly confused.",
+	"You duck. The enemy's strike passes exactly where your head was. You both take a moment to appreciate how close that was. Then the fight continues.",
+	"The enemy deflects your attack with a move that was frankly unnecessary for the situation. It worked. You will be thinking about how unnecessary it was.",
+	"You parry. The enemy's weapon skids off yours and they stumble slightly. They recover before you can do anything about it. It was still a good parry.",
+	"The enemy blocks your hilariously poor-timed strike with their forearm. This speaks less about the strength of their forearm and much more so about the pathetic nature of your striking abilities.",
+	"You dodge sideways into a pillar. It hurts but it doesn't count as a hit. The enemy didn't do that. The pillar gets no credit either.",
+	"The enemy telegraphs the attack so clearly that you block it before they've finished committing to it. They look briefly embarrassed. They recover. The fight continues.",
+	"You attempt a dodge and accidentally do something that looks extremely skilled. It was not intentional. The enemy hesitates, which was also not intentional. Nothing lands.",
+	"The enemy's strike is deflected off your shoulder guard and disappears somewhere into the arena. They retrieve a backup weapon from somewhere. Nobody asks where they got it.",
+	"You and the enemy swing at exactly the same moment. Both weapons meet in the middle. You stare at each other. Someone has to move first. It's them. The fight continues.",
+	"The enemy's attack comes in low. You jump. Not gracefully. But adequately. Nothing connects. You land. The fight continues.",
+	"You sidestep a strike that wasn't aimed at you. The enemy had already redirected. You both end up slightly confused about where the other one is. The round resolves without damage.",
+	"A referee walks through the arena on the way to somewhere else. Eye contact is made with both fighters. They keep walking. There is a beat. The fight resumes.",
 }
 
 // Environmental actions — damage to player. %d is damage.
 var arenaEnvironmentalActions = []string{
-	"Your mother calls in the middle of battle asking about grandchildren. The enemy hits you for %d damage while you answer on speakerphone.",
-	"A bird lands between you and the enemy. Both stop. The bird leaves. The enemy recovers first. %d damage.",
-	"A spectator is eating something that smells incredible. Both fighters lose focus. The enemy had less going on mentally. %d damage.",
-	"The arena announcer mispronounces your name. You correct them mid-fight. The enemy hits you for %d damage.",
-	"An old acquaintance you've been avoiding is in the crowd. You make brief eye contact. The enemy hits you for %d damage during this.",
+	"Your mother calls in the middle of battle asking when you're giving her grandchildren. The enemy hits you for %d damage while you work out how to answer that on speakerphone.",
+	"A bird lands between you and the enemy. Both combatants stop. The bird leaves. The enemy recovers first. %d damage.",
+	"A spectator in the front row is eating something that smells incredible. Both fighters lose focus. The enemy had less going on mentally. %d damage.",
+	"The arena announcer mispronounces your name. You correct them mid-fight. The enemy hits you for %d damage. The announcer mispronounces it again.",
+	"An old acquaintance you've been avoiding is in the crowd. You make brief eye contact. Mutual acknowledgment. The enemy hits you for %d damage during this social transaction.",
 	"Someone in the crowd drops their drink. The sound is startling. You both flinch. The enemy flinches smaller. %d damage.",
 	"A cloud passes in front of the sun at the wrong moment. %d damage. The cloud did not mean anything by it.",
-	"The arena's background music cuts out unexpectedly. The silence is louder than the fight. %d damage in the disorientation.",
-	"The arena PA crackles and announces something completely unrelated. You both look up. The enemy looks back down first. %d damage.",
+	"The arena's background music cuts out unexpectedly. The silence is louder than the fight. The enemy hits you for %d damage in the disorientation.",
+	"The arena PA crackles and announces something completely unrelated to your fight. You both look up. The enemy looks back down first. %d damage.",
 	"Something falls from the spectator area. Nobody claims it. You both look at it. The enemy decides faster. %d damage.",
-	"A dog wanders into the arena perimeter briefly. Both fighters stop. The dog is removed. The enemy uses the reset better. %d damage.",
-	"The arena's scoreboard updates mid-fight and briefly shows wrong numbers. You spend a round working out if that changes anything. %d damage.",
+	"A dog wanders into the arena perimeter briefly. Both fighters stop. The dog is removed. You both needed that break more than you'd like to admit. The enemy uses the reset better. %d damage.",
+	"The arena's scoreboard updates mid-fight and briefly shows wrong numbers. You spend a round trying to work out if that changes anything. It does not. %d damage while you calculate.",
 	"The arena sells a limited merch item at exactly this moment. The announcement is enthusiastic. You are briefly curious. %d damage.",
-	"The crowd goes quiet at an inopportune moment. You can hear everything. Including things you did not want to hear. %d damage.",
+	"The crowd goes quiet at an inopportune moment. You can hear everything. Including things you did not want to hear from the enemy's corner. %d damage.",
 }

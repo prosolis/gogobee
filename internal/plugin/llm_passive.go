@@ -157,6 +157,18 @@ func (p *LLMPassivePlugin) OnMessage(ctx MessageContext) error {
 		return nil
 	}
 
+	// Check for fancy words on every message (independent of LLM sampling)
+	if p.dict != nil {
+		go func() {
+			if p.hasFancyWord(ctx.Body) {
+				_ = p.SendReact(ctx.RoomID, ctx.EventID, "\U0001f393") // 🎓 graduation cap
+				db.Exec("llm: track fancy word",
+					`UPDATE user_stats SET fancy_words = fancy_words + 1 WHERE user_id = ?`,
+					string(ctx.Sender))
+			}
+		}()
+	}
+
 	// Pre-filter: only classify messages that match certain criteria
 	var fmtBody string
 	if ctx.Event != nil {
@@ -464,12 +476,6 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 	if result.WOTDUsed {
 		_ = p.SendReact(item.RoomID, item.EventID, "\U0001f4d6") // 📖 open book
 	}
-	// Check for rare/sophisticated words via DreamDict frequency data
-	if p.dict != nil {
-		if p.hasFancyWord(item.Body) {
-			_ = p.SendReact(item.RoomID, item.EventID, "\U0001f393") // 🎓 graduation cap
-		}
-	}
 	if result.GratitudeTarget != "" {
 		_ = p.SendReact(item.RoomID, item.EventID, "\U0001f49c") // purple heart
 	}
@@ -567,26 +573,48 @@ const fancyWordMaxFreq = 100
 // fancyWordMinLength filters out short words that may just be uncommon abbreviations.
 const fancyWordMinLength = 6
 
+// fancyWordCache caches frequency lookups to avoid repeated requests.
+var fancyWordCache sync.Map // word (string) -> freq (int)
+
 // hasFancyWord checks if any word in the message is a rare/sophisticated English word
-// by looking up its frequency score in DreamDict.
+// by looking up frequency scores in DreamDict via a single batch request.
 func (p *LLMPassivePlugin) hasFancyWord(message string) bool {
-	words := strings.Fields(strings.ToLower(message))
-	for _, w := range words {
-		// Strip punctuation from edges
+	// Extract candidate words
+	var candidates []string
+	var cached []string
+	for _, w := range strings.Fields(strings.ToLower(message)) {
 		w = strings.Trim(w, ".,!?;:\"'()[]{}…—–-")
 		if len(w) < fancyWordMinLength {
 			continue
 		}
-		// Skip URLs and mentions
 		if strings.Contains(w, "://") || strings.HasPrefix(w, "@") {
 			continue
 		}
-		freq, err := p.dict.Frequency(w, "en")
-		if err != nil {
+		// Check cache first
+		if freq, ok := fancyWordCache.Load(w); ok {
+			if f := freq.(int); f > 0 && f <= fancyWordMaxFreq {
+				return true
+			}
+			cached = append(cached, w)
 			continue
 		}
-		// freq == 0 means unknown word (not in dictionary), skip it.
-		// Low but nonzero frequency means rare but real word.
+		candidates = append(candidates, w)
+	}
+
+	if len(candidates) == 0 {
+		return false
+	}
+
+	// Single batch request for all uncached words
+	freqs, err := p.dict.FrequencyBatch(candidates, "en")
+	if err != nil {
+		slog.Debug("hasFancyWord: batch lookup failed", "err", err)
+		return false
+	}
+
+	for _, w := range candidates {
+		freq := freqs[w] // 0 if not in result (unknown word)
+		fancyWordCache.Store(w, freq)
 		if freq > 0 && freq <= fancyWordMaxFreq {
 			return true
 		}

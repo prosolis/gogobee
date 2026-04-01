@@ -68,6 +68,9 @@ const (
 	thAdvDiverseMaxShare   = 40
 	thGearheadMinMasterwork = 3
 
+	// Communication (vocabulary)
+	thWordsmithMinFancyWords = 10
+
 	// Social
 	thPatronMinRepGiven      = 5
 	thPatronRatioMultiplier  = 2
@@ -86,6 +89,7 @@ var archetypeFlavors = map[string]string{
 	"Enthusiast":  "Genuinely excited about things. All the things. Possibly all at once.",
 	"Chatterbox":  "Has thoughts. Many thoughts. Shares them all. You wouldn't have it any other way.",
 	"Linkmaster":  "The community's unofficial curator. Their tab count is not your business.",
+	"Wordsmith":   "Uses words most people have to look up. The thesaurus fears them.",
 
 	// Temporal
 	"Night Owl":  "Awake when they probably shouldn't be. Thriving despite all evidence.",
@@ -226,6 +230,7 @@ type userData struct {
 	totalEmojis  int
 	nightMsgs    int
 	morningMsgs  int
+	fancyWords   int
 
 	// sentiment_stats
 	sentPositive int
@@ -273,10 +278,12 @@ func loadUserData(d *sql.DB, userID string) userData {
 
 	// user_stats
 	d.QueryRow(`SELECT total_messages, total_words, total_links, total_images,
-		total_questions, total_exclamations, total_emojis, night_messages, morning_messages
+		total_questions, total_exclamations, total_emojis, night_messages, morning_messages,
+		COALESCE(fancy_words, 0)
 		FROM user_stats WHERE user_id = ?`, userID).Scan(
 		&u.totalMsgs, &u.totalWords, &u.totalLinks, &u.totalImages,
-		&u.totalQuestions, &u.totalExcl, &u.totalEmojis, &u.nightMsgs, &u.morningMsgs)
+		&u.totalQuestions, &u.totalExcl, &u.totalEmojis, &u.nightMsgs, &u.morningMsgs,
+		&u.fancyWords)
 
 	// sentiment_stats
 	d.QueryRow(`SELECT COALESCE(positive,0), COALESCE(negative,0), COALESCE(neutral,0)
@@ -435,6 +442,13 @@ func evaluateArchetypes(u userData, pct communityPercentiles) []archetypeResult 
 		results = append(results, archetypeResult{
 			Name: "Linkmaster", Category: "Communication",
 			SignalScore: clampSignal(float64(lPct-thLinkmasterPct) / float64(thLinkmasterPct)),
+		})
+	}
+
+	if u.fancyWords >= thWordsmithMinFancyWords {
+		results = append(results, archetypeResult{
+			Name: "Wordsmith", Category: "Communication",
+			SignalScore: clampSignal(float64(u.fancyWords) / float64(thWordsmithMinFancyWords*3)),
 		})
 	}
 

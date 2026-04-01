@@ -534,13 +534,11 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 
 	lostEarnings := run.Earnings
 
-	// Kill the character (locked out for 2 hours)
-	char.Alive = false
+	char.Kill()
 	now := time.Now().UTC()
-	deadUntil := now.Add(2 * time.Hour)
-	char.DeadUntil = &deadUntil
 	char.ArenaLosses++
 	char.CombatXP += arenaParticipationXP // +60 flat participation XP
+	checkAdvLevelUp(char, "combat")
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("arena: failed to save character after death", "user", ctx.Sender, "err", err)
 	}

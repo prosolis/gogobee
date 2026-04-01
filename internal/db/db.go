@@ -73,6 +73,7 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE adventure_characters ADD COLUMN masterwork_drops_received INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE adventure_inventory ADD COLUMN slot TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE adventure_inventory ADD COLUMN skill_source TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE user_stats ADD COLUMN fancy_words INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -243,6 +244,7 @@ CREATE TABLE IF NOT EXISTS user_stats (
 	total_emojis INTEGER DEFAULT 0,
 	night_messages INTEGER DEFAULT 0,
 	morning_messages INTEGER DEFAULT 0,
+	fancy_words INTEGER DEFAULT 0,
 	updated_at INTEGER DEFAULT (unixepoch())
 );
 

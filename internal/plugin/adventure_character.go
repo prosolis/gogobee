@@ -195,6 +195,13 @@ func (c *AdventureCharacter) DeathReprieveAvailable() bool {
 	return time.Since(*c.DeathReprieveLast) >= 168*time.Hour
 }
 
+// Kill marks the character as dead with a 2-hour respawn timer.
+func (c *AdventureCharacter) Kill() {
+	c.Alive = false
+	deadUntil := time.Now().UTC().Add(2 * time.Hour)
+	c.DeadUntil = &deadUntil
+}
+
 // ── Equipment Score ──────────────────────────────────────────────────────────
 
 func advEquipmentScore(equip map[EquipmentSlot]*AdvEquipment) int {

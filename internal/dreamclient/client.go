@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -187,6 +188,31 @@ func (c *Client) Frequency(word, lang string) (int, error) {
 		return 0, fmt.Errorf("dreamdict: frequency: decode: %w", err)
 	}
 	return result.Frequency, nil
+}
+
+// FrequencyBatch returns frequency scores for multiple words in a single request.
+func (c *Client) FrequencyBatch(words []string, lang string) (map[string]int, error) {
+	u := c.baseURL + "/frequency/batch?" + url.Values{
+		"words": {strings.Join(words, ",")},
+		"lang":  {lang},
+	}.Encode()
+	resp, err := c.httpClient.Get(u)
+	if err != nil {
+		return nil, fmt.Errorf("dreamdict: frequency batch: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("dreamdict: frequency batch: status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Frequencies map[string]int `json:"frequencies"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("dreamdict: frequency batch: decode: %w", err)
+	}
+	return result.Frequencies, nil
 }
 
 // Health checks if the DreamDict service is reachable and returns stats.
