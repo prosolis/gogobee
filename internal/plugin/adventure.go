@@ -632,6 +632,19 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		return p.SendDM(ctx.Sender, fmt.Sprintf("You are not eligible for %s. Your level or equipment tier is too low.", loc.Name))
 	}
 
+	// Per-location cooldown: 3 hours after a successful run
+	if remaining := advLocationCooldown(char.UserID, loc.Name); remaining > 0 {
+		mins := int(remaining.Minutes())
+		if mins < 1 {
+			return p.SendDM(ctx.Sender, fmt.Sprintf("🕐 %s is still being cleared out. Try again in less than a minute, or pick a different location.", loc.Name))
+		}
+		h, m := mins/60, mins%60
+		if h > 0 {
+			return p.SendDM(ctx.Sender, fmt.Sprintf("🕐 %s is still being cleared out. Try again in %dh %dm, or pick a different location.", loc.Name, h, m))
+		}
+		return p.SendDM(ctx.Sender, fmt.Sprintf("🕐 %s is still being cleared out. Try again in %d minutes, or pick a different location.", loc.Name, m))
+	}
+
 	// Resolve the action
 	result := resolveAdvAction(char, equip, loc, bonuses, inPenaltyZone)
 

@@ -3,9 +3,14 @@ package plugin
 import (
 	"math"
 	"math/rand/v2"
+	"time"
+
+	"gogobee/internal/db"
 
 	"maunium.net/go/mautrix/id"
 )
+
+const advLocationCooldownDuration = 3 * time.Hour
 
 // ── Activity & Outcome Types ─────────────────────────────────────────────────
 
@@ -339,6 +344,33 @@ func computeAdvBonuses(treasures []AdvTreasureBonus, buffs []AdvBuff, streak int
 	return b
 }
 
+// ── Location Cooldown ───────────────────────────────────────────────────────
+
+// advLocationCooldown returns how long until a player can run the same location
+// again. Returns 0 if no cooldown is active. Only successful runs trigger cooldown.
+func advLocationCooldown(userID id.UserID, location string) time.Duration {
+	d := db.Get()
+	var loggedAt string
+	err := d.QueryRow(
+		`SELECT logged_at FROM adventure_activity_log
+		 WHERE user_id = ? AND location = ? AND outcome IN ('success', 'exceptional')
+		 ORDER BY logged_at DESC LIMIT 1`,
+		string(userID), location,
+	).Scan(&loggedAt)
+	if err != nil {
+		return 0
+	}
+	t, err := time.Parse("2006-01-02 15:04:05", loggedAt)
+	if err != nil {
+		return 0
+	}
+	remaining := advLocationCooldownDuration - time.Since(t)
+	if remaining <= 0 {
+		return 0
+	}
+	return remaining
+}
+
 // ── Eligibility ──────────────────────────────────────────────────────────────
 
 // advIsEligible checks if a character can enter a location.
@@ -578,6 +610,20 @@ func advCheckBrokenEquipment(equip map[EquipmentSlot]*AdvEquipment) []EquipmentS
 	return broken
 }
 
+// ── Overlevel Penalty ───────────────────────────────────────────────────────
+
+// advOverlevelMultiplier returns a multiplier (0.05–1.0) that reduces XP and
+// loot when a character's effective level far exceeds the location's minimum.
+// Gap 0-3: no penalty. Gap 4+: −15% per level over 3, floor 5%.
+func advOverlevelMultiplier(effectiveLevel, minLevel int) float64 {
+	gap := effectiveLevel - minLevel
+	if gap <= 3 {
+		return 1.0
+	}
+	mult := 1.0 - 0.15*float64(gap-3)
+	return math.Max(0.05, mult)
+}
+
 // ── Outcome Resolution ───────────────────────────────────────────────────────
 
 type AdvActionResult struct {
@@ -606,6 +652,10 @@ func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEqui
 
 	probs := calculateAdvProbabilities(char, equip, loc, bonuses, inPenaltyZone)
 
+	// Overlevel penalty — reduces loot and XP for farming low-tier content
+	skillLevel := advEffectiveSkill(char, loc.Activity, bonuses)
+	overlevelMult := advOverlevelMultiplier(skillLevel, loc.MinLevel)
+
 	// Roll outcome
 	roll := rand.Float64() * 100
 
@@ -629,6 +679,12 @@ func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEqui
 	// Generate loot for success/exceptional
 	if result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional {
 		result.LootItems = generateAdvLoot(loc, result.Outcome == AdvOutcomeExceptional, bonuses.LootQuality)
+		// Apply overlevel penalty to loot values
+		if overlevelMult < 1.0 {
+			for i := range result.LootItems {
+				result.LootItems[i].Value = max(1, int64(float64(result.LootItems[i].Value)*overlevelMult))
+			}
+		}
 		for _, item := range result.LootItems {
 			result.TotalLootValue += item.Value
 		}
@@ -655,6 +711,10 @@ func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEqui
 	// Ironclad set: Battle-Hardened — +5% XP gain
 	if advEquippedArenaSets(equip)["ironclad"] {
 		xp = int(float64(xp) * 1.05)
+	}
+	// Apply overlevel penalty to XP
+	if overlevelMult < 1.0 {
+		xp = max(1, int(float64(xp)*overlevelMult))
 	}
 	result.XPGained = xp
 
