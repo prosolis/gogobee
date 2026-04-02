@@ -112,6 +112,7 @@ func main() {
 	// Entertainment / Lookup
 	registry.Register(plugin.NewRetroPlugin(client))
 	registry.Register(plugin.NewLookupPlugin(client, ratePlugin, dictClient))
+	registry.Register(plugin.NewDictionaryPlugin(client, dictClient))
 	registry.Register(plugin.NewCountdownPlugin(client))
 	registry.Register(plugin.NewStocksPlugin(client))
 	forexPlugin := plugin.NewForexPlugin(client)

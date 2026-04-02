@@ -215,6 +215,128 @@ func (c *Client) FrequencyBatch(words []string, lang string) (map[string]int, er
 	return result.Frequencies, nil
 }
 
+// Antonyms returns antonyms for a word in a language.
+func (c *Client) Antonyms(word, lang string) ([]string, error) {
+	u := c.baseURL + "/antonyms?" + url.Values{"word": {word}, "lang": {lang}}.Encode()
+	resp, err := c.httpClient.Get(u)
+	if err != nil {
+		return nil, fmt.Errorf("dreamdict: antonyms: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("dreamdict: antonyms: status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Antonyms []string `json:"antonyms"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("dreamdict: antonyms: decode: %w", err)
+	}
+	return result.Antonyms, nil
+}
+
+// Pronunciation holds pronunciation data for a word.
+type Pronunciation struct {
+	Format string `json:"format"`
+	Value  string `json:"value"`
+	Source string `json:"source"`
+}
+
+// Pronunciations returns pronunciation data for a word in a language.
+func (c *Client) Pronunciations(word, lang string) ([]Pronunciation, error) {
+	u := c.baseURL + "/pronunciation?" + url.Values{"word": {word}, "lang": {lang}}.Encode()
+	resp, err := c.httpClient.Get(u)
+	if err != nil {
+		return nil, fmt.Errorf("dreamdict: pronunciation: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("dreamdict: pronunciation: status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Pronunciations []Pronunciation `json:"pronunciations"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("dreamdict: pronunciation: decode: %w", err)
+	}
+	return result.Pronunciations, nil
+}
+
+// Etymology returns the etymology text for a word in a language.
+func (c *Client) Etymology(word, lang string) (string, error) {
+	u := c.baseURL + "/etymology?" + url.Values{"word": {word}, "lang": {lang}}.Encode()
+	resp, err := c.httpClient.Get(u)
+	if err != nil {
+		return "", fmt.Errorf("dreamdict: etymology: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("dreamdict: etymology: status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Etymology string `json:"etymology"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("dreamdict: etymology: decode: %w", err)
+	}
+	return result.Etymology, nil
+}
+
+// Difficulty returns the difficulty score (0.0-1.0) for a word in a language.
+// Returns -1 if the word has no difficulty score.
+func (c *Client) Difficulty(word, lang string) (float64, error) {
+	u := c.baseURL + "/difficulty?" + url.Values{"word": {word}, "lang": {lang}}.Encode()
+	resp, err := c.httpClient.Get(u)
+	if err != nil {
+		return 0, fmt.Errorf("dreamdict: difficulty: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("dreamdict: difficulty: status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Difficulty float64 `json:"difficulty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("dreamdict: difficulty: decode: %w", err)
+	}
+	return result.Difficulty, nil
+}
+
+// Rhymes returns words that rhyme with the given word (English only).
+func (c *Client) Rhymes(word string, limit int) ([]string, error) {
+	params := url.Values{"word": {word}}
+	if limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	u := c.baseURL + "/rhyme?" + params.Encode()
+	resp, err := c.httpClient.Get(u)
+	if err != nil {
+		return nil, fmt.Errorf("dreamdict: rhyme: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("dreamdict: rhyme: status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Rhymes []string `json:"rhymes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("dreamdict: rhyme: decode: %w", err)
+	}
+	return result.Rhymes, nil
+}
+
 // Health checks if the DreamDict service is reachable and returns stats.
 func (c *Client) Health() (*HealthResponse, error) {
 	resp, err := c.httpClient.Get(c.baseURL + "/health")

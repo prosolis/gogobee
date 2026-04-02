@@ -615,6 +615,14 @@ func (p *HangmanPlugin) startMultilingualGame(ctx MessageContext, lang, clueLang
 	p.games[ctx.RoomID] = game
 	p.mu.Unlock()
 
+	// Fetch difficulty tier from DreamDict.
+	diffLabel := ""
+	if p.dict != nil {
+		if diff, err := p.dict.Difficulty(strings.ToLower(word), lang); err == nil && diff >= 0 {
+			diffLabel = " (" + difficultyTier(diff) + ")"
+		}
+	}
+
 	// Build thread root
 	var sb strings.Builder
 	if clueLang != "" {
@@ -622,9 +630,9 @@ func (p *HangmanPlugin) startMultilingualGame(ctx MessageContext, lang, clueLang
 		if clueLangName == "" {
 			clueLangName = clueLang
 		}
-		sb.WriteString(fmt.Sprintf("🐝 **Hangman — %s** (clue: %s)\n", langName, clueLangName))
+		sb.WriteString(fmt.Sprintf("🐝 **Hangman — %s%s** (clue: %s)\n", langName, diffLabel, clueLangName))
 	} else {
-		sb.WriteString(fmt.Sprintf("🐝 **Hangman — %s**\n", langName))
+		sb.WriteString(fmt.Sprintf("🐝 **Hangman — %s%s**\n", langName, diffLabel))
 	}
 	sb.WriteString(fmt.Sprintf("Word: %s   (%d letters)\n", game.displayPhrase(), len([]rune(word))))
 

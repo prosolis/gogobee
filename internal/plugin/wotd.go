@@ -160,6 +160,19 @@ func (p *WOTDPlugin) pickWord(lang string) (string, string, string, string) {
 			transMap["syn"] = synonyms
 		}
 
+		// Fetch etymology
+		if etym, err := p.dict.Etymology(candidate, lang); err == nil && etym != "" {
+			// Truncate for WOTD display (max 200 chars).
+			if len(etym) > 200 {
+				if idx := strings.LastIndex(etym[:200], "."); idx > 100 {
+					etym = etym[:idx+1] + "..."
+				} else {
+					etym = etym[:200] + "..."
+				}
+			}
+			transMap["_etym"] = []string{etym}
+		}
+
 		var translationsJSON string
 		if data, err := json.Marshal(transMap); err == nil {
 			translationsJSON = string(data)
@@ -412,6 +425,13 @@ func (p *WOTDPlugin) formatWOTD(word, definition, partOfSpeech, translationsJSON
 		}
 	} else {
 		sb.WriteString("\n")
+	}
+
+	// Etymology section (if available).
+	if transMap != nil {
+		if etym, ok := transMap["_etym"]; ok && len(etym) > 0 && etym[0] != "" {
+			sb.WriteString(fmt.Sprintf("Etymology\n  %s\n\n", etym[0]))
+		}
 	}
 
 	sb.WriteString("━━━━━━━━━━━━━━━━━━━━\n")

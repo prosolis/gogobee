@@ -193,6 +193,37 @@ func (p *LookupPlugin) handleDefine(ctx MessageContext) error {
 		}
 	}
 
+	// Concurrently fetch antonyms from DreamDict (500ms timeout).
+	if p.dict != nil {
+		type antResult struct {
+			ants []string
+		}
+		ch := make(chan antResult, 1)
+		go func() {
+			ants, err := p.dict.Antonyms(strings.ToLower(word), "en")
+			if err != nil {
+				ch <- antResult{}
+				return
+			}
+			ch <- antResult{ants: ants}
+		}()
+
+		timer := time.NewTimer(500 * time.Millisecond)
+		select {
+		case r := <-ch:
+			timer.Stop()
+			if len(r.ants) > 0 {
+				display := r.ants
+				if len(display) > 3 {
+					display = display[:3]
+				}
+				sb.WriteString(fmt.Sprintf("\nAntonyms: %s\n", strings.Join(display, ", ")))
+			}
+		case <-timer.C:
+			// Timeout — omit antonyms silently.
+		}
+	}
+
 	msg := sb.String()
 	db.CacheSet(cacheKey, msg)
 	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
