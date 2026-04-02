@@ -1,6 +1,6 @@
 # GogoBee
 
-Matrix community bot with E2EE, 49 plugins, passive tracking, scheduled posts, and optional LLM features.
+Matrix community bot with E2EE, 50 plugins, passive tracking, scheduled posts, and optional LLM features.
 
 Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption and [modernc.org/sqlite](https://modernc.org/sqlite) for storage.
 
@@ -29,11 +29,11 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
-- **49 plugins** with dependency injection and ordered registration
-- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-7 letter words, video game themed bonus words with category hints, dupe prevention across last 500 puzzles), Adventure (daily idle RPG via DMs — dungeon, mine, forage, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), all with channel restriction
+- **50 plugins** with dependency injection and ordered registration
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict, difficulty tier display), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-20 letter words, guess persistence across restarts, midnight expiry announcements, video game themed bonus words with category hints, dupe prevention across last 500 puzzles), Adventure (daily idle RPG via DMs — dungeon, mine, forage, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
-- **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - Palavra do Dia (Portuguese WOTD with en/fr translations), holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
+- **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - Palavra do Dia (Portuguese WOTD with en/fr translations and etymology), holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
 - **LLM integration** (optional) - Ollama-powered sentiment analysis, roast profiles, room vibes, tarot readings, conversation summaries
 - **Markdown rendering** - auto-detects `**bold**`, `_italic_`, and `` `code` `` in messages and sends proper HTML to Matrix clients
 - **Encrypted quote wall** - AES-256-GCM encrypted quotes at rest, reply-to-save, search, leaderboard
@@ -107,7 +107,7 @@ Everything is configured through environment variables or a `.env` file.
 | Variable | Service | Used By |
 |----------|---------|---------|
 | `RAWG_API_KEY` | [RAWG](https://rawg.io/apidocs) | `!game`, `!retro`, `!releases` |
-| `DREAMDICT_URL` | DreamDict (self-hosted) | `!translate`, `!wotd`, Hangman multilingual clues, Wordle (guess validation + definitions) |
+| `DREAMDICT_URL` | DreamDict (self-hosted) | `!translate`, `!wotd`, `!antonym`, `!pronounce`, `!etymology`, `!difficulty`, `!rhyme`, `!define` (antonyms), Hangman (multilingual clues + difficulty tier), Wordle (word selection + guess validation + definitions) |
 | `CALENDARIFIC_API_KEY` | [Calendarific](https://calendarific.com) | Holiday posts |
 | `OPENWEATHER_API_KEY` | [OpenWeather](https://openweathermap.org/api) | `!weather` |
 | `FINNHUB_API_KEY` | [Finnhub](https://finnhub.io) | `!stock` |
@@ -121,7 +121,7 @@ Everything is configured through environment variables or a `.env` file.
 |----------|-------------|
 | `OLLAMA_HOST` | Ollama server URL, e.g. `http://localhost:11434` |
 | `OLLAMA_MODEL` | Model name, e.g. `llama3.2` |
-| `DREAMDICT_URL` | DreamDict instance for `!translate`, `!wotd`, Hangman clues (e.g. `http://127.0.0.1:7777`) |
+| `DREAMDICT_URL` | DreamDict instance for `!translate`, `!wotd`, dictionary commands, Hangman clues, Wordle words (e.g. `http://127.0.0.1:7777`) |
 | `LLM_SAMPLE_RATE` | Fraction of messages to classify (0.0–1.0, default `0.15`) |
 
 ### Encryption
@@ -184,7 +184,7 @@ Everything is configured through environment variables or a `.env` file.
 | `HOLDEM_NPC_NAME` | `TwinBee` | NPC bot display name |
 | `HOLDEM_NPC_HOUSE_BALANCE` | `10000` | NPC starting bankroll |
 | `HOLDEM_CFR_POLICY` | `data/policy.gob` | Path to CFR policy file |
-| `WORDLE_DEFAULT_LENGTH` | `5` | Default word length (5, 6, or 7) |
+| `WORDLE_DEFAULT_LENGTH` | `5` | Default word length (5-20) |
 | `ADVENTURE_MORNING_HOUR` | `8` | Hour (UTC) to send morning DMs with daily choices |
 | `ADVENTURE_SUMMARY_HOUR` | `20` | Hour (UTC) to post daily summary to games room |
 
@@ -458,7 +458,7 @@ Progress is logged with overall completion percentage and ETA. Checkpoints are s
 
 ### Wordle (games channel only)
 
-Daily cooperative Wordle — one puzzle per day, the community works together with a shared 6-guess limit. Word selection and validation powered by the Wordnik API (`WORDNIK_API_KEY`). A new puzzle auto-posts at midnight UTC. Word length is configurable (5-7 letters). Falls back to a bundled word list if the API is unavailable. The puzzle pool includes video game themed words (loaded from `data/wordle_games.txt`) — when one is selected, a category hint is shown. Duplicate prevention ensures the same word won't appear within the last 500 puzzles.
+Daily cooperative Wordle — one puzzle per day, the community works together with a shared 6-guess limit. Word selection powered by DreamDict with a bundled word list as fallback. A new puzzle auto-posts at midnight UTC. Word length is configurable (5-20 letters). Guesses persist across bot restarts. When a puzzle expires at midnight, the bot reveals the answer and announces it to the room. The puzzle pool includes video game themed words (loaded from `data/wordle_games.txt`) — when one is selected, a category hint is shown. Duplicate prevention ensures the same word won't appear within the last 500 puzzles.
 
 | Command | Description |
 |---------|-------------|
@@ -466,7 +466,7 @@ Daily cooperative Wordle — one puzzle per day, the community works together wi
 | `!wordle grid` | Re-post the current puzzle grid |
 | `!wordle stats` | All-time leaderboard with community streak |
 | `!wordle new` | Start a new puzzle (admin) |
-| `!wordle new <5\|6\|7>` | New puzzle with specific word length (admin) |
+| `!wordle new <5-20>` | New puzzle with specific word length (admin) |
 | `!wordle skip` | Reveal answer and end puzzle (admin) |
 | `!wordle help` | Show commands |
 
@@ -607,13 +607,18 @@ A multi-tier combat gauntlet independent of the daily adventure action. Fight th
 | `!movie watch\|watching\|unwatch` | Movie watchlist |
 | `!upcoming movies` | Upcoming movies |
 
-### Lookup
+### Lookup & Reference
 | Command | Description |
 |---------|-------------|
 | `!wiki <topic>` | Wikipedia summary |
-| `!define <word>` | Dictionary definition |
+| `!define <word>` | Dictionary definition (includes antonyms from DreamDict when available) |
 | `!urban <term>` | Urban Dictionary |
 | `!translate <word> [lang]` | Cross-language word lookup (en/fr/pt-PT, auto-detects source) |
+| `!antonym <word> [lang]` | Antonyms for a word (en/fr/pt-PT/zh) |
+| `!pronounce <word> [lang]` | Pronunciation data — IPA, CMU phonemes (en), Pinyin (zh) |
+| `!etymology <word> [lang]` | Word origin and history from Wiktionary |
+| `!difficulty <word> [lang]` | Difficulty score (Easy/Medium/Hard/Brutal) with frequency info |
+| `!rhyme <word>` | Rhyming words via CMU phoneme matching (English only, `--all` for full list) |
 
 ### Personal
 | Command | Description |
@@ -724,7 +729,7 @@ A multi-tier combat gauntlet independent of the daily adventure action. Fight th
 | Command | Description |
 |---------|-------------|
 | `!achievements [@user]` | Unlocked achievements |
-| `!wotd` | Today's Palavra do Dia — Portuguese word with en/fr translations (use it in chat for 25 XP) |
+| `!wotd` | Today's Palavra do Dia — Portuguese word with en/fr translations, etymology when available (use it in chat for 25 XP) |
 | `!wotd force` | Pick a new word for today (moderator only) |
 | `!botinfo` | Bot diagnostics (admin only) |
 | `!help` | DMs the full command list |
@@ -861,7 +866,7 @@ All optional. The bot works fine without any of them, you just won't have those 
 | Service | Free? | What for |
 |---------|-------|----------|
 | [RAWG](https://rawg.io/apidocs) | Yes | Game lookups, releases |
-| DreamDict | Self-host | Translations, WOTD, Hangman clues, Wordle validation |
+| DreamDict | Self-host | Translations, WOTD (etymology), Hangman (clues + difficulty), Wordle (word selection + validation), dictionary commands (antonyms, pronunciation, etymology, difficulty, rhymes) |
 | [Calendarific](https://calendarific.com) | Yes (1k/mo) | Holiday calendar |
 | [HebCal](https://www.hebcal.com) | Yes, no key | Jewish holidays |
 | [Aladhan](https://aladhan.com/prayer-times-api) | Yes, no key | Islamic dates |
@@ -930,6 +935,7 @@ gogobee/
 │   │   ├── birthday.go      # Birthdays
 │   │   ├── retro.go         # Game lookups (RAWG)
 │   │   ├── lookup.go        # Wiki, dictionary, urban, translate
+│   │   ├── dictionary.go    # DreamDict commands (antonym, pronounce, etymology, difficulty, rhyme)
 │   │   ├── countdown.go     # Countdowns
 │   │   ├── stocks.go        # Stocks
 │   │   ├── market.go        # Market indices (Yahoo Finance + Finnhub fallback)
