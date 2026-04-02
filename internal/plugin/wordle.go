@@ -180,6 +180,13 @@ func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 	}
 	puzzle.Guesses = append(puzzle.Guesses, g)
 
+	// Persist guess to DB so it survives restarts.
+	db.Exec("wordle: persist guess",
+		`INSERT INTO wordle_guesses (puzzle_id, room_id, guess_num, word, player_id, player_name, guessed_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		puzzle.PuzzleID, string(puzzle.RoomID), len(puzzle.Guesses), guess, string(ctx.Sender), displayName, now,
+	)
+
 	// Check for win.
 	if guess == puzzle.Answer {
 		puzzle.Solved = true
@@ -235,7 +242,7 @@ func (p *WordlePlugin) handleNew(ctx MessageContext, args string) error {
 	category := WordleCategoryEN
 	parts := strings.Fields(args)
 
-	// Parse optional arguments: language (pt/fr) and/or length (5/6/7)
+	// Parse optional arguments: language (pt/fr) and/or length (5-20)
 	for _, part := range parts[1:] {
 		lower := strings.ToLower(part)
 		switch lower {
@@ -353,6 +360,11 @@ func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int, cat
 		today, string(roomID), word, wordLength, string(category), now,
 		word, wordLength, string(category), now,
 	)
+	// Clear any stale guesses from a previous puzzle on the same day (e.g. after skip+new).
+	db.Exec("wordle: clear old guesses",
+		`DELETE FROM wordle_guesses WHERE puzzle_id = ? AND room_id = ?`,
+		today, string(roomID),
+	)
 
 	p.mu.Lock()
 	p.puzzles[roomID] = puzzle
@@ -432,6 +444,29 @@ func wordleCategoryHint(category WordleCategory) string {
 	return ""
 }
 
+// expireUnsolved marks an active puzzle as failed and posts an announcement.
+// Must be called without holding p.mu.
+func (p *WordlePlugin) expireUnsolved(roomID id.RoomID) {
+	p.mu.Lock()
+	existing := p.puzzles[roomID]
+	if existing == nil || existing.Solved || existing.Failed {
+		p.mu.Unlock()
+		return
+	}
+	existing.Failed = true
+	p.markPuzzleDone(existing)
+	p.updateStats(existing)
+	p.mu.Unlock()
+
+	definition := p.fetchDefinition(existing.Answer)
+	defLine := ""
+	if definition != "" {
+		defLine = fmt.Sprintf("\n📖 *%s*\n", definition)
+	}
+	p.SendMessage(roomID,
+		fmt.Sprintf("⏰ **Time's up!** Yesterday's puzzle expired.\nThe word was **%s**.%s", existing.Answer, defLine))
+}
+
 // PostDailyPuzzle is called by the scheduler to post today's puzzle.
 func (p *WordlePlugin) PostDailyPuzzle(roomID id.RoomID) error {
 	today := time.Now().UTC().Format("2006-01-02")
@@ -444,6 +479,9 @@ func (p *WordlePlugin) PostDailyPuzzle(roomID id.RoomID) error {
 		return nil // already posted
 	}
 	p.mu.Unlock()
+
+	// Announce expiry of yesterday's unsolved puzzle before creating the new one.
+	p.expireUnsolved(roomID)
 
 	return p.createAndPostPuzzle(roomID, p.defaultLength, WordleCategoryEN)
 }
@@ -739,12 +777,48 @@ func (p *WordlePlugin) rehydratePuzzles() {
 			LetterStates: make(map[rune]LetterResult),
 		}
 
+		// Reload persisted guesses.
+		guessRows, err := d.Query(
+			`SELECT word, player_id, player_name, guessed_at FROM wordle_guesses
+			 WHERE puzzle_id = ? AND room_id = ? ORDER BY guess_num ASC`,
+			pr.pid, pr.roomStr,
+		)
+		if err == nil {
+			for guessRows.Next() {
+				var word, playerID, playerName string
+				var guessedAt time.Time
+				if err := guessRows.Scan(&word, &playerID, &playerName, &guessedAt); err != nil {
+					continue
+				}
+				results := scoreGuess(word, puzzle.Answer)
+				updateLetterStates(puzzle.LetterStates, word, results)
+				puzzle.Guesses = append(puzzle.Guesses, WordleGuess{
+					Word:       word,
+					PlayerID:   id.UserID(playerID),
+					PlayerName: playerName,
+					Results:    results,
+					Timestamp:  guessedAt,
+				})
+			}
+			guessRows.Close()
+		}
+
+		// Check if puzzle is actually done (guesses may have filled up).
+		if len(puzzle.Guesses) >= puzzle.MaxGuesses {
+			puzzle.Failed = true
+			continue
+		}
+		if len(puzzle.Guesses) > 0 && puzzle.Guesses[len(puzzle.Guesses)-1].Word == puzzle.Answer {
+			puzzle.Solved = true
+			continue
+		}
+
 		p.mu.Lock()
 		p.puzzles[roomID] = puzzle
 		p.validCache[pr.pid] = make(map[string]bool)
 		p.mu.Unlock()
 
-		slog.Info("wordle: rehydrated puzzle", "room", roomID, "answer_len", pr.wordLength)
+		slog.Info("wordle: rehydrated puzzle", "room", roomID, "answer_len", pr.wordLength, "guesses", len(puzzle.Guesses))
 	}
 }
 
@@ -788,6 +862,9 @@ func (p *WordlePlugin) checkAndPostDaily() {
 		slog.Error("wordle: check daily puzzle", "err", err)
 		return
 	}
+
+	// Announce expiry of yesterday's unsolved puzzle before creating the new one.
+	p.expireUnsolved(gr)
 
 	slog.Info("wordle: posting daily puzzle", "room", gr)
 	if err := p.createAndPostPuzzle(gr, p.defaultLength, WordleCategoryEN); err != nil {

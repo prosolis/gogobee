@@ -822,6 +822,17 @@ CREATE TABLE IF NOT EXISTS wordle_puzzles (
 	PRIMARY KEY (puzzle_id, room_id)
 );
 
+CREATE TABLE IF NOT EXISTS wordle_guesses (
+	puzzle_id    TEXT NOT NULL,
+	room_id      TEXT NOT NULL,
+	guess_num    INTEGER NOT NULL,
+	word         TEXT NOT NULL,
+	player_id    TEXT NOT NULL,
+	player_name  TEXT NOT NULL,
+	guessed_at   DATETIME NOT NULL,
+	PRIMARY KEY (puzzle_id, room_id, guess_num)
+);
+
 -- Space groups (rooms with overlapping membership)
 CREATE TABLE IF NOT EXISTS space_groups (
 	room_id    TEXT PRIMARY KEY,

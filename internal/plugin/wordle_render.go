@@ -21,9 +21,9 @@ func letterEmoji(r LetterResult) string {
 func renderWordleGrid(puzzle *WordlePuzzle) string {
 	var sb strings.Builder
 
-	status := fmt.Sprintf("%d/6", len(puzzle.Guesses))
+	status := fmt.Sprintf("%d/%d", len(puzzle.Guesses), puzzle.MaxGuesses)
 	if puzzle.Solved {
-		status += "  🟩🟩🟩🟩🟩"
+		status += "  " + strings.Repeat("🟩", puzzle.WordLength)
 	}
 	sb.WriteString(fmt.Sprintf("🟩 **Wordle #%d** — %s\n\n", puzzle.PuzzleNumber, status))
 
@@ -74,8 +74,8 @@ func renderKeyboard(states map[rune]LetterResult) string {
 // renderWordleStartAnnouncement renders the puzzle start message.
 func renderWordleStartAnnouncement(puzzleNumber, wordLength int, hint string) string {
 	base := fmt.Sprintf(
-		"🟩 **Daily Wordle #%d**\nA new %d-letter puzzle is ready! Work together — 6 guesses shared.",
-		puzzleNumber, wordLength,
+		"🟩 **Daily Wordle #%d**\nA new %d-letter puzzle is ready! Work together — %d guesses shared.",
+		puzzleNumber, wordLength, wordleMaxGuesses(wordLength),
 	)
 	if hint != "" {
 		base += fmt.Sprintf("\n💡 **Hint:** %s", hint)
@@ -91,7 +91,7 @@ func renderSolvedAnnouncement(puzzle *WordlePuzzle, definition string, payouts [
 	// Find the solver.
 	lastGuess := puzzle.Guesses[len(puzzle.Guesses)-1]
 
-	sb.WriteString(fmt.Sprintf("🎉 **Solved in %d/6!**\n", len(puzzle.Guesses)))
+	sb.WriteString(fmt.Sprintf("🎉 **Solved in %d/%d!**\n", len(puzzle.Guesses), puzzle.MaxGuesses))
 	sb.WriteString(fmt.Sprintf("The word was **%s** — solved by %s on guess %d.\n",
 		puzzle.Answer, lastGuess.PlayerName, len(puzzle.Guesses)))
 
@@ -144,7 +144,7 @@ func renderSolvedAnnouncement(puzzle *WordlePuzzle, definition string, payouts [
 func renderFailedAnnouncement(puzzle *WordlePuzzle, definition string) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("💀 **Puzzle failed — 6/6**\nThe word was **%s**.\n", puzzle.Answer))
+	sb.WriteString(fmt.Sprintf("💀 **Puzzle failed — %d/%d**\nThe word was **%s**.\n", puzzle.MaxGuesses, puzzle.MaxGuesses, puzzle.Answer))
 
 	if definition != "" {
 		sb.WriteString(fmt.Sprintf("\n📖 *%s*\n", definition))
