@@ -35,7 +35,7 @@ type WordlePlugin struct {
 func NewWordlePlugin(client *mautrix.Client, euro *EuroPlugin, dict *dreamclient.Client) *WordlePlugin {
 	length := 5
 	if v := os.Getenv("WORDLE_DEFAULT_LENGTH"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 5 && n <= 7 {
+		if n, err := strconv.Atoi(v); err == nil && n >= 5 && n <= 20 {
 			length = n
 		}
 	}
@@ -110,7 +110,7 @@ func (p *WordlePlugin) handleHelp(ctx MessageContext) error {
 			"`!wordle grid` — Re-post current puzzle grid\n"+
 			"`!wordle stats` — All-time leaderboard\n"+
 			"`!wordle new` — Start a new puzzle (admin)\n"+
-			"`!wordle new <5|6|7>` — New puzzle with specific length (admin)\n"+
+			"`!wordle new <5-20>` — New puzzle with specific length (admin)\n"+
 			"`!wordle new pt` — Portuguese puzzle (admin)\n"+
 			"`!wordle new fr` — French puzzle (admin)\n"+
 			"`!wordle skip` — Reveal answer and end puzzle (admin)")
@@ -244,7 +244,7 @@ func (p *WordlePlugin) handleNew(ctx MessageContext, args string) error {
 		case "fr", "french":
 			category = WordleCategoryFR
 		default:
-			if n, err := strconv.Atoi(part); err == nil && n >= 5 && n <= 7 {
+			if n, err := strconv.Atoi(part); err == nil && n >= 5 && n <= 20 {
 				wordLength = n
 			}
 		}
@@ -318,14 +318,8 @@ func (p *WordlePlugin) handleStats(ctx MessageContext) error {
 
 // createAndPostPuzzle creates a new puzzle, persists it, and posts the announcement.
 func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int, category WordleCategory) error {
-	// Pick word from the appropriate pool.
-	var word string
-	switch category {
-	case WordleCategoryPT, WordleCategoryFR:
-		word = pickLanguageWord(category, wordLength)
-	default:
-		word = pickFallbackWord(wordLength)
-	}
+	// Pick word from DreamDict, falling back to the local word pool.
+	word := p.pickWord(wordLength, category)
 	if word == "" {
 		return p.SendMessage(roomID, "Failed to select a puzzle word — no words available for that length/language.")
 	}
@@ -345,7 +339,7 @@ func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int, cat
 		RoomID:       roomID,
 		Answer:       word,
 		WordLength:   wordLength,
-		MaxGuesses:   6,
+		MaxGuesses:   wordleMaxGuesses(wordLength),
 		Category:     category,
 		StartedAt:    now,
 		LetterStates: make(map[rune]LetterResult),
@@ -373,6 +367,56 @@ func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int, cat
 
 	hint := wordleCategoryHint(category)
 	return p.SendMessage(roomID, renderWordleStartAnnouncement(puzzleNumber, wordLength, hint))
+}
+
+// pickWord tries DreamDict's RandomWord API first, falling back to the local
+// word pool if DreamDict is unavailable or only returns recently-used words.
+func (p *WordlePlugin) pickWord(length int, category WordleCategory) string {
+	if p.dict != nil {
+		recent := loadRecentWordleAnswers(500)
+		lang := categoryLang(category)
+
+		// Try a few times to get a word that hasn't been used recently.
+		for range 10 {
+			word, err := p.dict.RandomWord(lang, "", length, length)
+			if err != nil {
+				slog.Warn("wordle: DreamDict random word failed, falling back", "err", err)
+				break
+			}
+			word = strings.ToUpper(word)
+			// Verify the word is exactly the right length and contains only letters.
+			runes := []rune(word)
+			if len(runes) != length {
+				continue
+			}
+			clean := true
+			for _, r := range runes {
+				if r < 'A' || r > 'Z' {
+					clean = false
+					break
+				}
+			}
+			if !clean {
+				continue
+			}
+			if !recent[word] {
+				return word
+			}
+		}
+	}
+
+	// Fallback to local word pools.
+	switch category {
+	case WordleCategoryPT, WordleCategoryFR:
+		return pickLanguageWord(category, length)
+	default:
+		return pickFallbackWord(length)
+	}
+}
+
+// wordleMaxGuesses returns the number of allowed guesses for a given word length.
+func wordleMaxGuesses(length int) int {
+	return 6
 }
 
 // wordleCategoryHint returns the hint string for a puzzle category.
@@ -665,7 +709,7 @@ func (p *WordlePlugin) rehydratePuzzles() {
 			continue
 		}
 
-		if solved == 1 || guessCount >= 6 {
+		if solved == 1 || guessCount >= wordleMaxGuesses(wordLength) {
 			continue // already done
 		}
 
@@ -689,7 +733,7 @@ func (p *WordlePlugin) rehydratePuzzles() {
 			RoomID:       roomID,
 			Answer:       pr.answer,
 			WordLength:   pr.wordLength,
-			MaxGuesses:   6,
+			MaxGuesses:   wordleMaxGuesses(pr.wordLength),
 			Category:     WordleCategory(pr.category),
 			StartedAt:    pr.startedAt,
 			LetterStates: make(map[rune]LetterResult),

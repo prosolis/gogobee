@@ -75,19 +75,21 @@ func (p *WOTDPlugin) OnMessage(ctx MessageContext) error {
 // For non-English languages, requires English translations and filters cognates.
 // For all languages, fetches synonyms and cross-translations.
 func (p *WOTDPlugin) pickWord(lang string) (string, string, string, string) {
-	// Define which other languages to translate into
+	// Define which other languages to optionally translate into.
+	// English translation is required for non-English words; others are best-effort.
 	type transTarget struct {
-		lang string
-		key  string
+		lang     string
+		key      string
+		required bool
 	}
 	var targets []transTarget
 	switch lang {
 	case "pt-PT":
-		targets = []transTarget{{"en", "en"}, {"fr", "fr"}}
+		targets = []transTarget{{"en", "en", false}, {"fr", "fr", false}}
 	case "fr":
-		targets = []transTarget{{"en", "en"}, {"pt-PT", "pt-PT"}}
+		targets = []transTarget{{"en", "en", false}, {"pt-PT", "pt-PT", false}}
 	case "en":
-		targets = []transTarget{{"fr", "fr"}, {"pt-PT", "pt-PT"}}
+		targets = []transTarget{{"fr", "fr", false}, {"pt-PT", "pt-PT", false}}
 	}
 
 	for attempt := 0; attempt < 100; attempt++ {
@@ -106,19 +108,38 @@ func (p *WOTDPlugin) pickWord(lang string) (string, string, string, string) {
 
 		for _, t := range targets {
 			trans, _ := p.dict.Translate(candidate, lang, t.lang)
-			if len(trans) == 0 {
+			if len(trans) == 0 && t.required {
 				valid = false
 				break
 			}
-			transMap[t.key] = trans
+			if len(trans) > 0 {
+				transMap[t.key] = trans
+			}
 		}
 		if !valid {
 			continue
 		}
 
-		// For non-English words, filter cognates where the English translation
-		// is just the word itself
+		// For non-English words, reject English words that leaked into the
+		// foreign language database.
 		if lang != "en" {
+			// Skip if the word is a valid English word — it's almost certainly
+			// not a real Portuguese/French word.
+			if engValid, _ := p.dict.IsValidWord(candidate, "en"); engValid {
+				continue
+			}
+
+			// If no English translation from DreamDict, ask the LLM.
+			if _, ok := transMap["en"]; !ok {
+				if llmTrans := p.llmTranslate(candidate, lang); llmTrans != "" {
+					transMap["en"] = []string{llmTrans}
+				} else {
+					continue // can't provide any English meaning, skip
+				}
+			}
+
+			// Skip if the English translation is just the word itself
+			// (cognate with no meaningful translation).
 			if enTrans, ok := transMap["en"]; ok {
 				meaningfulEn := false
 				for _, t := range enTrans {
@@ -232,27 +253,6 @@ func (p *WOTDPlugin) prefetchWord(force bool) error {
 	return nil
 }
 
-// hasTranslations checks whether the stored translations JSON has at least one translation
-// (excluding metadata keys like _lang and syn).
-func hasTranslations(translationsJSON string) bool {
-	if translationsJSON == "" {
-		return false
-	}
-	var transMap map[string][]string
-	if json.Unmarshal([]byte(translationsJSON), &transMap) != nil {
-		return false
-	}
-	for k, v := range transMap {
-		if strings.HasPrefix(k, "_") || k == "syn" {
-			continue
-		}
-		if len(v) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // PostWOTD posts today's Word of the Day to the given room and marks it as posted.
 func (p *WOTDPlugin) PostWOTD(roomID id.RoomID) error {
 	today := time.Now().UTC().Format("2006-01-02")
@@ -282,20 +282,6 @@ func (p *WOTDPlugin) PostWOTD(roomID id.RoomID) error {
 		}
 	} else if err != nil {
 		return fmt.Errorf("wotd: query: %w", err)
-	}
-
-	// Re-prefetch if stored word is missing English translation
-	if !hasTranslations(example) {
-		slog.Warn("wotd: stored word missing English translation, forcing re-prefetch", "word", word)
-		if err := p.prefetchWord(true); err != nil {
-			return fmt.Errorf("wotd: re-prefetch failed: %w", err)
-		}
-		err = d.QueryRow(
-			`SELECT word, definition, part_of_speech, example FROM wotd_log WHERE date = ?`, today,
-		).Scan(&word, &definition, &partOfSpeech, &example)
-		if err != nil {
-			return fmt.Errorf("wotd: still no valid entry after re-prefetch: %w", err)
-		}
 	}
 
 	msg := p.formatWOTD(word, definition, partOfSpeech, example)
@@ -329,24 +315,6 @@ func (p *WOTDPlugin) handleWOTD(ctx MessageContext) error {
 	if err != nil {
 		slog.Error("wotd: query", "err", err)
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to fetch Word of the Day.")
-	}
-
-	// Re-prefetch if stored word is missing English translation
-	if !hasTranslations(example) {
-		slog.Warn("wotd: stored word missing English translation, forcing re-prefetch", "word", word)
-		if err := p.prefetchWord(true); err != nil {
-			slog.Error("wotd: re-prefetch failed", "err", err)
-			return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to fetch Word of the Day. Try again later.")
-		}
-		d := db.Get()
-		err = d.QueryRow(
-			`SELECT word, definition, part_of_speech, example FROM wotd_log WHERE date = ?`,
-			time.Now().UTC().Format("2006-01-02"),
-		).Scan(&word, &definition, &partOfSpeech, &example)
-		if err != nil {
-			slog.Error("wotd: query after re-prefetch", "err", err)
-			return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to fetch Word of the Day.")
-		}
 	}
 
 	msg := p.formatWOTD(word, definition, partOfSpeech, example)
@@ -592,6 +560,74 @@ Respond with ONLY "yes" or "no".`, message, word)
 	accepted := strings.HasPrefix(answer, "yes")
 	slog.Debug("wotd: LLM verification", "word", word, "answer", answer, "accepted", accepted)
 	return accepted
+}
+
+// llmTranslate asks the LLM for a brief English translation of a foreign word.
+// Returns empty string on failure.
+func (p *WOTDPlugin) llmTranslate(word, lang string) string {
+	host := os.Getenv("OLLAMA_HOST")
+	model := os.Getenv("OLLAMA_MODEL")
+	if host == "" || model == "" {
+		return ""
+	}
+
+	langName := map[string]string{
+		"pt-PT": "Portuguese",
+		"fr":    "French",
+	}[lang]
+	if langName == "" {
+		langName = lang
+	}
+
+	prompt := fmt.Sprintf(
+		`Translate the %s word "%s" into English. Reply with ONLY the English translation — one or two words, no explanation, no punctuation.`,
+		langName, word)
+
+	payload := map[string]interface{}{
+		"model":  model,
+		"prompt": prompt,
+		"stream": false,
+		"think":  false,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+
+	apiURL := strings.TrimRight(host, "/") + "/api/generate"
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Post(apiURL, "application/json", bytes.NewReader(data))
+	if err != nil {
+		slog.Error("wotd: LLM translate request failed", "err", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var result struct {
+		Response string `json:"response"`
+	}
+	if json.Unmarshal(body, &result) != nil {
+		return ""
+	}
+
+	response := result.Response
+	if i := strings.Index(response, "<think>"); i != -1 {
+		if j := strings.Index(response, "</think>"); j != -1 {
+			response = response[:i] + response[j+len("</think>"):]
+		}
+	}
+	translation := strings.TrimSpace(response)
+	if translation == "" || len(translation) > 50 {
+		return ""
+	}
+
+	slog.Debug("wotd: LLM translation", "word", word, "lang", lang, "translation", translation)
+	return translation
 }
 
 // grantWOTDXP inserts XP directly via SQL to avoid cross-plugin dependency.

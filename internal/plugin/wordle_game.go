@@ -41,7 +41,7 @@ type WordlePuzzle struct {
 	RoomID       id.RoomID
 	Answer       string // uppercased
 	WordLength   int
-	MaxGuesses   int // always 6
+	MaxGuesses   int
 	Category     WordleCategory
 	Guesses      []WordleGuess
 	Solved       bool
