@@ -121,15 +121,15 @@ func (p *EuroPlugin) awardPassiveEuros(ctx MessageContext) {
 	var amount float64
 	switch {
 	case words >= 51:
-		amount = 10.00
+		amount = 20.00
 	case words >= 26:
-		amount = 5.00
+		amount = 10.00
 	case words >= 11:
-		amount = 2.50
+		amount = 5.00
 	case words >= 4:
-		amount = 1.25
+		amount = 2.50
 	default:
-		amount = 0.50
+		amount = 1.00
 	}
 
 	p.ensureBalance(ctx.Sender)

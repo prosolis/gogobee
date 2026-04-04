@@ -637,7 +637,7 @@ type WordlePayout struct {
 }
 
 // wordleBasePots maps guess count to euro prize pot. Fewer guesses = bigger reward.
-var wordleBasePots = [7]int{0, 100, 80, 60, 45, 35, 25}
+var wordleBasePots = [7]int{0, 500, 350, 250, 150, 100, 75}
 
 // awardPrize credits euros to all contributors when a puzzle is solved.
 // The solver who got the final guess gets a 50% bonus on their share.
@@ -671,8 +671,8 @@ func (p *WordlePlugin) awardPrize(puzzle *WordlePuzzle) []WordlePayout {
 
 	numPlayers := len(contributors)
 	share := pot / numPlayers
-	if share < 5 {
-		share = 5
+	if share < 10 {
+		share = 10
 	}
 	solverBonus := share / 2
 

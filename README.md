@@ -611,7 +611,7 @@ A multi-tier combat gauntlet independent of the daily adventure action. Fight th
 | Command | Description |
 |---------|-------------|
 | `!wiki <topic>` | Wikipedia summary |
-| `!define <word>` | Dictionary definition (includes antonyms from DreamDict when available) |
+| `!define <word> [lang]` | Dictionary definition — searches all languages via DreamDict by default, or specify one (en/fr/pt-PT/zh). Includes antonyms when available. Falls back to free dictionary API for English if DreamDict is unavailable. |
 | `!urban <term>` | Urban Dictionary |
 | `!translate <word> [lang]` | Cross-language word lookup (en/fr/pt-PT, auto-detects source) |
 | `!antonym <word> [lang]` | Antonyms for a word (en/fr/pt-PT/zh) |

@@ -49,8 +49,13 @@ type AdventureCharacter struct {
 	GrudgeLocation   string
 	CreatedAt        time.Time
 	LastActiveAt     time.Time
-	DeathReprieveLast      *time.Time
+	DeathReprieveLast       *time.Time
 	MasterworkDropsReceived int
+	RivalPool               int
+	RivalUnlockedNotified   bool
+	BabysitActive           bool
+	BabysitExpiresAt        *time.Time
+	BabysitSkillFocus       string
 }
 
 type AdvEquipment struct {
@@ -289,8 +294,8 @@ func checkAdvLevelUp(char *AdventureCharacter, skill string) (bool, int) {
 func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	d := db.Get()
 	c := &AdventureCharacter{}
-	var alive, actionTaken, holidayTaken int
-	var deadUntil, reprieveLast sql.NullTime
+	var alive, actionTaken, holidayTaken, rivalUnlocked, babysitAct int
+	var deadUntil, reprieveLast, babysitExp sql.NullTime
 
 	err := d.QueryRow(`
 		SELECT user_id, display_name,
@@ -300,7 +305,9 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		       arena_wins, arena_losses, invasion_score, title,
 		       current_streak, best_streak, last_action_date, grudge_location,
 		       created_at, last_active_at, death_reprieve_last,
-		       masterwork_drops_received
+		       masterwork_drops_received,
+		       rival_pool, rival_unlocked_notified,
+		       babysit_active, babysit_expires_at, babysit_skill_focus
 		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -310,6 +317,8 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&c.CurrentStreak, &c.BestStreak, &c.LastActionDate, &c.GrudgeLocation,
 		&c.CreatedAt, &c.LastActiveAt, &reprieveLast,
 		&c.MasterworkDropsReceived,
+		&c.RivalPool, &rivalUnlocked,
+		&babysitAct, &babysitExp, &c.BabysitSkillFocus,
 	)
 	if err != nil {
 		return nil, err
@@ -317,11 +326,16 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	c.Alive = alive == 1
 	c.ActionTakenToday = actionTaken == 1
 	c.HolidayActionTaken = holidayTaken == 1
+	c.RivalUnlockedNotified = rivalUnlocked == 1
+	c.BabysitActive = babysitAct == 1
 	if deadUntil.Valid {
 		c.DeadUntil = &deadUntil.Time
 	}
 	if reprieveLast.Valid {
 		c.DeathReprieveLast = &reprieveLast.Time
+	}
+	if babysitExp.Valid {
+		c.BabysitExpiresAt = &babysitExp.Time
 	}
 	return c, nil
 }
@@ -369,6 +383,14 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 	if char.HolidayActionTaken {
 		holidayTaken = 1
 	}
+	rivalUnlocked := 0
+	if char.RivalUnlockedNotified {
+		rivalUnlocked = 1
+	}
+	babysitAct := 0
+	if char.BabysitActive {
+		babysitAct = 1
+	}
 
 	_, err := d.Exec(`
 		UPDATE adventure_characters SET
@@ -378,14 +400,19 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 			arena_wins = ?, arena_losses = ?, invasion_score = ?, title = ?,
 			current_streak = ?, best_streak = ?, last_action_date = ?, grudge_location = ?,
 			last_active_at = CURRENT_TIMESTAMP, death_reprieve_last = ?,
-			masterwork_drops_received = ?
+			masterwork_drops_received = ?,
+			rival_pool = ?, rival_unlocked_notified = ?,
+			babysit_active = ?, babysit_expires_at = ?, babysit_skill_focus = ?
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
 		alive, char.DeadUntil, actionTaken, holidayTaken,
 		char.ArenaWins, char.ArenaLosses, char.InvasionScore, char.Title,
 		char.CurrentStreak, char.BestStreak, char.LastActionDate, char.GrudgeLocation,
-		char.DeathReprieveLast, char.MasterworkDropsReceived, string(char.UserID),
+		char.DeathReprieveLast, char.MasterworkDropsReceived,
+		char.RivalPool, rivalUnlocked,
+		babysitAct, char.BabysitExpiresAt, char.BabysitSkillFocus,
+		string(char.UserID),
 	)
 	return err
 }
@@ -499,7 +526,9 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		       arena_wins, arena_losses, invasion_score, title,
 		       current_streak, best_streak, last_action_date, grudge_location,
 		       created_at, last_active_at, death_reprieve_last,
-		       masterwork_drops_received
+		       masterwork_drops_received,
+		       rival_pool, rival_unlocked_notified,
+		       babysit_active, babysit_expires_at, babysit_skill_focus
 		FROM adventure_characters`)
 	if err != nil {
 		return nil, err
@@ -509,8 +538,8 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 	var chars []AdventureCharacter
 	for rows.Next() {
 		c := AdventureCharacter{}
-		var alive, actionTaken, holidayTaken int
-		var deadUntil, reprieveLast sql.NullTime
+		var alive, actionTaken, holidayTaken, rivalUnlocked, babysitAct int
+		var deadUntil, reprieveLast, babysitExp sql.NullTime
 		if err := rows.Scan(
 			&c.UserID, &c.DisplayName,
 			&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -520,17 +549,24 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 			&c.CurrentStreak, &c.BestStreak, &c.LastActionDate, &c.GrudgeLocation,
 			&c.CreatedAt, &c.LastActiveAt, &reprieveLast,
 			&c.MasterworkDropsReceived,
+			&c.RivalPool, &rivalUnlocked,
+			&babysitAct, &babysitExp, &c.BabysitSkillFocus,
 		); err != nil {
 			return nil, err
 		}
 		c.Alive = alive == 1
 		c.ActionTakenToday = actionTaken == 1
 		c.HolidayActionTaken = holidayTaken == 1
+		c.RivalUnlockedNotified = rivalUnlocked == 1
+		c.BabysitActive = babysitAct == 1
 		if deadUntil.Valid {
 			c.DeadUntil = &deadUntil.Time
 		}
 		if reprieveLast.Valid {
 			c.DeathReprieveLast = &reprieveLast.Time
+		}
+		if babysitExp.Valid {
+			c.BabysitExpiresAt = &babysitExp.Time
 		}
 		chars = append(chars, c)
 	}

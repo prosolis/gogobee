@@ -60,9 +60,9 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
 		}
 
-		// Check if dead and ready to respawn
+		// Check if dead and ready to respawn (before babysit check so
+		// dead+babysitting characters don't stay stuck dead forever).
 		if !char.Alive && char.DeadUntil != nil && now.After(*char.DeadUntil) {
-			// Revive
 			char.Alive = true
 			char.DeadUntil = nil
 			if err := saveAdvCharacter(&char); err != nil {
@@ -75,6 +75,16 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			if err := p.SendDM(char.UserID, text); err != nil {
 				slog.Error("adventure: failed to send respawn DM", "user", char.UserID, "err", err)
 			}
+		}
+
+		// Babysitting: auto-resolve daily action, skip DM
+		if char.BabysitActive {
+			if !char.Alive {
+				// Dead and not yet ready to respawn — skip babysit action
+				continue
+			}
+			p.runBabysitDaily(&char)
+			continue
 		}
 
 		// If still dead, send death status
@@ -364,6 +374,12 @@ func (p *AdventurePlugin) midnightReset() error {
 		p.dmRemindedDate.Delete(key)
 		return true
 	})
+
+	// Expire any rival challenges that went unanswered
+	p.expireRivalChallenges()
+
+	// Check babysitting service expirations
+	p.checkBabysitExpiry(chars)
 
 	return nil
 }

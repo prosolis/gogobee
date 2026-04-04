@@ -172,6 +172,35 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 	sb.WriteString(fmt.Sprintf("\n🎒 Inventory: %d items (total value ~€%d)\n", len(items), invValue))
 	sb.WriteString(fmt.Sprintf("💰 Balance: €%.0f\n", balance))
 
+	// Babysit status
+	if char.BabysitActive {
+		remaining := "active"
+		if char.BabysitExpiresAt != nil {
+			days := int(time.Until(*char.BabysitExpiresAt).Hours() / 24)
+			if days < 1 {
+				remaining = "less than a day left"
+			} else {
+				remaining = fmt.Sprintf("%d days left", days)
+			}
+		}
+		sb.WriteString(fmt.Sprintf("\n🍼 Babysitting: %s (focus: %s)\n", remaining, char.BabysitSkillFocus))
+	}
+
+	// Rival status
+	if char.RivalPool == 1 {
+		records, _ := loadAllRivalRecords(char.UserID)
+		sb.WriteString("\n⚔️ Rivals: Unlocked")
+		if len(records) > 0 {
+			totalW, totalL := 0, 0
+			for _, r := range records {
+				totalW += r.Wins
+				totalL += r.Losses
+			}
+			sb.WriteString(fmt.Sprintf(" (%dW / %dL)", totalW, totalL))
+		}
+		sb.WriteString(" — `!adventure rivals` for details\n")
+	}
+
 	// Today's action
 	if char.ActionTakenToday {
 		sb.WriteString("\n📅 Today: Action taken")
@@ -547,12 +576,17 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 
 		sb.WriteString("\n")
 		if tbRewards.Eligible > 0 {
-			sb.WriteString(fmt.Sprintf("Rewards distributed to %d participating adventurers (scaled by level):\n", tbRewards.Eligible))
-			if tbRewards.GoldShare > 0 {
-				sb.WriteString(fmt.Sprintf("  💰 ~€%d avg\n", tbRewards.GoldShare))
-			}
-			if tbRewards.GiftCount > 0 {
-				sb.WriteString(fmt.Sprintf("  ⭐ %d players received a gift item\n", tbRewards.GiftCount))
+			hasRewards := tbRewards.GoldShare > 0 || tbRewards.GiftCount > 0
+			if hasRewards {
+				sb.WriteString(fmt.Sprintf("Rewards distributed to %d participating adventurers (scaled by level):\n", tbRewards.Eligible))
+				if tbRewards.GoldShare > 0 {
+					sb.WriteString(fmt.Sprintf("  💰 ~€%d avg\n", tbRewards.GoldShare))
+				}
+				if tbRewards.GiftCount > 0 {
+					sb.WriteString(fmt.Sprintf("  ⭐ %d players received a gift item\n", tbRewards.GiftCount))
+				}
+			} else {
+				sb.WriteString(fmt.Sprintf("Rewards distributed to %d participating adventurers: jackshit.\n", tbRewards.Eligible))
 			}
 		}
 		sb.WriteString("\n(Players who rested today received nothing. Fallen adventurers still earn their share. TwinBee noticed.)\n\n")

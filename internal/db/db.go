@@ -74,6 +74,11 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE adventure_inventory ADD COLUMN slot TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE adventure_inventory ADD COLUMN skill_source TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE user_stats ADD COLUMN fancy_words INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN rival_pool INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN rival_unlocked_notified INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN babysit_active INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN babysit_expires_at DATETIME`,
+		`ALTER TABLE adventure_characters ADD COLUMN babysit_skill_focus TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1039,6 +1044,50 @@ CREATE TABLE IF NOT EXISTS arena_stats (
 	tier5_completions   INTEGER NOT NULL DEFAULT 0,
 	updated_at          INTEGER NOT NULL
 );
+
+-- Rival System
+CREATE TABLE IF NOT EXISTS adventure_rival_records (
+	user_id      TEXT NOT NULL,
+	rival_id     TEXT NOT NULL,
+	wins         INTEGER NOT NULL DEFAULT 0,
+	losses       INTEGER NOT NULL DEFAULT 0,
+	last_duel_at DATETIME,
+	PRIMARY KEY (user_id, rival_id)
+);
+
+CREATE TABLE IF NOT EXISTS adventure_rival_challenges (
+	challenge_id  TEXT PRIMARY KEY,
+	challenger_id TEXT NOT NULL,
+	challenged_id TEXT NOT NULL,
+	stake         INTEGER NOT NULL,
+	round         INTEGER NOT NULL DEFAULT 1,
+	player_score  INTEGER NOT NULL DEFAULT 0,
+	rival_score   INTEGER NOT NULL DEFAULT 0,
+	expires_at    DATETIME NOT NULL,
+	created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_rival_challenges_user ON adventure_rival_challenges(challenged_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS community_pot (
+	id         INTEGER PRIMARY KEY DEFAULT 1,
+	balance    INTEGER NOT NULL DEFAULT 0,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Babysitting Service
+CREATE TABLE IF NOT EXISTS adventure_babysit_log (
+	id            INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id       TEXT NOT NULL,
+	log_date      DATE NOT NULL,
+	activity      TEXT NOT NULL,
+	outcome       TEXT NOT NULL,
+	gold_earned   INTEGER NOT NULL DEFAULT 0,
+	xp_gained     INTEGER NOT NULL DEFAULT 0,
+	items_dropped TEXT DEFAULT NULL,
+	rival_refused TEXT DEFAULT NULL,
+	created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_babysit_log_user ON adventure_babysit_log(user_id);
 
 -- Forex
 CREATE TABLE IF NOT EXISTS forex_rates (

@@ -117,6 +117,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.midnightTicker()
 	go p.eventTicker()
 	go p.arenaAutoCashoutTicker()
+	go p.rivalChallengeTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()
@@ -199,6 +200,10 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleEventRespond(ctx)
 	case lower == "help":
 		return p.SendDM(ctx.Sender, advHelpText)
+	case lower == "rivals":
+		return p.handleRivalsCmd(ctx)
+	case lower == "babysit" || strings.HasPrefix(lower, "babysit "):
+		return p.handleBabysitCmd(ctx, strings.TrimSpace(strings.TrimPrefix(lower, "babysit")))
 	}
 
 	return p.SendDM(ctx.Sender, "Unknown command. Type `!adventure help` to see available commands.")
@@ -216,6 +221,8 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure inventory`" + ` — View your inventory
 ` + "`!adventure leaderboard`" + ` — View the leaderboard
 ` + "`!adventure respond`" + ` — Respond to a mid-day event
+` + "`!adventure rivals`" + ` — View rival duel records
+` + "`!adventure babysit`" + ` — Adventurer Babysitting Service
 ` + "`!adventure help`" + ` — This message
 
 **Arena:**
@@ -238,8 +245,22 @@ func (p *AdventurePlugin) handleMenu(ctx MessageContext) error {
 	}
 
 	if !char.Alive {
-		text := renderAdvDeathStatusDM(char)
-		return p.SendDM(ctx.Sender, text)
+		// On-demand revive if death timer has expired
+		if char.DeadUntil != nil && time.Now().UTC().After(*char.DeadUntil) {
+			char.Alive = true
+			char.DeadUntil = nil
+			if err := saveAdvCharacter(char); err != nil {
+				slog.Error("adventure: on-demand revive failed", "user", char.UserID, "err", err)
+			} else {
+				text := renderAdvRespawnDM(char)
+				p.SendDM(ctx.Sender, text)
+				// Fall through to show menu
+			}
+		}
+		if !char.Alive {
+			text := renderAdvDeathStatusDM(char)
+			return p.SendDM(ctx.Sender, text)
+		}
 	}
 
 	if char.ActionTakenToday {
@@ -284,9 +305,29 @@ func (p *AdventurePlugin) handleStatus(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "No adventurer found. Type `!adventure` to create one.")
 	}
 
-	equip, _ := loadAdvEquipment(ctx.Sender)
-	items, _ := loadAdvInventory(ctx.Sender)
-	treasures, _ := loadAdvTreasureBonuses(ctx.Sender)
+	// On-demand revive if death timer has expired
+	if !char.Alive && char.DeadUntil != nil && time.Now().UTC().After(*char.DeadUntil) {
+		char.Alive = true
+		char.DeadUntil = nil
+		if err := saveAdvCharacter(char); err != nil {
+			slog.Error("adventure: on-demand revive failed", "user", char.UserID, "err", err)
+		} else {
+			p.SendDM(ctx.Sender, renderAdvRespawnDM(char))
+		}
+	}
+
+	equip, err := loadAdvEquipment(ctx.Sender)
+	if err != nil {
+		slog.Error("adventure: failed to load equipment for status", "user", ctx.Sender, "err", err)
+	}
+	items, err := loadAdvInventory(ctx.Sender)
+	if err != nil {
+		slog.Error("adventure: failed to load inventory for status", "user", ctx.Sender, "err", err)
+	}
+	treasures, err := loadAdvTreasureBonuses(ctx.Sender)
+	if err != nil {
+		slog.Error("adventure: failed to load treasures for status", "user", ctx.Sender, "err", err)
+	}
 	balance := p.euro.GetBalance(ctx.Sender)
 
 	text := renderAdvCharacterSheet(char, equip, items, treasures, balance)
@@ -453,6 +494,8 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.handleMasterworkEquipReply(ctx, interaction)
 	case "masterwork_equip_confirm":
 		return p.handleMasterworkEquipConfirm(ctx, interaction)
+	case "rival_rps":
+		return p.resolveRivalRPSRound(ctx, interaction)
 	}
 	return nil
 }
@@ -499,7 +542,19 @@ func (p *AdventurePlugin) parseAndResolveChoice(ctx MessageContext, body string)
 	}
 
 	if !char.Alive {
-		return p.SendDM(ctx.Sender, renderAdvDeathStatusDM(char))
+		// On-demand revive if death timer has expired
+		if char.DeadUntil != nil && time.Now().UTC().After(*char.DeadUntil) {
+			char.Alive = true
+			char.DeadUntil = nil
+			if err := saveAdvCharacter(char); err != nil {
+				slog.Error("adventure: on-demand revive failed", "user", char.UserID, "err", err)
+			} else {
+				p.SendDM(ctx.Sender, renderAdvRespawnDM(char))
+			}
+		}
+		if !char.Alive {
+			return p.SendDM(ctx.Sender, renderAdvDeathStatusDM(char))
+		}
 	}
 
 	if char.ActionTakenToday {
@@ -665,6 +720,9 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 
 	// Check level up
 	result.LeveledUp, result.NewLevel = checkAdvLevelUp(char, result.XPSkill)
+	if result.LeveledUp && result.XPSkill == "combat" {
+		p.checkRivalPoolUnlock(char)
+	}
 
 	// Handle death
 	deathReprieved := false

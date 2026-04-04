@@ -39,7 +39,7 @@ func (p *LookupPlugin) Name() string { return "lookup" }
 func (p *LookupPlugin) Commands() []CommandDef {
 	return []CommandDef{
 		{Name: "wiki", Description: "Look up a Wikipedia summary", Usage: "!wiki <topic>", Category: "Lookup & Reference"},
-		{Name: "define", Description: "Look up a word definition", Usage: "!define <word>", Category: "Lookup & Reference"},
+		{Name: "define", Description: "Look up a word definition", Usage: "!define <word> [lang]", Category: "Lookup & Reference"},
 		{Name: "urban", Description: "Look up Urban Dictionary definition", Usage: "!urban <term>", Category: "Lookup & Reference"},
 		{Name: "translate", Description: "Look up word translations (en/fr/pt-PT)", Usage: "!translate <word> [lang]", Category: "Lookup & Reference"},
 	}
@@ -129,99 +129,172 @@ func (p *LookupPlugin) handleWiki(ctx MessageContext) error {
 }
 
 func (p *LookupPlugin) handleDefine(ctx MessageContext) error {
-	word := strings.TrimSpace(p.GetArgs(ctx.Body, "define"))
-	if word == "" {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !define <word>")
+	args := strings.TrimSpace(p.GetArgs(ctx.Body, "define"))
+	if args == "" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: !define <word> [lang]")
 	}
 
-	// Check 24h cache
-	cacheKey := "define:" + strings.ToLower(word)
+	parts := strings.Fields(args)
+	word := parts[0]
+	var filterLang string
+	if len(parts) >= 2 {
+		filterLang = normaliseLangExt(parts[len(parts)-1])
+		if filterLang != "" && len(parts) > 2 {
+			word = strings.Join(parts[:len(parts)-1], " ")
+		} else if filterLang == "" {
+			// Last token isn't a lang — treat the whole thing as the word.
+			word = args
+		}
+	}
+
+	wordLower := strings.ToLower(word)
+
+	// Check 24h cache.
+	cacheKey := "define:" + wordLower
+	if filterLang != "" {
+		cacheKey += ":" + filterLang
+	}
 	if cached := db.CacheGet(cacheKey, 86400); cached != "" {
 		return p.SendReply(ctx.RoomID, ctx.EventID, cached)
 	}
 
-	apiURL := fmt.Sprintf("https://api.dictionaryapi.dev/api/v2/entries/en/%s", url.PathEscape(word))
-
-	resp, err := httpClient.Get(apiURL)
-	if err != nil {
-		slog.Error("lookup: define request", "err", err)
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to reach dictionary API.")
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 404 {
-		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("No definition found for \"%s\".", word))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to read dictionary response.")
-	}
-
-	var entries []struct {
-		Word     string `json:"word"`
-		Meanings []struct {
-			PartOfSpeech string `json:"partOfSpeech"`
-			Definitions  []struct {
-				Definition string `json:"definition"`
-				Example    string `json:"example"`
-			} `json:"definitions"`
-		} `json:"meanings"`
-	}
-
-	if err := json.Unmarshal(body, &entries); err != nil || len(entries) == 0 {
-		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("No definition found for \"%s\".", word))
-	}
-
-	entry := entries[0]
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Definition of \"%s\":\n\n", entry.Word))
+	foundDreamDict := false
 
-	for i, meaning := range entry.Meanings {
-		if i >= 3 { // Limit to 3 meanings
-			break
-		}
-		sb.WriteString(fmt.Sprintf("(%s)\n", meaning.PartOfSpeech))
-		for j, def := range meaning.Definitions {
-			if j >= 2 { // Limit to 2 definitions per meaning
-				break
-			}
-			sb.WriteString(fmt.Sprintf("  %d. %s\n", j+1, def.Definition))
-			if def.Example != "" {
-				sb.WriteString(fmt.Sprintf("     Example: \"%s\"\n", def.Example))
-			}
-		}
-	}
-
-	// Concurrently fetch antonyms from DreamDict (500ms timeout).
+	// Try DreamDict across languages.
 	if p.dict != nil {
+		langs := []string{"en", "fr", "pt-PT", "zh"}
+		if filterLang != "" {
+			langs = []string{filterLang}
+		}
+
+		// Fire antonym fetch concurrently (for whichever lang the word is found in).
 		type antResult struct {
 			ants []string
 		}
-		ch := make(chan antResult, 1)
-		go func() {
-			ants, err := p.dict.Antonyms(strings.ToLower(word), "en")
-			if err != nil {
-				ch <- antResult{}
-				return
-			}
-			ch <- antResult{ants: ants}
-		}()
+		antCh := make(chan antResult, 1)
+		antStarted := false
 
-		timer := time.NewTimer(500 * time.Millisecond)
-		select {
-		case r := <-ch:
-			timer.Stop()
-			if len(r.ants) > 0 {
-				display := r.ants
-				if len(display) > 3 {
-					display = display[:3]
-				}
-				sb.WriteString(fmt.Sprintf("\nAntonyms: %s\n", strings.Join(display, ", ")))
+		for _, lang := range langs {
+			defs, err := p.dict.Define(wordLower, lang)
+			if err != nil {
+				slog.Error("lookup: dreamdict define", "lang", lang, "err", err)
+				continue
 			}
-		case <-timer.C:
-			// Timeout — omit antonyms silently.
+			if len(defs) == 0 {
+				continue
+			}
+
+			if !foundDreamDict {
+				sb.WriteString(fmt.Sprintf("Definition of \"%s\":\n", word))
+				foundDreamDict = true
+			}
+
+			langName := langDisplayName(lang)
+			sb.WriteString(fmt.Sprintf("\n🏷️ %s\n", langName))
+
+			count := 0
+			for _, def := range defs {
+				if count >= 4 {
+					break
+				}
+				if def.POS != "" {
+					sb.WriteString(fmt.Sprintf("  (%s) %s\n", def.POS, def.Gloss))
+				} else {
+					sb.WriteString(fmt.Sprintf("  %s\n", def.Gloss))
+				}
+				count++
+			}
+
+			// Start antonym fetch for the first language we find a match in.
+			if !antStarted {
+				antStarted = true
+				antLang := lang
+				go func() {
+					ants, err := p.dict.Antonyms(wordLower, antLang)
+					if err != nil {
+						antCh <- antResult{}
+						return
+					}
+					antCh <- antResult{ants: ants}
+				}()
+			}
 		}
+
+		// Collect antonyms (500ms timeout).
+		if antStarted {
+			timer := time.NewTimer(500 * time.Millisecond)
+			select {
+			case r := <-antCh:
+				timer.Stop()
+				if len(r.ants) > 0 {
+					display := r.ants
+					if len(display) > 3 {
+						display = display[:3]
+					}
+					sb.WriteString(fmt.Sprintf("\nAntonyms: %s\n", strings.Join(display, ", ")))
+				}
+			case <-timer.C:
+			}
+		}
+	}
+
+	// Fall back to free dictionary API for English if DreamDict had no results.
+	if !foundDreamDict && (filterLang == "" || filterLang == "en") {
+		apiURL := fmt.Sprintf("https://api.dictionaryapi.dev/api/v2/entries/en/%s", url.PathEscape(word))
+
+		resp, err := httpClient.Get(apiURL)
+		if err != nil {
+			slog.Error("lookup: define request", "err", err)
+			return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to reach dictionary API.")
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 404 {
+			return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("No definition found for \"%s\".", word))
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to read dictionary response.")
+		}
+
+		var entries []struct {
+			Word     string `json:"word"`
+			Meanings []struct {
+				PartOfSpeech string `json:"partOfSpeech"`
+				Definitions  []struct {
+					Definition string `json:"definition"`
+					Example    string `json:"example"`
+				} `json:"definitions"`
+			} `json:"meanings"`
+		}
+
+		if err := json.Unmarshal(body, &entries); err != nil || len(entries) == 0 {
+			return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("No definition found for \"%s\".", word))
+		}
+
+		entry := entries[0]
+		sb.WriteString(fmt.Sprintf("Definition of \"%s\":\n\n", entry.Word))
+
+		for i, meaning := range entry.Meanings {
+			if i >= 3 {
+				break
+			}
+			sb.WriteString(fmt.Sprintf("(%s)\n", meaning.PartOfSpeech))
+			for j, def := range meaning.Definitions {
+				if j >= 2 {
+					break
+				}
+				sb.WriteString(fmt.Sprintf("  %d. %s\n", j+1, def.Definition))
+				if def.Example != "" {
+					sb.WriteString(fmt.Sprintf("     Example: \"%s\"\n", def.Example))
+				}
+			}
+		}
+	} else if !foundDreamDict {
+		return p.SendReply(ctx.RoomID, ctx.EventID,
+			fmt.Sprintf("No definition found for \"%s\" in %s.", word, langDisplayName(filterLang)))
 	}
 
 	msg := sb.String()

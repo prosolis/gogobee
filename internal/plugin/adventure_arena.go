@@ -369,6 +369,9 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 	}
 	char.CombatXP += battleXP
 	leveled, newLevel := checkAdvLevelUp(char, "combat")
+	if leveled {
+		p.checkRivalPoolUnlock(char)
+	}
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("arena: failed to save character after survival", "user", ctx.Sender, "err", err)
 	}
@@ -538,7 +541,9 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	now := time.Now().UTC()
 	char.ArenaLosses++
 	char.CombatXP += arenaParticipationXP // +60 flat participation XP
-	checkAdvLevelUp(char, "combat")
+	if leveled, _ := checkAdvLevelUp(char, "combat"); leveled {
+		p.checkRivalPoolUnlock(char)
+	}
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("arena: failed to save character after death", "user", ctx.Sender, "err", err)
 	}
