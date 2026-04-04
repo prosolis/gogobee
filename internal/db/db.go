@@ -1155,6 +1155,34 @@ CREATE TABLE IF NOT EXISTS user_archetypes (
 );
 CREATE INDEX IF NOT EXISTS idx_user_archetypes_user ON user_archetypes(user_id, signal_score DESC);
 
+-- Lottery tickets
+CREATE TABLE IF NOT EXISTS lottery_tickets (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     TEXT NOT NULL,
+    week_start  DATE NOT NULL,
+    numbers     TEXT NOT NULL,
+    match_count INTEGER DEFAULT NULL,
+    prize       INTEGER DEFAULT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_lottery_tickets_week ON lottery_tickets(week_start, user_id);
+
+-- Lottery draw history
+CREATE TABLE IF NOT EXISTS lottery_history (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    draw_date       DATE NOT NULL,
+    winning_numbers TEXT NOT NULL,
+    jackpot_winners INTEGER DEFAULT 0,
+    jackpot_amount  INTEGER DEFAULT 0,
+    match4_winners  INTEGER DEFAULT 0,
+    match3_winners  INTEGER DEFAULT 0,
+    match2_winners  INTEGER DEFAULT 0,
+    match1_winners  INTEGER DEFAULT 0,
+    pot_total       INTEGER NOT NULL,
+    rolled_over     INTEGER DEFAULT 0,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

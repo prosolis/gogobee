@@ -204,6 +204,12 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleRivalsCmd(ctx)
 	case lower == "babysit" || strings.HasPrefix(lower, "babysit "):
 		return p.handleBabysitCmd(ctx, strings.TrimSpace(strings.TrimPrefix(lower, "babysit")))
+	case lower == "blacksmith" || lower == "repair":
+		return p.handleBlacksmithCmd(ctx)
+	case lower == "repair all":
+		return p.handleRepairAllCmd(ctx)
+	case strings.HasPrefix(lower, "repair "):
+		return p.handleRepairSlotCmd(ctx, strings.TrimSpace(args[7:]))
 	}
 
 	return p.SendDM(ctx.Sender, "Unknown command. Type `!adventure help` to see available commands.")
@@ -223,6 +229,9 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure respond`" + ` — Respond to a mid-day event
 ` + "`!adventure rivals`" + ` — View rival duel records
 ` + "`!adventure babysit`" + ` — Adventurer Babysitting Service
+` + "`!adventure blacksmith`" + ` — Visit the blacksmith (view repair costs)
+` + "`!adventure repair all`" + ` — Repair all damaged equipment
+` + "`!adventure repair <slot>`" + ` — Repair a specific slot
 ` + "`!adventure help`" + ` — This message
 
 **Arena:**
@@ -496,6 +505,10 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.handleMasterworkEquipConfirm(ctx, interaction)
 	case "rival_rps":
 		return p.resolveRivalRPSRound(ctx, interaction)
+	case "blacksmith_slot":
+		return p.resolveBlacksmithSlotChoice(ctx, interaction)
+	case "blacksmith_confirm":
+		return p.resolveBlacksmithConfirm(ctx, interaction)
 	}
 	return nil
 }
@@ -585,9 +598,14 @@ func (p *AdventurePlugin) parseAndResolveChoice(ctx MessageContext, body string)
 
 	lower := strings.ToLower(body)
 
-	// Parse "6" or "rest"
-	if lower == "6" || lower == "rest" {
+	// Parse "7" or "rest"
+	if lower == "7" || lower == "rest" {
 		return p.resolveRest(ctx, char)
+	}
+
+	// Parse "6" or "blacksmith"
+	if lower == "6" || lower == "blacksmith" {
+		return p.handleBlacksmithCmd(ctx)
 	}
 
 	// Parse "5" or "shop"

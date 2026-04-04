@@ -297,7 +297,8 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 	}
 
 	sb.WriteString("**5️⃣ Shop** — buy/sell gear and loot\n")
-	sb.WriteString("**6️⃣ Rest** — skip today, bank your luck\n\n")
+	sb.WriteString("**6️⃣ Blacksmith** — repair damaged equipment\n")
+	sb.WriteString("**7️⃣ Rest** — skip today, bank your luck\n\n")
 
 	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`\n")
 	sb.WriteString("You have until midnight UTC to choose.")
@@ -349,7 +350,8 @@ func renderAdvHolidaySecondPrompt(char *AdventureCharacter, equip map[EquipmentS
 	}
 
 	sb.WriteString("**5️⃣ Shop** — buy/sell gear and loot\n")
-	sb.WriteString("**6️⃣ Rest** — skip the second action\n\n")
+	sb.WriteString("**6️⃣ Blacksmith** — repair damaged equipment\n")
+	sb.WriteString("**7️⃣ Rest** — skip the second action\n\n")
 	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`")
 
 	return sb.String()

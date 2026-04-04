@@ -169,6 +169,24 @@ func communityPotAdd(amount int) {
 	)
 }
 
+func communityPotBalance() int {
+	d := db.Get()
+	var balance int
+	_ = d.QueryRow(`SELECT COALESCE(balance, 0) FROM community_pot WHERE id = 1`).Scan(&balance)
+	return balance
+}
+
+func communityPotDebit(amount int) bool {
+	d := db.Get()
+	res, err := d.Exec(`UPDATE community_pot SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = 1 AND balance >= ?`, amount, amount)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n == 1
+}
+
 func loadExpiredRivalChallenges() ([]advRivalChallenge, error) {
 	d := db.Get()
 	rows, err := d.Query(`
