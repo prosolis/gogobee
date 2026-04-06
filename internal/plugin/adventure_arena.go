@@ -572,7 +572,14 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	text := renderArenaCombatLog(combatLog, monster, false, 0, arenaParticipationXP, closer)
 	text += fmt.Sprintf("\nLost earnings: €%d\n", lostEarnings)
 
-	return p.SendDM(ctx.Sender, text)
+	if err := p.SendDM(ctx.Sender, text); err != nil {
+		slog.Error("arena: failed to send death DM", "user", ctx.Sender, "err", err)
+	}
+
+	// Send hospital ad (delayed)
+	p.sendHospitalAd(ctx.Sender, char)
+
+	return nil
 }
 
 func (p *AdventurePlugin) arenaCompleteTier5(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, prefixText string) error {

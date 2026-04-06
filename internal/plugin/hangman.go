@@ -574,7 +574,7 @@ func (p *HangmanPlugin) startMultilingualGame(ctx MessageContext, lang, clueLang
 	// Pick a word, optionally with a translatable clue
 	var word, clueWord string
 	for attempt := 0; attempt < 3; attempt++ {
-		candidate, err := p.dict.RandomWord(lang, "", 4, 12)
+		candidate, err := p.dict.RandomWord(lang, "", 4, 12, 0)
 		if err != nil {
 			slog.Error("hangman: random word failed", "lang", lang, "err", err)
 			rollback()
@@ -597,7 +597,7 @@ func (p *HangmanPlugin) startMultilingualGame(ctx MessageContext, lang, clueLang
 
 	if word == "" {
 		// Fallback: start without a clue
-		candidate, err := p.dict.RandomWord(lang, "", 4, 12)
+		candidate, err := p.dict.RandomWord(lang, "", 4, 12, 0)
 		if err != nil {
 			rollback()
 			return p.SendReply(ctx.RoomID, ctx.EventID, "❌ Dictionary service unavailable. Try again shortly.")

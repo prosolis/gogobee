@@ -5,7 +5,7 @@ import "testing"
 func TestAdvEquipmentScore_Empty(t *testing.T) {
 	score := advEquipmentScore(map[EquipmentSlot]*AdvEquipment{})
 	if score != 0 {
-		t.Errorf("empty equipment should score 0, got %d", score)
+		t.Errorf("empty equipment should score 0, got %.2f", score)
 	}
 }
 
@@ -16,8 +16,8 @@ func TestAdvEquipmentScore_WeaponDoubled(t *testing.T) {
 	}
 	score := advEquipmentScore(equip)
 	// Weapon: 3*2=6, Armor: 3
-	if score != 9 {
-		t.Errorf("got %d, want 9 (weapon 6 + armor 3)", score)
+	if score != 9.0 {
+		t.Errorf("got %.2f, want 9 (weapon 6 + armor 3)", score)
 	}
 }
 
@@ -27,8 +27,8 @@ func TestAdvEquipmentScore_LowConditionHalved(t *testing.T) {
 	}
 	score := advEquipmentScore(equip)
 	// Tier 4, halved = 2
-	if score != 2 {
-		t.Errorf("got %d, want 2 (tier 4 halved for low condition)", score)
+	if score != 2.0 {
+		t.Errorf("got %.2f, want 2 (tier 4 halved for low condition)", score)
 	}
 }
 
@@ -42,8 +42,8 @@ func TestAdvEquipmentScore_FullLoadout(t *testing.T) {
 	}
 	score := advEquipmentScore(equip)
 	// Weapon: 5*2=10, others: 5*4=20, total=30
-	if score != 30 {
-		t.Errorf("got %d, want 30", score)
+	if score != 30.0 {
+		t.Errorf("got %.2f, want 30", score)
 	}
 }
 

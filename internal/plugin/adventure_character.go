@@ -56,6 +56,8 @@ type AdventureCharacter struct {
 	BabysitActive           bool
 	BabysitExpiresAt        *time.Time
 	BabysitSkillFocus       string
+	HospitalVisits          int
+	RobbieVisitCount        int
 }
 
 type AdvEquipment struct {
@@ -200,45 +202,53 @@ func (c *AdventureCharacter) DeathReprieveAvailable() bool {
 	return time.Since(*c.DeathReprieveLast) >= 168*time.Hour
 }
 
-// Kill marks the character as dead with a 2-hour respawn timer.
+// Kill marks the character as dead with a 6-hour respawn timer.
 func (c *AdventureCharacter) Kill() {
 	c.Alive = false
-	deadUntil := time.Now().UTC().Add(2 * time.Hour)
+	deadUntil := time.Now().UTC().Add(6 * time.Hour)
 	c.DeadUntil = &deadUntil
 }
 
 // ── Equipment Score ──────────────────────────────────────────────────────────
 
-func advEquipmentScore(equip map[EquipmentSlot]*AdvEquipment) int {
-	score := 0
+func advEquipmentScore(equip map[EquipmentSlot]*AdvEquipment) float64 {
+	score := 0.0
 	arenaSets := advEquippedArenaSets(equip)
 	for _, slot := range allSlots {
 		eq, ok := equip[slot]
 		if !ok {
 			continue
 		}
-		tierContrib := eq.Tier
-		// Arena gear: 1.5x effectiveness
-		if eq.ArenaTier > 0 {
-			tierContrib = int(float64(tierContrib) * 1.5)
-		} else if eq.Masterwork {
-			// Masterwork: 1.25x effectiveness
-			tierContrib = int(float64(tierContrib) * 1.25)
-		}
+		contrib := advEffectiveTier(eq)
 		if slot == SlotWeapon {
-			tierContrib *= 2
+			contrib *= 2
 		}
 		// Condition modifier: below 50 halves contribution
 		if eq.Condition < 50 {
-			tierContrib /= 2
+			contrib /= 2
 		}
-		score += tierContrib
+		score += contrib
 	}
 	// Champion's set: Commanding Presence — +10% equipment score
 	if arenaSets["champions"] {
-		score = int(float64(score) * 1.10)
+		score *= 1.10
 	}
 	return score
+}
+
+// advEffectiveTier returns the effective tier of a piece of equipment,
+// accounting for Masterwork (1.25x) and Arena (1.5x) bonuses.
+func advEffectiveTier(eq *AdvEquipment) float64 {
+	if eq == nil {
+		return 0
+	}
+	if eq.ArenaTier > 0 {
+		return float64(eq.Tier) * 1.5
+	}
+	if eq.Masterwork {
+		return float64(eq.Tier) * 1.25
+	}
+	return float64(eq.Tier)
 }
 
 // ── XP & Level-Up ────────────────────────────────────────────────────────────
@@ -307,7 +317,8 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		       created_at, last_active_at, death_reprieve_last,
 		       masterwork_drops_received,
 		       rival_pool, rival_unlocked_notified,
-		       babysit_active, babysit_expires_at, babysit_skill_focus
+		       babysit_active, babysit_expires_at, babysit_skill_focus,
+		       hospital_visits, robbie_visit_count
 		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -319,6 +330,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&c.MasterworkDropsReceived,
 		&c.RivalPool, &rivalUnlocked,
 		&babysitAct, &babysitExp, &c.BabysitSkillFocus,
+		&c.HospitalVisits, &c.RobbieVisitCount,
 	)
 	if err != nil {
 		return nil, err
@@ -402,7 +414,8 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 			last_active_at = CURRENT_TIMESTAMP, death_reprieve_last = ?,
 			masterwork_drops_received = ?,
 			rival_pool = ?, rival_unlocked_notified = ?,
-			babysit_active = ?, babysit_expires_at = ?, babysit_skill_focus = ?
+			babysit_active = ?, babysit_expires_at = ?, babysit_skill_focus = ?,
+			hospital_visits = ?, robbie_visit_count = ?
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
@@ -412,6 +425,7 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 		char.DeathReprieveLast, char.MasterworkDropsReceived,
 		char.RivalPool, rivalUnlocked,
 		babysitAct, char.BabysitExpiresAt, char.BabysitSkillFocus,
+		char.HospitalVisits, char.RobbieVisitCount,
 		string(char.UserID),
 	)
 	return err

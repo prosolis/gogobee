@@ -93,7 +93,7 @@ func (p *WOTDPlugin) pickWord(lang string) (string, string, string, string) {
 	}
 
 	for attempt := 0; attempt < 100; attempt++ {
-		candidate, err := p.dict.RandomWord(lang, "", 4, 14)
+		candidate, err := p.dict.RandomWord(lang, "", 4, 14, 0)
 		if err != nil {
 			continue
 		}

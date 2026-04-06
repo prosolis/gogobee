@@ -398,7 +398,7 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 		// Equipment score (use canonical scoring function)
 		equip, eqErr := loadAdvEquipment(id.UserID(uid))
 		if eqErr == nil && len(equip) > 0 {
-			sb.WriteString(fmt.Sprintf("   Equipment score: %d\n", advEquipmentScore(equip)))
+			sb.WriteString(fmt.Sprintf("   Equipment score: %.1f\n", advEquipmentScore(equip)))
 		}
 		sb.WriteString("\n")
 	}

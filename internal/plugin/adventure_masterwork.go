@@ -177,18 +177,19 @@ func (p *AdventurePlugin) checkMasterworkDrop(userID id.UserID, char *AdventureC
 	// Check current equipment in target slot
 	existing := equip[def.Slot]
 
-	// Determine: auto-equip, inventory, or silent discard
+	// Determine: auto-equip, inventory, or silent discard.
+	// Compare effective tiers: Masterwork = tier*1.25, Arena = tier*1.5, Shop = tier.
+	// Only auto-equip if the new Masterwork drop is strictly better.
+	newEffective := float64(def.Tier) * 1.25 // incoming masterwork
+	existingEffective := advEffectiveTier(existing)
+
 	autoEquip := false
 	if existing == nil {
 		autoEquip = true
-	} else if existing.Masterwork {
-		if def.Tier > existing.Tier {
-			autoEquip = true // upgrade over lower-tier masterwork
-		} else {
-			return // silent discard: same or higher tier masterwork already equipped
-		}
-	} else {
-		autoEquip = true // any masterwork > shop gear
+	} else if existing.Masterwork && def.Tier <= existing.Tier {
+		return // silent discard: same or lower tier masterwork already equipped
+	} else if newEffective > existingEffective {
+		autoEquip = true // genuinely better than what they have
 	}
 
 	// First-drop detection

@@ -140,7 +140,7 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 				slotEmoji(slot), slotTitle(slot), eq.Name, marker, eq.Tier, eq.Condition, mastery))
 		}
 	}
-	sb.WriteString(fmt.Sprintf("  Equipment Score: %d\n", eqScore))
+	sb.WriteString(fmt.Sprintf("  Equipment Score: %.1f\n", eqScore))
 
 	// Treasures
 	if len(treasures) > 0 {
@@ -474,20 +474,15 @@ func advClosingBlock(outcome AdvOutcomeType, userID id.UserID, location string, 
 // ── Death Status DM ──────────────────────────────────────────────────────────
 
 func renderAdvDeathStatusDM(char *AdventureCharacter) string {
-	text, _ := advPickFlavor(DeathDM, char.UserID, "death_dm")
-	remaining := ""
+	cost := int64(char.CombatLevel) * 25_000
+	remaining := "unknown"
 	if char.DeadUntil != nil {
 		remaining = char.DeadUntil.Format("15:04")
 	}
-	location := char.GrudgeLocation
-	if location == "" {
-		location = "an unknown location"
-	}
-	return advSubstituteFlavor(text, map[string]string{
-		"{name}":     char.DisplayName,
-		"{time}":     remaining,
-		"{location}": location,
-	})
+	return fmt.Sprintf("💀 You're still dead.\n\n"+
+		"🏥 Type `!hospital` for same-day revival (€%d after insurance)\n"+
+		"⏳ Or wait — natural respawn at %s UTC",
+		cost, remaining)
 }
 
 // ── Respawn DM ───────────────────────────────────────────────────────────────

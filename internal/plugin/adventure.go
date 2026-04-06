@@ -27,6 +27,7 @@ type AdventurePlugin struct {
 	dmMenuSentAt   sync.Map // userID string -> time.Time (last time actionable menu was DM'd)
 	arenaDeadlines sync.Map // userID string -> time.Time (auto-cashout deadline)
 	arenaPending   sync.Map // userID string -> int (pending tier number awaiting confirmation)
+	shopSessions   sync.Map // userID string -> *advShopSession
 	morningHour int
 	summaryHour int
 }
@@ -118,6 +119,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.eventTicker()
 	go p.arenaAutoCashoutTicker()
 	go p.rivalChallengeTicker()
+	go p.robbieTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()
@@ -152,6 +154,11 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	// 1. Arena commands (work in rooms and DMs)
 	if p.IsCommand(ctx.Body, "arena") {
 		return p.dispatchArenaCommand(ctx)
+	}
+
+	// 1b. Hospital commands (work in rooms and DMs)
+	if p.IsCommand(ctx.Body, "hospital") {
+		return p.handleHospitalCmd(ctx)
 	}
 
 	// 2. Check if this is a DM reply from a registered player
@@ -232,6 +239,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure blacksmith`" + ` — Visit the blacksmith (view repair costs)
 ` + "`!adventure repair all`" + ` — Repair all damaged equipment
 ` + "`!adventure repair <slot>`" + ` — Repair a specific slot
+` + "`!hospital`" + ` — Visit St. Guildmore's Memorial Hospital (same-day revival when dead)
 ` + "`!adventure help`" + ` — This message
 
 **Arena:**
@@ -343,16 +351,28 @@ func (p *AdventurePlugin) handleStatus(ctx MessageContext) error {
 	return p.SendDM(ctx.Sender, text)
 }
 
-func (p *AdventurePlugin) handleShopCmd(ctx MessageContext, category string) error {
+func (p *AdventurePlugin) handleShopCmd(ctx MessageContext, args string) error {
 	_, equip, err := p.ensureCharacter(ctx.Sender)
 	if err != nil {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character.")
 	}
 
 	balance := p.euro.GetBalance(ctx.Sender)
+	showAll := strings.Contains(strings.ToLower(args), "show all")
+	category := strings.TrimSpace(strings.Replace(strings.ToLower(args), "show all", "", 1))
+
+	p.shopSessionStart(ctx.Sender)
 
 	if category == "" {
-		return p.SendDM(ctx.Sender, advShopOverview(equip, balance))
+		text := luigiShopGreeting(ctx.Sender, equip, balance, showAll)
+		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
+			Type:      "shop_category",
+			Data:      &advPendingShopCategory{ShowAll: showAll},
+			ExpiresAt: time.Now().Add(advDMResponseWindow),
+		})
+		p.advMarkMenuSent(ctx.Sender)
+		p.shopScheduleBrowseNudge(ctx.Sender)
+		return p.SendDM(ctx.Sender, text)
 	}
 
 	slot := advParseShopCategory(category)
@@ -360,7 +380,15 @@ func (p *AdventurePlugin) handleShopCmd(ctx MessageContext, category string) err
 		return p.SendDM(ctx.Sender, fmt.Sprintf("Unknown category '%s'. Try: weapon, armor, helmet, boots, or tool.", category))
 	}
 
-	return p.SendDM(ctx.Sender, advShopCategory(slot, equip, balance))
+	text := luigiCategoryView(ctx.Sender, slot, equip, balance, showAll)
+	p.pending.Store(string(ctx.Sender), &advPendingInteraction{
+		Type:      "shop_item",
+		Data:      &advPendingShopItem{Slot: slot, ShowAll: showAll},
+		ExpiresAt: time.Now().Add(advDMResponseWindow),
+	})
+	p.advMarkMenuSent(ctx.Sender)
+	p.shopScheduleBrowseNudge(ctx.Sender)
+	return p.SendDM(ctx.Sender, text)
 }
 
 func (p *AdventurePlugin) handleBuyCmd(ctx MessageContext, itemName string) error {
@@ -479,6 +507,7 @@ func (p *AdventurePlugin) handleDMReply(ctx MessageContext) error {
 			return p.resolvePendingInteraction(ctx, interaction)
 		}
 		p.pending.Delete(string(ctx.Sender))
+		p.shopSessionEnd(ctx.Sender)
 		p.SendDM(ctx.Sender, "Your previous prompt expired. Moving on.")
 	}
 
@@ -509,6 +538,14 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.resolveBlacksmithSlotChoice(ctx, interaction)
 	case "blacksmith_confirm":
 		return p.resolveBlacksmithConfirm(ctx, interaction)
+	case "shop_category":
+		return p.resolveShopCategoryChoice(ctx, interaction)
+	case "shop_item":
+		return p.resolveShopItemChoice(ctx, interaction)
+	case "shop_confirm":
+		return p.resolveShopConfirm(ctx, interaction)
+	case "hospital_pay":
+		return p.resolveHospitalPay(ctx, interaction)
 	}
 	return nil
 }
@@ -610,9 +647,7 @@ func (p *AdventurePlugin) parseAndResolveChoice(ctx MessageContext, body string)
 
 	// Parse "5" or "shop"
 	if lower == "5" || lower == "shop" {
-		equip, _ := loadAdvEquipment(ctx.Sender)
-		balance := p.euro.GetBalance(ctx.Sender)
-		return p.SendDM(ctx.Sender, advShopOverview(equip, balance))
+		return p.handleShopCmd(ctx, "")
 	}
 
 	// Parse activity + location
@@ -843,6 +878,11 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	}
 	if err := p.SendDM(ctx.Sender, text); err != nil {
 		slog.Error("adventure: failed to send resolution DM", "user", ctx.Sender, "err", err)
+	}
+
+	// Send hospital ad on death (delayed, arrives after resolution DM)
+	if result.Outcome == AdvOutcomeDeath && !deathReprieved {
+		p.sendHospitalAd(ctx.Sender, char)
 	}
 
 	// Check for treasure drop

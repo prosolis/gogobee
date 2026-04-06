@@ -191,14 +191,11 @@ var ClosingFailure = []string{
 var ClosingDeath = []string{
 	"─────────────────────────────\n" +
 		"That's your day. Healthcare has the rest.\n\n" +
-		"A separate DM is inbound with the details.\n" +
-		"The details are not good. You already know the details.\n\n" +
-		"Next action: after recovery\n" +
-		"Morning DM: {morning_time} UTC — subject to medical clearance.",
+		"🏥 A DM from St. Guildmore's is on its way.\n" +
+		"Type `!hospital` for same-day revival.",
 
 	"─────────────────────────────\n" +
 		"Day over. Healthcare is involved.\n" +
-		"Expect a DM shortly with the full situation.\n\n" +
-		"The full situation: {location} won today.\n" +
-		"Tomorrow is pending insurance confirmation.",
+		"🏥 St. Guildmore's has been notified.\n\n" +
+		"Check your DMs, or type `!hospital`.",
 }

@@ -65,8 +65,10 @@ func (c *Client) IsValidWord(word, lang string) (bool, error) {
 }
 
 // RandomWord returns a random word for a language with optional filters.
-// pos can be empty. min/max of 0 means no filter.
-func (c *Client) RandomWord(lang, pos string, min, max int) (string, error) {
+// pos can be empty. min/max of 0 means no filter. minFreq of 0 means no
+// frequency filter; values > 0 pass min_freq to the server and also veto
+// results that come back below the threshold (belt-and-suspenders).
+func (c *Client) RandomWord(lang, pos string, min, max, minFreq int) (string, error) {
 	params := url.Values{"lang": {lang}}
 	if pos != "" {
 		params.Set("pos", pos)
@@ -76,6 +78,9 @@ func (c *Client) RandomWord(lang, pos string, min, max int) (string, error) {
 	}
 	if max > 0 {
 		params.Set("max", strconv.Itoa(max))
+	}
+	if minFreq > 0 {
+		params.Set("min_freq", strconv.Itoa(minFreq))
 	}
 
 	u := c.baseURL + "/random?" + params.Encode()
@@ -93,11 +98,18 @@ func (c *Client) RandomWord(lang, pos string, min, max int) (string, error) {
 	}
 
 	var result struct {
-		Word string `json:"word"`
+		Word      string `json:"word"`
+		Frequency int    `json:"frequency"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("dreamdict: random: decode: %w", err)
 	}
+
+	// Client-side veto in case the server doesn't support min_freq yet.
+	if minFreq > 0 && result.Frequency > 0 && result.Frequency < minFreq {
+		return "", fmt.Errorf("dreamdict: random: word below frequency threshold")
+	}
+
 	return result.Word, nil
 }
 

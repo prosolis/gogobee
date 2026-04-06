@@ -57,7 +57,7 @@ func (p *AdventurePlugin) handleBlacksmithCmd(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character.")
 	}
 
-	text := renderBlacksmithShop(equip)
+	text := renderBlacksmithShop(ctx.Sender, equip)
 
 	// Store pending interaction for slot selection.
 	p.pending.Store(string(ctx.Sender), &advPendingInteraction{
@@ -162,7 +162,8 @@ func (p *AdventurePlugin) buildRepairAllConfirm(userID id.UserID, equip map[Equi
 	}
 
 	if len(damaged) == 0 {
-		return p.SendDM(userID, "⚒️ All your equipment is at full condition. "+pickBlacksmithFlavor(blacksmithFullCondition))
+		flavor, _ := advPickFlavor(blacksmithFullCondition, userID, "bs_full")
+		return p.SendDM(userID, "⚒️ All your equipment is at full condition. "+flavor)
 	}
 
 	balance := p.euro.GetBalance(userID)
@@ -213,7 +214,8 @@ func (p *AdventurePlugin) buildRepairSlotConfirm(userID id.UserID, equip map[Equ
 	}
 
 	if eq.Condition >= 100 {
-		return p.SendDM(userID, fmt.Sprintf("⚒️ %s %s — %s", slotEmoji(slot), eq.Name, pickBlacksmithFlavor(blacksmithFullCondition)))
+		flavor, _ := advPickFlavor(blacksmithFullCondition, userID, "bs_full")
+		return p.SendDM(userID, fmt.Sprintf("⚒️ %s %s — %s", slotEmoji(slot), eq.Name, flavor))
 	}
 
 	cost := blacksmithRepairCost(eq)
@@ -230,13 +232,17 @@ func (p *AdventurePlugin) buildRepairSlotConfirm(userID id.UserID, equip map[Equ
 
 	// Special flavor for masterwork, arena, or broken.
 	if eq.Condition == 0 {
-		sb.WriteString(fmt.Sprintf("*%s*\n\n", pickBlacksmithFlavor(blacksmithBrokenCondition)))
+		f, _ := advPickFlavor(blacksmithBrokenCondition, userID, "bs_broken")
+		sb.WriteString(fmt.Sprintf("*%s*\n\n", f))
 	} else if eq.Masterwork {
-		sb.WriteString(fmt.Sprintf("*%s*\n\n", pickBlacksmithFlavor(blacksmithMasterwork)))
+		f, _ := advPickFlavor(blacksmithMasterwork, userID, "bs_master")
+		sb.WriteString(fmt.Sprintf("*%s*\n\n", f))
 	} else if eq.ArenaTier > 0 {
-		sb.WriteString(fmt.Sprintf("*%s*\n\n", pickBlacksmithFlavor(blacksmithArena)))
+		f, _ := advPickFlavor(blacksmithArena, userID, "bs_arena")
+		sb.WriteString(fmt.Sprintf("*%s*\n\n", f))
 	} else {
-		sb.WriteString(fmt.Sprintf("*%s*\n\n", pickBlacksmithFlavor(blacksmithInspection)))
+		f, _ := advPickFlavor(blacksmithInspection, userID, "bs_inspect")
+		sb.WriteString(fmt.Sprintf("*%s*\n\n", f))
 	}
 
 	sb.WriteString(fmt.Sprintf("Repair to 100: **€%d**\n\nReply **yes** to confirm or **no** to cancel.", cost))
@@ -320,19 +326,22 @@ func (p *AdventurePlugin) executeRepair(userID id.UserID, data *advPendingBlacks
 	for _, item := range repaired {
 		sb.WriteString(fmt.Sprintf("  %s → [100/100]\n", item))
 	}
-	sb.WriteString(fmt.Sprintf("\n*%s*\n\n", pickBlacksmithFlavor(blacksmithPayment)))
-	sb.WriteString(fmt.Sprintf("*%s*", pickBlacksmithFlavor(blacksmithCompletion)))
+	payFlavor, _ := advPickFlavor(blacksmithPayment, userID, "bs_pay")
+	doneFlavor, _ := advPickFlavor(blacksmithCompletion, userID, "bs_done")
+	sb.WriteString(fmt.Sprintf("\n*%s*\n\n", payFlavor))
+	sb.WriteString(fmt.Sprintf("*%s*", doneFlavor))
 
 	return p.SendDM(userID, sb.String())
 }
 
 // ── Shop Display ────────────────────────────────────────────────────────────
 
-func renderBlacksmithShop(equip map[EquipmentSlot]*AdvEquipment) string {
+func renderBlacksmithShop(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment) string {
 	var sb strings.Builder
 
+	greet, _ := advPickFlavor(blacksmithGreetings, userID, "bs_greet")
 	sb.WriteString("⚒️ **The Blacksmith**\n\n")
-	sb.WriteString(fmt.Sprintf("*%s*\n\n", pickBlacksmithFlavor(blacksmithGreetings)))
+	sb.WriteString(fmt.Sprintf("*%s*\n\n", greet))
 	sb.WriteString("Your equipment:\n")
 
 	hasDamaged := false
@@ -361,7 +370,8 @@ func renderBlacksmithShop(equip map[EquipmentSlot]*AdvEquipment) string {
 	}
 
 	if !hasDamaged {
-		sb.WriteString(fmt.Sprintf("\n*%s*", pickBlacksmithFlavor(blacksmithFullCondition)))
+		fullFlavor, _ := advPickFlavor(blacksmithFullCondition, userID, "bs_full")
+		sb.WriteString(fmt.Sprintf("\n*%s*", fullFlavor))
 	} else {
 		sb.WriteString("\nReply with the slot name to repair (weapon / armor / helmet / boots / tool) or \"all\" to repair everything.")
 	}

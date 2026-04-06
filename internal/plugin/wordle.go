@@ -390,7 +390,7 @@ func (p *WordlePlugin) pickWord(length int, category WordleCategory) string {
 
 		// Try a few times to get a word that hasn't been used recently.
 		for range 10 {
-			word, err := p.dict.RandomWord(lang, "", length, length)
+			word, err := p.dict.RandomWord(lang, "", length, length, 500)
 			if err != nil {
 				slog.Warn("wordle: DreamDict random word failed, falling back", "err", err)
 				break

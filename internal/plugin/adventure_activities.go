@@ -426,7 +426,7 @@ type advProbabilities struct {
 }
 
 func calculateAdvProbabilities(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, loc *AdvLocation, bonuses *AdvBonusSummary, inPenaltyZone bool) advProbabilities {
-	eqScore := float64(advEquipmentScore(equip))
+	eqScore := advEquipmentScore(equip)
 	skillLevel := float64(advEffectiveSkill(char, loc.Activity, bonuses))
 
 	deathPct := loc.BaseDeathPct - (eqScore * 0.8) - (skillLevel * 0.5) + bonuses.DeathModifier
