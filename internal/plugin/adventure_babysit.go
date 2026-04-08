@@ -277,7 +277,14 @@ func (p *AdventurePlugin) runBabysitDaily(char *AdventureCharacter) {
 	result.TreasureFound = nil
 
 	// Mark action taken (babysit always uses a harvest action)
-	char.HarvestActionsUsed++
+	isHol, _ := isHolidayToday()
+	harvestMax := maxHarvestActions
+	if isHol {
+		harvestMax++
+	}
+	if char.HarvestActionsUsed < harvestMax {
+		char.HarvestActionsUsed++
+	}
 	char.ActionTakenToday = true
 	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
 

@@ -202,11 +202,18 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 	}
 
 	// Today's actions
-	combatRemaining := maxCombatActions - char.CombatActionsUsed
+	isHolSheet, _ := isHolidayToday()
+	combatMax := maxCombatActions
+	harvestMax := maxHarvestActions
+	if isHolSheet {
+		combatMax++
+		harvestMax++
+	}
+	combatRemaining := combatMax - char.CombatActionsUsed
 	if combatRemaining < 0 {
 		combatRemaining = 0
 	}
-	harvestRemaining := maxHarvestActions - char.HarvestActionsUsed
+	harvestRemaining := harvestMax - char.HarvestActionsUsed
 	if harvestRemaining < 0 {
 		harvestRemaining = 0
 	}
@@ -332,57 +339,6 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 
 	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`\n")
 	sb.WriteString("You have until midnight UTC to choose.")
-
-	return sb.String()
-}
-
-// ── Holiday Second Action Prompt ──────────────────────────────────────────────
-
-func renderAdvHolidaySecondPrompt(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, bonuses *AdvBonusSummary) string {
-	var sb strings.Builder
-
-	sb.WriteString("✅ Action 1 complete.\n\nNow choose your **second action**:\n\n")
-
-	sb.WriteString("**1️⃣ Dungeon:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityDungeon, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
-		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-	}
-
-	sb.WriteString("**2️⃣ Mine:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityMining, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
-		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-	}
-
-	sb.WriteString("**3️⃣ Forage:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityForaging, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
-		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-	}
-
-	sb.WriteString("**4️⃣ Fish:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityFishing, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
-		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-	}
-
-	sb.WriteString("**5️⃣ Shop** — buy/sell gear and loot\n")
-	sb.WriteString("**6️⃣ Blacksmith** — repair damaged equipment\n")
-	sb.WriteString("**7️⃣ Rest** — skip the second action\n\n")
-	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`")
 
 	return sb.String()
 }
