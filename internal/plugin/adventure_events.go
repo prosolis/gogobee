@@ -95,7 +95,7 @@ func (p *AdventurePlugin) eventTicker() {
 func (p *AdventurePlugin) tryTriggerEvent(userID id.UserID) {
 	// Load character — must be alive and have acted today
 	char, err := loadAdvCharacter(userID)
-	if err != nil || char == nil || !char.Alive || !char.ActionTakenToday {
+	if err != nil || char == nil || !char.Alive || !char.HasActedToday() {
 		return
 	}
 

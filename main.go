@@ -132,7 +132,7 @@ func main() {
 	registry.Register(plugin.NewBlackjackPlugin(client, euroPlugin))
 	registry.Register(plugin.NewUnoPlugin(client, euroPlugin))
 	registry.Register(plugin.NewHoldemPlugin(client, euroPlugin))
-	adventurePlugin := plugin.NewAdventurePlugin(client, euroPlugin)
+	adventurePlugin := plugin.NewAdventurePlugin(client, euroPlugin, xpPlugin)
 	registry.Register(adventurePlugin)
 	wordlePlugin := plugin.NewWordlePlugin(client, euroPlugin, dictClient)
 	registry.Register(wordlePlugin)

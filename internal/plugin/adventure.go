@@ -18,6 +18,7 @@ import (
 type AdventurePlugin struct {
 	Base
 	euro         *EuroPlugin
+	xp           *XPPlugin
 	achievements *AchievementsPlugin
 	mu           sync.Mutex
 	dmToPlayer     map[id.RoomID]id.UserID
@@ -67,14 +68,23 @@ type advPendingTreasureDiscard struct {
 	Existing    []AdvTreasureDef
 }
 
-func NewAdventurePlugin(client *mautrix.Client, euro *EuroPlugin) *AdventurePlugin {
+func NewAdventurePlugin(client *mautrix.Client, euro *EuroPlugin, xp *XPPlugin) *AdventurePlugin {
 	return &AdventurePlugin{
 		Base:        NewBase(client),
 		euro:        euro,
+		xp:          xp,
 		dmToPlayer:  make(map[id.RoomID]id.UserID),
 		morningHour: envInt("ADVENTURE_MORNING_HOUR", 8),
 		summaryHour: envInt("ADVENTURE_SUMMARY_HOUR", 20),
 	}
+}
+
+// chatLevel returns the user's chat level for perk calculations.
+func (p *AdventurePlugin) chatLevel(userID id.UserID) int {
+	if p.xp == nil {
+		return 0
+	}
+	return p.xp.GetLevel(userID)
 }
 
 func (p *AdventurePlugin) Name() string { return "adventure" }
@@ -285,25 +295,15 @@ func (p *AdventurePlugin) handleMenu(ctx MessageContext) error {
 		}
 	}
 
-	if char.ActionTakenToday {
-		// On holidays, allow second action if not yet taken
-		isHol, _ := isHolidayToday()
-		if isHol && !char.HolidayActionTaken {
-			treasures, _ := loadAdvTreasureBonuses(char.UserID)
-			buffs, _ := loadAdvActiveBuffs(char.UserID)
-			bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, false)
-			text := renderAdvHolidaySecondPrompt(char, equip, bonuses)
-			p.advMarkMenuSent(ctx.Sender)
-			return p.SendDM(ctx.Sender, text)
-		}
-
+	isHol, holName := isHolidayToday()
+	if char.AllActionsUsed(isHol) {
 		now := time.Now().UTC()
 		midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
 		remaining := midnight.Sub(now)
 		hours := int(remaining.Hours())
 		minutes := int(remaining.Minutes()) % 60
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"You've already taken your action today. Tomorrow awaits. Try to survive it.\n\n"+
+			"You've used all your actions today. Tomorrow awaits. Try to survive it.\n\n"+
 				"Next action: 00:00 UTC (%dh %dm from now)\n"+
 				"Morning DM: %02d:00 UTC\n\n"+
 				"The Arena is always open: `!arena`",
@@ -315,7 +315,6 @@ func (p *AdventurePlugin) handleMenu(ctx MessageContext) error {
 	bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, false)
 	balance := p.euro.GetBalance(char.UserID)
 
-	_, holName := isHolidayToday()
 	text := renderAdvMorningDM(char, equip, balance, bonuses, holName)
 	p.advMarkMenuSent(ctx.Sender)
 	return p.SendDM(ctx.Sender, text)
@@ -613,30 +612,26 @@ func (p *AdventurePlugin) parseAndResolveChoice(ctx MessageContext, body string)
 		}
 	}
 
-	if char.ActionTakenToday {
-		// On holidays, allow second action if not yet taken
-		isHol, _ := isHolidayToday()
-		if !isHol || char.HolidayActionTaken {
-			// Only send the reminder once per day — subsequent DM messages
-			// are silently ignored so they can be handled by other plugins (e.g. UNO).
-			today := time.Now().UTC().Format("2006-01-02")
-			if prev, ok := p.dmRemindedDate.Load(string(ctx.Sender)); ok && prev.(string) == today {
-				return nil
-			}
-			p.dmRemindedDate.Store(string(ctx.Sender), today)
-
-			now := time.Now().UTC()
-			midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
-			remaining := midnight.Sub(now)
-			hours := int(remaining.Hours())
-			minutes := int(remaining.Minutes()) % 60
-			return p.SendDM(ctx.Sender, fmt.Sprintf(
-				"You've already taken your action today. Rest now. Try again tomorrow.\n\n"+
-					"Next action: 00:00 UTC (%dh %dm from now)\n\n"+
-					"The Arena is always open: `!arena`",
-				hours, minutes))
+	isHol, _ := isHolidayToday()
+	if char.AllActionsUsed(isHol) {
+		// Only send the reminder once per day — subsequent DM messages
+		// are silently ignored so they can be handled by other plugins (e.g. UNO).
+		today := time.Now().UTC().Format("2006-01-02")
+		if prev, ok := p.dmRemindedDate.Load(string(ctx.Sender)); ok && prev.(string) == today {
+			return nil
 		}
-		// Fall through for holiday second action
+		p.dmRemindedDate.Store(string(ctx.Sender), today)
+
+		now := time.Now().UTC()
+		midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+		remaining := midnight.Sub(now)
+		hours := int(remaining.Hours())
+		minutes := int(remaining.Minutes()) % 60
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"You've used all your actions today. Rest now. Try again tomorrow.\n\n"+
+				"Next action: 00:00 UTC (%dh %dm from now)\n\n"+
+				"The Arena is always open: `!arena`",
+			hours, minutes))
 	}
 
 	lower := strings.ToLower(body)
@@ -728,6 +723,14 @@ func (p *AdventurePlugin) parseActivityLocation(input string, char *AdventureCha
 // ── Activity Resolution ──────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCharacter, activity AdvActivityType, loc *AdvLocation) error {
+	isHol, _ := isHolidayToday()
+	if isCombatActivity(activity) && !char.CanDoCombat(isHol) {
+		return p.SendDM(ctx.Sender, "You've used your combat action for the day. Try a harvest activity (mining, fishing, foraging) or rest.")
+	}
+	if isHarvestActivity(activity) && !char.CanDoHarvest(isHol) {
+		return p.SendDM(ctx.Sender, "You've used all your harvest actions for the day. Try combat (dungeon) or rest.")
+	}
+
 	equip, err := loadAdvEquipment(char.UserID)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Failed to load your equipment.")
@@ -818,22 +821,14 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		_ = addAdvInventoryItem(char.UserID, item)
 	}
 
-	// Determine if this is the holiday second action
-	isAction2 := char.ActionTakenToday // already taken = this is the second
-	isHol, _ := isHolidayToday()
-
-	// Mark action taken and record the date for streak tracking
-	if !isAction2 {
-		char.ActionTakenToday = true
-		char.LastActionDate = time.Now().UTC().Format("2006-01-02")
+	// Mark action consumed in the correct bucket
+	if isCombatActivity(activity) {
+		char.CombatActionsUsed++
+	} else if isHarvestActivity(activity) {
+		char.HarvestActionsUsed++
 	}
-
-	// Holiday flags: mark second action done, or mark it done on death during action 1
-	if isAction2 {
-		char.HolidayActionTaken = true
-	} else if isHol && result.Outcome == AdvOutcomeDeath && !deathReprieved {
-		char.HolidayActionTaken = true // died on action 1 — no second action
-	}
+	char.ActionTakenToday = true
+	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
 
 	// Update streak info
 	result.StreakBonus = char.CurrentStreak
@@ -897,34 +892,39 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		p.checkMasterworkDrop(ctx.Sender, char, equip, loc, result.Outcome)
 	}
 
-	// TODO: holiday achievement hooks
-
-	// Holiday: offer second action if this was action 1 and player survived
-	if !isAction2 && isHol && (result.Outcome != AdvOutcomeDeath || deathReprieved) {
-		equip2, _ := loadAdvEquipment(char.UserID)
-		treasures2, _ := loadAdvTreasureBonuses(char.UserID)
-		buffs2, _ := loadAdvActiveBuffs(char.UserID)
-		bonuses2 := computeAdvBonuses(treasures2, buffs2, char.CurrentStreak, false)
-		prompt := renderAdvHolidaySecondPrompt(char, equip2, bonuses2)
-		if err := p.SendDM(ctx.Sender, prompt); err != nil {
-			slog.Error("adventure: failed to send holiday second prompt", "user", ctx.Sender, "err", err)
+	// If the player still has actions remaining, nudge them
+	if !char.AllActionsUsed(isHol) && (result.Outcome != AdvOutcomeDeath || deathReprieved) {
+		remaining := []string{}
+		if char.CanDoCombat(isHol) {
+			remaining = append(remaining, "combat")
 		}
+		if char.CanDoHarvest(isHol) {
+			harvestLeft := maxHarvestActions - char.HarvestActionsUsed
+			if isHol {
+				harvestLeft = maxHarvestActions + 1 - char.HarvestActionsUsed
+			}
+			remaining = append(remaining, fmt.Sprintf("%d harvest", harvestLeft))
+		}
+		p.SendDM(ctx.Sender, fmt.Sprintf("Actions remaining today: %s. Type `!adv` for the menu.", strings.Join(remaining, ", ")))
 	}
 
 	return nil
 }
 
 func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharacter) error {
-	isAction2 := char.ActionTakenToday
 	isHol, _ := isHolidayToday()
 
-	if !isAction2 {
-		char.ActionTakenToday = true
-		char.LastActionDate = time.Now().UTC().Format("2006-01-02")
+	// Rest consumes all remaining actions
+	combatMax := maxCombatActions
+	harvestMax := maxHarvestActions
+	if isHol {
+		combatMax++
+		harvestMax++
 	}
-	if isAction2 {
-		char.HolidayActionTaken = true
-	}
+	char.CombatActionsUsed = combatMax
+	char.HarvestActionsUsed = harvestMax
+	char.ActionTakenToday = true
+	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
 
 	if err := saveAdvCharacter(char); err != nil {
 		return p.SendDM(ctx.Sender, "Failed to save. Even resting is broken.")
@@ -952,18 +952,6 @@ func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharact
 
 	if err := p.SendDM(ctx.Sender, restMsg); err != nil {
 		slog.Error("adventure: failed to send rest DM", "user", ctx.Sender, "err", err)
-	}
-
-	// Holiday: offer second action if this was action 1
-	if !isAction2 && isHol {
-		equip, _ := loadAdvEquipment(char.UserID)
-		treasures, _ := loadAdvTreasureBonuses(char.UserID)
-		buffs, _ := loadAdvActiveBuffs(char.UserID)
-		bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, false)
-		prompt := renderAdvHolidaySecondPrompt(char, equip, bonuses)
-		if err := p.SendDM(ctx.Sender, prompt); err != nil {
-			slog.Error("adventure: failed to send holiday second prompt", "user", ctx.Sender, "err", err)
-		}
 	}
 
 	return nil

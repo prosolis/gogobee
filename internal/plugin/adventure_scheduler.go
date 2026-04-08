@@ -96,8 +96,9 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			continue
 		}
 
-		// If already acted today, skip
-		if char.ActionTakenToday {
+		// If all actions used today, skip
+		isHol, _ := isHolidayToday()
+		if char.AllActionsUsed(isHol) {
 			continue
 		}
 
@@ -225,7 +226,7 @@ func (p *AdventurePlugin) postDailySummary() {
 			continue
 		}
 
-		if !c.ActionTakenToday {
+		if !c.HasActedToday() {
 			ps.IsResting = true
 			if len(SummaryResting) > 0 {
 				ps.SummaryLine = SummaryResting[time.Now().Nanosecond()%len(SummaryResting)]
@@ -313,7 +314,7 @@ func (p *AdventurePlugin) midnightReset() error {
 			continue
 		}
 
-		if !char.ActionTakenToday {
+		if !char.HasActedToday() {
 			// If the player died today (or yesterday — covering late-night deaths
 			// that span midnight), grant a grace period: no shame, no streak reset.
 			if char.LastDeathDate == today ||

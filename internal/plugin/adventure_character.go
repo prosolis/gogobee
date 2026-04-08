@@ -39,6 +39,8 @@ type AdventureCharacter struct {
 	DeadUntil        *time.Time
 	ActionTakenToday   bool
 	HolidayActionTaken bool
+	CombatActionsUsed  int
+	HarvestActionsUsed int
 	ArenaWins          int // v2
 	ArenaLosses      int    // v2
 	InvasionScore    int    // v2
@@ -211,6 +213,43 @@ func (c *AdventureCharacter) Kill() {
 	c.LastDeathDate = time.Now().UTC().Format("2006-01-02")
 }
 
+// ── Action Economy ──────────────────────────────────────────────────────────
+
+const maxCombatActions = 1
+const maxHarvestActions = 3
+
+func (c *AdventureCharacter) CanDoCombat(isHoliday bool) bool {
+	max := maxCombatActions
+	if isHoliday {
+		max++
+	}
+	return c.CombatActionsUsed < max
+}
+
+func (c *AdventureCharacter) CanDoHarvest(isHoliday bool) bool {
+	max := maxHarvestActions
+	if isHoliday {
+		max++
+	}
+	return c.HarvestActionsUsed < max
+}
+
+func (c *AdventureCharacter) HasActedToday() bool {
+	return c.CombatActionsUsed > 0 || c.HarvestActionsUsed > 0
+}
+
+func (c *AdventureCharacter) AllActionsUsed(isHoliday bool) bool {
+	return !c.CanDoCombat(isHoliday) && !c.CanDoHarvest(isHoliday)
+}
+
+func isCombatActivity(activity AdvActivityType) bool {
+	return activity == AdvActivityDungeon
+}
+
+func isHarvestActivity(activity AdvActivityType) bool {
+	return activity == AdvActivityMining || activity == AdvActivityForaging || activity == AdvActivityFishing
+}
+
 // ── Equipment Score ──────────────────────────────────────────────────────────
 
 func advEquipmentScore(equip map[EquipmentSlot]*AdvEquipment) float64 {
@@ -320,7 +359,8 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		       masterwork_drops_received,
 		       rival_pool, rival_unlocked_notified,
 		       babysit_active, babysit_expires_at, babysit_skill_focus,
-		       hospital_visits, robbie_visit_count, last_death_date
+		       hospital_visits, robbie_visit_count, last_death_date,
+		       combat_actions_used, harvest_actions_used
 		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -333,6 +373,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&c.RivalPool, &rivalUnlocked,
 		&babysitAct, &babysitExp, &c.BabysitSkillFocus,
 		&c.HospitalVisits, &c.RobbieVisitCount, &c.LastDeathDate,
+		&c.CombatActionsUsed, &c.HarvestActionsUsed,
 	)
 	if err != nil {
 		return nil, err
@@ -417,7 +458,8 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 			masterwork_drops_received = ?,
 			rival_pool = ?, rival_unlocked_notified = ?,
 			babysit_active = ?, babysit_expires_at = ?, babysit_skill_focus = ?,
-			hospital_visits = ?, robbie_visit_count = ?, last_death_date = ?
+			hospital_visits = ?, robbie_visit_count = ?, last_death_date = ?,
+			combat_actions_used = ?, harvest_actions_used = ?
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
@@ -428,6 +470,7 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 		char.RivalPool, rivalUnlocked,
 		babysitAct, char.BabysitExpiresAt, char.BabysitSkillFocus,
 		char.HospitalVisits, char.RobbieVisitCount, char.LastDeathDate,
+		char.CombatActionsUsed, char.HarvestActionsUsed,
 		string(char.UserID),
 	)
 	return err
@@ -544,7 +587,8 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		       created_at, last_active_at, death_reprieve_last,
 		       masterwork_drops_received,
 		       rival_pool, rival_unlocked_notified,
-		       babysit_active, babysit_expires_at, babysit_skill_focus
+		       babysit_active, babysit_expires_at, babysit_skill_focus,
+		       combat_actions_used, harvest_actions_used
 		FROM adventure_characters`)
 	if err != nil {
 		return nil, err
@@ -567,6 +611,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 			&c.MasterworkDropsReceived,
 			&c.RivalPool, &rivalUnlocked,
 			&babysitAct, &babysitExp, &c.BabysitSkillFocus,
+		&c.CombatActionsUsed, &c.HarvestActionsUsed,
 		); err != nil {
 			return nil, err
 		}
@@ -594,7 +639,7 @@ func resetAllAdvDailyActions() error {
 	// Only reset actions taken before today — protects against race if a player
 	// resolves their action at exactly midnight.
 	today := time.Now().UTC().Format("2006-01-02")
-	_, err := d.Exec(`UPDATE adventure_characters SET action_taken_today = 0, holiday_action_taken = 0 WHERE last_action_date < ? OR last_action_date IS NULL`, today)
+	_, err := d.Exec(`UPDATE adventure_characters SET action_taken_today = 0, holiday_action_taken = 0, combat_actions_used = 0, harvest_actions_used = 0 WHERE last_action_date < ? OR last_action_date IS NULL`, today)
 	return err
 }
 

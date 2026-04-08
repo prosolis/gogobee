@@ -106,6 +106,16 @@ func (p *XPPlugin) OnMessage(ctx MessageContext) error {
 }
 
 // GrantXP awards XP to a user from an external plugin and returns (newXP, leveledUp, newLevel).
+// GetLevel returns the chat level for the given user, or 0 if unknown.
+func (p *XPPlugin) GetLevel(userID id.UserID) int {
+	d := db.Get()
+	var level int
+	if err := d.QueryRow(`SELECT level FROM users WHERE user_id = ?`, string(userID)).Scan(&level); err != nil {
+		return 0
+	}
+	return level
+}
+
 func (p *XPPlugin) GrantXP(userID id.UserID, amount int, reason string) (int, bool, int) {
 	return p.grantXPInternal(userID, amount, reason)
 }

@@ -236,7 +236,7 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 
 	var eligible []id.UserID
 	for _, c := range chars {
-		if c.ActionTakenToday {
+		if c.HasActedToday() {
 			eligible = append(eligible, c.UserID)
 		}
 	}

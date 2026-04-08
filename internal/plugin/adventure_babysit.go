@@ -276,7 +276,8 @@ func (p *AdventurePlugin) runBabysitDaily(char *AdventureCharacter) {
 	// No treasure drops during babysitting
 	result.TreasureFound = nil
 
-	// Mark action taken
+	// Mark action taken (babysit always uses a harvest action)
+	char.HarvestActionsUsed++
 	char.ActionTakenToday = true
 	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
 
