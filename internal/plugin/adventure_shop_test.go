@@ -11,7 +11,7 @@ func TestLuigiShopGreeting_Basic(t *testing.T) {
 	equip := map[EquipmentSlot]*AdvEquipment{
 		SlotWeapon: {Tier: 2, Condition: 100},
 	}
-	text := luigiShopGreeting("@user:test", equip, 5000, false)
+	text := luigiShopGreeting("@user:test", equip, 5000, false, 0)
 
 	if !strings.Contains(text, "Luigi's") {
 		t.Error("greeting should contain Luigi's")
@@ -35,7 +35,7 @@ func TestLuigiShopGreeting_MaxedOut(t *testing.T) {
 		SlotBoots:  {Tier: 5, Condition: 100},
 		SlotTool:   {Tier: 5, Condition: 100},
 	}
-	text := luigiShopGreeting("@user:test", equip, 99999, false)
+	text := luigiShopGreeting("@user:test", equip, 99999, false, 0)
 
 	// Should NOT show category grid.
 	if strings.Contains(text, "Reply with a category") {
@@ -49,7 +49,7 @@ func TestLuigiShopGreeting_MaxedOut(t *testing.T) {
 
 func TestLuigiShopGreeting_ShowAll(t *testing.T) {
 	equip := map[EquipmentSlot]*AdvEquipment{}
-	text := luigiShopGreeting("@user:test", equip, 1000, true)
+	text := luigiShopGreeting("@user:test", equip, 1000, true, 0)
 
 	// Should contain a show-all comment.
 	if !strings.Contains(text, "judgment") && !strings.Contains(text, "thoroughness") {

@@ -122,7 +122,7 @@ func (p *AdventurePlugin) shopScheduleBrowseNudge(userID id.UserID) {
 
 // ── Display: Luigi Greeting + Category Menu ─────────────────────────────────
 
-func luigiShopGreeting(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment, balance float64, showAll bool) string {
+func luigiShopGreeting(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment, balance float64, showAll bool, chatLevel int) string {
 	var sb strings.Builder
 
 	// Check if fully maxed out.
@@ -141,7 +141,12 @@ func luigiShopGreeting(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment, 
 		return sb.String()
 	}
 
-	greet, _ := advPickFlavor(luigiGreetings, userID, "luigi_greet")
+	var greet string
+	if chatLevel >= 10 {
+		greet = shopGreeting(chatLevel)
+	} else {
+		greet, _ = advPickFlavor(luigiGreetings, userID, "luigi_greet")
+	}
 	sb.WriteString(fmt.Sprintf("🛒 **Luigi's**\n💰 Balance: €%.0f\n\n", balance))
 	sb.WriteString(fmt.Sprintf("*%s*\n\n", greet))
 
@@ -359,7 +364,7 @@ func (p *AdventurePlugin) resolveShopItemChoice(ctx MessageContext, interaction 
 		}
 		balance := p.euro.GetBalance(ctx.Sender)
 
-		text := luigiShopGreeting(ctx.Sender, equip, balance, data.ShowAll)
+		text := luigiShopGreeting(ctx.Sender, equip, balance, data.ShowAll, p.chatLevel(ctx.Sender))
 		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 			Type:      "shop_category",
 			Data:      &advPendingShopCategory{ShowAll: data.ShowAll},

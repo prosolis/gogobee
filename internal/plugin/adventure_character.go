@@ -61,6 +61,7 @@ type AdventureCharacter struct {
 	HospitalVisits          int
 	RobbieVisitCount        int
 	LastDeathDate           string
+	LastPardonUsed          *time.Time
 }
 
 type AdvEquipment struct {
@@ -205,6 +206,15 @@ func (c *AdventureCharacter) DeathReprieveAvailable() bool {
 	return time.Since(*c.DeathReprieveLast) >= 168*time.Hour
 }
 
+// PardonAvailable returns true if the chat level death pardon cooldown
+// has expired (or was never triggered). 7-day rolling cooldown.
+func (c *AdventureCharacter) PardonAvailable() bool {
+	if c.LastPardonUsed == nil {
+		return true
+	}
+	return time.Since(*c.LastPardonUsed) >= 168*time.Hour
+}
+
 // Kill marks the character as dead with a 6-hour respawn timer.
 func (c *AdventureCharacter) Kill() {
 	c.Alive = false
@@ -346,7 +356,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	d := db.Get()
 	c := &AdventureCharacter{}
 	var alive, actionTaken, holidayTaken, rivalUnlocked, babysitAct int
-	var deadUntil, reprieveLast, babysitExp sql.NullTime
+	var deadUntil, reprieveLast, babysitExp, pardonUsed sql.NullTime
 
 	err := d.QueryRow(`
 		SELECT user_id, display_name,
@@ -360,7 +370,8 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		       rival_pool, rival_unlocked_notified,
 		       babysit_active, babysit_expires_at, babysit_skill_focus,
 		       hospital_visits, robbie_visit_count, last_death_date,
-		       combat_actions_used, harvest_actions_used
+		       combat_actions_used, harvest_actions_used,
+		       last_pardon_used
 		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -374,6 +385,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&babysitAct, &babysitExp, &c.BabysitSkillFocus,
 		&c.HospitalVisits, &c.RobbieVisitCount, &c.LastDeathDate,
 		&c.CombatActionsUsed, &c.HarvestActionsUsed,
+		&pardonUsed,
 	)
 	if err != nil {
 		return nil, err
@@ -391,6 +403,9 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	}
 	if babysitExp.Valid {
 		c.BabysitExpiresAt = &babysitExp.Time
+	}
+	if pardonUsed.Valid {
+		c.LastPardonUsed = &pardonUsed.Time
 	}
 	return c, nil
 }
@@ -459,7 +474,8 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 			rival_pool = ?, rival_unlocked_notified = ?,
 			babysit_active = ?, babysit_expires_at = ?, babysit_skill_focus = ?,
 			hospital_visits = ?, robbie_visit_count = ?, last_death_date = ?,
-			combat_actions_used = ?, harvest_actions_used = ?
+			combat_actions_used = ?, harvest_actions_used = ?,
+			last_pardon_used = ?
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
@@ -471,6 +487,7 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 		babysitAct, char.BabysitExpiresAt, char.BabysitSkillFocus,
 		char.HospitalVisits, char.RobbieVisitCount, char.LastDeathDate,
 		char.CombatActionsUsed, char.HarvestActionsUsed,
+		char.LastPardonUsed,
 		string(char.UserID),
 	)
 	return err

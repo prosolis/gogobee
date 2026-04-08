@@ -169,8 +169,9 @@ func (p *AdventurePlugin) checkMasterworkDrop(userID id.UserID, char *AdventureC
 		return // no masterwork available for this activity+tier (e.g. dungeon)
 	}
 
-	// Roll for drop
-	if rand.Float64() >= def.DropRate {
+	// Roll for drop (chat level rare bonus applied additively)
+	dropRate := def.DropRate + chatLevelRareBonus(p.chatLevel(userID))
+	if rand.Float64() >= dropRate {
 		return
 	}
 

@@ -241,11 +241,12 @@ var advAllTreasures = map[int][]AdvTreasureDef{
 
 // ── Treasure Drop Logic ──────────────────────────────────────────────────────
 
-func rollAdvTreasureDrop(tier int, userID id.UserID) *AdvTreasureDrop {
+func rollAdvTreasureDrop(tier int, userID id.UserID, chatLevel int) *AdvTreasureDrop {
 	rate, ok := advTreasureDropRates[tier]
 	if !ok {
 		return nil
 	}
+	rate += chatLevelRareBonus(chatLevel)
 
 	if rand.Float64() >= rate {
 		return nil

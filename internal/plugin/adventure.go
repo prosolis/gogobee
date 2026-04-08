@@ -368,7 +368,7 @@ func (p *AdventurePlugin) handleShopCmd(ctx MessageContext, args string) error {
 	p.shopSessionStart(ctx.Sender)
 
 	if category == "" {
-		text := luigiShopGreeting(ctx.Sender, equip, balance, showAll)
+		text := luigiShopGreeting(ctx.Sender, equip, balance, showAll, p.chatLevel(ctx.Sender))
 		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 			Type:      "shop_category",
 			Data:      &advPendingShopCategory{ShowAll: showAll},
@@ -768,6 +768,11 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	// Select flavor text
 	result.FlavorText, result.FlavorKey = p.selectFlavorText(char, result)
 
+	// Chat level XP bonus
+	if bonus := chatLevelXPBonus(p.chatLevel(char.UserID)); bonus > 0 {
+		result.XPGained = int(float64(result.XPGained) * (1.0 + bonus))
+	}
+
 	// Apply XP
 	switch result.XPSkill {
 	case "combat":
@@ -788,28 +793,41 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 
 	// Handle death
 	deathReprieved := false
+	pardonFired := false
 	if result.Outcome == AdvOutcomeDeath {
-		// Sovereign set: Death's Reprieve — survive lethal outcome
-		if advEquippedArenaSets(equip)["sovereign"] && char.DeathReprieveAvailable() {
+		// Chat level death pardon (does NOT apply in arena — arena uses separate code path)
+		chatLvl := p.chatLevel(char.UserID)
+		if chatLvl >= 20 && char.PardonAvailable() && rand.Float64() < 0.33 {
+			pardonFired = true
 			deathReprieved = true
 			now := time.Now().UTC()
-			char.DeathReprieveLast = &now
+			char.LastPardonUsed = &now
+			result.Outcome = AdvOutcomeEmpty
 			char.GrudgeLocation = loc.Name
-			// Gear absorbs the blow — all equipment set to 1 condition
-			for _, slot := range allSlots {
-				if eq, ok := equip[slot]; ok {
-					eq.Condition = 1
+		}
+		if !pardonFired {
+			// Sovereign set: Death's Reprieve — survive lethal outcome
+			if advEquippedArenaSets(equip)["sovereign"] && char.DeathReprieveAvailable() {
+				deathReprieved = true
+				now := time.Now().UTC()
+				char.DeathReprieveLast = &now
+				char.GrudgeLocation = loc.Name
+				// Gear absorbs the blow — all equipment set to 1 condition
+				for _, slot := range allSlots {
+					if eq, ok := equip[slot]; ok {
+						eq.Condition = 1
+					}
 				}
+				// Post room announcement
+				nextWindow := now.Add(168 * time.Hour)
+				gr := gamesRoom()
+				if gr != "" {
+					p.SendMessage(gr, renderArenaDeathReprieve(char.DisplayName, loc.Name, nextWindow))
+				}
+			} else {
+				char.Kill()
+				char.GrudgeLocation = loc.Name
 			}
-			// Post room announcement
-			nextWindow := now.Add(168 * time.Hour)
-			gr := gamesRoom()
-			if gr != "" {
-				p.SendMessage(gr, renderArenaDeathReprieve(char.DisplayName, loc.Name, nextWindow))
-			}
-		} else {
-			char.Kill()
-			char.GrudgeLocation = loc.Name
 		}
 	} else if hasGrudge && (result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional) {
 		// Clear grudge on successful return
@@ -879,6 +897,11 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	}
 	if err := p.SendDM(ctx.Sender, text); err != nil {
 		slog.Error("adventure: failed to send resolution DM", "user", ctx.Sender, "err", err)
+	}
+
+	// Quiet DM for death pardon
+	if pardonFired {
+		p.SendDM(ctx.Sender, "The healers got there in time. Barely. Don't make this a habit.")
 	}
 
 	// Send hospital ad on death (delayed, arrives after resolution DM)
@@ -960,7 +983,7 @@ func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharact
 // ── Treasure Drop Check ─────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) checkTreasureDrop(userID id.UserID, char *AdventureCharacter, loc *AdvLocation) {
-	drop := rollAdvTreasureDrop(loc.Tier, userID)
+	drop := rollAdvTreasureDrop(loc.Tier, userID, p.chatLevel(userID))
 	if drop == nil {
 		return
 	}

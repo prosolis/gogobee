@@ -361,11 +361,14 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 	run.RoundsSurvived++
 	run.LastMonster = monster.Name
 
-	// Award battle XP (Ironclad set: Battle-Hardened — +5% XP)
+	// Award battle XP (Ironclad set: Battle-Hardened — +5% XP, chat level bonus)
 	battleXP := tier.BattleXP
 	equip, _ := loadAdvEquipment(ctx.Sender)
 	if advEquippedArenaSets(equip)["ironclad"] {
 		battleXP = int(float64(battleXP) * 1.05)
+	}
+	if bonus := chatLevelXPBonus(p.chatLevel(ctx.Sender)); bonus > 0 {
+		battleXP = int(float64(battleXP) * (1.0 + bonus))
 	}
 	char.CombatXP += battleXP
 	leveled, newLevel := checkAdvLevelUp(char, "combat")
