@@ -4,12 +4,15 @@ go 1.25.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/chehsunliu/poker v0.1.0
 	github.com/expr-lang/expr v1.17.5
+	github.com/fogleman/gg v1.3.0
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/olebedev/when v1.1.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+	golang.org/x/image v0.36.0
 	maunium.net/go/mautrix v0.26.3
 	modernc.org/sqlite v1.37.1
 )
@@ -18,9 +21,7 @@ require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/AlekSi/pointer v1.0.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
-	github.com/chehsunliu/poker v0.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/fogleman/gg v1.3.0 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -37,7 +38,6 @@ require (
 	go.mau.fi/util v0.9.6 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a // indirect
-	golang.org/x/image v0.36.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
