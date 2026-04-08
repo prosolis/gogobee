@@ -30,7 +30,7 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
 - **50 plugins** with dependency injection and ordered registration
-- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict, difficulty tier display), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-20 letter words, guess persistence across restarts, midnight expiry announcements, video game themed bonus words with category hints, dupe prevention across last 500 puzzles), Adventure (daily idle RPG via DMs — dungeon, mine, forage, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), all with channel restriction
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict, difficulty tier display), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-20 letter words, guess persistence across restarts, midnight expiry announcements, video game themed bonus words with category hints, dupe prevention across last 500 puzzles, earnings tracked in stats), Adventure (daily idle RPG via DMs — dungeon, mine, forage, fish, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions, hospital revival system, Robbie the Friendly Bandit automated inventory cleaner), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - Palavra do Dia (Portuguese WOTD with en/fr translations and etymology), holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
@@ -152,6 +152,7 @@ Everything is configured through environment variables or a `.env` file.
 | `FEATURE_MODERATION` | Set to `true` to enable the moderation system (disabled by default) |
 | `FEATURE_MARKET` | Set to `true` to enable the market overview plugin |
 | `MARKET_BROADCAST_SUMMARY` | Set to `true` to auto-post daily market summary to broadcast rooms |
+| `DISABLE_WOTD_POST` | Set to `true` to suppress daily WOTD auto-post (the `!wotd` command and passive WOTD usage tracking still work) |
 
 ### Games & Economy
 
@@ -284,7 +285,7 @@ Rep is earned when someone thanks you. The bot detects this automatically.
 ### Stats & Personality
 | Command | Description |
 |---------|-------------|
-| `!stats [@user]` | Message statistics |
+| `!stats [@user]` | Message statistics (includes Wordle and UNO earnings) |
 | `!superstatsexplusalpha [@user]` | Comprehensive profile: economy, games W/L, adventure levels, achievements, and more |
 | `!rankings [category]` | Rankings by words, links, questions, or emojis |
 | `!personality` | Your community archetype |
@@ -470,17 +471,17 @@ Daily cooperative Wordle — one puzzle per day, the community works together wi
 | `!wordle skip` | Reveal answer and end puzzle (admin) |
 | `!wordle help` | Show commands |
 
-No economy integration — stats and leaderboard position are the reward.
+Economy rewards are tracked per player — `!wordle stats` shows total earnings.
 
 ### Adventure (DM-based idle RPG)
 
 A daily DM-driven idle RPG where each player takes one action per day — dungeon, mine, fish, forage, visit the shop, or rest. Outcomes resolve with flavor text and loot is credited to your euro balance. An evening summary posts to the games room. TwinBee is a permanent NPC adventurer who distributes rewards to active players.
 
-Characters auto-create on first `!adventure` command. All gameplay happens in DMs — reply to the bot's morning prompt with your choice. DM replies are only interpreted as adventure choices for 15 minutes after a menu is sent, so other DM-based games (UNO, Hold'em) won't conflict.
+Characters auto-create on first `!adventure` (or `!adv`) command. All gameplay happens in DMs — reply to the bot's morning prompt with your choice. DM replies are only interpreted as adventure choices for 15 minutes after a menu is sent, so other DM-based games (UNO, Hold'em) won't conflict.
 
 | Command | Description |
 |---------|-------------|
-| `!adventure` | Open today's action menu (sent via DM) |
+| `!adventure` / `!adv` | Open today's action menu (sent via DM) |
 | `!adventure status` | Character sheet (sent via DM) |
 | `!adventure shop` | Browse equipment for sale (sent via DM) |
 | `!adventure buy <item>` | Buy equipment by name or tier shorthand (`3 sword`, `t4 boots`) |
@@ -492,6 +493,7 @@ Characters auto-create on first `!adventure` command. All gameplay happens in DM
 | `!adventure revive @user` | Revive a dead player (admin) |
 | `!adventure respond <choice>` | Reply to today's action prompt (alternative to DM reply) |
 | `!adventure summary` | Force daily summary post (admin) |
+| `!hospital` | Check in to St. Guildmore's Memorial Hospital for same-day revival (costs €25k × combat level) |
 
 **DM replies:** Reply to the morning prompt with a number (`1`–`5`) or activity name (`dungeon`, `mine`, `forage`, `shop`, `rest`). You can specify a location: `1 Soggy Cellar`, `mine 3`, etc.
 
@@ -509,12 +511,14 @@ Four activity types across 5 tiers of locations. Higher tiers require higher cha
 - **Equipment** — 5 slots (weapon, armor, helmet, boots, tool) with tiered upgrades from the shop. Equipment degrades on bad outcomes and breaks at 0 condition.
 - **Masterwork gear** — rare skill-specific equipment drops from gathering activities (mining, fishing, foraging). 15 items across 5 tiers with decreasing drop rates (5% T1 down to 0.5% T5). Location-gated — drops only at matching tier. Auto-equips if better than current gear; otherwise goes to inventory for manual equipping via `!adventure equip`. Masterwork items provide a +5% skill bonus when the item's source skill matches the current activity. Character sheet marks masterwork items with a star.
 - **Treasures** — rare collectibles (up to 3) that provide passive bonuses (XP multipliers, death chance reduction, loot quality). Prompted to discard when at cap.
-- **Streaks** — consecutive days of activity grant escalating bonuses (XP, loot quality, death chance reduction). Resting or dying resets your streak.
+- **Streaks** — consecutive days of activity grant escalating bonuses (XP, loot quality, death chance reduction). Resting resets your streak. Dead players' streaks are frozen — you won't lose your streak to involuntary downtime.
 - **Grudge** — dying at a location marks it as your grudge. Returning there grants +10% success and +25% XP. Clears on success.
 - **Party bonus** — if two players independently visit the same location on the same day, both get +10% loot value.
-- **Death** — locked out until midnight UTC. You're automatically revived when the next day starts. Death's Reprieve (surviving a lethal roll) sets all equipment to 1 condition instead of destroying it.
+- **Death** — locked out for 6 hours (or until midnight, whichever comes first). Natural respawn happens automatically. Use `!hospital` for same-day revival at a cost. Death's Reprieve (surviving a lethal roll) sets all equipment to 1 condition instead of destroying it. Dead players' streaks are preserved with a grace period — if you die and can't act on revival day, your streak won't reset.
 - **Holidays** — on recognized holidays (~20/year across religious and cultural calendars), you get a second daily action. Hebrew and Islamic calendar support for floating holidays.
 - **TwinBee NPC** — takes a daily action (location tier capped by best player's combined level), distributes loot share to active players scaled quadratically by level, and occasionally gifts random buffs.
+- **Hospital** — St. Guildmore's Memorial Hospital offers same-day revival for dead players. The bill is comically inflated (€125k × combat level) but guild insurance covers 80%, leaving €25k × combat level. Players who can't afford it are discharged back to the natural respawn queue. Nurse Joy provides the bedside manner.
+- **Robbie the Friendly Bandit** — an automated NPC who visits at a random hour each day (8:00–21:00 UTC). Robbie takes sub-tier gear from your inventory (shop gear below your equipped tier, masterwork gear you've outgrown), leaves €50 per item as a "handling fee," and donates everything to the community pot. If he takes masterwork gear and you don't already have one, he drops a "Get Out of Medical Debt Free" card. No player command — Robbie comes to you.
 - **Mid-day events** — random events can trigger between actions, delivering bonus loot, buffs, or narrative encounters.
 
 #### Arena (`!arena`)
@@ -753,7 +757,7 @@ All of these run in the background without any commands:
 - **URL previews** - OG tag extraction (feature-flagged, off by default)
 - **Reactions** - logs all reactions for `!emojiboard`
 - **Space groups** - rooms with sufficient member overlap are automatically grouped. Leaderboards, trivia scores, and other per-room features aggregate across the group. Recomputed hourly; persisted to SQLite. Uses strict clique-based grouping (every room must meet the threshold with every other room in the group).
-- **LLM classification** - sentiment (10 categories), profanity, insults, WOTD usage (needs Ollama)
+- **LLM classification** - sentiment (10 categories), profanity, insults, WOTD usage (needs Ollama). Emoji reactions limited to fancy words (🎓), gratitude (💜), WOTD usage (📖), and insult responses
 - **Message buffer** - last 50 messages per room held in memory for `!vibe` and `!tldr`. Not persisted to disk; resets on restart. Uptime reported when insufficient messages are buffered.
 
 ---
@@ -764,10 +768,9 @@ Uses [robfig/cron](https://github.com/robfig/cron). All times UTC.
 
 | Time | Job | What it does |
 |------|-----|--------------|
-| 00:05 | Prefetch | Grabs WOTD data ahead of time |
 | 06:00 | Birthdays | Birthday shoutouts + 100 XP + €1,000 |
 | 07:00 | Holidays | Multi-calendar holidays (US, Asian, Jewish, Islamic) |
-| 08:00 | WOTD | Posts the Word of the Day |
+| 08:00 | WOTD | Posts the Word of the Day (disable with `DISABLE_WOTD_POST=true`) |
 | 09:00 Mon | Releases | Weekly game releases |
 | 10:00 | Anime | Anime airing today |
 | 11:00 | Movies | Movie releases today |
@@ -840,22 +843,22 @@ Assigned based on your message patterns:
 
 ## Sentiment Classification
 
-Every message (subject to `LLM_SAMPLE_RATE`) is classified by Ollama into one of 10 sentiment categories. The bot reacts with an emoji when the confidence score is strong enough (|score| > 0.5). Per-user counts are tracked in the database and viewable via `!sentiment`.
+Every message (subject to `LLM_SAMPLE_RATE`) is classified by Ollama into one of 10 sentiment categories. Per-user counts are tracked in the database and viewable via `!sentiment`. The LLM also returns a float score (-1.0 to 1.0) for each message, averaged per user to derive an overall mood shown in `!sentiment` output and fed into `!howami` roast profiles.
 
-| Sentiment | Emoji | Score range | Example |
-|-----------|-------|-------------|---------|
-| Positive | 👍 | > 0.5 | "This is awesome, great work!" |
-| Excited | 🔥 | > 0.5 | "OH MY GOD I can't wait for this!!" |
-| Supportive | 🤗 | > 0.5 | "You've got this, don't give up" |
-| Grateful | 💜 | > 0.5 | "Thank you so much for helping me" |
-| Humorous | 😂 | > 0.5 | "lmao that's the funniest thing I've seen all day" |
-| Curious | 🧐 | > 0.5 | "How does that work exactly?" |
-| Neutral | — | — | "I'll be back in 10 minutes" |
-| Sarcastic | 🤨 | < -0.5 | "Oh sure, that'll definitely work" |
-| Frustrated | 😮‍💨 | < -0.5 | "I've been trying to fix this for three hours" |
-| Negative | 👎 | < -0.5 | "This is broken and nobody cares" |
+Selective emoji reactions are still active: 🎓 for fancy/uncommon words, 💜 for gratitude, and 📖 for WOTD usage. The bot also reacts when insulted. Sentiment and profanity emoji reactions are disabled — classification still runs and logs to the database, but the bot won't react with sentiment emojis.
 
-The LLM also returns a float score (-1.0 to 1.0) for each message. These scores are averaged per user to derive an overall mood shown in `!sentiment` output and fed into `!howami` roast profiles.
+| Sentiment | Score range | Example |
+|-----------|-------------|---------|
+| Positive | > 0.5 | "This is awesome, great work!" |
+| Excited | > 0.5 | "OH MY GOD I can't wait for this!!" |
+| Supportive | > 0.5 | "You've got this, don't give up" |
+| Grateful | > 0.5 | "Thank you so much for helping me" |
+| Humorous | > 0.5 | "lmao that's the funniest thing I've seen all day" |
+| Curious | > 0.5 | "How does that work exactly?" |
+| Neutral | — | "I'll be back in 10 minutes" |
+| Sarcastic | < -0.5 | "Oh sure, that'll definitely work" |
+| Frustrated | < -0.5 | "I've been trying to fix this for three hours" |
+| Negative | < -0.5 | "This is broken and nobody cares" |
 
 ---
 
@@ -981,6 +984,8 @@ gogobee/
 │   │   ├── adventure_twinbee.go # TwinBee NPC, reward distribution, buff gifts
 │   │   ├── adventure_render.go # Character sheet, DMs, daily summary, leaderboard
 │   │   ├── adventure_events.go  # Mid-day random events
+│   │   ├── adventure_hospital.go  # Hospital revival system (Nurse Joy, itemized bill, nudges)
+│   │   ├── adventure_robbie.go    # Robbie the Friendly Bandit (automated inventory cleaner)
 │   │   ├── adventure_scheduler.go # Morning DM, evening summary, midnight reset tickers
 │   │   ├── adventure_holidays.go # Holiday detection (Hebrew/Islamic calendar, fixed dates)
 │   │   ├── adventure_masterwork.go # Masterwork gear (15 tiered items, drop logic, equip command)
@@ -988,7 +993,7 @@ gogobee/
 │   │   ├── adventure_arena_combat.go # Arena combat log generator (action pools, HP narration)
 │   │   ├── adventure_arena_monsters.go # 5 tiers, 20 monsters, death messages
 │   │   ├── adventure_arena_render.go   # Arena UI rendering (menus, stats, leaderboard)
-│   │   ├── adventure_flavor_*.go # Flavor text pools (dungeon, mining, fishing, treasure, twinbee, events, closing)
+│   │   ├── adventure_flavor_*.go # Flavor text pools (dungeon, mining, fishing, treasure, twinbee, events, hospital, robbie, closing)
 │   │   ├── esteemed.go      # Satirical esteemed member posts
 │   │   ├── moderation.go   # Moderation system (strikes, word list, flood detection)
 │   │   └── ratelimits.go    # Rate limiting

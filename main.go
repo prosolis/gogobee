@@ -372,7 +372,6 @@ func setupScheduledJobs(
 	// Prefetch at 00:05 — grab data ahead of scheduled posts
 	c.AddFunc("5 0 * * *", func() {
 		slog.Info("scheduler: prefetching daily data")
-		wotd.Prefetch()
 		holidays.Prefetch()
 	})
 
@@ -393,12 +392,16 @@ func setupScheduledJobs(
 	})
 
 	// WOTD post at 08:00
-	c.AddFunc("0 8 * * *", func() {
-		slog.Info("scheduler: posting WOTD")
-		for _, r := range rooms {
-			wotd.PostWOTD(r)
-		}
-	})
+	if strings.ToLower(os.Getenv("DISABLE_WOTD_POST")) != "true" {
+		c.AddFunc("0 8 * * *", func() {
+			slog.Info("scheduler: posting WOTD")
+			for _, r := range rooms {
+				wotd.PostWOTD(r)
+			}
+		})
+	} else {
+		slog.Info("scheduler: WOTD daily post disabled via DISABLE_WOTD_POST")
+	}
 
 	// Game releases Monday 09:00
 	c.AddFunc("0 9 * * 1", func() {

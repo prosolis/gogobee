@@ -114,7 +114,7 @@ var hospitalFrequentCustomer = hospitalBillItem{
 }
 
 // generateItemizedBill builds a procedural hospital bill that sums to the given total.
-func generateItemizedBill(total int64, hospitalVisits int, isHoliday bool) string {
+func generateItemizedBill(total int64, afterInsurance int64, hospitalVisits int, isHoliday bool) string {
 	// Shuffle and pick 8-12 items from the pool
 	pool := make([]hospitalBillItem, len(hospitalBillPool))
 	copy(pool, hospitalBillPool)
@@ -217,6 +217,27 @@ func generateItemizedBill(total int64, hospitalVisits int, isHoliday bool) strin
 	sb.WriteString(totalLabel)
 	sb.WriteString(strings.Repeat(" ", padding))
 	sb.WriteString(formatBillAmount(total))
+	sb.WriteByte('\n')
+
+	insLabel := "Guild Adventurer's Insurance"
+	insPadding := maxName - len(insLabel) + 2
+	if insPadding < 2 {
+		insPadding = 2
+	}
+	sb.WriteString(insLabel)
+	sb.WriteString(strings.Repeat(" ", insPadding))
+	sb.WriteString("-" + formatBillAmount(total-afterInsurance))
+	sb.WriteByte('\n')
+
+	sb.WriteString("─────────────────────────────────\n")
+	oweLabel := "AMOUNT DUE"
+	owePadding := maxName - len(oweLabel) + 2
+	if owePadding < 2 {
+		owePadding = 2
+	}
+	sb.WriteString(oweLabel)
+	sb.WriteString(strings.Repeat(" ", owePadding))
+	sb.WriteString(formatBillAmount(afterInsurance))
 	sb.WriteByte('\n')
 	sb.WriteString("```")
 

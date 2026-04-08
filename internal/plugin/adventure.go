@@ -28,6 +28,7 @@ type AdventurePlugin struct {
 	arenaDeadlines sync.Map // userID string -> time.Time (auto-cashout deadline)
 	arenaPending   sync.Map // userID string -> int (pending tier number awaiting confirmation)
 	shopSessions   sync.Map // userID string -> *advShopSession
+	hospitalNudges sync.Map // userID string -> time.Time (when to send nudge)
 	morningHour int
 	summaryHour int
 }
@@ -120,6 +121,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.arenaAutoCashoutTicker()
 	go p.rivalChallengeTicker()
 	go p.robbieTicker()
+	go p.hospitalNudgeTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()
@@ -171,7 +173,7 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	}
 
 	// 3. Command dispatch
-	if !p.IsCommand(ctx.Body, "adventure") {
+	if !p.IsCommand(ctx.Body, "adventure") && !p.IsCommand(ctx.Body, "adv") {
 		return nil
 	}
 
@@ -180,6 +182,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 
 func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 	args := strings.TrimSpace(p.GetArgs(ctx.Body, "adventure"))
+	if args == "" && p.IsCommand(ctx.Body, "adv") {
+		args = strings.TrimSpace(p.GetArgs(ctx.Body, "adv"))
+	}
 	lower := strings.ToLower(args)
 
 	switch {
@@ -491,12 +496,13 @@ func (p *AdventurePlugin) handleDMReply(ctx MessageContext) error {
 	body := strings.TrimSpace(ctx.Body)
 
 	// Skip if it looks like a command for another plugin
-	if strings.HasPrefix(body, "!") && !strings.HasPrefix(strings.ToLower(body), "!adventure") {
+	lower := strings.ToLower(body)
+	if strings.HasPrefix(body, "!") && !strings.HasPrefix(lower, "!adventure") && !strings.HasPrefix(lower, "!adv") {
 		return nil
 	}
 
-	// Strip !adventure prefix if present — dispatch directly to avoid recursion
-	if strings.HasPrefix(strings.ToLower(body), "!adventure") {
+	// Strip !adventure / !adv prefix if present — dispatch directly to avoid recursion
+	if strings.HasPrefix(lower, "!adventure") || strings.HasPrefix(lower, "!adv") {
 		return p.dispatchCommand(ctx)
 	}
 

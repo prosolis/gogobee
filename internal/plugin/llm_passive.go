@@ -444,40 +444,13 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 		)
 	}
 
-	// React with emojis based on sentiment
-	sentimentEmojis := map[string]string{
-		"positive":    "\U0001f44d", // 👍
-		"negative":    "\U0001f44e", // 👎
-		"excited":     "\U0001f525", // 🔥
-		"sarcastic":   "\U0001f928", // 🤨
-		"frustrated":  "\U0001f62e\u200d\U0001f4a8", // 😮‍💨
-		"curious":     "\U0001f9d0", // 🧐
-		"grateful":    "\U0001f49c", // 💜
-		"humorous":    "\U0001f602", // 😂
-		"supportive":  "\U0001f917", // 🤗
-	}
-	if emoji, ok := sentimentEmojis[result.Sentiment]; ok && result.Sentiment != "neutral" {
-		// Only react to strong sentiments (|score| > 0.5)
-		score := result.SentimentScore
-		if score > 0.5 || score < -0.5 {
-			_ = p.SendReact(item.RoomID, item.EventID, emoji)
-		}
-	}
-	if result.Profanity {
-		switch result.ProfanitySeverity {
-		case 3:
-			_ = p.SendReact(item.RoomID, item.EventID, "\U0001f92c") // 🤬
-		case 2:
-			_ = p.SendReact(item.RoomID, item.EventID, "\U0001f632") // 😲
-		default:
-			_ = p.SendReact(item.RoomID, item.EventID, "\U0001fae3") // 🫣
-		}
-	}
+	// Sentiment/profanity emoji reactions disabled — logging continues above.
+	// Insult-response reactions (bot reacts when insulted) remain active above.
 	if result.WOTDUsed {
 		_ = p.SendReact(item.RoomID, item.EventID, "\U0001f4d6") // 📖 open book
 	}
 	if result.GratitudeTarget != "" {
-		_ = p.SendReact(item.RoomID, item.EventID, "\U0001f49c") // purple heart
+		_ = p.SendReact(item.RoomID, item.EventID, "\U0001f49c") // 💜 purple heart
 	}
 
 	// Grant XP for gratitude

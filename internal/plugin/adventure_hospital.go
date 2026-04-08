@@ -75,8 +75,8 @@ func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
 	sb.WriteString(admission)
 	sb.WriteString("\n\n")
 
-	// Act 2 — The Bill (before insurance)
-	sb.WriteString(generateItemizedBill(beforeInsurance, char.HospitalVisits, isHol))
+	// Act 2 — The Bill
+	sb.WriteString(generateItemizedBill(beforeInsurance, afterInsurance, char.HospitalVisits, isHol))
 	sb.WriteString("\n\n")
 
 	delivery, _ := advPickFlavor(nurseJoyBillDelivery, ctx.Sender, "hospital_delivery")
@@ -210,7 +210,8 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 // ── Hospital Ad (sent after death) ─────────────────────────────────────────
 
 func (p *AdventurePlugin) sendHospitalAd(userID id.UserID, char *AdventureCharacter) {
-	cost := int64(char.CombatLevel) * 25_000
+	beforeInsurance := int64(char.CombatLevel) * 125_000
+	afterInsurance := int64(char.CombatLevel) * 25_000
 	respawnTime := "unknown"
 	if char.DeadUntil != nil {
 		respawnTime = char.DeadUntil.Format("15:04")
@@ -220,40 +221,57 @@ func (p *AdventurePlugin) sendHospitalAd(userID id.UserID, char *AdventureCharac
 		"🏥 **St. Guildmore's Memorial Hospital**\n\n"+
 			"Nurse Joy has been notified. A bed is being prepared.\n\n"+
 			"Type `!hospital` to check in for same-day revival.\n"+
-			"Cost estimate: €%d (after Guild insurance)\n\n"+
+			"Estimated bill: €%d (Guild insurance covers €%d → you pay €%d)\n\n"+
 			"Or rest up — natural respawn at %s UTC.",
-		cost, respawnTime)
+		beforeInsurance, beforeInsurance-afterInsurance, afterInsurance, respawnTime)
 
-	go func() {
-		time.Sleep(3 * time.Second)
+	time.AfterFunc(10*time.Second, func() {
 		if err := p.SendDM(userID, text); err != nil {
 			slog.Error("hospital: failed to send hospital ad", "user", userID, "err", err)
+			return
 		}
-		p.scheduleHospitalNudge(userID)
-	}()
+		// Schedule nudge for 2 hours from now — checked by hospitalNudgeTicker
+		p.hospitalNudges.Store(string(userID), time.Now().UTC().Add(2*time.Hour))
+	})
 }
 
-// ── Hospital Nudge (2-hour follow-up) ──────────────────────────────────────
+// ── Hospital Nudge Ticker ──────────────────────────────────────────────────
+// Runs every minute, checks for nudges that are due. No long-lived goroutines.
 
-func (p *AdventurePlugin) scheduleHospitalNudge(userID id.UserID) {
-	go func() {
-		time.Sleep(2 * time.Hour)
+func (p *AdventurePlugin) hospitalNudgeTicker() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
 
-		char, err := loadAdvCharacter(userID)
-		if err != nil || char.Alive {
-			return // already revived or error
-		}
-
-		// Don't nudge if already in hospital flow
-		if val, ok := p.pending.Load(string(userID)); ok {
-			if pi, ok := val.(*advPendingInteraction); ok && pi.Type == "hospital_pay" {
-				return
+	for range ticker.C {
+		now := time.Now().UTC()
+		p.hospitalNudges.Range(func(key, val any) bool {
+			uid := key.(string)
+			nudgeAt := val.(time.Time)
+			if now.Before(nudgeAt) {
+				return true
 			}
-		}
 
-		text, _ := advPickFlavor(nurseJoyNudge, userID, "hospital_nudge")
-		if err := p.SendDM(userID, text); err != nil {
-			slog.Error("hospital: failed to send nudge", "user", userID, "err", err)
-		}
-	}()
+			// Due — remove regardless of outcome
+			p.hospitalNudges.Delete(uid)
+
+			userID := id.UserID(uid)
+			char, err := loadAdvCharacter(userID)
+			if err != nil || char.Alive {
+				return true
+			}
+
+			// Don't nudge if already in hospital flow
+			if v, ok := p.pending.Load(uid); ok {
+				if pi, ok := v.(*advPendingInteraction); ok && pi.Type == "hospital_pay" {
+					return true
+				}
+			}
+
+			text, _ := advPickFlavor(nurseJoyNudge, userID, "hospital_nudge")
+			if err := p.SendDM(userID, text); err != nil {
+				slog.Error("hospital: failed to send nudge", "user", userID, "err", err)
+			}
+			return true
+		})
+	}
 }

@@ -81,6 +81,7 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE adventure_characters ADD COLUMN babysit_skill_focus TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE adventure_characters ADD COLUMN hospital_visits INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE adventure_characters ADD COLUMN robbie_visit_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE wordle_stats ADD COLUMN total_earned INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

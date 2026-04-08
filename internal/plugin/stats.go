@@ -452,15 +452,15 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 	}
 
 	// Wordle
-	var wPlayed, wSolved, wGuesses int
+	var wPlayed, wSolved, wGuesses, wEarned int
 	err = d.QueryRow(
-		`SELECT puzzles_played, puzzles_solved, total_guesses
+		`SELECT puzzles_played, puzzles_solved, total_guesses, total_earned
 		 FROM wordle_stats WHERE user_id = ?`, uid,
-	).Scan(&wPlayed, &wSolved, &wGuesses)
+	).Scan(&wPlayed, &wSolved, &wGuesses, &wEarned)
 	if err == nil && wPlayed > 0 {
 		avg := float64(wGuesses) / float64(wPlayed)
-		sb.WriteString(fmt.Sprintf("   🟩 Wordle: %d/%d solved · %.1f avg guesses\n",
-			wSolved, wPlayed, avg))
+		sb.WriteString(fmt.Sprintf("   🟩 Wordle: %d/%d solved · %.1f avg guesses · €%d earned\n",
+			wSolved, wPlayed, avg, wEarned))
 		hasGames = true
 	}
 
@@ -476,8 +476,9 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 		if tFastest > 0 {
 			fastStr = fmt.Sprintf(" · fastest: %.1fs", float64(tFastest)/1000)
 		}
-		sb.WriteString(fmt.Sprintf("   🧠 Trivia: %d/%d correct%s\n",
-			tCorrect, tCorrect+tWrong, fastStr))
+		pct := float64(tCorrect) / float64(tCorrect+tWrong) * 100
+		sb.WriteString(fmt.Sprintf("   🧠 Trivia: %d/%d correct (%.0f%%)%s\n",
+			tCorrect, tCorrect+tWrong, pct, fastStr))
 		hasGames = true
 	}
 
@@ -487,16 +488,33 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 		`SELECT COUNT(*), COALESCE(SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END), 0)
 		 FROM uno_games WHERE player_id = ?`, uid,
 	).Scan(&unoSingleTotal, &unoSingleWins)
+	var unoSingleEarned float64
+	_ = d.QueryRow(
+		`SELECT COALESCE(SUM(CASE
+			WHEN result IN ('player_win','sudden_death_player') THEN pot_before - pot_after
+			ELSE -wager END), 0)
+		 FROM uno_games WHERE player_id = ?`, uid,
+	).Scan(&unoSingleEarned)
 	var unoMultiWins, unoMultiTotal int
 	_ = d.QueryRow(
 		`SELECT COUNT(*), COALESCE(SUM(CASE WHEN winner_id = ? THEN 1 ELSE 0 END), 0)
 		 FROM uno_multi_games WHERE player_ids LIKE ?`, uid, "%"+uid+"%",
 	).Scan(&unoMultiTotal, &unoMultiWins)
+	var unoMultiEarned float64
+	_ = d.QueryRow(
+		`SELECT COALESCE(SUM(CASE WHEN winner_id = ? THEN pot_total - ante ELSE -ante END), 0)
+		 FROM uno_multi_games WHERE player_ids LIKE ?`, uid, "%"+uid+"%",
+	).Scan(&unoMultiEarned)
 	unoTotal := unoSingleTotal + unoMultiTotal
 	unoWins := unoSingleWins + unoMultiWins
+	unoEarned := unoSingleEarned + unoMultiEarned
 	if unoTotal > 0 {
-		sb.WriteString(fmt.Sprintf("   🎴 UNO: %d/%d W/L\n",
-			unoWins, unoTotal-unoWins))
+		sign := "+"
+		if unoEarned < 0 {
+			sign = ""
+		}
+		sb.WriteString(fmt.Sprintf("   🎴 UNO: %d/%d W/L · %s€%.0f net\n",
+			unoWins, unoTotal-unoWins, sign, unoEarned))
 		hasGames = true
 	}
 

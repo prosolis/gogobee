@@ -20,16 +20,26 @@ var urlRe = regexp.MustCompile(`https?://[^\s<>"]+`)
 // URLsPlugin detects URLs in messages and previews og:title/og:description.
 type URLsPlugin struct {
 	Base
-	enabled    bool
-	httpClient *http.Client
+	enabled     bool
+	ignoreUsers map[string]struct{}
+	httpClient  *http.Client
 }
 
 // NewURLsPlugin creates a new URL preview plugin.
 func NewURLsPlugin(client *mautrix.Client) *URLsPlugin {
 	enabled := os.Getenv("FEATURE_URL_PREVIEW") != ""
+	ignore := make(map[string]struct{})
+	if raw := os.Getenv("URL_PREVIEW_IGNORE_USERS"); raw != "" {
+		for _, u := range strings.Split(raw, ",") {
+			if u = strings.TrimSpace(u); u != "" {
+				ignore[u] = struct{}{}
+			}
+		}
+	}
 	return &URLsPlugin{
-		Base:    NewBase(client),
-		enabled: enabled,
+		Base:        NewBase(client),
+		enabled:     enabled,
+		ignoreUsers: ignore,
 		httpClient: &http.Client{
 			Timeout: 3 * time.Second,
 		},
@@ -53,6 +63,11 @@ func (p *URLsPlugin) OnMessage(ctx MessageContext) error {
 
 	// Skip command messages
 	if ctx.IsCommand {
+		return nil
+	}
+
+	// Skip ignored users (e.g. news bots)
+	if _, ok := p.ignoreUsers[string(ctx.Sender)]; ok {
 		return nil
 	}
 

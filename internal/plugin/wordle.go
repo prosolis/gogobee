@@ -685,6 +685,11 @@ func (p *WordlePlugin) awardPrize(puzzle *WordlePuzzle) []WordlePayout {
 		}
 		p.euro.Credit(uid, float64(amount), "wordle_win")
 		payouts = append(payouts, WordlePayout{Name: c.name, Amount: amount, Solver: c.solver})
+
+		// Track earnings in wordle_stats
+		d := db.Get()
+		d.Exec(`UPDATE wordle_stats SET total_earned = total_earned + ? WHERE user_id = ?`,
+			amount, string(uid))
 	}
 	return payouts
 }

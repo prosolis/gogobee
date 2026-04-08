@@ -308,11 +308,23 @@ func (p *AdventurePlugin) midnightReset() error {
 
 	dmsSent := 0
 	for _, char := range chars {
+		// Dead players freeze their streak — death is involuntary, don't punish it.
 		if !char.Alive {
 			continue
 		}
 
 		if !char.ActionTakenToday {
+			// If the player was recently dead (revived today but couldn't act
+			// in time), preserve their streak instead of resetting it.
+			// We detect this by checking if LastActionDate was yesterday —
+			// they were active, then died, and couldn't act on revival day.
+			recentlyDead := char.LastActionDate == today ||
+				char.LastActionDate == time.Now().UTC().Add(-24*time.Hour).Format("2006-01-02")
+			if recentlyDead {
+				// Grace period — don't shame, don't reset
+				continue
+			}
+
 			// Jitter between DMs to avoid Matrix rate limits
 			if dmsSent > 0 {
 				time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
