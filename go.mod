@@ -12,7 +12,7 @@ require (
 	github.com/olebedev/when v1.1.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	golang.org/x/image v0.36.0
+	golang.org/x/image v0.38.0
 	maunium.net/go/mautrix v0.26.3
 	modernc.org/sqlite v1.37.1
 )
@@ -40,7 +40,7 @@ require (
 	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
 	modernc.org/libc v1.65.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
