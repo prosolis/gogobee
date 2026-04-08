@@ -58,6 +58,7 @@ type AdventureCharacter struct {
 	BabysitSkillFocus       string
 	HospitalVisits          int
 	RobbieVisitCount        int
+	LastDeathDate           string
 }
 
 type AdvEquipment struct {
@@ -207,6 +208,7 @@ func (c *AdventureCharacter) Kill() {
 	c.Alive = false
 	deadUntil := time.Now().UTC().Add(6 * time.Hour)
 	c.DeadUntil = &deadUntil
+	c.LastDeathDate = time.Now().UTC().Format("2006-01-02")
 }
 
 // ── Equipment Score ──────────────────────────────────────────────────────────
@@ -318,7 +320,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		       masterwork_drops_received,
 		       rival_pool, rival_unlocked_notified,
 		       babysit_active, babysit_expires_at, babysit_skill_focus,
-		       hospital_visits, robbie_visit_count
+		       hospital_visits, robbie_visit_count, last_death_date
 		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -330,7 +332,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&c.MasterworkDropsReceived,
 		&c.RivalPool, &rivalUnlocked,
 		&babysitAct, &babysitExp, &c.BabysitSkillFocus,
-		&c.HospitalVisits, &c.RobbieVisitCount,
+		&c.HospitalVisits, &c.RobbieVisitCount, &c.LastDeathDate,
 	)
 	if err != nil {
 		return nil, err
@@ -415,7 +417,7 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 			masterwork_drops_received = ?,
 			rival_pool = ?, rival_unlocked_notified = ?,
 			babysit_active = ?, babysit_expires_at = ?, babysit_skill_focus = ?,
-			hospital_visits = ?, robbie_visit_count = ?
+			hospital_visits = ?, robbie_visit_count = ?, last_death_date = ?
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
@@ -425,7 +427,7 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 		char.DeathReprieveLast, char.MasterworkDropsReceived,
 		char.RivalPool, rivalUnlocked,
 		babysitAct, char.BabysitExpiresAt, char.BabysitSkillFocus,
-		char.HospitalVisits, char.RobbieVisitCount,
+		char.HospitalVisits, char.RobbieVisitCount, char.LastDeathDate,
 		string(char.UserID),
 	)
 	return err

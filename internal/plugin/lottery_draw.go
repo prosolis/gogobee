@@ -148,6 +148,8 @@ func (p *LotteryPlugin) executeDraw(weekStart string) {
 				if amount > 0 {
 					p.euro.Credit(t.UserID, float64(amount), fmt.Sprintf("lottery_%dmatch", tier))
 				}
+				// Update ticket with actual prorated prize (not nominal)
+				lotteryUpdateTicketResult(t.ID, *t.MatchCount, amount)
 			}
 		}
 	}

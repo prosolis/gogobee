@@ -314,14 +314,10 @@ func (p *AdventurePlugin) midnightReset() error {
 		}
 
 		if !char.ActionTakenToday {
-			// If the player was recently dead (revived today but couldn't act
-			// in time), preserve their streak instead of resetting it.
-			// We detect this by checking if LastActionDate was yesterday —
-			// they were active, then died, and couldn't act on revival day.
-			recentlyDead := char.LastActionDate == today ||
-				char.LastActionDate == time.Now().UTC().Add(-24*time.Hour).Format("2006-01-02")
-			if recentlyDead {
-				// Grace period — don't shame, don't reset
+			// If the player died today (or yesterday — covering late-night deaths
+			// that span midnight), grant a grace period: no shame, no streak reset.
+			if char.LastDeathDate == today ||
+				char.LastDeathDate == time.Now().UTC().Add(-24*time.Hour).Format("2006-01-02") {
 				continue
 			}
 

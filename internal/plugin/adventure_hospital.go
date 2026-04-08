@@ -35,10 +35,9 @@ func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
 		char.DeadUntil = nil
 		if err := saveAdvCharacter(char); err != nil {
 			slog.Error("hospital: on-demand revive failed", "user", char.UserID, "err", err)
-		} else {
-			p.SendDM(ctx.Sender, nurseJoyAlreadyRevived)
+			return p.SendDM(ctx.Sender, "Something went wrong at the hospital. Try again in a moment.")
 		}
-		return nil
+		return p.SendDM(ctx.Sender, nurseJoyAlreadyRevived)
 	}
 
 	// Compute costs

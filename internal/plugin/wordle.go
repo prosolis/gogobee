@@ -193,9 +193,9 @@ func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 		puzzle.SolvedAt = &now
 
 		definition := p.fetchDefinition(puzzle.Answer)
-		p.updateStats(puzzle)
-		p.markPuzzleDone(puzzle)
 		payouts := p.awardPrize(puzzle)
+		p.updateStats(puzzle, payouts)
+		p.markPuzzleDone(puzzle)
 
 		return p.SendMessage(ctx.RoomID, renderSolvedAnnouncement(puzzle, definition, payouts))
 	}
@@ -205,7 +205,7 @@ func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 		puzzle.Failed = true
 
 		definition := p.fetchDefinition(puzzle.Answer)
-		p.updateStats(puzzle)
+		p.updateStats(puzzle, nil)
 		p.markPuzzleDone(puzzle)
 
 		return p.SendMessage(ctx.RoomID, renderFailedAnnouncement(puzzle, definition))
@@ -455,7 +455,7 @@ func (p *WordlePlugin) expireUnsolved(roomID id.RoomID) {
 	}
 	existing.Failed = true
 	p.markPuzzleDone(existing)
-	p.updateStats(existing)
+	p.updateStats(existing, nil)
 	p.mu.Unlock()
 
 	definition := p.fetchDefinition(existing.Answer)
@@ -567,7 +567,7 @@ func (p *WordlePlugin) markPuzzleDone(puzzle *WordlePuzzle) {
 	)
 }
 
-func (p *WordlePlugin) updateStats(puzzle *WordlePuzzle) {
+func (p *WordlePlugin) updateStats(puzzle *WordlePuzzle, payouts []WordlePayout) {
 	d := db.Get()
 
 	// Tally per-player contributions.
@@ -624,6 +624,18 @@ func (p *WordlePlugin) updateStats(puzzle *WordlePuzzle) {
 		}
 	}
 
+	// Update total_earned from payouts (same transaction as stats).
+	for _, po := range payouts {
+		if po.Amount > 0 {
+			_, err := tx.Exec(
+				`UPDATE wordle_stats SET total_earned = total_earned + ? WHERE user_id = ?`,
+				po.Amount, string(po.UserID))
+			if err != nil {
+				slog.Error("wordle: update total_earned", "user", po.UserID, "err", err)
+			}
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		slog.Error("wordle: commit stats", "err", err)
 	}
@@ -631,6 +643,7 @@ func (p *WordlePlugin) updateStats(puzzle *WordlePuzzle) {
 
 // WordlePayout tracks a payout for rendering.
 type WordlePayout struct {
+	UserID id.UserID
 	Name   string
 	Amount int
 	Solver bool
@@ -684,12 +697,7 @@ func (p *WordlePlugin) awardPrize(puzzle *WordlePuzzle) []WordlePayout {
 			amount += solverBonus
 		}
 		p.euro.Credit(uid, float64(amount), "wordle_win")
-		payouts = append(payouts, WordlePayout{Name: c.name, Amount: amount, Solver: c.solver})
-
-		// Track earnings in wordle_stats
-		d := db.Get()
-		d.Exec(`UPDATE wordle_stats SET total_earned = total_earned + ? WHERE user_id = ?`,
-			amount, string(uid))
+		payouts = append(payouts, WordlePayout{UserID: uid, Name: c.name, Amount: amount, Solver: c.solver})
 	}
 	return payouts
 }

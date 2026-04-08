@@ -491,7 +491,7 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 	var unoSingleEarned float64
 	_ = d.QueryRow(
 		`SELECT COALESCE(SUM(CASE
-			WHEN result IN ('player_win','sudden_death_player') THEN pot_before - pot_after
+			WHEN result IN ('player_win','sudden_death_player') THEN (pot_before - pot_after) - wager
 			ELSE -wager END), 0)
 		 FROM uno_games WHERE player_id = ?`, uid,
 	).Scan(&unoSingleEarned)

@@ -64,18 +64,37 @@ func lotteryTotalTicketCount(weekStart string) int {
 	return count
 }
 
-func lotteryInsertTickets(userID id.UserID, weekStart string, tickets [][]int) {
+func lotteryInsertTickets(userID id.UserID, weekStart string, tickets [][]int) error {
 	d := db.Get()
+	tx, err := d.Begin()
+	if err != nil {
+		slog.Error("lottery: begin tx", "err", err)
+		return err
+	}
+	defer tx.Rollback()
+
 	for _, nums := range tickets {
 		data, _ := json.Marshal(nums)
-		_, err := d.Exec(`INSERT INTO lottery_tickets (user_id, week_start, numbers) VALUES (?, ?, ?)`,
+		_, err := tx.Exec(`INSERT INTO lottery_tickets (user_id, week_start, numbers) VALUES (?, ?, ?)`,
 			string(userID), weekStart, string(data))
 		if err != nil {
 			slog.Error("lottery: failed to insert ticket", "user", userID, "err", err)
+			return err
 		}
 	}
-	// Each ticket costs €1 — add to community pot.
-	communityPotAdd(len(tickets))
+
+	// Each ticket costs €1 — add to community pot (same transaction).
+	_, err = tx.Exec(
+		`INSERT INTO community_pot (id, balance, updated_at)
+		 VALUES (1, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(id) DO UPDATE SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP`,
+		len(tickets), len(tickets))
+	if err != nil {
+		slog.Error("lottery: failed to add to community pot", "err", err)
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func lotteryLoadUserTickets(userID id.UserID, weekStart string) ([]lotteryTicket, error) {

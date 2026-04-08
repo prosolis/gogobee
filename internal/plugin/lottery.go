@@ -118,7 +118,11 @@ func (p *LotteryPlugin) handleLotteryBuy(ctx MessageContext, args string) error 
 		tickets[i] = generateLotteryNumbers()
 	}
 
-	lotteryInsertTickets(ctx.Sender, weekStart, tickets)
+	if err := lotteryInsertTickets(ctx.Sender, weekStart, tickets); err != nil {
+		// Refund — tickets didn't persist.
+		p.euro.Credit(ctx.Sender, cost, "lottery_refund")
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Something went wrong buying tickets. You've been refunded.")
+	}
 
 	// Build confirmation.
 	var sb strings.Builder
