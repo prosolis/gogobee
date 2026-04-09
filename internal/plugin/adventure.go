@@ -930,10 +930,11 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 			remaining = append(remaining, "combat")
 		}
 		if char.CanDoHarvest(isHol) {
-			harvestLeft := maxHarvestActions - char.HarvestActionsUsed
+			harvestMax := maxHarvestActions
 			if isHol {
-				harvestLeft = maxHarvestActions + 1 - char.HarvestActionsUsed
+				harvestMax++
 			}
+			harvestLeft := harvestMax - char.HarvestActionsUsed
 			remaining = append(remaining, fmt.Sprintf("%d harvest", harvestLeft))
 		}
 		p.SendDM(ctx.Sender, fmt.Sprintf("Actions remaining today: %s. Type `!adv` for the menu.", strings.Join(remaining, ", ")))
