@@ -148,11 +148,22 @@ func (p *AdventurePlugin) handleArenaFight(ctx MessageContext) error {
 	closeness := 1.0 - math.Abs(roll-deathChance)/math.Max(deathChance, 1-deathChance)
 	combatLog := generateArenaCombatLog(!died, closeness)
 
+	// NPC arena effects (Misty/Arina) — checked after combat roll
+	npcResult := npcCheckArenaEffects(char, monster.Name)
+	if npcResult != nil && npcResult.SniperKill {
+		// Sniper overrides death — enemy is killed instantly
+		died = false
+	}
+
 	if died {
+		// Apply crowd revenge text to death message if applicable
+		if npcResult != nil && npcResult.Text != "" {
+			combatLog.NPCText = npcResult.Text
+		}
 		return p.resolveArenaDeath(ctx, run, char, tier, monster, combatLog)
 	}
 
-	return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog)
+	return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
 }
 
 func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext) error {
@@ -201,11 +212,19 @@ func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext) error {
 	closeness := 1.0 - math.Abs(roll-deathChance)/math.Max(deathChance, 1-deathChance)
 	combatLog := generateArenaCombatLog(!died, closeness)
 
+	npcResult := npcCheckArenaEffects(char, monster.Name)
+	if npcResult != nil && npcResult.SniperKill {
+		died = false
+	}
+
 	if died {
+		if npcResult != nil && npcResult.Text != "" {
+			combatLog.NPCText = npcResult.Text
+		}
 		return p.resolveArenaDeath(ctx, run, char, tier, monster, combatLog)
 	}
 
-	return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog)
+	return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
 }
 
 func (p *AdventurePlugin) handleArenaCancel(ctx MessageContext) error {
@@ -284,7 +303,7 @@ func (p *AdventurePlugin) handleArenaLeaderboard(ctx MessageContext) error {
 var arenaStreakEuroMultiplier = [6]float64{0, 1.0, 1.5, 2.0, 2.75, 4.0} // index = tier
 var arenaStreakXPMultiplier = [6]float64{0, 1.0, 1.2, 1.5, 1.85, 2.5}   // index = tiers won
 
-func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, combatLog *ArenaCombatLog) error {
+func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, combatLog *ArenaCombatLog, npcResult *npcArenaResult) error {
 	// Calculate reward — accumulate in tier earnings, not credited yet
 	reward := arenaRoundReward(tier, run.Round, char.CombatLevel)
 	run.TierEarnings += reward
@@ -305,6 +324,16 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 	// Build survival message with combat log
 	closer := arenaWinCloser(monster.Name, len(combatLog.Rounds))
 	text := renderArenaCombatLog(combatLog, monster, true, reward, battleXP, closer)
+
+	// Append NPC effects (Misty food/crowd, Arina sniper)
+	if npcResult != nil && npcResult.Text != "" {
+		text += npcResult.Text
+		// Apply equipment condition repair from gourmet food
+		if npcResult.CondRepair > 0 {
+			npcRepairMostDamaged(ctx.Sender, equip, npcResult.CondRepair)
+		}
+	}
+
 	text += fmt.Sprintf("\nTier earnings: €%d | Session total: €%d (at risk)\n",
 		run.TierEarnings, run.Earnings+run.TierEarnings)
 

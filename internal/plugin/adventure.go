@@ -186,7 +186,14 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 		return p.handleDMReply(ctx)
 	}
 
-	// 3. Command dispatch
+	// 3. NPC encounter tracking — count room messages from adventure players
+	if !isDM && !strings.HasPrefix(ctx.Body, "!") {
+		safeGo("npc-track", func() {
+			p.npcTrackMessage(ctx.Sender)
+		})
+	}
+
+	// 4. Command dispatch
 	if !p.IsCommand(ctx.Body, "adventure") && !p.IsCommand(ctx.Body, "adv") {
 		return nil
 	}
@@ -559,6 +566,8 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.resolveShopConfirm(ctx, interaction)
 	case "hospital_pay":
 		return p.resolveHospitalPay(ctx, interaction)
+	case "npc_encounter":
+		return p.resolveNPCEncounter(ctx, interaction)
 	}
 	return nil
 }

@@ -277,15 +277,18 @@ func (p *AdventurePlugin) midnightTicker() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
+	lastRanDate := ""
+
 	for range ticker.C {
-		now := time.Now().UTC()
-		if now.Hour() != 0 || now.Minute() != 0 {
+		dateKey := time.Now().UTC().Format("2006-01-02")
+		if dateKey == lastRanDate {
 			continue
 		}
 
-		dateKey := now.Format("2006-01-02")
+		// New UTC day — check DB in case we already ran (e.g. bot restart).
 		jobName := "adventure_midnight"
 		if db.JobCompleted(jobName, dateKey) {
+			lastRanDate = dateKey
 			continue
 		}
 
@@ -295,6 +298,7 @@ func (p *AdventurePlugin) midnightTicker() {
 			continue
 		}
 		db.MarkJobCompleted(jobName, dateKey)
+		lastRanDate = dateKey
 	}
 }
 
@@ -309,14 +313,11 @@ func (p *AdventurePlugin) midnightReset() error {
 
 	dmsSent := 0
 	for _, char := range chars {
-		// Dead players freeze their streak — death is involuntary, don't punish it.
-		if !char.Alive {
-			continue
-		}
-
 		if !char.HasActedToday() {
-			// If the player died today (or yesterday — covering late-night deaths
-			// that span midnight), grant a grace period: no shame, no streak reset.
+			// If the player died today or yesterday, they couldn't act — no shame,
+			// no streak reset. This covers both currently-dead players and players
+			// who were just revived at midnight (Alive already flipped to true by
+			// the reminder loop before midnightReset runs).
 			if char.LastDeathDate == today ||
 				char.LastDeathDate == time.Now().UTC().Add(-24*time.Hour).Format("2006-01-02") {
 				continue
@@ -373,6 +374,9 @@ func (p *AdventurePlugin) midnightReset() error {
 	if err := pruneAdvExpiredBuffs(); err != nil {
 		slog.Error("adventure: failed to prune expired buffs", "err", err)
 	}
+
+	// Reset NPC message counts and regenerate roll targets
+	npcMidnightReset()
 
 	// Clear flavor history to prevent unbounded memory growth.
 	// Entries are only used for dedup within a day, so clearing at midnight is fine.

@@ -220,29 +220,62 @@ func (p *AdventurePlugin) handleBabysitCancel(ctx MessageContext) error {
 // ── Daily Auto-Resolution ───────────────────────────────────────────────────
 
 func (p *AdventurePlugin) runBabysitDaily(char *AdventureCharacter) {
-	activity := skillToActivity(char.BabysitSkillFocus)
-
 	equip, err := loadAdvEquipment(char.UserID)
 	if err != nil {
 		slog.Error("babysit: failed to load equipment", "user", char.UserID, "err", err)
 		return
 	}
 
-	// Pick highest-tier eligible location for the focus skill
+	isHol, _ := isHolidayToday()
+	harvestMax := maxHarvestActions
+	if isHol {
+		harvestMax++
+	}
+
 	bonuses := &AdvBonusSummary{}
+	focusActivity := skillToActivity(char.BabysitSkillFocus)
+
+	var totalGold int
+	var totalXP int
+	var allItems []string
+
+	// Use all harvest actions on the focused skill — no combat, too dangerous
+	for char.HarvestActionsUsed < harvestMax {
+		gold, xp, items := p.runBabysitAction(char, equip, focusActivity, bonuses)
+		totalGold += gold
+		totalXP += xp
+		allItems = append(allItems, items...)
+		char.HarvestActionsUsed++
+	}
+
+	char.ActionTakenToday = true
+	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
+
+	if err := saveAdvCharacter(char); err != nil {
+		slog.Error("babysit: failed to save character after daily", "user", char.UserID, "err", err)
+	}
+
+	// Log combined daily totals
+	itemsJSON := ""
+	if len(allItems) > 0 {
+		itemsJSON = strings.Join(allItems, ", ")
+	}
+	logBabysitActivity(char.UserID, string(focusActivity), "babysit_daily",
+		totalGold, totalXP, itemsJSON)
+}
+
+// runBabysitAction resolves a single action for the babysitter. Returns gold, xp, item names.
+func (p *AdventurePlugin) runBabysitAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, activity AdvActivityType, bonuses *AdvBonusSummary) (int, int, []string) {
 	eligible := advEligibleLocations(char, equip, activity, bonuses)
 	if len(eligible) == 0 {
-		slog.Warn("babysit: no eligible locations", "user", char.UserID, "skill", char.BabysitSkillFocus)
-		return
+		return 0, 0, nil
 	}
-	// Pick the last one (highest tier since they're returned in order)
 	loc := eligible[len(eligible)-1].Location
 	inPenalty := eligible[len(eligible)-1].InPenaltyZone
 
-	// Resolve action
 	result := resolveAdvAction(char, equip, loc, bonuses, inPenalty)
 
-	// Babysitter never lets the adventurer die — reroll death to empty
+	// Babysitter never lets the adventurer die
 	if result.Outcome == AdvOutcomeDeath {
 		result.Outcome = AdvOutcomeEmpty
 		result.LootItems = nil
@@ -253,6 +286,8 @@ func (p *AdventurePlugin) runBabysitDaily(char *AdventureCharacter) {
 
 	// Apply XP
 	switch result.XPSkill {
+	case "combat":
+		char.CombatXP += result.XPGained
 	case "mining":
 		char.MiningXP += result.XPGained
 	case "foraging":
@@ -262,43 +297,19 @@ func (p *AdventurePlugin) runBabysitDaily(char *AdventureCharacter) {
 	}
 	checkAdvLevelUp(char, result.XPSkill)
 
-	// Credit gold to player
+	// Credit gold
 	if result.TotalLootValue > 0 {
 		p.euro.Credit(char.UserID, float64(result.TotalLootValue), "babysit_haul")
-	}
-
-	// Items are claimed by the babysitter (not added to player inventory)
-	var itemNames []string
-	for _, item := range result.LootItems {
-		itemNames = append(itemNames, item.Name)
 	}
 
 	// No treasure drops during babysitting
 	result.TreasureFound = nil
 
-	// Mark action taken (babysit always uses a harvest action)
-	isHol, _ := isHolidayToday()
-	harvestMax := maxHarvestActions
-	if isHol {
-		harvestMax++
+	var items []string
+	for _, item := range result.LootItems {
+		items = append(items, item.Name)
 	}
-	if char.HarvestActionsUsed < harvestMax {
-		char.HarvestActionsUsed++
-	}
-	char.ActionTakenToday = true
-	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
-
-	if err := saveAdvCharacter(char); err != nil {
-		slog.Error("babysit: failed to save character after daily", "user", char.UserID, "err", err)
-	}
-
-	// Log to babysit table
-	itemsJSON := ""
-	if len(itemNames) > 0 {
-		itemsJSON = strings.Join(itemNames, ", ")
-	}
-	logBabysitActivity(char.UserID, string(activity), string(result.Outcome),
-		int(result.TotalLootValue), result.XPGained, itemsJSON)
+	return int(result.TotalLootValue), result.XPGained, items
 }
 
 // ── Expiry Check ────────────────────────────────────────────────────────────

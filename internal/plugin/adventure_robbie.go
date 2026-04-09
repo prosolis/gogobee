@@ -42,7 +42,7 @@ func (p *AdventurePlugin) robbieTicker() {
 			slog.Info("adventure: robbie target hour set", "hour", robbieTargetHour, "date", dateKey)
 		}
 
-		if now.Hour() != robbieTargetHour || now.Minute() != 0 {
+		if now.Hour() < robbieTargetHour {
 			continue
 		}
 
@@ -180,15 +180,18 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 func robbieQualifyingItems(inv []AdvItem, equip map[EquipmentSlot]*AdvEquipment) []AdvItem {
 	var result []AdvItem
 	for _, item := range inv {
-		// Only gear with a slot (skip ores, wood, fruit, gems, fish, etc.)
-		if item.Slot == "" {
-			continue
-		}
 		// Never touch Arena gear or cards
 		if item.Type == "ArenaGear" || item.Type == "card" {
 			continue
 		}
 
+		// Non-gear items (ores, fish, junk, treasure, etc.) — always take
+		if item.Slot == "" {
+			result = append(result, item)
+			continue
+		}
+
+		// Slotted gear — check against equipped piece
 		eq, hasSlot := equip[item.Slot]
 		if !hasSlot {
 			continue

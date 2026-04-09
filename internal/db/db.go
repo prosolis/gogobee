@@ -100,6 +100,15 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE adventure_characters ADD COLUMN last_pardon_used DATETIME`,
 		`ALTER TABLE arena_runs ADD COLUMN tier_earnings INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE arena_runs ADD COLUMN xp_accumulated INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_last_seen DATETIME`,
+		`ALTER TABLE adventure_characters ADD COLUMN arina_last_seen DATETIME`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_buff_expires DATETIME`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_debuff_expires DATETIME`,
+		`ALTER TABLE adventure_characters ADD COLUMN arina_buff_expires DATETIME`,
+		`ALTER TABLE adventure_characters ADD COLUMN npc_msg_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN npc_msg_count_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_roll_target INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN arina_roll_target INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

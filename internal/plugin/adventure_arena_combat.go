@@ -13,6 +13,7 @@ type ArenaCombatLog struct {
 	PlayerHP  int
 	EnemyHP   int
 	PlayerWon bool
+	NPCText   string // Misty/Arina effect text, appended to round log
 }
 
 type ArenaCombatRound struct {
@@ -375,6 +376,11 @@ func renderArenaCombatLog(log *ArenaCombatLog, monster *ArenaMonster, won bool, 
 		sb.WriteString("💀 Defeated.\n")
 		sb.WriteString(closerLine + "\n")
 		sb.WriteString(fmt.Sprintf("+%d XP (participation) | Back tomorrow.\n", arenaParticipationXP))
+	}
+
+	if log.NPCText != "" {
+		sb.WriteString(log.NPCText)
+		sb.WriteString("\n")
 	}
 
 	return sb.String()

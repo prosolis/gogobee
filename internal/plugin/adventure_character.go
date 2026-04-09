@@ -62,6 +62,15 @@ type AdventureCharacter struct {
 	RobbieVisitCount        int
 	LastDeathDate           string
 	LastPardonUsed          *time.Time
+	MistyLastSeen           *time.Time
+	ArinaLastSeen           *time.Time
+	MistyBuffExpires        *time.Time
+	MistyDebuffExpires      *time.Time
+	ArinaBuffExpires        *time.Time
+	NPCMsgCount             int
+	NPCMsgCountDate         string
+	MistyRollTarget         int
+	ArinaRollTarget         int
 }
 
 type AdvEquipment struct {
@@ -357,6 +366,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	c := &AdventureCharacter{}
 	var alive, actionTaken, holidayTaken, rivalUnlocked, babysitAct int
 	var deadUntil, reprieveLast, babysitExp, pardonUsed sql.NullTime
+	var mistyLastSeen, arinaLastSeen, mistyBuffExp, mistyDebuffExp, arinaBuffExp sql.NullTime
 
 	err := d.QueryRow(`
 		SELECT user_id, display_name,
@@ -371,7 +381,11 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		       babysit_active, babysit_expires_at, babysit_skill_focus,
 		       hospital_visits, robbie_visit_count, last_death_date,
 		       combat_actions_used, harvest_actions_used,
-		       last_pardon_used
+		       last_pardon_used,
+		       misty_last_seen, arina_last_seen,
+		       misty_buff_expires, misty_debuff_expires, arina_buff_expires,
+		       npc_msg_count, npc_msg_count_date,
+		       misty_roll_target, arina_roll_target
 		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -386,6 +400,10 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&c.HospitalVisits, &c.RobbieVisitCount, &c.LastDeathDate,
 		&c.CombatActionsUsed, &c.HarvestActionsUsed,
 		&pardonUsed,
+		&mistyLastSeen, &arinaLastSeen,
+		&mistyBuffExp, &mistyDebuffExp, &arinaBuffExp,
+		&c.NPCMsgCount, &c.NPCMsgCountDate,
+		&c.MistyRollTarget, &c.ArinaRollTarget,
 	)
 	if err != nil {
 		return nil, err
@@ -406,6 +424,21 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	}
 	if pardonUsed.Valid {
 		c.LastPardonUsed = &pardonUsed.Time
+	}
+	if mistyLastSeen.Valid {
+		c.MistyLastSeen = &mistyLastSeen.Time
+	}
+	if arinaLastSeen.Valid {
+		c.ArinaLastSeen = &arinaLastSeen.Time
+	}
+	if mistyBuffExp.Valid {
+		c.MistyBuffExpires = &mistyBuffExp.Time
+	}
+	if mistyDebuffExp.Valid {
+		c.MistyDebuffExpires = &mistyDebuffExp.Time
+	}
+	if arinaBuffExp.Valid {
+		c.ArinaBuffExpires = &arinaBuffExp.Time
 	}
 	return c, nil
 }
@@ -475,7 +508,11 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 			babysit_active = ?, babysit_expires_at = ?, babysit_skill_focus = ?,
 			hospital_visits = ?, robbie_visit_count = ?, last_death_date = ?,
 			combat_actions_used = ?, harvest_actions_used = ?,
-			last_pardon_used = ?
+			last_pardon_used = ?,
+			misty_last_seen = ?, arina_last_seen = ?,
+			misty_buff_expires = ?, misty_debuff_expires = ?, arina_buff_expires = ?,
+			npc_msg_count = ?, npc_msg_count_date = ?,
+			misty_roll_target = ?, arina_roll_target = ?
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
@@ -488,6 +525,10 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 		char.HospitalVisits, char.RobbieVisitCount, char.LastDeathDate,
 		char.CombatActionsUsed, char.HarvestActionsUsed,
 		char.LastPardonUsed,
+		char.MistyLastSeen, char.ArinaLastSeen,
+		char.MistyBuffExpires, char.MistyDebuffExpires, char.ArinaBuffExpires,
+		char.NPCMsgCount, char.NPCMsgCountDate,
+		char.MistyRollTarget, char.ArinaRollTarget,
 		string(char.UserID),
 	)
 	return err
@@ -605,7 +646,9 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		       masterwork_drops_received,
 		       rival_pool, rival_unlocked_notified,
 		       babysit_active, babysit_expires_at, babysit_skill_focus,
-		       combat_actions_used, harvest_actions_used
+		       combat_actions_used, harvest_actions_used,
+		       npc_msg_count, npc_msg_count_date,
+		       misty_roll_target, arina_roll_target
 		FROM adventure_characters`)
 	if err != nil {
 		return nil, err
@@ -629,6 +672,8 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 			&c.RivalPool, &rivalUnlocked,
 			&babysitAct, &babysitExp, &c.BabysitSkillFocus,
 		&c.CombatActionsUsed, &c.HarvestActionsUsed,
+		&c.NPCMsgCount, &c.NPCMsgCountDate,
+		&c.MistyRollTarget, &c.ArinaRollTarget,
 		); err != nil {
 			return nil, err
 		}
