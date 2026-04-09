@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/chehsunliu/poker v0.1.0
-	github.com/expr-lang/expr v1.17.5
+	github.com/expr-lang/expr v1.17.8
 	github.com/fogleman/gg v1.3.0
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
