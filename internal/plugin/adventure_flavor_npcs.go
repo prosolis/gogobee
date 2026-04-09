@@ -77,9 +77,9 @@ var mistyCrowdRevengeLines = []string{
 // ── Sniper Log Lines (Arina buff — arena) ──────────────────────────────────
 
 var arinaSniperLines = []string{
-	"Something arrives from the upper tier. {enemy} doesn't finish their round.",
-	"A bolt. One bolt. {enemy} is down. Nobody in the crowd reacts. They saw nothing.",
-	"The shot comes from somewhere in the stands. {enemy} had a bad week. It ended here.",
-	"From the upper tier: one shot. {enemy} goes down. The fight continues without them.",
-	"The arena lights caught it briefly. Just briefly. {enemy} is down.",
+	"Just as the match was about to begin, something whizzes inches from the side of your head into {enemy}. They look confused because they've been shot with an arrow, yet you're holding a sword. Oh well. The Arena can be brutal sometimes. YOU WIN!",
+	"You step forward to fight. {enemy} steps forward to meet you. Then {enemy} stumbles. There's an arrow in their shoulder that wasn't there a second ago. Neither of you saw where it came from. {enemy} goes down. You didn't do that. YOU WIN!",
+	"The bell rings. You raise your weapon. {enemy} raises theirs. Then something whistles past your ear and {enemy} drops. You stand there for a moment. The crowd cheers like this is normal. Maybe it is. YOU WIN!",
+	"Before you can swing, {enemy} jerks sideways. There's a bolt sticking out of them that absolutely did not come from you. The crowd doesn't seem surprised. {enemy} is down. You'll take it. YOU WIN!",
+	"You blink. {enemy} is on the ground. There's an arrow in their leg and a confused expression on their face. You definitely didn't do that. The Arena official shrugs and waves you through. YOU WIN!",
 }

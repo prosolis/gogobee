@@ -139,24 +139,24 @@ func (p *AdventurePlugin) handleArenaFight(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Arena data error. This shouldn't happen.")
 	}
 
-	// Resolve combat
+	// NPC arena effects — sniper checked first (independent of combat roll)
+	npcResult := npcCheckArenaEffects(char, monster.Name)
+
+	if npcResult != nil && npcResult.SniperKill {
+		// Sniper fired — enemy dies, skip combat roll entirely
+		combatLog := &ArenaCombatLog{PlayerHP: 100, EnemyHP: 0, PlayerWon: true}
+		return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
+	}
+
+	// Normal combat roll
 	deathChance := arenaDeathChance(monster, char, equip)
 	roll := rand.Float64()
 	died := roll < deathChance
 
-	// Generate combat log (cosmetic — outcome already determined)
 	closeness := 1.0 - math.Abs(roll-deathChance)/math.Max(deathChance, 1-deathChance)
 	combatLog := generateArenaCombatLog(!died, closeness)
 
-	// NPC arena effects (Misty/Arina) — checked after combat roll
-	npcResult := npcCheckArenaEffects(char, monster.Name)
-	if npcResult != nil && npcResult.SniperKill {
-		// Sniper overrides death — enemy is killed instantly
-		died = false
-	}
-
 	if died {
-		// Apply crowd revenge text to death message if applicable
 		if npcResult != nil && npcResult.Text != "" {
 			combatLog.NPCText = npcResult.Text
 		}
@@ -205,17 +205,19 @@ func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext) error {
 	equip, _ := loadAdvEquipment(ctx.Sender)
 	monster := arenaGetMonster(1, 1)
 
+	npcResult := npcCheckArenaEffects(char, monster.Name)
+
+	if npcResult != nil && npcResult.SniperKill {
+		combatLog := &ArenaCombatLog{PlayerHP: 100, EnemyHP: 0, PlayerWon: true}
+		return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
+	}
+
 	deathChance := arenaDeathChance(monster, char, equip)
 	roll := rand.Float64()
 	died := roll < deathChance
 
 	closeness := 1.0 - math.Abs(roll-deathChance)/math.Max(deathChance, 1-deathChance)
 	combatLog := generateArenaCombatLog(!died, closeness)
-
-	npcResult := npcCheckArenaEffects(char, monster.Name)
-	if npcResult != nil && npcResult.SniperKill {
-		died = false
-	}
 
 	if died {
 		if npcResult != nil && npcResult.Text != "" {
@@ -321,16 +323,22 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 	}
 	run.XPAccumulated += battleXP
 
-	// Build survival message with combat log
-	closer := arenaWinCloser(monster.Name, len(combatLog.Rounds))
-	text := renderArenaCombatLog(combatLog, monster, true, reward, battleXP, closer)
+	// Build survival message
+	var text string
+	if npcResult != nil && npcResult.SniperKill {
+		// Sniper killed the enemy — no combat, just the sniper line
+		text = npcResult.Text + "\n\n"
+		text += fmt.Sprintf("🏆 +%d XP | €%d earned\n", battleXP, reward)
+	} else {
+		closer := arenaWinCloser(monster.Name, len(combatLog.Rounds))
+		text = renderArenaCombatLog(combatLog, monster, true, reward, battleXP, closer)
 
-	// Append NPC effects (Misty food/crowd, Arina sniper)
-	if npcResult != nil && npcResult.Text != "" {
-		text += npcResult.Text
-		// Apply equipment condition repair from gourmet food
-		if npcResult.CondRepair > 0 {
-			npcRepairMostDamaged(ctx.Sender, equip, npcResult.CondRepair)
+		// Append NPC effects (Misty food/crowd)
+		if npcResult != nil && npcResult.Text != "" {
+			text += npcResult.Text
+			if npcResult.CondRepair > 0 {
+				npcRepairMostDamaged(ctx.Sender, equip, npcResult.CondRepair)
+			}
 		}
 	}
 

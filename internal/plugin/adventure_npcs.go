@@ -41,8 +41,14 @@ const (
 // It increments their daily message count and fires NPC encounter rolls
 // when thresholds are hit.
 func (p *AdventurePlugin) npcTrackMessage(userID id.UserID) {
+	// Acquire user lock to prevent lost updates on message count and
+	// double encounter triggers from rapid messages.
+	userMu := p.advUserLock(userID)
+	userMu.Lock()
+
 	char, err := loadAdvCharacter(userID)
 	if err != nil || !char.Alive {
+		userMu.Unlock()
 		return
 	}
 
@@ -58,38 +64,35 @@ func (p *AdventurePlugin) npcTrackMessage(userID id.UserID) {
 
 	char.NPCMsgCount++
 
+	var fireNPC string
+
 	// Check Misty threshold
 	if char.MistyRollTarget > 0 && char.NPCMsgCount == char.MistyRollTarget {
 		if p.npcShouldEncounter(char, "misty") {
-			// Zero the target so we don't re-trigger
 			char.MistyRollTarget = 0
-			if err := saveAdvCharacter(char); err != nil {
-				slog.Error("npc: failed to save char after misty trigger", "user", userID, "err", err)
-			}
-			safeGo("npc-misty-encounter", func() {
-				p.npcFireEncounter(userID, "misty")
-			})
-			return
+			fireNPC = "misty"
 		}
 	}
 
-	// Check Arina threshold
-	if char.ArinaRollTarget > 0 && char.NPCMsgCount == char.ArinaRollTarget {
+	// Check Arina threshold (only if Misty didn't fire — one encounter per message)
+	if fireNPC == "" && char.ArinaRollTarget > 0 && char.NPCMsgCount == char.ArinaRollTarget {
 		if p.npcShouldEncounter(char, "arina") {
 			char.ArinaRollTarget = 0
-			if err := saveAdvCharacter(char); err != nil {
-				slog.Error("npc: failed to save char after arina trigger", "user", userID, "err", err)
-			}
-			safeGo("npc-arina-encounter", func() {
-				p.npcFireEncounter(userID, "arina")
-			})
-			return
+			fireNPC = "arina"
 		}
 	}
 
-	// Save updated count
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("npc: failed to save msg count", "user", userID, "err", err)
+	}
+
+	// Release lock BEFORE firing encounter (npcFireEncounter re-acquires it)
+	userMu.Unlock()
+
+	if fireNPC != "" {
+		safeGo("npc-"+fireNPC+"-encounter", func() {
+			p.npcFireEncounter(userID, fireNPC)
+		})
 	}
 }
 
@@ -142,6 +145,11 @@ func (p *AdventurePlugin) npcFireEncounter(userID id.UserID, npc string) {
 
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("npc: failed to save last_seen", "user", userID, "npc", npc, "err", err)
+		return
+	}
+
+	// Don't overwrite an existing pending interaction (shop, treasure, etc.)
+	if _, occupied := p.pending.Load(string(userID)); occupied {
 		return
 	}
 
@@ -206,7 +214,13 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 			return p.SendDM(ctx.Sender, "You reach for your gold but there isn't enough. She sees this. She doesn't say anything.\n\n_"+mistyDeclineLine+"_")
 		}
 
-		p.euro.Debit(ctx.Sender, float64(mistyCost), "misty_donation")
+		if !p.euro.Debit(ctx.Sender, float64(mistyCost), "misty_donation") {
+			char.MistyDebuffExpires = expires
+			if err := saveAdvCharacter(char); err != nil {
+				slog.Error("npc: failed to save misty debuff", "user", ctx.Sender, "err", err)
+			}
+			return p.SendDM(ctx.Sender, "You reach for your gold but there isn't enough. She sees this. She doesn't say anything.\n\n_"+mistyDeclineLine+"_")
+		}
 		char.MistyBuffExpires = expires
 		if err := saveAdvCharacter(char); err != nil {
 			slog.Error("npc: failed to save misty buff", "user", ctx.Sender, "err", err)
@@ -232,7 +246,10 @@ func (p *AdventurePlugin) resolveArina(ctx MessageContext, char *AdventureCharac
 			return p.SendDM(ctx.Sender, fmt.Sprintf("You can't afford it. She noticed before you did.\n\n_%s_", reply))
 		}
 
-		p.euro.Debit(ctx.Sender, float64(arinaCost), "arina_investment")
+		if !p.euro.Debit(ctx.Sender, float64(arinaCost), "arina_investment") {
+			reply := arinaDeclineLines[rand.IntN(len(arinaDeclineLines))]
+			return p.SendDM(ctx.Sender, fmt.Sprintf("You can't afford it. She noticed before you did.\n\n_%s_", reply))
+		}
 		char.ArinaBuffExpires = expires
 		if err := saveAdvCharacter(char); err != nil {
 			slog.Error("npc: failed to save arina buff", "user", ctx.Sender, "err", err)
