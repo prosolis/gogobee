@@ -189,6 +189,10 @@ func (p *EuroPlugin) credit(userID id.UserID, amount float64, reason string) {
 // Debit subtracts euros atomically. Returns false if this would exceed debt limit.
 // Uses a conditional UPDATE to prevent race conditions (check-and-act in one statement).
 func (p *EuroPlugin) Debit(userID id.UserID, amount float64, reason string) bool {
+	if amount <= 0 {
+		slog.Warn("euro: Debit called with non-positive amount", "user", userID, "amount", amount)
+		return false
+	}
 	p.ensureBalance(userID)
 	d := db.Get()
 
@@ -216,6 +220,10 @@ func (p *EuroPlugin) Debit(userID id.UserID, amount float64, reason string) bool
 
 // Credit adds euros (exported for other plugins).
 func (p *EuroPlugin) Credit(userID id.UserID, amount float64, reason string) {
+	if amount <= 0 {
+		slog.Warn("euro: Credit called with non-positive amount", "user", userID, "amount", amount)
+		return
+	}
 	p.ensureBalance(userID)
 	p.credit(userID, amount, reason)
 }

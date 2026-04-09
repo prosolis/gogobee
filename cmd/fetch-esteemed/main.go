@@ -85,6 +85,12 @@ func main() {
 	failed := 0
 
 	for i, entry := range entries {
+		// Validate entry ID to prevent path traversal or command injection.
+		if entry.ID == "" || strings.ContainsAny(entry.ID, "/\\;|&$`\"'") || strings.Contains(entry.ID, "..") {
+			fmt.Printf("[%d/%d] SKIP (invalid ID): %q\n", i+1, len(entries), entry.ID)
+			skipped++
+			continue
+		}
 		outPath := filepath.Join(outputDir, entry.ID+".jpg")
 
 		// Skip if already downloaded

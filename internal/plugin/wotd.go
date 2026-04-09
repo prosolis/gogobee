@@ -47,7 +47,7 @@ func (p *WOTDPlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *WOTDPlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "wotd") {
-		go func() {
+		safeGo("wotd-handler", func() {
 			args := strings.TrimSpace(p.GetArgs(ctx.Body, "wotd"))
 			if strings.ToLower(args) == "force" {
 				if err := p.handleWOTDForce(ctx); err != nil {
@@ -58,7 +58,7 @@ func (p *WOTDPlugin) OnMessage(ctx MessageContext) error {
 					slog.Error("wotd: handler error", "err", err)
 				}
 			}
-		}()
+		})
 		return nil
 	}
 

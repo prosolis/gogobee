@@ -404,7 +404,7 @@ func (p *TriviaPlugin) startQuestion(ctx MessageContext, args string) error {
 	p.mu.Unlock()
 
 	// Auto-expire after 30 seconds
-	go func() {
+	safeGo("trivia-expire", func() {
 		time.Sleep(30 * time.Second)
 		p.mu.Lock()
 		current, ok := p.sessions[ctx.RoomID]
@@ -420,7 +420,7 @@ func (p *TriviaPlugin) startQuestion(ctx MessageContext, args string) error {
 		} else {
 			p.mu.Unlock()
 		}
-	}()
+	})
 
 	return nil
 }

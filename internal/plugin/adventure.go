@@ -28,6 +28,7 @@ type AdventurePlugin struct {
 	dmMenuSentAt   sync.Map // userID string -> time.Time (last time actionable menu was DM'd)
 	arenaDeadlines sync.Map // userID string -> time.Time (auto-cashout deadline)
 	arenaPending   sync.Map // userID string -> int (pending tier number awaiting confirmation)
+	arenaBailCh    sync.Map // userID string -> chan struct{} (bail signal for countdown goroutine)
 	shopSessions   sync.Map // userID string -> *advShopSession
 	hospitalNudges sync.Map // userID string -> time.Time (when to send nudge)
 	morningHour int
@@ -128,7 +129,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.summaryTicker()
 	go p.midnightTicker()
 	go p.eventTicker()
-	go p.arenaAutoCashoutTicker()
+	// Arena auto-cashout ticker removed — replaced by per-session countdown goroutines
 	go p.rivalChallengeTicker()
 	go p.robbieTicker()
 	go p.hospitalNudgeTicker()
@@ -164,6 +165,9 @@ func (p *AdventurePlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	// 1. Arena commands (work in rooms and DMs)
+	if p.IsCommand(ctx.Body, "bail") {
+		return p.handleArenaBail(ctx)
+	}
 	if p.IsCommand(ctx.Body, "arena") {
 		return p.dispatchArenaCommand(ctx)
 	}
@@ -398,10 +402,14 @@ func (p *AdventurePlugin) handleShopCmd(ctx MessageContext, args string) error {
 func (p *AdventurePlugin) handleBuyCmd(ctx MessageContext, itemName string) error {
 	char, equip, err := p.ensureCharacter(ctx.Sender)
 	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character.")
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character. Try `!adventure` to create one first.")
 	}
 	if !char.Alive {
 		return p.SendDM(ctx.Sender, "You're dead. Shopping can wait until you've respawned.")
+	}
+
+	if itemName == "" {
+		return p.SendDM(ctx.Sender, "Usage: `!buy <item name>`. Type `!adventure shop` to browse.")
 	}
 
 	slot, def, found := advFindShopItem(itemName)
@@ -416,7 +424,7 @@ func (p *AdventurePlugin) handleBuyCmd(ctx MessageContext, itemName string) erro
 func (p *AdventurePlugin) handleSellCmd(ctx MessageContext, args string) error {
 	char, _, err := p.ensureCharacter(ctx.Sender)
 	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character.")
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character. Try `!adventure` to create one first.")
 	}
 	if !char.Alive {
 		return p.SendDM(ctx.Sender, "You're dead. No haggling from beyond the grave.")

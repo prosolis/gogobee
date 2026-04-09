@@ -56,6 +56,18 @@ func Get() *sql.DB {
 	return globalDB
 }
 
+// Close closes the database connection. Call on shutdown.
+func Close() {
+	mu.Lock()
+	defer mu.Unlock()
+	if globalDB != nil {
+		if err := globalDB.Close(); err != nil {
+			slog.Error("db: close failed", "err", err)
+		}
+		globalDB = nil
+	}
+}
+
 func runMigrations(d *sql.DB) error {
 	if _, err := d.Exec(schema); err != nil {
 		return err
@@ -86,6 +98,8 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE adventure_characters ADD COLUMN combat_actions_used INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE adventure_characters ADD COLUMN harvest_actions_used INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE adventure_characters ADD COLUMN last_pardon_used DATETIME`,
+		`ALTER TABLE arena_runs ADD COLUMN tier_earnings INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE arena_runs ADD COLUMN xp_accumulated INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -698,6 +712,8 @@ CREATE TABLE IF NOT EXISTS euro_balances (
 	updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_euro_bal_user ON euro_balances(user_id);
+
 CREATE TABLE IF NOT EXISTS euro_transactions (
 	id           INTEGER PRIMARY KEY AUTOINCREMENT,
 	user_id      TEXT NOT NULL,
@@ -1029,6 +1045,8 @@ CREATE TABLE IF NOT EXISTS arena_runs (
 	started_at      INTEGER NOT NULL,
 	ended_at        INTEGER
 );
+
+CREATE INDEX IF NOT EXISTS idx_arena_runs_user ON arena_runs(user_id, status);
 
 CREATE TABLE IF NOT EXISTS arena_history (
 	id              INTEGER PRIMARY KEY AUTOINCREMENT,

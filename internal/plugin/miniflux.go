@@ -116,11 +116,11 @@ func (p *MinifluxPlugin) OnMessage(ctx MessageContext) error {
 
 	switch sub {
 	case "feeds":
-		go func() {
+		safeGo("miniflux-feeds", func() {
 			if err := p.cmdFeeds(ctx); err != nil {
 				slog.Error("miniflux: feeds error", "err", err)
 			}
-		}()
+		})
 		return nil
 	case "subscribe":
 		if !p.IsAdmin(ctx.Sender) {
@@ -135,11 +135,11 @@ func (p *MinifluxPlugin) OnMessage(ctx MessageContext) error {
 	case "subscriptions":
 		return p.cmdSubscriptions(ctx)
 	case "latest":
-		go func() {
+		safeGo("miniflux-latest", func() {
 			if err := p.cmdLatest(ctx, parts[1:]); err != nil {
 				slog.Error("miniflux: latest error", "err", err)
 			}
-		}()
+		})
 		return nil
 	case "pause":
 		if !p.IsAdmin(ctx.Sender) {
@@ -586,11 +586,11 @@ func (p *MinifluxPlugin) poll() {
 	}
 
 	p.mu.Lock()
-	if p.pollingDisabled {
-		p.mu.Unlock()
+	disabled := p.pollingDisabled
+	p.mu.Unlock()
+	if disabled {
 		return
 	}
-	p.mu.Unlock()
 
 	// Get all active (non-paused) subscriptions
 	d := db.Get()

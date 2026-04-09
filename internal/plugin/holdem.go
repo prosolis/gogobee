@@ -949,11 +949,11 @@ func (p *HoldemPlugin) sendTurnNotifications(game *HoldemGame) {
 	if actionPlayer.TipsEnabled {
 		snap := snapshotForTip(game, game.ActionIdx)
 		dmRoom := actionPlayer.DMRoomID
-		go func() {
+		safeGo("holdem-tip", func() {
 			tipCtx := buildTipContext(snap)
 			tip := generateTip(tipCtx)
 			p.SendMessage(dmRoom, tip)
-		}()
+		})
 	}
 }
 

@@ -349,6 +349,7 @@ syncLoop:
 		}
 	}
 
+	db.Close()
 	slog.Info("GogoBee stopped")
 }
 

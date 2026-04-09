@@ -63,11 +63,11 @@ func (p *LookupPlugin) OnMessage(ctx MessageContext) error {
 	default:
 		return nil
 	}
-	go func() {
+	safeGo("lookup-handler", func() {
 		if err := handler(ctx); err != nil {
 			slog.Error("lookup: handler error", "err", err)
 		}
-	}()
+	})
 	return nil
 }
 
@@ -210,14 +210,14 @@ func (p *LookupPlugin) handleDefine(ctx MessageContext) error {
 			if !antStarted {
 				antStarted = true
 				antLang := lang
-				go func() {
+				safeGo("lookup-antonyms", func() {
 					ants, err := p.dict.Antonyms(wordLower, antLang)
 					if err != nil {
 						antCh <- antResult{}
 						return
 					}
 					antCh <- antResult{ants: ants}
-				}()
+				})
 			}
 		}
 

@@ -23,7 +23,9 @@ type ArenaRun struct {
 	Tier            int
 	Round           int
 	Status          string // "active", "awaiting", "completed", "dead", "cashed_out"
-	Earnings        int64
+	Earnings        int64  // session total (multiplied euros accumulated across completed tiers)
+	TierEarnings    int64  // current tier's raw earnings (reset each tier)
+	XPAccumulated   int    // session XP accumulator (raw, multiplied at payout)
 	RoundsSurvived  int
 	LastMonster     string
 	StartedAt       time.Time
@@ -39,14 +41,8 @@ func (p *AdventurePlugin) dispatchArenaCommand(ctx MessageContext) error {
 	switch {
 	case args == "" || lower == "menu":
 		return p.handleArenaMenu(ctx)
-	case strings.HasPrefix(lower, "tier "):
-		return p.handleArenaTier(ctx, strings.TrimSpace(args[5:]))
 	case lower == "fight" || lower == "f":
 		return p.handleArenaFight(ctx)
-	case lower == "descend":
-		return p.handleArenaDescend(ctx)
-	case lower == "cashout":
-		return p.handleArenaCashout(ctx)
 	case lower == "cancel":
 		return p.handleArenaCancel(ctx)
 	case lower == "status":
@@ -64,18 +60,16 @@ func (p *AdventurePlugin) dispatchArenaCommand(ctx MessageContext) error {
 
 const arenaHelpText = `**Arena Commands**
 
-` + "`!arena`" + ` — Show tier menu and eligible tiers
-` + "`!arena tier <1-5>`" + ` — Preview a tier (requires confirmation)
+` + "`!arena`" + ` — Enter the arena or view your current run
 ` + "`!arena fight`" + ` — Confirm entry or fight current round
-` + "`!arena cancel`" + ` — Cancel pending tier entry
-` + "`!arena descend`" + ` — Descend to next tier after clearing (earnings stay at risk)
-` + "`!arena cashout`" + ` — Take your earnings and leave
+` + "`!arena cancel`" + ` — Cancel pending entry
+` + "`!bail`" + ` — Opt out between tiers and collect your rewards
 ` + "`!arena status`" + ` — Current run state
 ` + "`!arena stats`" + ` — Your personal arena stats
 ` + "`!arena leaderboard`" + ` — Top arena players
 ` + "`!arena help`" + ` — This message
 
-The Arena is independent of your daily adventure action. You can run both on the same day. Death in the arena locks you out of both arena and adventure until midnight UTC.`
+The Arena is a streak. You start at Tier 1 and fight your way down. After each tier, you have 30 seconds to bail or you auto-advance. Death forfeits all accumulated rewards. The Arena is independent of your daily adventure actions.`
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 
@@ -89,7 +83,7 @@ func (p *AdventurePlugin) handleArenaMenu(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, renderAdvDeathStatusDM(char))
 	}
 
-	// Clear any pending tier selection when viewing menu
+	// Clear any pending entry when viewing menu
 	p.arenaPending.Delete(string(ctx.Sender))
 
 	// Check for active run
@@ -98,46 +92,15 @@ func (p *AdventurePlugin) handleArenaMenu(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, renderArenaAlreadyInRun(run))
 	}
 
+	// Always start at Tier 1
+	tier := arenaGetTier(1)
+
+	// Store pending T1 entry — run is NOT created yet
+	p.arenaPending.Store(string(ctx.Sender), 1)
+
 	stats := loadArenaPersonalStats(ctx.Sender)
-	return p.SendDM(ctx.Sender, renderArenaTierMenu(char, stats))
-}
-
-func (p *AdventurePlugin) handleArenaTier(ctx MessageContext, arg string) error {
-	tierNum, err := strconv.Atoi(arg)
-	if err != nil || tierNum < 1 || tierNum > 5 {
-		return p.SendDM(ctx.Sender, "Invalid tier. Use `!arena tier <1-5>`.")
-	}
-
-	char, err := loadAdvCharacter(ctx.Sender)
-	if err != nil {
-		return p.SendDM(ctx.Sender, "No adventurer found. Type `!adventure` to create one first.")
-	}
-
-	if !char.Alive {
-		return p.SendDM(ctx.Sender, renderAdvDeathStatusDM(char))
-	}
-
-	// Check active run
-	existing, _ := loadActiveArenaRun(ctx.Sender)
-	if existing != nil {
-		return p.SendDM(ctx.Sender, renderArenaAlreadyInRun(existing))
-	}
-
-	tier := arenaGetTier(tierNum)
-	if tier == nil {
-		return p.SendDM(ctx.Sender, "Invalid tier.")
-	}
-
-	// Level gate
-	if char.CombatLevel < tier.MinLevel {
-		return p.SendDM(ctx.Sender, renderArenaLevelGate(tier, char.CombatLevel))
-	}
-
-	// Store pending tier selection — run is NOT created yet
-	p.arenaPending.Store(string(ctx.Sender), tierNum)
-
-	monster := arenaGetMonster(tierNum, 1)
-	text := renderArenaTierConfirm(tier, monster)
+	monster := arenaGetMonster(1, 1)
+	text := renderArenaStreakEntry(char, stats, tier, monster)
 	return p.SendDM(ctx.Sender, text)
 }
 
@@ -146,20 +109,19 @@ func (p *AdventurePlugin) handleArenaFight(ctx MessageContext) error {
 	userMu.Lock()
 	defer userMu.Unlock()
 
-	// Check for pending tier confirmation first
-	if val, ok := p.arenaPending.LoadAndDelete(string(ctx.Sender)); ok {
-		tierNum := val.(int)
-		return p.confirmAndStartArenaRun(ctx, tierNum)
+	// Check for pending entry confirmation first
+	if _, ok := p.arenaPending.LoadAndDelete(string(ctx.Sender)); ok {
+		return p.confirmAndStartArenaRun(ctx)
 	}
 
 	run, err := loadActiveArenaRun(ctx.Sender)
 	if err != nil || run == nil {
-		return p.SendDM(ctx.Sender, "You don't have an active arena run. Start one with `!arena tier <1-5>`.")
+		return p.SendDM(ctx.Sender, "You don't have an active arena run. Type `!arena` to enter.")
 	}
 
 	if run.Status != "active" {
 		if run.Status == "awaiting" {
-			return p.SendDM(ctx.Sender, renderArenaAlreadyInRun(run))
+			return p.SendDM(ctx.Sender, "Your next tier is loading. Type `!bail` to cash out instead.")
 		}
 		return p.SendDM(ctx.Sender, "Your arena run is not in a fightable state.")
 	}
@@ -193,7 +155,7 @@ func (p *AdventurePlugin) handleArenaFight(ctx MessageContext) error {
 	return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog)
 }
 
-func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext, tierNum int) error {
+func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext) error {
 	char, err := loadAdvCharacter(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Failed to load character.")
@@ -203,26 +165,23 @@ func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext, tierNum in
 		return p.SendDM(ctx.Sender, renderAdvDeathStatusDM(char))
 	}
 
-	// Re-check active run (could have changed since tier selection)
+	// Re-check active run (could have changed since entry prompt)
 	existing, _ := loadActiveArenaRun(ctx.Sender)
 	if existing != nil {
 		return p.SendDM(ctx.Sender, renderArenaAlreadyInRun(existing))
 	}
 
-	tier := arenaGetTier(tierNum)
-	if tier == nil || char.CombatLevel < tier.MinLevel {
-		return p.SendDM(ctx.Sender, "You are no longer eligible for this tier.")
-	}
+	// Always start at Tier 1
+	tier := arenaGetTier(1)
 
 	// NOW create the run
 	run := &ArenaRun{
 		UserID:    ctx.Sender,
 		RoomID:    ctx.RoomID,
-		StartTier: tierNum,
-		Tier:      tierNum,
+		StartTier: 1,
+		Tier:      1,
 		Round:     1,
 		Status:    "active",
-		Earnings:  0,
 		StartedAt: time.Now().UTC(),
 	}
 
@@ -233,7 +192,7 @@ func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext, tierNum in
 
 	// Resolve round 1 immediately
 	equip, _ := loadAdvEquipment(ctx.Sender)
-	monster := arenaGetMonster(tierNum, 1)
+	monster := arenaGetMonster(1, 1)
 
 	deathChance := arenaDeathChance(monster, char, equip)
 	roll := rand.Float64()
@@ -256,67 +215,33 @@ func (p *AdventurePlugin) handleArenaCancel(ctx MessageContext) error {
 	return p.SendDM(ctx.Sender, "Nothing to cancel.")
 }
 
-func (p *AdventurePlugin) handleArenaDescend(ctx MessageContext) error {
+func (p *AdventurePlugin) handleArenaBail(ctx MessageContext) error {
+	// Signal the countdown goroutine if one is running
+	if ch, ok := p.arenaBailCh.LoadAndDelete(string(ctx.Sender)); ok {
+		close(ch.(chan struct{}))
+		// The countdown goroutine handles the actual payout
+		return nil
+	}
+
+	// No countdown running — check if there's an awaiting run (stale state)
 	userMu := p.advUserLock(ctx.Sender)
 	userMu.Lock()
 	defer userMu.Unlock()
 
 	run, err := loadActiveArenaRun(ctx.Sender)
-	if err != nil || run == nil || run.Status != "awaiting" {
-		return p.SendDM(ctx.Sender, "You don't have a pending tier decision.")
+	if err != nil || run == nil {
+		return p.SendDM(ctx.Sender, "You don't have an active arena session to bail from.")
 	}
 
-	if run.Tier >= 5 {
-		return p.SendDM(ctx.Sender, "There is nothing deeper. You've reached the bottom.")
+	if run.Status == "awaiting" {
+		return p.arenaProcessBail(ctx.Sender, run)
 	}
 
-	char, err := loadAdvCharacter(ctx.Sender)
-	if err != nil {
-		return p.SendDM(ctx.Sender, "Failed to load character.")
+	if run.Status == "active" {
+		return p.SendDM(ctx.Sender, "You're mid-fight. Finish the current tier first — you can only bail between tiers.")
 	}
 
-	nextTier := arenaGetTier(run.Tier + 1)
-	if nextTier == nil {
-		return p.SendDM(ctx.Sender, "Invalid next tier.")
-	}
-
-	// Level gate for next tier
-	if char.CombatLevel < nextTier.MinLevel {
-		return p.SendDM(ctx.Sender, renderArenaLevelGate(nextTier, char.CombatLevel))
-	}
-
-	// Clear auto-cashout deadline
-	p.arenaDeadlines.Delete(string(ctx.Sender))
-
-	// Update run: advance to next tier
-	run.Tier = nextTier.Number
-	run.Round = 1
-	run.Status = "active"
-	if err := saveArenaRun(run); err != nil {
-		return p.SendDM(ctx.Sender, "Failed to update arena run.")
-	}
-
-	// Grant descend achievement
-	if p.achievements != nil {
-		p.achievements.GrantAchievement(ctx.Sender, "arena_descend")
-	}
-
-	monster := arenaGetMonster(nextTier.Number, 1)
-	text := renderArenaRoundStart(nextTier, 1, monster, run)
-	return p.SendDM(ctx.Sender, text)
-}
-
-func (p *AdventurePlugin) handleArenaCashout(ctx MessageContext) error {
-	userMu := p.advUserLock(ctx.Sender)
-	userMu.Lock()
-	defer userMu.Unlock()
-
-	run, err := loadActiveArenaRun(ctx.Sender)
-	if err != nil || run == nil || run.Status != "awaiting" {
-		return p.SendDM(ctx.Sender, "You don't have a pending tier decision.")
-	}
-
-	return p.arenaCompleteCashout(ctx.Sender, run, false)
+	return p.SendDM(ctx.Sender, "You don't have an active arena session to bail from.")
 }
 
 func (p *AdventurePlugin) handleArenaStatus(ctx MessageContext) error {
@@ -354,14 +279,19 @@ func (p *AdventurePlugin) handleArenaLeaderboard(ctx MessageContext) error {
 
 // ── Combat Resolution ───────────────────────────────────────────────────────
 
+// ── Streak Multipliers ──────────────────────────────────────────────────────
+
+var arenaStreakEuroMultiplier = [6]float64{0, 1.0, 1.5, 2.0, 2.75, 4.0} // index = tier
+var arenaStreakXPMultiplier = [6]float64{0, 1.0, 1.2, 1.5, 1.85, 2.5}   // index = tiers won
+
 func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, combatLog *ArenaCombatLog) error {
-	// Calculate reward
+	// Calculate reward — accumulate in tier earnings, not credited yet
 	reward := arenaRoundReward(tier, run.Round, char.CombatLevel)
-	run.Earnings += reward
+	run.TierEarnings += reward
 	run.RoundsSurvived++
 	run.LastMonster = monster.Name
 
-	// Award battle XP (Ironclad set: Battle-Hardened — +5% XP, chat level bonus)
+	// Accumulate battle XP (Ironclad set: Battle-Hardened — +5% XP, chat level bonus)
 	battleXP := tier.BattleXP
 	equip, _ := loadAdvEquipment(ctx.Sender)
 	if advEquippedArenaSets(equip)["ironclad"] {
@@ -370,22 +300,13 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 	if bonus := chatLevelXPBonus(p.chatLevel(ctx.Sender)); bonus > 0 {
 		battleXP = int(float64(battleXP) * (1.0 + bonus))
 	}
-	char.CombatXP += battleXP
-	leveled, newLevel := checkAdvLevelUp(char, "combat")
-	if leveled {
-		p.checkRivalPoolUnlock(char)
-	}
-	if err := saveAdvCharacter(char); err != nil {
-		slog.Error("arena: failed to save character after survival", "user", ctx.Sender, "err", err)
-	}
+	run.XPAccumulated += battleXP
 
 	// Build survival message with combat log
 	closer := arenaWinCloser(monster.Name, len(combatLog.Rounds))
-	text := renderArenaCombatLog(combatLog, monster, true, reward, tier.BattleXP, closer)
-	text += fmt.Sprintf("\nRun total: €%d\n", run.Earnings)
-	if leveled {
-		text += fmt.Sprintf("\n🎉 **Combat Level %d!**", newLevel)
-	}
+	text := renderArenaCombatLog(combatLog, monster, true, reward, battleXP, closer)
+	text += fmt.Sprintf("\nTier earnings: €%d | Session total: €%d (at risk)\n",
+		run.TierEarnings, run.Earnings+run.TierEarnings)
 
 	// Achievement: first blood
 	if run.RoundsSurvived == 1 && p.achievements != nil {
@@ -399,37 +320,58 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 
 	// Check if tier is complete (4 rounds)
 	if run.Round >= 4 {
-		// Add completion bonus
-		run.Earnings += tier.CompletionBonus
-		run.Round = 4 // keep at 4 for clarity
+		// Add completion bonus to tier earnings
+		run.TierEarnings += tier.CompletionBonus
+		run.Round = 4
+
+		// Apply streak euro multiplier for this tier and add to session total
+		multiplier := arenaStreakEuroMultiplier[run.Tier]
+		run.Earnings += int64(float64(run.TierEarnings) * multiplier)
+		tierRaw := run.TierEarnings
+		run.TierEarnings = 0 // reset for next tier
+
+		// Grant tier achievement
+		p.grantArenaTierAchievement(ctx.Sender, run.Tier)
 
 		if run.Tier >= 5 {
-			// Tier 5 complete — full payout, run ends
-			return p.arenaCompleteTier5(ctx, run, char, tier, text)
+			// Tier 5 complete — session ends, process full payout
+			run.Status = "completed"
+			now := time.Now().UTC()
+			run.EndedAt = &now
+			if err := saveArenaRun(run); err != nil {
+				slog.Error("arena: failed to save run after T5", "user", ctx.Sender, "err", err)
+			}
+
+			text += fmt.Sprintf("\n🏆 **Tier %d cleared!** Completion bonus: €%d (×%.1f streak)\n",
+				tier.Number, tierRaw, multiplier)
+
+			return p.arenaCompleteSession(ctx.Sender, run, char, text)
 		}
 
-		// Tier complete, awaiting decision
+		// Tier complete — start 30-second countdown for next tier
 		run.Status = "awaiting"
 		if err := saveArenaRun(run); err != nil {
 			slog.Error("arena: failed to save run after tier complete", "user", ctx.Sender, "err", err)
 		}
 
-		// Set auto-cashout deadline
-		deadline := time.Now().UTC().Add(10 * time.Minute)
-		p.arenaDeadlines.Store(string(ctx.Sender), deadline)
+		text += fmt.Sprintf("\n🏆 **Tier %d cleared!** Completion bonus: €%d (×%.1f streak)\n"+
+			"Session total: €%d (at risk)\n",
+			tier.Number, tierRaw, multiplier, run.Earnings)
 
-		text += "\n\n" + renderArenaTierComplete(tier, tier.CompletionBonus, run.Earnings)
-
-		// Check for arena helmet drop
+		// Check for arena helmet drop (existing per-tier helmets)
 		if dropped := p.arenaRollHelmetDrop(ctx.Sender, run.Tier); dropped != nil {
-			text += "\n\n" + renderArenaHelmetDrop(dropped)
+			text += "\n" + renderArenaHelmetDrop(dropped)
 			p.postArenaDropAnnouncement(char.DisplayName, dropped)
 		}
 
-		// Grant tier achievement
-		p.grantArenaTierAchievement(ctx.Sender, run.Tier)
+		// Send the tier complete message, then start countdown
+		if err := p.SendDM(ctx.Sender, text); err != nil {
+			slog.Error("arena: failed to send tier complete DM", "user", ctx.Sender, "err", err)
+		}
 
-		return p.SendDM(ctx.Sender, text)
+		// Launch countdown goroutine
+		go p.arenaCountdown(ctx.Sender, run)
+		return nil
 	}
 
 	// Advance to next round
@@ -470,14 +412,13 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 			}
 		}
 
-		// Run continues — not dead, earnings preserved
+		// Run continues — not dead, streak preserved
 		nextWindow := now.Add(168 * time.Hour)
 		gr := gamesRoom()
 		if gr != "" {
 			p.SendMessage(gr, renderArenaDeathReprieve(char.DisplayName, monster.Name, nextWindow))
 		}
 
-		// Show combat log (player "lost" but was saved by reprieve)
 		closer := arenaLoseCloser(monster.Name, len(combatLog.Rounds))
 		text := renderArenaCombatLog(combatLog, monster, false, 0, 0, closer)
 		text += fmt.Sprintf("\n💀→⚔️ **%s nearly killed you.**\n\n"+
@@ -490,33 +431,48 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 
 		// Check if this was round 4 — tier completion via reprieve
 		if run.Round >= 4 {
-			run.Earnings += tier.CompletionBonus
+			run.TierEarnings += tier.CompletionBonus
 			run.Round = 4
 
+			// Apply streak multiplier
+			multiplier := arenaStreakEuroMultiplier[run.Tier]
+			run.Earnings += int64(float64(run.TierEarnings) * multiplier)
+			tierRaw := run.TierEarnings
+			run.TierEarnings = 0
+
+			p.grantArenaTierAchievement(ctx.Sender, run.Tier)
+
 			if run.Tier >= 5 {
-				// Tier 5 complete — hand off to the normal T5 completion path
-				return p.arenaCompleteTier5(ctx, run, char, tier, text)
+				run.Status = "completed"
+				endNow := time.Now().UTC()
+				run.EndedAt = &endNow
+				if err := saveArenaRun(run); err != nil {
+					slog.Error("arena: failed to save run after reprieve T5", "user", ctx.Sender, "err", err)
+				}
+				text += fmt.Sprintf("\n🏆 **Tier %d cleared!** Completion bonus: €%d (×%.1f streak)\n",
+					tier.Number, tierRaw, multiplier)
+				return p.arenaCompleteSession(ctx.Sender, run, char, text)
 			}
 
-			// Tier complete, awaiting descend/cashout
+			// Tier complete — start countdown
 			run.Status = "awaiting"
 			if err := saveArenaRun(run); err != nil {
 				slog.Error("arena: failed to save run after reprieve tier complete", "user", ctx.Sender, "err", err)
 			}
 
-			deadline := time.Now().UTC().Add(10 * time.Minute)
-			p.arenaDeadlines.Store(string(ctx.Sender), deadline)
+			text += fmt.Sprintf("\n🏆 **Tier %d cleared!** Completion bonus: €%d (×%.1f streak)\nSession total: €%d (at risk)\n",
+				tier.Number, tierRaw, multiplier, run.Earnings)
 
-			text += "\n" + renderArenaTierComplete(tier, tier.CompletionBonus, run.Earnings)
-
-			// Check for arena helmet drop
 			if dropped := p.arenaRollHelmetDrop(ctx.Sender, run.Tier); dropped != nil {
-				text += "\n\n" + renderArenaHelmetDrop(dropped)
+				text += "\n" + renderArenaHelmetDrop(dropped)
 				p.postArenaDropAnnouncement(char.DisplayName, dropped)
 			}
 
-			p.grantArenaTierAchievement(ctx.Sender, run.Tier)
-			return p.SendDM(ctx.Sender, text)
+			if err := p.SendDM(ctx.Sender, text); err != nil {
+				slog.Error("arena: failed to send reprieve tier complete DM", "user", ctx.Sender, "err", err)
+			}
+			go p.arenaCountdown(ctx.Sender, run)
+			return nil
 		}
 
 		// Not round 4 — advance to next round
@@ -525,7 +481,7 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 			slog.Error("arena: failed to save run after reprieve", "user", ctx.Sender, "err", err)
 		}
 
-		text += fmt.Sprintf("\nRun earnings: €%d (still at risk)\n", run.Earnings)
+		text += fmt.Sprintf("\nSession earnings: €%d (still at risk)\n", run.Earnings+run.TierEarnings)
 
 		nextMonster := arenaGetMonster(run.Tier, run.Round)
 		if nextMonster != nil {
@@ -538,7 +494,8 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 		return p.SendDM(ctx.Sender, text)
 	}
 
-	lostEarnings := run.Earnings
+	// ── Actual death — forfeit all session rewards ──
+	lostEarnings := run.Earnings + run.TierEarnings
 
 	char.Kill()
 	now := time.Now().UTC()
@@ -551,9 +508,11 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 		slog.Error("arena: failed to save character after death", "user", ctx.Sender, "err", err)
 	}
 
-	// End the run
+	// End the run — everything forfeited
 	run.Status = "dead"
 	run.Earnings = 0
+	run.TierEarnings = 0
+	run.XPAccumulated = 0
 	run.EndedAt = &now
 	if err := saveArenaRun(run); err != nil {
 		slog.Error("arena: failed to end arena run", "user", ctx.Sender, "err", err)
@@ -570,10 +529,13 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 		p.achievements.GrantAchievement(ctx.Sender, "arena_death_t5")
 	}
 
-	// Build death message with combat log
+	// Death message per spec
 	closer := arenaLoseCloser(monster.Name, len(combatLog.Rounds))
 	text := renderArenaCombatLog(combatLog, monster, false, 0, arenaParticipationXP, closer)
-	text += fmt.Sprintf("\nLost earnings: €%d\n", lostEarnings)
+	text += fmt.Sprintf("\nYou died in Tier %d. Everything you were carrying goes with you. The arena keeps its own ledger.\n", run.Tier)
+	if lostEarnings > 0 {
+		text += fmt.Sprintf("Forfeited: €%d\n", lostEarnings)
+	}
 
 	if err := p.SendDM(ctx.Sender, text); err != nil {
 		slog.Error("arena: failed to send death DM", "user", ctx.Sender, "err", err)
@@ -585,86 +547,120 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	return nil
 }
 
-func (p *AdventurePlugin) arenaCompleteTier5(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, prefixText string) error {
-	// Credit earnings
-	p.euro.Credit(run.UserID, float64(run.Earnings), "arena_tier5_complete")
+// arenaCompleteSession handles session payout for both T5 completion and bail.
+// prefixText is the combat log / tier-complete text to prepend to the summary.
+func (p *AdventurePlugin) arenaCompleteSession(userID id.UserID, run *ArenaRun, char *AdventureCharacter, prefixText string) error {
+	tiersWon := run.Tier // tiers cleared in this session (always starts at 1)
+
+	// Apply XP streak multiplier
+	xpMult := 1.0
+	if tiersWon >= 1 && tiersWon <= 5 {
+		xpMult = arenaStreakXPMultiplier[tiersWon]
+	}
+	totalXP := int(float64(run.XPAccumulated) * xpMult)
+
+	// Credit euros
+	p.euro.Credit(userID, float64(run.Earnings), "arena_streak_payout")
+
+	// Credit XP
+	char.CombatXP += totalXP
 	char.ArenaWins++
+	leveled, newLevel := checkAdvLevelUp(char, "combat")
+	if leveled {
+		p.checkRivalPoolUnlock(char)
+	}
 	if err := saveAdvCharacter(char); err != nil {
-		slog.Error("arena: failed to save character after T5 complete", "user", ctx.Sender, "err", err)
+		slog.Error("arena: failed to save character after session complete", "user", userID, "err", err)
 	}
 
-	// End run
-	now := time.Now().UTC()
-	run.Status = "completed"
-	run.EndedAt = &now
-	if err := saveArenaRun(run); err != nil {
-		slog.Error("arena: failed to end arena run after T5", "user", ctx.Sender, "err", err)
-	}
-
-	// History and stats
-	insertArenaHistory(run.UserID, run.StartTier, 5, run.RoundsSurvived, run.Earnings, "completed", "That Which Has Always Been")
-	upsertArenaStats(run.UserID, run.Earnings, false, 5)
-
-	// Grant achievements
-	p.grantArenaTierAchievement(ctx.Sender, 5)
-	if run.StartTier == 1 && p.achievements != nil {
-		p.achievements.GrantAchievement(ctx.Sender, "arena_full_run")
-	}
-
-	// Room announcement
-	gr := gamesRoom()
-	if gr != "" {
-		announce := fmt.Sprintf("🏆 **%s has conquered the Arena.** Tier 5 cleared. €%d earned. That Which Has Always Been has fallen.",
-			char.DisplayName, run.Earnings)
-		p.SendMessage(id.RoomID(gr), announce)
-	}
-
-	text := prefixText + "\n\n" + renderArenaTier5Complete(run.Earnings, run.StartTier)
-
-	// Check for arena helmet drop
-	if dropped := p.arenaRollHelmetDrop(ctx.Sender, 5); dropped != nil {
-		text += "\n\n" + renderArenaHelmetDrop(dropped)
-		p.postArenaDropAnnouncement(char.DisplayName, dropped)
-	}
-
-	return p.SendDM(ctx.Sender, text)
-}
-
-func (p *AdventurePlugin) arenaCompleteCashout(userID id.UserID, run *ArenaRun, isAuto bool) error {
-	// Clear deadline
-	p.arenaDeadlines.Delete(string(userID))
-
-	// Credit earnings
-	p.euro.Credit(userID, float64(run.Earnings), "arena_cashout")
-
-	// Load char to update wins
-	char, err := loadAdvCharacter(userID)
-	if err == nil {
-		char.ArenaWins++
-		saveAdvCharacter(char)
-	}
-
-	// End run
-	now := time.Now().UTC()
-	run.Status = "cashed_out"
-	run.EndedAt = &now
-	if err := saveArenaRun(run); err != nil {
-		slog.Error("arena: failed to end arena run on cashout", "user", userID, "err", err)
+	// End run if not already ended
+	if run.Status != "completed" && run.Status != "cashed_out" {
+		now := time.Now().UTC()
+		run.Status = "cashed_out"
+		run.EndedAt = &now
+		if err := saveArenaRun(run); err != nil {
+			slog.Error("arena: failed to end arena run on session complete", "user", userID, "err", err)
+		}
+	} else {
+		if err := saveArenaRun(run); err != nil {
+			slog.Error("arena: failed to save arena run on session complete", "user", userID, "err", err)
+		}
 	}
 
 	// History and stats
-	insertArenaHistory(userID, run.StartTier, run.Tier, run.RoundsSurvived, run.Earnings, "cashed_out", run.LastMonster)
+	outcome := "cashed_out"
+	lastMonster := run.LastMonster
+	if run.Tier >= 5 && run.Status == "completed" {
+		outcome = "completed"
+		lastMonster = "That Which Has Always Been"
+	}
+	insertArenaHistory(userID, run.StartTier, run.Tier, run.RoundsSurvived, run.Earnings, outcome, lastMonster)
 	upsertArenaStats(userID, run.Earnings, false, run.Tier)
 
-	// Achievement: big cashout
+	// Achievements
 	if run.Earnings >= 10000 && p.achievements != nil {
 		p.achievements.GrantAchievement(userID, "arena_cashout_big")
 	}
-
-	if isAuto {
-		return p.SendDM(userID, renderArenaAutoCashout(run.Earnings))
+	if run.Tier >= 5 {
+		if p.achievements != nil {
+			p.achievements.GrantAchievement(userID, "arena_full_run")
+		}
+		// Room announcement for T5
+		gr := gamesRoom()
+		if gr != "" {
+			announce := fmt.Sprintf("🏆 **%s has conquered the Arena.** Tier 5 streak. €%d earned. That Which Has Always Been has fallen.",
+				char.DisplayName, run.Earnings)
+			p.SendMessage(id.RoomID(gr), announce)
+		}
 	}
-	return p.SendDM(userID, renderArenaCashout(run.Earnings, run.Tier))
+
+	// Gladiator's Helm roll (Step 9)
+	helmText := ""
+	if tiersWon >= 4 {
+		helmDrop := p.arenaRollGladiatorHelm(userID, tiersWon)
+		if helmDrop != "" {
+			helmText = helmDrop
+			// Game room announcement
+			gr := gamesRoom()
+			if gr != "" {
+				p.SendMessage(id.RoomID(gr), fmt.Sprintf(
+					"🏆 %s walked out of the arena with the Gladiator's Helm. Tier %d streak. They had the option to stop. They did not stop.",
+					char.DisplayName, tiersWon))
+			}
+		}
+	}
+
+	// Build payout summary DM
+	text := prefixText + "\n\n"
+	text += fmt.Sprintf("⚔️ **Arena Session Complete — %d tiers cleared**\n\n", tiersWon)
+	text += fmt.Sprintf("Euros:     +€%d\n", run.Earnings)
+	text += fmt.Sprintf("XP:        +%d (%.1f× streak bonus)\n", totalXP, xpMult)
+	if helmText != "" {
+		text += fmt.Sprintf("Helm drop: %s\n", helmText)
+	} else {
+		text += "Helm drop: —\n"
+	}
+	text += "\nYour rewards have been applied."
+	if leveled {
+		text += fmt.Sprintf("\n\n🎉 **Combat Level %d!**", newLevel)
+	}
+
+	return p.SendDM(userID, text)
+}
+
+// arenaProcessBail handles bail payout (called from handleArenaBail or countdown).
+func (p *AdventurePlugin) arenaProcessBail(userID id.UserID, run *ArenaRun) error {
+	char, err := loadAdvCharacter(userID)
+	if err != nil {
+		slog.Error("arena: failed to load character for bail", "user", userID, "err", err)
+		return p.SendDM(userID, "Failed to process bail. Your session state is preserved.")
+	}
+
+	now := time.Now().UTC()
+	run.Status = "cashed_out"
+	run.EndedAt = &now
+
+	return p.arenaCompleteSession(userID, run, char, "")
 }
 
 // ── Combat Math ─────────────────────────────────────────────────────────────
@@ -734,54 +730,128 @@ func arenaPickDeathMessage(monster *ArenaMonster, tier, round int) string {
 	return r.Replace(template)
 }
 
-// ── Auto-Cashout Ticker ─────────────────────────────────────────────────────
+// ── Arena Countdown (30-second opt-out timer) ──────────────────────────────
 
-func (p *AdventurePlugin) arenaAutoCashoutTicker() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+func (p *AdventurePlugin) arenaCountdown(userID id.UserID, run *ArenaRun) {
+	// Create bail channel — ownership is transferred to either the bail handler
+	// (via LoadAndDelete) or the timer expiry path. The defer is removed to
+	// avoid racing with those paths.
+	bailCh := make(chan struct{})
+	p.arenaBailCh.Store(string(userID), bailCh)
 
-	for range ticker.C {
-		now := time.Now().UTC()
-		p.arenaDeadlines.Range(func(key, value any) bool {
-			userIDStr := key.(string)
-			deadline := value.(time.Time)
-			if now.After(deadline) {
-				p.arenaDeadlines.Delete(userIDStr)
-				go p.autoCollectArena(id.UserID(userIDStr))
-			}
-			return true
-		})
+	nextTier := arenaGetTier(run.Tier + 1)
+	nextTierName := "unknown"
+	if nextTier != nil {
+		nextTierName = nextTier.Name
 	}
-}
 
-func (p *AdventurePlugin) autoCollectArena(userID id.UserID) {
+	// Send countdown DM
+	countdownText := fmt.Sprintf("⚔️ Tier %d cleared.\n\nEntering Tier %d — %s in 30 seconds. Type `!bail` to stop here and collect your rewards.\n\n▸ 30 seconds",
+		run.Tier, run.Tier+1, nextTierName)
+	msgID, err := p.SendDMID(userID, countdownText)
+	if err != nil {
+		slog.Error("arena: failed to send countdown DM", "user", userID, "err", err)
+		// Fall through to auto-advance anyway
+	}
+
+	// 3 intervals of 10 seconds each
+	for _, remaining := range []int{20, 10, 0} {
+		select {
+		case <-bailCh:
+			// Player bailed — process payout
+			userMu := p.advUserLock(userID)
+			userMu.Lock()
+			// Re-load run in case state changed
+			freshRun, err := loadActiveArenaRun(userID)
+			if err != nil || freshRun == nil || freshRun.Status != "awaiting" {
+				userMu.Unlock()
+				return
+			}
+			if err := p.arenaProcessBail(userID, freshRun); err != nil {
+				slog.Error("arena: bail payout failed", "user", userID, "err", err)
+			}
+			userMu.Unlock()
+			return
+		case <-time.After(10 * time.Second):
+			if remaining > 0 && msgID != "" {
+				editText := fmt.Sprintf("⚔️ Tier %d cleared.\n\nEntering Tier %d — %s in %d seconds. Type `!bail` to stop here and collect your rewards.\n\n▸ %d seconds",
+					run.Tier, run.Tier+1, nextTierName, remaining, remaining)
+				if err := p.EditDM(userID, msgID, editText); err != nil {
+					slog.Warn("arena: failed to edit countdown DM", "user", userID, "err", err)
+				}
+			}
+		}
+	}
+
+	// Timer expired — remove bail channel to prevent late bail from closing it.
+	// If LoadAndDelete fails, bail already claimed it — exit silently.
+	if _, ok := p.arenaBailCh.LoadAndDelete(string(userID)); !ok {
+		return // bail handler already took ownership
+	}
+
 	userMu := p.advUserLock(userID)
 	userMu.Lock()
 	defer userMu.Unlock()
 
-	run, err := loadActiveArenaRun(userID)
-	if err != nil || run == nil || run.Status != "awaiting" {
+	freshRun, err := loadActiveArenaRun(userID)
+	if err != nil || freshRun == nil || freshRun.Status != "awaiting" {
 		return
 	}
 
-	if err := p.arenaCompleteCashout(userID, run, true); err != nil {
-		slog.Error("arena: auto-cashout failed", "user", userID, "err", err)
+	if nextTier == nil {
+		// Shouldn't happen — T5 is handled before countdown starts
+		p.arenaProcessBail(userID, freshRun)
+		return
 	}
+
+	char, err := loadAdvCharacter(userID)
+	if err != nil {
+		slog.Error("arena: failed to load character for auto-advance", "user", userID, "err", err)
+		p.arenaProcessBail(userID, freshRun)
+		return
+	}
+
+	// Level gate for next tier
+	if char.CombatLevel < nextTier.MinLevel {
+		p.SendDM(userID, renderArenaLevelGate(nextTier, char.CombatLevel)+"\n\nYour accumulated rewards have been paid out.")
+		p.arenaProcessBail(userID, freshRun)
+		return
+	}
+
+	// Advance to next tier
+	freshRun.Tier = nextTier.Number
+	freshRun.Round = 1
+	freshRun.Status = "active"
+	if err := saveArenaRun(freshRun); err != nil {
+		slog.Error("arena: failed to advance to next tier", "user", userID, "err", err)
+		return
+	}
+
+	// Grant descend achievement
+	if p.achievements != nil {
+		p.achievements.GrantAchievement(userID, "arena_descend")
+	}
+
+	monster := arenaGetMonster(nextTier.Number, 1)
+	text := renderArenaRoundStart(nextTier, 1, monster, freshRun)
+	p.SendDM(userID, text)
 }
 
-// arenaCleanupStaleRuns auto-cashes out any runs left in 'awaiting' status
-// (e.g. from a bot restart). Called during Init().
+// ── Restart Recovery ────────────────────────────────────────────────────────
+
+// arenaCleanupStaleRuns auto-bails any active/awaiting runs on restart.
+// Per spec: do not forfeit due to infrastructure reasons.
 func (p *AdventurePlugin) arenaCleanupStaleRuns() {
-	runs, err := loadAwaitingArenaRuns()
+	runs, err := loadStaleArenaRuns()
 	if err != nil {
 		slog.Error("arena: failed to load stale runs", "err", err)
 		return
 	}
 	for _, run := range runs {
 		run := run
-		slog.Info("arena: auto-cashing out stale awaiting run", "user", run.UserID, "earnings", run.Earnings)
-		if err := p.arenaCompleteCashout(run.UserID, &run, true); err != nil {
-			slog.Error("arena: stale run cashout failed", "user", run.UserID, "err", err)
+		slog.Info("arena: auto-bailing stale run on restart", "user", run.UserID, "tier", run.Tier, "earnings", run.Earnings)
+		if err := p.arenaProcessBail(run.UserID, &run); err != nil {
+			slog.Error("arena: stale run bail failed", "user", run.UserID, "err", err)
 		}
 	}
 }
@@ -795,12 +865,14 @@ func loadActiveArenaRun(userID id.UserID) (*ArenaRun, error) {
 	var endedAt *int64
 	err := d.QueryRow(`
 		SELECT id, user_id, room_id, start_tier, tier, round, status, earnings,
+		       tier_earnings, xp_accumulated,
 		       rounds_survived, last_monster, started_at, ended_at
 		FROM arena_runs
 		WHERE user_id = ? AND status IN ('active', 'awaiting')
 		ORDER BY id DESC LIMIT 1`, string(userID)).Scan(
 		&run.ID, &run.UserID, &run.RoomID, &run.StartTier, &run.Tier, &run.Round,
-		&run.Status, &run.Earnings, &run.RoundsSurvived, &run.LastMonster,
+		&run.Status, &run.Earnings, &run.TierEarnings, &run.XPAccumulated,
+		&run.RoundsSurvived, &run.LastMonster,
 		&startedAt, &endedAt,
 	)
 	if err != nil {
@@ -814,12 +886,13 @@ func loadActiveArenaRun(userID id.UserID) (*ArenaRun, error) {
 	return run, nil
 }
 
-func loadAwaitingArenaRuns() ([]ArenaRun, error) {
+func loadStaleArenaRuns() ([]ArenaRun, error) {
 	d := db.Get()
 	rows, err := d.Query(`
 		SELECT id, user_id, room_id, start_tier, tier, round, status, earnings,
+		       tier_earnings, xp_accumulated,
 		       rounds_survived, last_monster, started_at, ended_at
-		FROM arena_runs WHERE status = 'awaiting'`)
+		FROM arena_runs WHERE status IN ('awaiting', 'active')`)
 	if err != nil {
 		return nil, err
 	}
@@ -832,7 +905,8 @@ func loadAwaitingArenaRuns() ([]ArenaRun, error) {
 		var endedAt *int64
 		if err := rows.Scan(
 			&r.ID, &r.UserID, &r.RoomID, &r.StartTier, &r.Tier, &r.Round,
-			&r.Status, &r.Earnings, &r.RoundsSurvived, &r.LastMonster,
+			&r.Status, &r.Earnings, &r.TierEarnings, &r.XPAccumulated,
+			&r.RoundsSurvived, &r.LastMonster,
 			&startedAt, &endedAt,
 		); err != nil {
 			return nil, err
@@ -851,10 +925,12 @@ func createArenaRun(run *ArenaRun) error {
 	d := db.Get()
 	result, err := d.Exec(`
 		INSERT INTO arena_runs (user_id, room_id, start_tier, tier, round, status, earnings,
+		                        tier_earnings, xp_accumulated,
 		                        rounds_survived, last_monster, started_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		string(run.UserID), string(run.RoomID), run.StartTier, run.Tier, run.Round,
-		run.Status, run.Earnings, run.RoundsSurvived, run.LastMonster,
+		run.Status, run.Earnings, run.TierEarnings, run.XPAccumulated,
+		run.RoundsSurvived, run.LastMonster,
 		run.StartedAt.Unix(),
 	)
 	if err != nil {
@@ -873,9 +949,11 @@ func saveArenaRun(run *ArenaRun) error {
 	_, err := d.Exec(`
 		UPDATE arena_runs SET
 			tier = ?, round = ?, status = ?, earnings = ?,
+			tier_earnings = ?, xp_accumulated = ?,
 			rounds_survived = ?, last_monster = ?, ended_at = ?
 		WHERE id = ?`,
 		run.Tier, run.Round, run.Status, run.Earnings,
+		run.TierEarnings, run.XPAccumulated,
 		run.RoundsSurvived, run.LastMonster, endedAt,
 		run.ID,
 	)
@@ -1086,4 +1164,61 @@ func (p *AdventurePlugin) postArenaDropAnnouncement(playerName string, gear *Are
 			playerName, gear.Tier, gear.HelmetName, gear.SetName)
 	}
 	p.SendMessage(id.RoomID(gr), announce)
+}
+
+// ── Gladiator's Helm (Streak-Exclusive Drop) ──────────────────────────────
+
+const (
+	gladiatorHelmDropT4 = 0.08
+	gladiatorHelmDropT5 = 0.18
+	gladiatorHelmTier   = 5 // equipment tier level
+)
+
+// arenaRollGladiatorHelm checks for the streak-exclusive Gladiator's Helm drop.
+// Returns the DM text for the drop, or empty string if no drop.
+func (p *AdventurePlugin) arenaRollGladiatorHelm(userID id.UserID, maxTierCleared int) string {
+	if maxTierCleared < 4 {
+		return ""
+	}
+
+	dropRate := gladiatorHelmDropT4
+	if maxTierCleared >= 5 {
+		dropRate = gladiatorHelmDropT5
+	}
+
+	if rand.Float64() >= dropRate {
+		return ""
+	}
+
+	// Check if player already owns a Gladiator's Helm at full condition
+	equip, err := loadAdvEquipment(userID)
+	if err != nil {
+		slog.Error("arena: failed to load equipment for gladiator helm check", "user", userID, "err", err)
+		return ""
+	}
+
+	helmet, hasHelmet := equip[SlotHelmet]
+	if hasHelmet && helmet.Name == "Gladiator's Helm" && helmet.Condition == 100 {
+		// Already owns at full condition — suppress silently
+		return ""
+	}
+
+	// Equip the Gladiator's Helm (1.75x tier = effective tier 5 with bonus)
+	if !hasHelmet {
+		helmet = &AdvEquipment{Slot: SlotHelmet}
+	}
+	helmet.Tier = gladiatorHelmTier
+	helmet.Condition = 100
+	helmet.Name = "Gladiator's Helm"
+	helmet.ActionsUsed = 0
+	helmet.ArenaTier = gladiatorHelmTier
+	helmet.ArenaSet = "gladiator"
+	helmet.Masterwork = true // Masterwork-tier item
+
+	if err := saveAdvEquipment(userID, helmet); err != nil {
+		slog.Error("arena: failed to save gladiator helm", "user", userID, "err", err)
+		return ""
+	}
+
+	return "The Gladiator's Helm"
 }

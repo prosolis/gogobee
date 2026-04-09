@@ -385,11 +385,11 @@ func (p *UserPlugin) checkKeywordWatches(ctx MessageContext) {
 				keyword, string(ctx.Sender), string(ctx.RoomID), preview)
 
 			// Use a goroutine to avoid blocking message dispatch
-			go func(uid id.UserID, msg string) {
-				if err := p.SendDM(uid, msg); err != nil {
-					slog.Error("user: send watch DM", "err", err, "user", uid)
+			safeGo("user-watch-dm", func() {
+				if err := p.SendDM(id.UserID(watcherID), dmMsg); err != nil {
+					slog.Error("user: send watch DM", "err", err, "user", watcherID)
 				}
-			}(id.UserID(watcherID), dmMsg)
+			})
 
 		}
 	}

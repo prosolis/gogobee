@@ -65,7 +65,7 @@ func (p *HowAmIPlugin) OnMessage(ctx MessageContext) error {
 		slog.Error("howami: send thinking", "err", err)
 	}
 
-	go func() {
+	safeGo("howami-profile", func() {
 		profile := p.gatherProfile(target)
 
 		botName := os.Getenv("BOT_DISPLAY_NAME")
@@ -92,7 +92,7 @@ Write the roast now. Do not include any preamble or explanation, just the roast 
 		}
 
 		p.SendReply(ctx.RoomID, ctx.EventID, response)
-	}()
+	})
 
 	return nil
 }

@@ -144,7 +144,8 @@ func (p *EsteemPlugin) OnMessage(ctx MessageContext) error {
 
 	imgData, err := p.renderCarton(entry)
 	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Render failed: %v", err))
+		slog.Error("esteemed: render failed", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Render failed. Try again later.")
 	}
 
 	caption := fmt.Sprintf("Yet another one of our esteemed community has gone missing.\nIf found, please return %s to the community immediately.", entry.Name)

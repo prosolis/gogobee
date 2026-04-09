@@ -678,6 +678,52 @@ func (b *Base) SendDM(userID id.UserID, text string) error {
 	return b.SendMessage(roomID, text)
 }
 
+// SendDMID sends a direct message and returns the event ID (for later editing).
+func (b *Base) SendDMID(userID id.UserID, text string) (id.EventID, error) {
+	roomID, err := b.GetDMRoom(userID)
+	if err != nil {
+		return "", err
+	}
+	return b.SendMessageID(roomID, text)
+}
+
+// EditMessage edits an existing message using Matrix m.replace relation.
+func (b *Base) EditMessage(roomID id.RoomID, eventID id.EventID, newText string) error {
+	newContent := textContent(newText)
+	content := &event.MessageEventContent{
+		MsgType: event.MsgText,
+		Body:    "* " + newContent.Body,
+		NewContent: &event.MessageEventContent{
+			MsgType:       newContent.MsgType,
+			Body:          newContent.Body,
+			Format:        newContent.Format,
+			FormattedBody: newContent.FormattedBody,
+		},
+		RelatesTo: &event.RelatesTo{
+			Type:    event.RelReplace,
+			EventID: eventID,
+		},
+	}
+	if newContent.Format == event.FormatHTML {
+		content.Format = event.FormatHTML
+		content.FormattedBody = "* " + newContent.FormattedBody
+	}
+	_, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
+	if err != nil {
+		slog.Error("failed to edit message", "room", roomID, "event", eventID, "err", err)
+	}
+	return err
+}
+
+// EditDM edits a message in a user's DM room.
+func (b *Base) EditDM(userID id.UserID, eventID id.EventID, newText string) error {
+	roomID, err := b.GetDMRoom(userID)
+	if err != nil {
+		return err
+	}
+	return b.EditMessage(roomID, eventID, newText)
+}
+
 // UploadContent uploads data to the Matrix content repository and returns the MXC URI.
 func (b *Base) UploadContent(data []byte, contentType, filename string) (id.ContentURI, error) {
 	resp, err := b.Client.UploadBytesWithName(context.Background(), data, contentType, filename)
@@ -707,4 +753,17 @@ func (b *Base) SendImage(roomID id.RoomID, imgData []byte, filename, caption str
 	}
 	_, err = b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
 	return err
+}
+
+// safeGo runs fn in a goroutine with panic recovery.
+// Use instead of bare `go func()` to prevent daemon crashes.
+func safeGo(label string, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("goroutine panic recovered", "label", label, "panic", r)
+			}
+		}()
+		fn()
+	}()
 }

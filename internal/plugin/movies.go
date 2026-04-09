@@ -134,11 +134,11 @@ func (p *MoviesPlugin) OnMessage(ctx MessageContext) error {
 	if handler == nil {
 		return nil
 	}
-	go func() {
+	safeGo("movies-handler", func() {
 		if err := handler(ctx); err != nil {
 			slog.Error("movies: handler error", "err", err)
 		}
-	}()
+	})
 	return nil
 }
 

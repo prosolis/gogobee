@@ -73,11 +73,11 @@ func (p *GamingPlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *GamingPlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "releases") {
-		go func() {
+		safeGo("gaming-releases", func() {
 			if err := p.handleReleases(ctx); err != nil {
 				slog.Error("gaming: handler error", "err", err)
 			}
-		}()
+		})
 		return nil
 	}
 	if p.IsCommand(ctx.Body, "releasewatch") {

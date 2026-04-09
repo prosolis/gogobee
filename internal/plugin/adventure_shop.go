@@ -101,7 +101,7 @@ func (p *AdventurePlugin) shopScheduleBrowseNudge(userID id.UserID) {
 	p.shopSessions.Store(string(userID)+":nudge_gen", gen)
 
 	capturedGen := gen
-	go func() {
+	safeGo("shop-nudge", func() {
 		time.Sleep(2 * time.Minute)
 		// Check if this goroutine is still the latest.
 		if val, ok := p.shopSessions.Load(string(userID) + ":nudge_gen"); !ok || val.(int64) != capturedGen {
@@ -117,7 +117,7 @@ func (p *AdventurePlugin) shopScheduleBrowseNudge(userID id.UserID) {
 		}
 		flavor, _ := advPickFlavor(luigiBrowseTimeout, userID, "luigi_browse")
 		p.SendDM(userID, fmt.Sprintf("*%s*", flavor))
-	}()
+	})
 }
 
 // ── Display: Luigi Greeting + Category Menu ─────────────────────────────────
