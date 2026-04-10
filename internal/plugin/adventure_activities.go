@@ -810,7 +810,7 @@ func advEligibleLocations(char *AdventureCharacter, equip map[EquipmentSlot]*Adv
 
 // advCheckPartyBonus checks if other players visited the same location today.
 func advCheckPartyBonus(userID id.UserID, location string) bool {
-	logs, err := loadAdvTodayLogs()
+	logs, err := loadAdvLogsForDate(time.Now().UTC().Format("2006-01-02"))
 	if err != nil {
 		return false
 	}

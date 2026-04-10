@@ -284,6 +284,9 @@ func (p *AdventurePlugin) runBabysitAction(char *AdventureCharacter, equip map[E
 		result.EquipBroken = nil
 	}
 
+	// Double XP/money boost
+	advApplyBoost(result)
+
 	// Apply XP
 	switch result.XPSkill {
 	case "combat":

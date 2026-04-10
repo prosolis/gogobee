@@ -122,7 +122,11 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 			continue
 		}
 		takenItems = append(takenItems, item)
-		totalPayout += 50
+		payout := item.Value / 4
+		if payout < 1 {
+			payout = 1
+		}
+		totalPayout += payout
 		communityTotal += item.Value
 		if item.Type == "MasterworkGear" {
 			masterworkTaken = true
@@ -246,14 +250,18 @@ func renderRobbieDM(userID id.UserID, items []AdvItem, total int64, mwTaken, gav
 	cardShownOnLine := false
 	for _, item := range items {
 		emoji := slotEmoji(item.Slot)
+		payout := item.Value / 4
+		if payout < 1 {
+			payout = 1
+		}
 		if item.Type == "MasterworkGear" {
-			sb.WriteString(fmt.Sprintf("  %s  %s (Masterwork T%d)   → €50", emoji, item.Name, item.Tier))
+			sb.WriteString(fmt.Sprintf("  %s  %s (Masterwork T%d)   → €%d", emoji, item.Name, item.Tier, payout))
 			if gaveCard && !cardShownOnLine {
 				sb.WriteString("  + 🃏 Get Out of Medical Debt Free card")
 				cardShownOnLine = true
 			}
 		} else {
-			sb.WriteString(fmt.Sprintf("  %s  %s (T%d)   → €50", emoji, item.Name, item.Tier))
+			sb.WriteString(fmt.Sprintf("  %s  %s (T%d)   → €%d", emoji, item.Name, item.Tier, payout))
 		}
 		sb.WriteByte('\n')
 	}

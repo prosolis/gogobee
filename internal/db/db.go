@@ -16,6 +16,7 @@ import (
 var (
 	mu       sync.Mutex
 	globalDB *sql.DB
+	dataPath string
 )
 
 // Init opens (or creates) the SQLite database and runs migrations.
@@ -44,6 +45,7 @@ func Init(dataDir string) error {
 	}
 
 	globalDB = d
+	dataPath = dataDir
 	slog.Info("database initialized", "path", dbPath)
 	return nil
 }
@@ -109,6 +111,28 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE adventure_characters ADD COLUMN npc_msg_count_date TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE adventure_characters ADD COLUMN misty_roll_target INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE adventure_characters ADD COLUMN arina_roll_target INTEGER NOT NULL DEFAULT 0`,
+		// Housing
+		`ALTER TABLE adventure_characters ADD COLUMN house_tier INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN house_loan_balance INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN house_loan_frozen INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN house_missed_payments INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN house_autopay INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN house_current_rate REAL NOT NULL DEFAULT 0`,
+		// Pets
+		`ALTER TABLE adventure_characters ADD COLUMN pet_type TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_xp INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_level INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_armor_tier INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_chased_away INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_reactivated INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_arrived INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_encounter_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_donated_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN thom_animal_line_fired INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_supply_shop_unlocked INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_level10_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_morning_defense INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -163,6 +187,47 @@ func CacheSet(key, data string) {
 		 ON CONFLICT(cache_key) DO UPDATE SET data = ?, cached_at = unixepoch()`,
 		key, data, data,
 	)
+}
+
+// Backup creates a consistent snapshot of the database using VACUUM INTO.
+// Keeps the last 7 daily backups, deleting older ones.
+func Backup() error {
+	backupDir := filepath.Join(dataPath, "backups")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return fmt.Errorf("create backup dir: %w", err)
+	}
+
+	filename := fmt.Sprintf("gogobee_%s.db", time.Now().UTC().Format("2006-01-02"))
+	backupPath := filepath.Join(backupDir, filename)
+
+	_, err := Get().Exec(fmt.Sprintf(`VACUUM INTO '%s'`, backupPath))
+	if err != nil {
+		return fmt.Errorf("vacuum into backup: %w", err)
+	}
+
+	slog.Info("database backup created", "path", backupPath)
+
+	// Prune backups older than 7 days
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		return nil // backup succeeded, prune failure is non-fatal
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -7)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".db") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			os.Remove(filepath.Join(backupDir, e.Name()))
+			slog.Info("pruned old backup", "file", e.Name())
+		}
+	}
+
+	return nil
 }
 
 // RunMaintenance purges stale data from cache tables, old rate limits,

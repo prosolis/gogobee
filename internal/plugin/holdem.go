@@ -97,12 +97,14 @@ func (p *HoldemPlugin) OnMessage(ctx MessageContext) error {
 	}
 
 	// If this is a DM, resolve the player's game room so actions route correctly.
+	// Clear EventID so replies go as plain messages — the room can't resolve DM events.
 	if isDM {
 		p.mu.Lock()
 		gameRoom := p.findGameRoom(ctx.Sender)
 		p.mu.Unlock()
 		if gameRoom != "" {
 			ctx.RoomID = gameRoom
+			ctx.EventID = ""
 		}
 	}
 
@@ -1214,6 +1216,14 @@ func (p *HoldemPlugin) updateNPCBalance(delta int64) {
 	db.Exec("holdem: update npc balance",
 		`UPDATE holdem_npc_balance SET balance = balance + ?, hands_played = hands_played + 1 WHERE npc_name = ?`,
 		delta, p.cfg.NPCName)
+}
+
+// resetNPCHouseBalance resets all NPC balances to the configured house balance.
+// Called daily at midnight.
+func resetNPCHouseBalance() {
+	balance := int64(envInt("HOLDEM_NPC_HOUSE_BALANCE", 10000))
+	db.Exec("holdem: reset npc balance",
+		`UPDATE holdem_npc_balance SET balance = ?`, balance)
 }
 
 func (p *HoldemPlugin) recordScores(game *HoldemGame, winnings map[id.UserID]int64) {

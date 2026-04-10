@@ -133,6 +133,7 @@ func (p *AdventurePlugin) npcFireEncounter(userID id.UserID, npc string) {
 	switch npc {
 	case "misty":
 		char.MistyLastSeen = &now
+		char.MistyEncounterCount++
 		opening = mistyOpenings[rand.IntN(len(mistyOpenings))]
 		prompt = fmt.Sprintf("👤 A woman approaches you.\n\n_%s_\n\n"+
 			"Reply `yes` to give €%d, or `no` to walk away.", opening, mistyCost)
@@ -222,11 +223,23 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 			return p.SendDM(ctx.Sender, "You reach for your gold but there isn't enough. She sees this. She doesn't say anything.\n\n_"+mistyDeclineLine+"_")
 		}
 		char.MistyBuffExpires = expires
+		char.MistyDonatedCount++
+
+		// Pet reactivation: donating to Misty after chasing pet away
+		mistyReactivatePet(char)
+
 		if err := saveAdvCharacter(char); err != nil {
 			slog.Error("npc: failed to save misty buff", "user", ctx.Sender, "err", err)
 		}
 
 		reply := mistyAcceptLines[rand.IntN(len(mistyAcceptLines))]
+
+		// Housing hint (fires once after 2+ encounters)
+		hint := mistyHousingHint(char)
+		if hint != "" {
+			reply += "\n\n_" + hint + "_"
+		}
+
 		return p.SendDM(ctx.Sender, fmt.Sprintf("_%s_", reply))
 	}
 

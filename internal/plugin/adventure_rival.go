@@ -459,8 +459,11 @@ func (p *AdventurePlugin) resolveRivalRPSRound(ctx MessageContext, interaction *
 		// Outcome line.
 		outcomePool := rivalRoundOutcomeWin
 		outcome := pickRivalFlavor(outcomePool)
-		if strings.Contains(outcome, "%s") {
+		switch strings.Count(outcome, "%s") {
+		case 2:
 			outcome = fmt.Sprintf(outcome, rpsNames[rivalThrow], rpsNames[playerThrow])
+		case 1:
+			outcome = fmt.Sprintf(outcome, rpsNames[rivalThrow])
 		}
 		sb.WriteString(outcome + "\n\n")
 		sb.WriteString(fmt.Sprintf("Score: You %d -- Rival %d\n\n", challenge.PlayerScore, challenge.RivalScore))
@@ -471,8 +474,11 @@ func (p *AdventurePlugin) resolveRivalRPSRound(ctx MessageContext, interaction *
 		challenge.RivalScore++
 		outcomePool := rivalRoundOutcomeLoss
 		outcome := pickRivalFlavor(outcomePool)
-		if strings.Contains(outcome, "%s") {
+		switch strings.Count(outcome, "%s") {
+		case 2:
 			outcome = fmt.Sprintf(outcome, rpsNames[rivalThrow], rpsNames[playerThrow])
+		case 1:
+			outcome = fmt.Sprintf(outcome, rpsNames[rivalThrow])
 		}
 		sb.WriteString(outcome + "\n\n")
 		sb.WriteString(fmt.Sprintf("Score: You %d -- Rival %d\n\n", challenge.PlayerScore, challenge.RivalScore))

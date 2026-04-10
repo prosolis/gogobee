@@ -56,7 +56,7 @@ func twinBeeMaxTier() int {
 		if !c.Alive {
 			continue
 		}
-		combined := c.CombatLevel + c.MiningSkill + c.ForagingSkill
+		combined := c.CombatLevel + c.MiningSkill + c.ForagingSkill + c.FishingSkill
 		if combined > bestLevel {
 			bestLevel = combined
 		}
@@ -264,12 +264,12 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 	var players []eligiblePlayer
 	totalWeight := 0
 	for _, uid := range eligible {
-		weight := 3 // minimum (level 1 in all 3 skills)
+		weight := 4 // minimum (level 1 in all 4 skills)
 		for _, c := range chars {
 			if c.UserID == uid {
-				weight = c.CombatLevel + c.MiningSkill + c.ForagingSkill
-				if weight < 3 {
-					weight = 3
+				weight = c.CombatLevel + c.MiningSkill + c.ForagingSkill + c.FishingSkill
+				if weight < 4 {
+					weight = 4
 				}
 				break
 			}

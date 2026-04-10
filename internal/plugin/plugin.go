@@ -576,10 +576,12 @@ func (b *Base) SendNotice(roomID id.RoomID, text string) error {
 // SendReply sends a reply to a specific event.
 func (b *Base) SendReply(roomID id.RoomID, eventID id.EventID, text string) error {
 	content := textContent(text)
-	content.RelatesTo = &event.RelatesTo{
-		InReplyTo: &event.InReplyTo{
-			EventID: eventID,
-		},
+	if eventID != "" {
+		content.RelatesTo = &event.RelatesTo{
+			InReplyTo: &event.InReplyTo{
+				EventID: eventID,
+			},
+		}
 	}
 	_, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
 	if err != nil {

@@ -335,7 +335,8 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 
 	sb.WriteString("**5️⃣ Shop** — buy/sell gear and loot\n")
 	sb.WriteString("**6️⃣ Blacksmith** — repair damaged equipment\n")
-	sb.WriteString("**7️⃣ Rest** — skip today, bank your luck\n\n")
+	sb.WriteString("**7️⃣ Rest** — skip today, bank your luck\n")
+	sb.WriteString("**8️⃣ Thom** — `!thom` visit Krooke Realty 🏠\n\n")
 
 	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`\n")
 	sb.WriteString("You have until midnight UTC to choose.")
@@ -605,8 +606,12 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 
 		sb.WriteString(fmt.Sprintf("⚔️ **%s** — Combat Lv.%d | Mining Lv.%d | Forage Lv.%d | Fishing Lv.%d\n",
 			p.DisplayName, p.CombatLevel, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
-		sb.WriteString(fmt.Sprintf("   Went to: %s\n", p.Location))
-		sb.WriteString(fmt.Sprintf("   Outcome: %s\n\n", p.SummaryLine))
+		if p.Location != "" {
+			sb.WriteString(fmt.Sprintf("   Went to: %s\n", p.Location))
+			sb.WriteString(fmt.Sprintf("   Outcome: %s\n\n", p.SummaryLine))
+		} else {
+			sb.WriteString("   Acted today — no log recorded.\n\n")
+		}
 
 		if bestPlayer == nil || p.LootValue > bestPlayer.LootValue {
 			bestPlayer = p
@@ -723,11 +728,11 @@ func renderAdvLeaderboard(chars []AdventureCharacter) string {
 	}
 	var entries []entry
 	for _, c := range chars {
-		score := (c.CombatLevel + c.MiningSkill + c.ForagingSkill) * 10
+		score := (c.CombatLevel + c.MiningSkill + c.ForagingSkill + c.FishingSkill) * 10
 		entries = append(entries, entry{
 			Name:   c.DisplayName,
 			Score:  score,
-			Levels: fmt.Sprintf("⚔️%d ⛏️%d 🌿%d", c.CombatLevel, c.MiningSkill, c.ForagingSkill),
+			Levels: fmt.Sprintf("⚔️%d ⛏️%d 🌿%d 🎣%d", c.CombatLevel, c.MiningSkill, c.ForagingSkill, c.FishingSkill),
 			Streak: c.CurrentStreak,
 		})
 	}

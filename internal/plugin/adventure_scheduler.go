@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"os"
+	"strings"
 	"time"
 
 	"gogobee/internal/db"
@@ -102,6 +104,19 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			continue
 		}
 
+		// Pet arrival check (fires before normal morning DM)
+		if petShouldArrive(&char) {
+			p.petArrivalDM(char.UserID)
+			continue
+		}
+
+		// Morning pet event
+		petEvent := petMorningEvent(&char)
+		if petEvent != "" {
+			char.PetMorningDefense = true
+			_ = saveAdvCharacter(&char)
+		}
+
 		// Send morning DM with choices
 		equip, err := loadAdvEquipment(char.UserID)
 		if err != nil {
@@ -119,6 +134,9 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			holidayLabel = holName
 		}
 		text := renderAdvMorningDM(&char, equip, balance, bonuses, holidayLabel)
+		if petEvent != "" {
+			text = fmt.Sprintf("🐾 *%s*\n\n%s", petEvent, text)
+		}
 		p.advMarkMenuSent(char.UserID)
 		if err := p.SendDM(char.UserID, text); err != nil {
 			slog.Error("adventure: failed to send morning DM", "user", char.UserID, "err", err)
@@ -171,7 +189,11 @@ func (p *AdventurePlugin) postDailySummary() {
 		return
 	}
 
-	todayLogs, _ := loadAdvTodayLogs()
+	// Load logs for today and yesterday — players may act across the UTC boundary
+	now := time.Now().UTC()
+	todayLogs, _ := loadAdvLogsForDate(now.Format("2006-01-02"))
+	yesterdayLogs, _ := loadAdvLogsForDate(now.AddDate(0, 0, -1).Format("2006-01-02"))
+	todayLogs = append(todayLogs, yesterdayLogs...)
 	// Group logs per user — holiday days may produce 2 entries per user
 	logsPerUser := make(map[id.UserID][]*AdvDayLog)
 	for i := range todayLogs {
@@ -394,7 +416,37 @@ func (p *AdventurePlugin) midnightReset() error {
 	// Check babysitting service expirations
 	p.checkBabysitExpiry(chars)
 
+	// Pet supply shop unlock check
+	p.petMidnightCheck()
+
+	// Reset holdem NPC house balance
+	resetNPCHouseBalance()
+
+	// Daily database backup (async to avoid blocking reset if DM sends are slow)
+	go func() {
+		if err := db.Backup(); err != nil {
+			slog.Error("adventure: daily backup failed", "err", err)
+			p.notifyAdmins(fmt.Sprintf("⚠️ **Daily backup failed:** %v", err))
+		}
+	}()
+
 	return nil
+}
+
+func (p *AdventurePlugin) notifyAdmins(msg string) {
+	admins := os.Getenv("ADMIN_USERS")
+	if admins == "" {
+		return
+	}
+	for _, a := range strings.Split(admins, ",") {
+		uid := id.UserID(strings.TrimSpace(a))
+		if uid == "" {
+			continue
+		}
+		if err := p.SendDM(uid, msg); err != nil {
+			slog.Error("adventure: failed to notify admin", "user", uid, "err", err)
+		}
+	}
 }
 
 // ── Helper ───────────────────────────────────────────────────────────────────

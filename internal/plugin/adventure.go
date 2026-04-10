@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -8,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gogobee/internal/db"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
@@ -99,6 +103,7 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 	return []CommandDef{
 		{Name: "adventure", Description: "Daily adventure game — dungeon, mine, forage, or rest", Usage: "!adventure", Category: "Games"},
 		{Name: "arena", Description: "Arena combat — fight through 5 tiers of increasingly deadly monsters", Usage: "!arena", Category: "Games"},
+		{Name: "thom", Description: "Visit Thom Krooke — housing and loans", Usage: "!thom", Category: "Games"},
 	}
 }
 
@@ -133,6 +138,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.rivalChallengeTicker()
 	go p.robbieTicker()
 	go p.hospitalNudgeTicker()
+	go p.mortgageTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()
@@ -193,7 +199,12 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 		})
 	}
 
-	// 4. Command dispatch
+	// 4. Thom Krooke commands (work in rooms and DMs)
+	if p.IsCommand(ctx.Body, "thom") {
+		return p.handleThomCmd(ctx)
+	}
+
+	// 5. Command dispatch
 	if !p.IsCommand(ctx.Body, "adventure") && !p.IsCommand(ctx.Body, "adv") {
 		return nil
 	}
@@ -243,6 +254,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleRepairAllCmd(ctx)
 	case strings.HasPrefix(lower, "repair "):
 		return p.handleRepairSlotCmd(ctx, strings.TrimSpace(args[7:]))
+	case lower == "boost":
+		return p.handleBoostCmd(ctx)
 	}
 
 	return p.SendDM(ctx.Sender, "Unknown command. Type `!adventure help` to see available commands.")
@@ -266,6 +279,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure repair all`" + ` — Repair all damaged equipment
 ` + "`!adventure repair <slot>`" + ` — Repair a specific slot
 ` + "`!hospital`" + ` — Visit St. Guildmore's Memorial Hospital (same-day revival when dead)
+` + "`!thom`" + ` — Visit Thom Krooke (housing and loans)
 ` + "`!adventure help`" + ` — This message
 
 **Arena:**
@@ -511,8 +525,13 @@ func (p *AdventurePlugin) handleDMReply(ctx MessageContext) error {
 
 	// Skip if it looks like a command for another plugin
 	lower := strings.ToLower(body)
-	if strings.HasPrefix(body, "!") && !strings.HasPrefix(lower, "!adventure") && !strings.HasPrefix(lower, "!adv") {
+	if strings.HasPrefix(body, "!") && !strings.HasPrefix(lower, "!adventure") && !strings.HasPrefix(lower, "!adv") && !strings.HasPrefix(lower, "!thom") {
 		return nil
+	}
+
+	// Handle !thom in DMs
+	if strings.HasPrefix(lower, "!thom") {
+		return p.handleThomCmd(ctx)
 	}
 
 	// Strip !adventure / !adv prefix if present — dispatch directly to avoid recursion
@@ -568,6 +587,12 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.resolveHospitalPay(ctx, interaction)
 	case "npc_encounter":
 		return p.resolveNPCEncounter(ctx, interaction)
+	case "pet_arrival":
+		return p.resolvePetArrival(ctx)
+	case "pet_type":
+		return p.resolvePetType(ctx)
+	case "pet_name":
+		return p.resolvePetName(ctx)
 	}
 	return nil
 }
@@ -790,6 +815,9 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		result.XPGained = int(float64(result.XPGained) * (1.0 + bonus))
 	}
 
+	// Double XP/money boost
+	advApplyBoost(result)
+
 	// Apply XP
 	switch result.XPSkill {
 	case "combat":
@@ -872,6 +900,16 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("adventure: failed to save character", "user", char.UserID, "err", err)
 		return p.SendDM(ctx.Sender, "Something went wrong saving your progress. Your action was not recorded. Try again.")
+	}
+
+	// Pet XP
+	if char.HasPet() && result.Outcome != AdvOutcomeDeath {
+		if petGrantXP(char) {
+			_ = saveAdvCharacter(char)
+			_ = p.SendDM(char.UserID, fmt.Sprintf("🐾 %s leveled up to **Level %d**!", char.PetName, char.PetLevel))
+		} else {
+			_ = saveAdvCharacter(char)
+		}
 	}
 
 	// Save equipment changes
@@ -1203,7 +1241,12 @@ func (p *AdventurePlugin) selectFlavorText(char *AdventureCharacter, result *Adv
 func (p *AdventurePlugin) ensureCharacter(userID id.UserID) (*AdventureCharacter, map[EquipmentSlot]*AdvEquipment, error) {
 	char, err := loadAdvCharacter(userID)
 	if err != nil {
-		// Auto-create
+		if !errors.Is(err, sql.ErrNoRows) {
+			// Query error (e.g. missing column) — do NOT auto-create over existing data
+			slog.Error("adventure: loadAdvCharacter failed", "user", userID, "err", err)
+			return nil, nil, fmt.Errorf("failed to load character: %w", err)
+		}
+		// Genuinely new player — auto-create
 		displayName := p.DisplayName(userID)
 		if err := createAdvCharacter(userID, displayName); err != nil {
 			return nil, nil, err
@@ -1227,5 +1270,46 @@ func (p *AdventurePlugin) ensureCharacter(userID id.UserID) (*AdventureCharacter
 	}
 
 	return char, equip, nil
+}
+
+// ── Double XP/Money Boost ───────────────────────────────────────────────────
+
+const advBoostCacheKey = "adv_boost_active"
+
+func advBoostActive() bool {
+	return db.CacheGet(advBoostCacheKey, 365*86400) == "1"
+}
+
+func advSetBoost(active bool) {
+	v := "0"
+	if active {
+		v = "1"
+	}
+	db.CacheSet(advBoostCacheKey, v)
+}
+
+func advApplyBoost(result *AdvActionResult) {
+	if !advBoostActive() {
+		return
+	}
+	result.XPGained *= 2
+	result.TotalLootValue = 0
+	for i := range result.LootItems {
+		result.LootItems[i].Value *= 2
+		result.TotalLootValue += result.LootItems[i].Value
+	}
+}
+
+func (p *AdventurePlugin) handleBoostCmd(ctx MessageContext) error {
+	if !p.IsAdmin(ctx.Sender) {
+		return nil
+	}
+
+	if advBoostActive() {
+		advSetBoost(false)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "⚡ Double XP/money boost **disabled**.")
+	}
+	advSetBoost(true)
+	return p.SendReply(ctx.RoomID, ctx.EventID, "⚡ Double XP/money boost **enabled**! All adventure XP and loot values are doubled.")
 }
 

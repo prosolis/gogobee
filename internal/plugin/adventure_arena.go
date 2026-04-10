@@ -148,19 +148,45 @@ func (p *AdventurePlugin) handleArenaFight(ctx MessageContext) error {
 		return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
 	}
 
-	// Normal combat roll
+	// Pet combat actions
+	petResult := petRollCombatActions(char, monster.Name)
+
+	// Normal combat roll — pet deflect reduces effective death chance
 	deathChance := arenaDeathChance(monster, char, equip)
+	if petResult != nil && petResult.Deflected {
+		deathChance *= 0.5 // deflect halves death chance for this round
+	}
 	roll := rand.Float64()
 	died := roll < deathChance
 
 	closeness := 1.0 - math.Abs(roll-deathChance)/math.Max(deathChance, 1-deathChance)
 	combatLog := generateArenaCombatLog(!died, closeness)
 
+	// Append pet text to combat log
+	var petText string
+	if petResult != nil {
+		if petResult.Attacked {
+			petText += "\n\n" + petResult.AttackText
+		}
+		if petResult.Deflected {
+			petText += "\n\n" + petResult.DeflectText
+		}
+	}
+
 	if died {
 		if npcResult != nil && npcResult.Text != "" {
 			combatLog.NPCText = npcResult.Text
 		}
+		combatLog.NPCText += petText
+		if petResult != nil && (petResult.Attacked || petResult.Deflected) {
+			combatLog.NPCText += "\n\n" + petDeathText(char)
+		}
 		return p.resolveArenaDeath(ctx, run, char, tier, monster, combatLog)
+	}
+
+	combatLog.NPCText += petText
+	if petResult != nil && (petResult.Attacked || petResult.Deflected) {
+		combatLog.NPCText += "\n\n" + petVictoryText(char)
 	}
 
 	return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
@@ -212,18 +238,42 @@ func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext) error {
 		return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
 	}
 
+	petResult := petRollCombatActions(char, monster.Name)
+
 	deathChance := arenaDeathChance(monster, char, equip)
+	if petResult != nil && petResult.Deflected {
+		deathChance *= 0.5
+	}
 	roll := rand.Float64()
 	died := roll < deathChance
 
 	closeness := 1.0 - math.Abs(roll-deathChance)/math.Max(deathChance, 1-deathChance)
 	combatLog := generateArenaCombatLog(!died, closeness)
 
+	var petText string
+	if petResult != nil {
+		if petResult.Attacked {
+			petText += "\n\n" + petResult.AttackText
+		}
+		if petResult.Deflected {
+			petText += "\n\n" + petResult.DeflectText
+		}
+	}
+
 	if died {
 		if npcResult != nil && npcResult.Text != "" {
 			combatLog.NPCText = npcResult.Text
 		}
+		combatLog.NPCText += petText
+		if petResult != nil && (petResult.Attacked || petResult.Deflected) {
+			combatLog.NPCText += "\n\n" + petDeathText(char)
+		}
 		return p.resolveArenaDeath(ctx, run, char, tier, monster, combatLog)
+	}
+
+	combatLog.NPCText += petText
+	if petResult != nil && (petResult.Attacked || petResult.Deflected) {
+		combatLog.NPCText += "\n\n" + petVictoryText(char)
 	}
 
 	return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
@@ -531,6 +581,51 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 		return p.SendDM(ctx.Sender, text)
 	}
 
+	// ── Pet ditch recovery — reduced death penalty ──
+	petRecovery := petRollDitchRecovery(char)
+	if petRecovery {
+		// Pet intervenes — player still dies but respawn timer is reduced
+		char.Kill()
+		if char.DeadUntil != nil {
+			reduced := time.Now().UTC().Add(petDitchRecoveryTime(char.PetLevel))
+			char.DeadUntil = &reduced
+		}
+
+		char.ArenaLosses++
+		char.CombatXP += arenaParticipationXP
+		if leveled, _ := checkAdvLevelUp(char, "combat"); leveled {
+			p.checkRivalPoolUnlock(char)
+		}
+		if err := saveAdvCharacter(char); err != nil {
+			slog.Error("arena: failed to save after pet ditch recovery", "user", ctx.Sender, "err", err)
+		}
+
+		run.Status = "dead"
+		run.Earnings = 0
+		run.TierEarnings = 0
+		run.XPAccumulated = 0
+		endNow := time.Now().UTC()
+		run.EndedAt = &endNow
+		_ = saveArenaRun(run)
+		insertArenaHistory(run.UserID, run.StartTier, run.Tier, run.RoundsSurvived, 0, "dead", monster.Name)
+		upsertArenaStats(run.UserID, 0, true, run.Tier)
+
+		closer := arenaLoseCloser(monster.Name, len(combatLog.Rounds))
+		text := renderArenaCombatLog(combatLog, monster, false, 0, arenaParticipationXP, closer)
+		text += "\n\n_oof_"
+
+		_ = p.SendDM(ctx.Sender, text)
+
+		// Game room posts
+		gr := gamesRoom()
+		if gr != "" {
+			_ = p.SendMessage(gr, petDitchRecoveryGameRoom(char.DisplayName, char.PetName, true))
+		}
+
+		p.sendHospitalAd(ctx.Sender, char)
+		return nil
+	}
+
 	// ── Actual death — forfeit all session rewards ──
 	lostEarnings := run.Earnings + run.TierEarnings
 
@@ -722,7 +817,16 @@ func arenaDeathChance(monster *ArenaMonster, char *AdventureCharacter, equip map
 	}
 	equipMod := avgTier * 0.03 // 0 at tier 0, 0.15 at tier 5
 
-	deathChance := baseDeath + levelMod - equipMod + skillMod
+	// Housing HP bonus reduces death chance
+	houseMod := char.HouseHPBonus() // 0-20% based on house tier
+
+	// Pet morning defense buff (cat offering / dog smothering)
+	petDefMod := 0.0
+	if char.PetMorningDefense {
+		petDefMod = 0.05
+	}
+
+	deathChance := baseDeath + levelMod - equipMod + skillMod - houseMod - petDefMod
 	return math.Max(0.01, math.Min(0.98, deathChance))
 }
 

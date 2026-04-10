@@ -1,5 +1,13 @@
 package plugin
 
+// ── IMPORTANT: DO NOT REWRITE, SUMMARIZE, OR SHORTEN ANY ENTRIES IN THIS FILE ──
+//
+// This file contains hand-written flavor text. Every entry is the length it is
+// on purpose. The voice, pacing, and specific wording are intentional.
+// If an entry seems too long: it isn't. Leave it alone.
+// If you are tempted to "clean up" or "condense" entries: don't.
+// If your context window is too small to fit this file: that is your problem, not ours.
+//
 // ── FISHING FLAVOR TEXT ───────────────────────────────────────────────────────
 //
 // Tier 1: Muddy Pond — garbage, sad fish, puns, Stardew energy
