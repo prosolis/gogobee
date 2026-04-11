@@ -397,22 +397,23 @@ func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int, cat
 	return p.SendMessage(roomID, renderWordleStartAnnouncement(puzzleNumber, wordLength, hint))
 }
 
-// pickWord tries DreamDict's RandomWord API first, falling back to the local
-// word pool if DreamDict is unavailable or only returns recently-used words.
+// pickWord tries DreamDict's RandomWord API first, gathering multiple candidates
+// and selecting the most common one by frequency. Falls back to the local word
+// pool if DreamDict is unavailable.
 func (p *WordlePlugin) pickWord(length int, category WordleCategory) string {
 	if p.dict != nil {
 		recent := loadRecentWordleAnswers(500)
 		lang := categoryLang(category)
 
-		// Try a few times to get a word that hasn't been used recently.
-		for range 10 {
+		// Gather candidate words, then pick the highest-frequency one.
+		var candidates []string
+		for range 15 {
 			word, err := p.dict.RandomWord(lang, "", length, length, 500)
 			if err != nil {
 				slog.Warn("wordle: DreamDict random word failed, falling back", "err", err)
 				break
 			}
 			word = strings.ToUpper(word)
-			// Verify the word is exactly the right length and contains only letters.
 			runes := []rune(word)
 			if len(runes) != length {
 				continue
@@ -427,9 +428,31 @@ func (p *WordlePlugin) pickWord(length int, category WordleCategory) string {
 			if !clean {
 				continue
 			}
-			if !recent[word] {
-				return word
+			if recent[word] {
+				continue
 			}
+			candidates = append(candidates, word)
+			if len(candidates) >= 5 {
+				break
+			}
+		}
+
+		if len(candidates) > 0 {
+			// Look up frequencies in batch and pick the most common word.
+			freqs, err := p.dict.FrequencyBatch(candidates, lang)
+			if err == nil && len(freqs) > 0 {
+				best := candidates[0]
+				bestFreq := 0
+				for _, w := range candidates {
+					if f, ok := freqs[strings.ToLower(w)]; ok && f > bestFreq {
+						best = w
+						bestFreq = f
+					}
+				}
+				return best
+			}
+			// FrequencyBatch failed — just use the first candidate.
+			return candidates[0]
 		}
 	}
 
