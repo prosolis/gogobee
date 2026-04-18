@@ -58,7 +58,8 @@ func NewHoldemPlugin(client *mautrix.Client, euro *EuroPlugin) *HoldemPlugin {
 	}
 }
 
-func (p *HoldemPlugin) Name() string { return "holdem" }
+func (p *HoldemPlugin) Name() string    { return "holdem" }
+func (p *HoldemPlugin) Version() string { return "2.1.0" }
 
 func (p *HoldemPlugin) Commands() []CommandDef {
 	return []CommandDef{
@@ -354,7 +355,8 @@ func (p *HoldemPlugin) handleLeave(ctx MessageContext) error {
 		// Credit remaining stack back (buy-in was debited at join).
 		cashout := player.Stack
 		if !player.IsNPC && cashout > 0 {
-			p.euro.Credit(player.UserID, float64(cashout), "holdem_cashout")
+			net, _ := communityTax(player.UserID, float64(cashout), 0.05)
+			p.euro.Credit(player.UserID, net, "holdem_cashout")
 		}
 		// Remove immediately.
 		p.removePlayer(game, ctx.Sender)
@@ -375,7 +377,8 @@ func (p *HoldemPlugin) handleLeave(ctx MessageContext) error {
 
 		// Credit remaining stack back (buy-in was debited at join).
 		if player.Stack > 0 {
-			p.euro.Credit(player.UserID, float64(player.Stack), "holdem_cashout")
+			net, _ := communityTax(player.UserID, float64(player.Stack), 0.05)
+			p.euro.Credit(player.UserID, net, "holdem_cashout")
 		}
 		p.removePlayer(game, ctx.Sender)
 
@@ -902,7 +905,8 @@ func (p *HoldemPlugin) endHand(game *HoldemGame) {
 		if pl.WantsLeave || pl.Stack <= 0 {
 			if !pl.IsNPC {
 				if pl.Stack > 0 {
-					p.euro.Credit(pl.UserID, float64(pl.Stack), "holdem_cashout")
+					net, _ := communityTax(pl.UserID, float64(pl.Stack), 0.05)
+					p.euro.Credit(pl.UserID, net, "holdem_cashout")
 				}
 				p.SendMessage(game.RoomID, fmt.Sprintf("**%s** has left the table.", pl.DisplayName))
 			}
@@ -919,7 +923,8 @@ func (p *HoldemPlugin) endHand(game *HoldemGame) {
 		// Cash out remaining players.
 		for _, pl := range game.Players {
 			if !pl.IsNPC && pl.Stack > 0 {
-				p.euro.Credit(pl.UserID, float64(pl.Stack), "holdem_cashout")
+				net, _ := communityTax(pl.UserID, float64(pl.Stack), 0.05)
+				p.euro.Credit(pl.UserID, net, "holdem_cashout")
 			}
 		}
 		p.SendMessage(game.RoomID, "Not enough players for another hand. Game over.")

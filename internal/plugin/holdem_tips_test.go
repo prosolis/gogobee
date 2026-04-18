@@ -310,6 +310,132 @@ func TestRulesTip_DrawFacingBet_GoodOdds(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Rules-based tip — preflop classification
+// ---------------------------------------------------------------------------
+
+func TestRulesTip_Preflop_Premium_Open(t *testing.T) {
+	ctx := holdemTipContext{
+		Street:      StreetPreFlop,
+		PreflopTier: "premium",
+		Position:    "BTN",
+		Equity:      EquityResult{Win: 0.82, Tie: 0.01, Loss: 0.17},
+	}
+	tip := generateRulesTip(ctx)
+	if !contains(tip, "raise") || contains(tip, "fold") {
+		t.Errorf("premium open should recommend raise, got: %s", tip)
+	}
+}
+
+func TestRulesTip_Preflop_Trash_FacingRaise(t *testing.T) {
+	ctx := holdemTipContext{
+		Street:      StreetPreFlop,
+		PreflopTier: "trash",
+		Position:    "BB",
+		ToCall:      100,
+		Equity:      EquityResult{Win: 0.15, Tie: 0.0, Loss: 0.85},
+	}
+	tip := generateRulesTip(ctx)
+	if !contains(tip, "fold") {
+		t.Errorf("trash facing raise should fold, got: %s", tip)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Rules-based tip — postflop action vocabulary
+// ---------------------------------------------------------------------------
+
+func TestRulesTip_Marginal_FacingBet_UsesCallOrFold(t *testing.T) {
+	// Facing a bet must never recommend "bet" or "check".
+	ctx := holdemTipContext{
+		Street:       StreetRiver,
+		Equity:       EquityResult{Win: 0.66, Tie: 0.0, Loss: 0.34},
+		ToCall:       400,
+		PotOddsPct:   25.0,
+		Position:     "BTN",
+		HandCategory: "One Pair",
+		HeadsUp:      true,
+		NumActive:    2,
+	}
+	tip := generateRulesTip(ctx)
+	if contains(tip, " bet ") || contains(tip, "check") {
+		t.Errorf("facing-a-bet tip should not say 'bet' or 'check', got: %s", tip)
+	}
+	if !contains(tip, "call") && !contains(tip, "raise") && !contains(tip, "fold") {
+		t.Errorf("facing-a-bet tip should recommend call/raise/fold, got: %s", tip)
+	}
+}
+
+func TestRulesTip_Monster_BetsForValue(t *testing.T) {
+	ctx := holdemTipContext{
+		Street:       StreetFlop,
+		Equity:       EquityResult{Win: 0.92, Tie: 0.0, Loss: 0.08},
+		HandCategory: "Three of a Kind — 9s (set)",
+		Position:     "BTN",
+		NumActive:    2,
+		SPR:          5,
+	}
+	tip := generateRulesTip(ctx)
+	if !contains(tip, "value") && !contains(tip, "bet") {
+		t.Errorf("monster hand should bet for value, got: %s", tip)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Preflop classification
+// ---------------------------------------------------------------------------
+
+func TestClassifyPreflopHand(t *testing.T) {
+	cases := []struct {
+		name   string
+		hole   [2]poker.Card
+		suited bool
+		want   string
+	}{
+		{"AA", [2]poker.Card{poker.NewCard("As"), poker.NewCard("Ah")}, false, "premium"},
+		{"AKs", [2]poker.Card{poker.NewCard("As"), poker.NewCard("Ks")}, true, "premium"},
+		{"TT", [2]poker.Card{poker.NewCard("Ts"), poker.NewCard("Th")}, false, "strong"},
+		{"22", [2]poker.Card{poker.NewCard("2s"), poker.NewCard("2h")}, false, "speculative"},
+		{"72o", [2]poker.Card{poker.NewCard("7s"), poker.NewCard("2h")}, false, "trash"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ranks := [2]int{cardRankIndex(c.hole[0]), cardRankIndex(c.hole[1])}
+			got := classifyPreflopHand(ranks, c.suited)
+			if got != c.want {
+				t.Errorf("classify(%s) = %s, want %s", c.name, got, c.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LLM rewrite guard — keeps action verbs
+// ---------------------------------------------------------------------------
+
+func TestRewriteKeepsAction(t *testing.T) {
+	cases := []struct {
+		name    string
+		base    string
+		rewrite string
+		want    bool
+	}{
+		{"same verb", "You should call here — the price is right.", "Call this one: the price is right.", true},
+		{"dropped call", "You should call here.", "Raise and apply pressure.", false},
+		{"fold preserved", "Fold this marginal hand.", "This is a fold — don't call.", true},
+		{"fold lost", "Fold this hand.", "Call, you're priced in.", false},
+		{"bet preserved", "Bet 2/3 pot for value.", "Bet two-thirds of the pot for value.", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := rewriteKeepsAction(c.base, c.rewrite)
+			if got != c.want {
+				t.Errorf("rewriteKeepsAction(base=%q, rewrite=%q) = %v, want %v", c.base, c.rewrite, got, c.want)
+			}
+		})
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchSubstring(s, substr)
 }
@@ -321,4 +447,199 @@ func searchSubstring(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// ---------------------------------------------------------------------------
+// Semantic guardrails on LLM rewrites
+// ---------------------------------------------------------------------------
+
+func TestRewriteSemanticProblem_RiverFutureStreets(t *testing.T) {
+	ctx := holdemTipContext{Street: StreetRiver, ToCall: 0}
+	bad := "Check and let the opponent act first—your hand has only 31 % equity, so the safest move is to stay in the pot and see if they commit; folding after a bet is the correct response."
+	if r := rewriteSemanticProblem(ctx, bad); r == "" {
+		t.Errorf("expected river rewrite with future-street + no-bet phrasing to be rejected")
+	}
+}
+
+func TestRewriteSemanticProblem_RiverCleanRewrite(t *testing.T) {
+	ctx := holdemTipContext{Street: StreetRiver, ToCall: 0}
+	good := "Check — Queen high is too weak to value bet and you have showdown value against missed draws."
+	if r := rewriteSemanticProblem(ctx, good); r != "" {
+		t.Errorf("clean river rewrite should pass, got: %s", r)
+	}
+}
+
+func TestRewriteSemanticProblem_FlopFutureStreetsOK(t *testing.T) {
+	// Future-street language is fine when we're not on the river.
+	ctx := holdemTipContext{Street: StreetFlop, ToCall: 0}
+	ok := "Check to control the pot and see the next card cheaply."
+	if r := rewriteSemanticProblem(ctx, ok); r != "" {
+		t.Errorf("flop future-street language should pass, got: %s", r)
+	}
+}
+
+func TestRewriteSemanticProblem_NoBetToFace(t *testing.T) {
+	ctx := holdemTipContext{Street: StreetTurn, ToCall: 0}
+	bad := "Check back — folding after a bet would be the right response if they fire."
+	if r := rewriteSemanticProblem(ctx, bad); r == "" {
+		t.Errorf("rewrite with 'folding after a bet' when ToCall=0 should be rejected")
+	}
+}
+
+func TestRewriteKeepsAction_BetAsNoun(t *testing.T) {
+	// Regression: base uses "bet" as a noun ("call this bet"); rewrite uses
+	// "call" but not "bet". Primary action in base is "call", so accept.
+	base := "Call this bet — your flush draw has the right price at 33% equity."
+	rewrite := "Call — the flush draw gets correct odds here."
+	if !rewriteKeepsAction(base, rewrite) {
+		t.Errorf("rewrite should be accepted: base primary action is 'call', rewrite preserves it")
+	}
+}
+
+func TestRewriteKeepsAction_ChangesPrimaryAction(t *testing.T) {
+	base := "Call — your flush draw has the right price."
+	rewrite := "Fold — this price is too steep."
+	if rewriteKeepsAction(base, rewrite) {
+		t.Errorf("rewrite should be rejected: primary action changed from call to fold")
+	}
+}
+
+func TestRewriteKeepsAction_AddsRaiseOnTopOfCall(t *testing.T) {
+	// The A♠5♠ SB 3bet spot: base recommends call, LLM injects a raise on
+	// top. Primary action (call) is preserved but rewrite mentions raise,
+	// which was not in the base.
+	base := "Speculative hand with deep stacks — call for set-mining or flopping a big draw. Fold the flop if you miss."
+	rewrite := "Call — your equity is fine, but raise 3-4x the pot to apply maximum pressure."
+	if rewriteKeepsAction(base, rewrite) {
+		t.Errorf("rewrite should be rejected: injects raise on top of call/fold base")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Facing all-in — terminal decision branch
+// ---------------------------------------------------------------------------
+
+func TestAllInTip_NoFutureStreetLanguage(t *testing.T) {
+	hole := [2]poker.Card{poker.NewCard("Ac"), poker.NewCard("Kh")}
+	comm := []poker.Card{poker.NewCard("4c"), poker.NewCard("9c"), poker.NewCard("4h")}
+	snap := tipSnapshot{
+		hole: hole, holeStr: [2]string{"A♣", "K♥"},
+		community: comm, communityS: renderCards(comm),
+		numActive: 2, numOpp: 1,
+		toCall: 16600, totalPot: 21200, stack: 18800,
+		street: StreetFlop, position: "BTN", headsUp: true, isDealer: true,
+		isAllIn: true,
+	}
+	ctx := buildTipContext(snap)
+	tip := generateRulesTip(ctx)
+
+	if !containsCI(tip, "facing an all-in") && !containsCI(tip, "terminal decision") {
+		t.Errorf("all-in tip should mark the decision as terminal, got: %s", tip)
+	}
+	forbidden := []string{"next card", "later street", "position advantage", "see the turn", "fold later", "act after", "future street"}
+	for _, p := range forbidden {
+		if containsCI(tip, p) {
+			t.Errorf("all-in tip must not mention %q, got: %s", p, tip)
+		}
+	}
+}
+
+func TestAllInTip_UsesVsShoveEquity_NotVsRandom(t *testing.T) {
+	hole := [2]poker.Card{poker.NewCard("Qs"), poker.NewCard("Js")}
+	comm := []poker.Card{poker.NewCard("Kh"), poker.NewCard("Th"), poker.NewCard("4d")}
+	snap := tipSnapshot{
+		hole: hole, holeStr: [2]string{"Q♠", "J♠"},
+		community: comm, communityS: renderCards(comm),
+		numActive: 2, numOpp: 1,
+		toCall: 800, totalPot: 1000, stack: 3000,
+		street: StreetFlop, position: "BTN", headsUp: true, isDealer: true,
+		isAllIn: true,
+	}
+	ctx := buildTipContext(snap)
+	vsRand := ctx.Equity.Win + ctx.Equity.Tie*0.5
+	vsShove := ctx.EquityVsShove.Win + ctx.EquityVsShove.Tie*0.5
+	if vsShove >= vsRand {
+		t.Errorf("OESD should lose equity vs a tight shove range; vsRand=%.2f vsShove=%.2f", vsRand, vsShove)
+	}
+	tip := generateRulesTip(ctx)
+	if !containsCI(tip, "fold") {
+		t.Errorf("OESD vs flop all-in with 44%% pot odds should recommend fold, got: %s", tip)
+	}
+}
+
+func TestRewriteSemanticProblem_AllInFutureStreets(t *testing.T) {
+	ctx := holdemTipContext{Street: StreetFlop, ToCall: 16600, IsAllIn: true}
+	bad := "Call the bet and see the turn. You have positional advantage giving you the ability to fold later if the board turns ugly."
+	if r := rewriteSemanticProblem(ctx, bad); r == "" {
+		t.Errorf("all-in rewrite with future-street / position language should be rejected")
+	}
+}
+
+func TestRewriteSemanticProblem_AllInCleanRewrite(t *testing.T) {
+	ctx := holdemTipContext{Street: StreetFlop, ToCall: 16600, IsAllIn: true}
+	ok := "Facing an all-in — call. Your equity vs a realistic shove range is well above the pot odds."
+	if r := rewriteSemanticProblem(ctx, ok); r != "" {
+		t.Errorf("clean all-in rewrite should pass, got: %s", r)
+	}
+}
+
+func TestEquityVsRange_CompatCombosFiltersConflicts(t *testing.T) {
+	hole := [2]poker.Card{poker.NewCard("As"), poker.NewCard("Ah")}
+	community := []poker.Card{poker.NewCard("Ad"), poker.NewCard("Th"), poker.NewCard("5c")}
+	r := expandRange([]string{"AA"}) // 6 combos of AA
+	known := map[poker.Card]bool{}
+	for _, c := range [...]poker.Card{hole[0], hole[1]} {
+		known[c] = true
+	}
+	for _, c := range community {
+		known[c] = true
+	}
+	compat := compatCombos(r, known)
+	// Hero and board block 3 aces (As, Ah, Ad); only Ac remains — 0 combos
+	// possible since villain needs 2 aces.
+	if len(compat) != 0 {
+		t.Errorf("villain AA should be fully blocked by hero AA + Ad on board, got %d combos", len(compat))
+	}
+}
+
+func TestExpandHandClass_Counts(t *testing.T) {
+	if n := len(expandHandClass("AA")); n != 6 {
+		t.Errorf("AA expands to 6 combos, got %d", n)
+	}
+	if n := len(expandHandClass("AKs")); n != 4 {
+		t.Errorf("AKs expands to 4 combos, got %d", n)
+	}
+	if n := len(expandHandClass("AKo")); n != 12 {
+		t.Errorf("AKo expands to 12 combos, got %d", n)
+	}
+	if n := len(expandHandClass("garbage")); n != 0 {
+		t.Errorf("garbage class should return nil/0, got %d", n)
+	}
+}
+
+// containsCI is a case-insensitive contains used by the all-in tests.
+func containsCI(s, sub string) bool {
+	return contains(toLower(s), toLower(sub))
+}
+
+func toLower(s string) string {
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b[i] = c
+	}
+	return string(b)
+}
+
+func TestRewriteKeepsAction_FoldFamilyPresent(t *testing.T) {
+	// "fold the flop if you miss" in the base legitimises mentioning fold in
+	// the rewrite.
+	base := "Speculative hand with deep stacks — call for set-mining. Fold the flop if you miss."
+	rewrite := "Call and plan to fold the flop unconnected."
+	if !rewriteKeepsAction(base, rewrite) {
+		t.Errorf("rewrite should pass: both call and fold are in base")
+	}
 }
