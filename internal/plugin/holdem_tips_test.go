@@ -401,9 +401,41 @@ func TestClassifyPreflopHand(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			ranks := [2]int{cardRankIndex(c.hole[0]), cardRankIndex(c.hole[1])}
-			got := classifyPreflopHand(ranks, c.suited)
+			got := classifyPreflopHand(ranks, c.suited, false)
 			if got != c.want {
 				t.Errorf("classify(%s) = %s, want %s", c.name, got, c.want)
+			}
+		})
+	}
+}
+
+func TestClassifyPreflopHandHU(t *testing.T) {
+	cases := []struct {
+		name   string
+		hi, lo int
+		suited bool
+		want   string
+	}{
+		{"AA", 12, 12, false, "premium"},
+		{"KK", 11, 11, false, "premium"},
+		{"AKo", 12, 11, false, "premium"},
+		{"TT", 8, 8, false, "strong"},
+		{"ATo", 12, 8, false, "strong"},
+		{"K8o", 11, 6, false, "playable"},
+		{"A2o", 12, 0, false, "playable"},
+		{"Q9o", 10, 7, false, "playable"},
+		{"22", 0, 0, false, "playable"},
+		{"K3o", 11, 1, false, "speculative"},
+		{"T7o", 8, 5, false, "speculative"},
+		{"72o", 5, 0, false, "trash"},
+		{"93o", 7, 1, false, "trash"},
+	}
+	for _, c := range cases {
+		t.Run(c.name+"_HU", func(t *testing.T) {
+			ranks := [2]int{c.hi, c.lo}
+			got := classifyPreflopHand(ranks, c.suited, true)
+			if got != c.want {
+				t.Errorf("classifyHU(%s) = %s, want %s", c.name, got, c.want)
 			}
 		})
 	}

@@ -226,7 +226,7 @@ func buildTipContext(snap tipSnapshot) holdemTipContext {
 
 	holeRanks := [2]int{cardRankIndex(snap.hole[0]), cardRankIndex(snap.hole[1])}
 	holeSuited := snap.hole[0].Suit() == snap.hole[1].Suit()
-	preflopTier := classifyPreflopHand(holeRanks, holeSuited)
+	preflopTier := classifyPreflopHand(holeRanks, holeSuited, snap.headsUp)
 	paired, maxSuit, straightRisk, boardHigh := analyzeBoardTexture(snap.community)
 
 	return holdemTipContext{
@@ -258,8 +258,9 @@ func buildTipContext(snap tipSnapshot) holdemTipContext {
 }
 
 // classifyPreflopHand buckets a starting hand into one of five tiers.
-// Sklansky-lite, tuned to keep rules-tip branches manageable.
-func classifyPreflopHand(ranks [2]int, suited bool) string {
+// Sklansky-lite for full ring; significantly wider for heads-up where
+// ranges are ~70% open from BTN and ~55% defend from BB.
+func classifyPreflopHand(ranks [2]int, suited, headsUp bool) string {
 	hi, lo := ranks[0], ranks[1]
 	if lo > hi {
 		hi, lo = lo, hi
@@ -268,6 +269,13 @@ func classifyPreflopHand(ranks [2]int, suited bool) string {
 	gap := hi - lo
 
 	// Rank indices: 2=0, 3=1, ..., 9=7, T=8, J=9, Q=10, K=11, A=12.
+
+	if headsUp {
+		return classifyPreflopHU(hi, lo, pair, gap, suited)
+	}
+
+	// --- Full-ring / 6-max tiers ---
+
 	// Pocket pairs
 	if pair {
 		switch {
@@ -321,6 +329,72 @@ func classifyPreflopHand(ranks [2]int, suited bool) string {
 	if suited && hi == 12 {
 		return "speculative"
 	}
+	return "trash"
+}
+
+// classifyPreflopHU uses much wider tiers appropriate for heads-up play.
+// BTN opens ~70%, BB defends ~55%. Any King, any Ace, any pair, most suited
+// hands, and connected hands are all playable.
+func classifyPreflopHU(hi, lo int, pair bool, gap int, suited bool) string {
+	// Premium: AA-QQ, AKs, AKo
+	if pair && hi >= 10 {
+		return "premium"
+	}
+	if hi == 12 && lo == 11 {
+		return "premium"
+	}
+
+	// Strong: JJ-88, AQ-ATs, KQs, AQo-AJo, KQo
+	if pair && hi >= 6 { // 88+
+		return "strong"
+	}
+	if hi == 12 && lo >= 8 { // AT+
+		return "strong"
+	}
+	if hi == 11 && lo == 10 { // KQ
+		return "strong"
+	}
+	if suited && hi == 11 && lo >= 9 { // KJs
+		return "strong"
+	}
+
+	// Playable: 77-22, any Ax, Kx (x>=5), Q9+, J9+, T8+, suited connectors
+	if pair {
+		return "playable"
+	}
+	if hi == 12 { // any Ace
+		return "playable"
+	}
+	if hi == 11 && lo >= 3 { // K5+
+		return "playable"
+	}
+	if hi == 10 && lo >= 7 { // Q9+
+		return "playable"
+	}
+	if hi == 9 && lo >= 7 { // J9+
+		return "playable"
+	}
+	if suited && gap <= 3 { // suited connectors/gappers
+		return "playable"
+	}
+
+	// Speculative: Kx (any), suited broadway/connectors, T7+, 97+
+	if hi == 11 { // any remaining King
+		return "speculative"
+	}
+	if suited && hi >= 8 { // any suited T+ hand
+		return "speculative"
+	}
+	if hi == 8 && lo >= 5 { // T7+
+		return "speculative"
+	}
+	if hi == 7 && lo >= 5 { // 97+
+		return "speculative"
+	}
+	if gap <= 2 { // offsuit connectors/gappers
+		return "speculative"
+	}
+
 	return "trash"
 }
 
@@ -987,20 +1061,24 @@ func generateRulesTip(ctx holdemTipContext) string {
 		body = generatePostflopTip(ctx)
 	}
 
-	// Position note — small, targeted, only when it actually changes advice.
-	switch ctx.Position {
-	case "BTN", "CO":
-		body += " You have positional advantage — use it."
-	case "UTG":
-		body += " Early position — you need a strong range here."
-	case "SB", "BB":
-		if ctx.Street != StreetPreFlop {
-			body += " Out of position — play tighter on later streets."
+	if !ctx.HeadsUp {
+		switch ctx.Position {
+		case "BTN", "CO":
+			body += " You have positional advantage — use it."
+		case "UTG":
+			body += " Early position — you need a strong range here."
+		case "SB", "BB":
+			if ctx.Street != StreetPreFlop {
+				body += " Out of position — play tighter on later streets."
+			}
 		}
-	}
-
-	if ctx.NumActive >= 4 {
-		body += " Multiway pot — hand values shift; drawing hands improve, bluffs lose value."
+		if ctx.NumActive >= 4 {
+			body += " Multiway pot — hand values shift; drawing hands improve, bluffs lose value."
+		}
+	} else if ctx.Street != StreetPreFlop {
+		if ctx.Position == "BB" || ctx.Position == "SB" {
+			body += " Out of position heads-up — play cautiously."
+		}
 	}
 
 	return body
@@ -1037,6 +1115,69 @@ func generateAllInFacingTip(ctx holdemTipContext) string {
 }
 
 func generatePreflopTip(ctx holdemTipContext) string {
+	if ctx.HeadsUp {
+		return generatePreflopTipHU(ctx)
+	}
+	return generatePreflopTipRing(ctx)
+}
+
+func generatePreflopTipHU(ctx holdemTipContext) string {
+	facing := ctx.ToCall > 0
+	isBTN := ctx.Position == "BTN" || ctx.Position == "SB"
+	deep := ctx.SPR > 10
+	bigRaise := facing && ctx.ToCall > 0 && float64(ctx.ToCall)/float64(ctx.Pot) > 0.6
+
+	switch ctx.PreflopTier {
+	case "premium":
+		if facing {
+			return "Premium hand heads-up — raise or re-raise. You want to build the pot with this hand against any opponent range."
+		}
+		return "Premium hand heads-up — raise for value. Build the pot now."
+
+	case "strong":
+		if facing {
+			return "Strong hand heads-up — raise. This hand plays well in a bigger pot against one opponent."
+		}
+		return "Strong hand heads-up — raise to put pressure on the BB."
+
+	case "playable":
+		if facing && bigRaise && !deep {
+			return "Playable heads-up hand, but the raise is too large relative to your stack — fold. You need deeper stacks to speculate with this."
+		}
+		if facing && isBTN {
+			return "Solid heads-up hand — complete or raise. You have position postflop, which makes this profitable."
+		}
+		if facing {
+			return "Decent heads-up hand — call to see a flop. You're out of position, so keep the pot manageable."
+		}
+		return "Decent heads-up hand — raise to take the initiative."
+
+	case "speculative":
+		if facing && !deep {
+			return "Speculative hand without deep stacks to support it heads-up — fold. You need implied odds to play these."
+		}
+		if facing && isBTN {
+			return "Marginal heads-up hand — completing is fine with position. You'll have the advantage of acting last on every street."
+		}
+		if facing {
+			return "Marginal heads-up hand — calling is borderline. Being out of position makes it harder to realize your equity."
+		}
+		return "Marginal heads-up hand — a small raise can take it down, but don't overcommit."
+
+	case "trash":
+		if facing && isBTN {
+			return "Weak hand, but heads-up from the button you can consider completing cheaply — position makes many hands playable."
+		}
+		if facing {
+			return "Weak hand out of position heads-up — fold. Without position advantage, this hand won't be profitable."
+		}
+		return "Weak hand — check and see a free flop if possible."
+	}
+
+	return fmt.Sprintf("Preflop %.0f%% equity heads-up — evaluate before committing.", (ctx.Equity.Win+ctx.Equity.Tie*0.5)*100)
+}
+
+func generatePreflopTipRing(ctx holdemTipContext) string {
 	facing := ctx.ToCall > 0
 	deep := ctx.SPR > 10
 
@@ -1075,7 +1216,6 @@ func generatePreflopTip(ctx holdemTipContext) string {
 		return "Weak starting hand — check if you can, otherwise fold. Not worth playing from this position."
 	}
 
-	// Fallback — shouldn't hit, but defensive.
 	return fmt.Sprintf("Preflop %.0f%% equity — evaluate position and stack depth before committing.", (ctx.Equity.Win+ctx.Equity.Tie*0.5)*100)
 }
 
@@ -1088,12 +1228,32 @@ func generatePostflopTip(ctx holdemTipContext) string {
 	pairedBoard := ctx.BoardPaired
 	lowSPR := ctx.SPR < 1.5
 	deepSPR := ctx.SPR > 6
+	multiway := ctx.NumActive >= 3
+
+	// Equity thresholds shift with opponent count. "vs random" equity of 55%
+	// against 3 opponents is much stronger than 55% against 1 — surviving
+	// against multiple random ranges means you likely have a real hand.
+	// Lower the thresholds so we don't undervalue multiway equity.
+	monsterThresh := 0.85
+	strongThresh := 0.70
+	decentThresh := 0.55
+	marginalThresh := 0.40
+	if multiway {
+		monsterThresh = 0.70
+		strongThresh = 0.55
+		decentThresh = 0.40
+		marginalThresh = 0.28
+	}
 
 	// --- Monster / nuts range ---------------------------------------------
-	if equity > 0.85 {
+	if equity > monsterThresh {
 		switch {
 		case lowSPR:
 			return fmt.Sprintf("Monster hand (%.0f%% equity) with a shallow stack — get it in. Shove or call any bet; you're way ahead.", equityPct)
+		case multiway && facing:
+			return fmt.Sprintf("Monster hand (%.0f%% equity) multiway — raise for value. Multiple opponents means a bigger pot when you're this far ahead.", equityPct)
+		case multiway:
+			return fmt.Sprintf("Monster hand (%.0f%% equity) multiway — bet for value. Size up (3/4 pot or more) since someone is likely to call with this many players.", equityPct)
 		case facing && wetBoard:
 			return fmt.Sprintf("Monster hand (%.0f%% equity) but the board is wet — raise for value and to deny equity to draws.", equityPct)
 		case facing:
@@ -1106,12 +1266,16 @@ func generatePostflopTip(ctx holdemTipContext) string {
 	}
 
 	// --- Strong made hand --------------------------------------------------
-	if equity > 0.70 {
+	if equity > strongThresh {
 		switch {
 		case pairedBoard && ctx.HandCategory != "" && strings.HasPrefix(ctx.HandCategory, "Full House"):
 			return fmt.Sprintf("Strong hand (%.0f%% equity) — %s. Bet for value; only be cautious if a higher full house is possible.", equityPct, ctx.HandCategory)
 		case pairedBoard:
 			return fmt.Sprintf("Strong hand (%.0f%% equity) but the board is paired — bet for value with caution. Slow down if villain raises big.", equityPct)
+		case multiway && facing:
+			return fmt.Sprintf("Strong hand (%.0f%% equity) multiway — call. Raising bloats the pot against multiple opponents who could have you beat. Re-evaluate on the next street.", equityPct)
+		case multiway:
+			return fmt.Sprintf("Strong hand (%.0f%% equity) multiway — bet for value but size conservatively. Multiple opponents increase the chance someone has a better hand.", equityPct)
 		case facing && monotoneFlop:
 			return fmt.Sprintf("Strong hand (%.0f%% equity) on a monotone board — call and see how villain reacts. Don't bloat the pot without a card in the flush suit.", equityPct)
 		case facing:
@@ -1122,8 +1286,15 @@ func generatePostflopTip(ctx holdemTipContext) string {
 	}
 
 	// --- Decent made hand (ahead but vulnerable) ---------------------------
-	if equity > 0.55 {
+	if equity > decentThresh {
 		switch {
+		case multiway && facing:
+			if equity*100 > ctx.PotOddsPct {
+				return fmt.Sprintf("Decent hand (%.0f%% equity) multiway — call. You're priced in, but don't raise into multiple opponents with a vulnerable hand.", equityPct)
+			}
+			return fmt.Sprintf("Decent hand (%.0f%% equity) multiway vs %.0f%% pot odds — fold. Against multiple opponents who've shown interest, you're likely behind.", equityPct, ctx.PotOddsPct)
+		case multiway:
+			return fmt.Sprintf("Decent hand (%.0f%% equity) multiway — check to control the pot. Betting into multiple opponents with a medium-strength hand is risky.", equityPct)
 		case facing && equity*100 > ctx.PotOddsPct && wetBoard:
 			return fmt.Sprintf("Decent hand (%.0f%% equity) on a wet board — call and reassess. Don't raise and bloat the pot out of position.", equityPct)
 		case facing && equity*100 > ctx.PotOddsPct:
@@ -1137,9 +1308,32 @@ func generatePostflopTip(ctx holdemTipContext) string {
 		}
 	}
 
-	// --- Marginal / bluffcatcher -------------------------------------------
-	if equity > 0.40 {
+	// --- Drawing hand (check before marginal — draws with low "vs random"
+	// equity in multiway pots are still worth playing for implied odds) ------
+	if ctx.Draw.IsDraw {
 		switch {
+		case !facing && multiway:
+			return fmt.Sprintf("You have a %s. Check for a free card — if you hit, the multiway pot gives you great implied odds.", ctx.Draw.Description)
+		case !facing:
+			return fmt.Sprintf("You have a %s. With a free card available, check and see the next card without risk.", ctx.Draw.Description)
+		case equity*100 > ctx.PotOddsPct:
+			return fmt.Sprintf("Drawing hand (%s) with %.0f%% equity vs %.0f%% pot odds — the price is right to call.", ctx.Draw.Description, equityPct, ctx.PotOddsPct)
+		case multiway && deepSPR && ctx.Draw.TotalOuts >= 8:
+			return fmt.Sprintf("Drawing hand (%s) — pot odds are short but the multiway pot gives you excellent implied odds when you hit. Call.", ctx.Draw.Description)
+		case deepSPR && ctx.Draw.TotalOuts >= 8:
+			return fmt.Sprintf("Drawing hand (%s) — pot odds don't quite justify the call, but deep stacks give you implied odds. Call if you'll get paid when you hit.", ctx.Draw.Description)
+		default:
+			return fmt.Sprintf("Drawing hand (%s) with %.0f%% equity vs %.0f%% pot odds — fold. The price is wrong and the implied odds aren't there.", ctx.Draw.Description, equityPct, ctx.PotOddsPct)
+		}
+	}
+
+	// --- Marginal / bluffcatcher -------------------------------------------
+	if equity > marginalThresh {
+		switch {
+		case multiway && facing:
+			return fmt.Sprintf("Marginal hand (%.0f%% equity) multiway — fold. With multiple opponents still in, someone likely has you beat.", equityPct)
+		case multiway:
+			return fmt.Sprintf("Marginal hand (%.0f%% equity) multiway — check. Don't bluff or bet for thin value into multiple opponents.", equityPct)
 		case facing && equity*100 > ctx.PotOddsPct:
 			return fmt.Sprintf("Marginal hand (%.0f%% equity) — you're barely priced in. Call this bet but don't build the pot further.", equityPct)
 		case facing:
@@ -1149,23 +1343,50 @@ func generatePostflopTip(ctx holdemTipContext) string {
 		}
 	}
 
-	// --- Drawing hand ------------------------------------------------------
-	if ctx.Draw.IsDraw {
-		switch {
-		case !facing:
-			return fmt.Sprintf("You have a %s. With a free card available, check and see the next card without risk.", ctx.Draw.Description)
-		case equity*100 > ctx.PotOddsPct:
-			return fmt.Sprintf("Drawing hand (%s) with %.0f%% equity vs %.0f%% pot odds — the price is right to call.", ctx.Draw.Description, equityPct, ctx.PotOddsPct)
-		case deepSPR && ctx.Draw.TotalOuts >= 8:
-			return fmt.Sprintf("Drawing hand (%s) — pot odds don't quite justify the call, but deep stacks give you implied odds. Call if you'll get paid when you hit.", ctx.Draw.Description)
-		default:
-			return fmt.Sprintf("Drawing hand (%s) with %.0f%% equity vs %.0f%% pot odds — fold. The price is wrong and the implied odds aren't there.", ctx.Draw.Description, equityPct, ctx.PotOddsPct)
-		}
-	}
-
 	// --- Weak / air --------------------------------------------------------
 	if facing {
 		return fmt.Sprintf("Weak hand (%.0f%% equity) — fold. You don't have the equity or the draw to continue.", equityPct)
 	}
+	if ctx.HeadsUp {
+		return fmt.Sprintf("Weak hand (%.0f%% equity) — check. You could bluff here, but only if the board favors your perceived range.", equityPct)
+	}
 	return fmt.Sprintf("Weak hand (%.0f%% equity) — check and give up. Don't bluff into multiple opponents or a board you don't represent.", equityPct)
+}
+
+// extractTipAction pulls the recommended action verb from a rules tip for audit logging.
+func extractTipAction(tip string) string {
+	lower := strings.ToLower(tip)
+	for _, action := range []string{"fold", "raise", "bet", "call", "check", "shove"} {
+		if strings.Contains(lower, action) {
+			return action
+		}
+	}
+	return "unknown"
+}
+
+// logTipAudit records a tip with full context to the audit table.
+func logTipAudit(userID string, ctx holdemTipContext, tip string) {
+	eqPct := (ctx.Equity.Win + ctx.Equity.Tie*0.5) * 100
+	drawDesc := ""
+	if ctx.Draw.IsDraw {
+		drawDesc = ctx.Draw.Description
+	}
+	db.RecordTipAudit(
+		userID,
+		ctx.Hole[0]+" "+ctx.Hole[1],
+		ctx.Community,
+		ctx.Street.String(),
+		ctx.Position,
+		ctx.NumActive,
+		eqPct,
+		ctx.Pot,
+		ctx.ToCall,
+		ctx.Stack,
+		ctx.SPR,
+		ctx.HandCategory,
+		drawDesc,
+		ctx.PreflopTier,
+		extractTipAction(tip),
+		tip,
+	)
 }

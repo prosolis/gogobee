@@ -178,6 +178,17 @@ func RecordCrash(botVersion, plugin, message string) {
 	)
 }
 
+// RecordTipAudit logs a poker tip with full context for bulk review.
+func RecordTipAudit(userID, hole, board, street, position string, numActive int, equityPct float64, pot, toCall, stack int64, spr float64, handCat, drawDesc, preflopTier, action, tipText string) {
+	if globalDB == nil {
+		return
+	}
+	Exec("tip audit",
+		`INSERT INTO holdem_tip_audit (user_id, hole, board, street, position, num_active, equity_pct, pot, to_call, stack, spr, hand_cat, draw_desc, preflop_tier, action, tip_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, hole, board, street, position, numActive, equityPct, pot, toCall, stack, spr, handCat, drawDesc, preflopTier, action, tipText,
+	)
+}
+
 // RecordStartup logs a version startup event.
 func RecordStartup(version, commit string) {
 	Exec("version history",
@@ -1337,6 +1348,30 @@ CREATE TABLE IF NOT EXISTS tax_ledger (
     total_paid INTEGER NOT NULL DEFAULT 0,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS holdem_tip_audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     TEXT NOT NULL,
+    hole        TEXT NOT NULL,
+    board       TEXT NOT NULL DEFAULT '',
+    street      TEXT NOT NULL,
+    position    TEXT NOT NULL,
+    num_active  INTEGER NOT NULL,
+    equity_pct  REAL NOT NULL,
+    pot         INTEGER NOT NULL,
+    to_call     INTEGER NOT NULL,
+    stack       INTEGER NOT NULL,
+    spr         REAL NOT NULL,
+    hand_cat    TEXT NOT NULL DEFAULT '',
+    draw_desc   TEXT NOT NULL DEFAULT '',
+    preflop_tier TEXT NOT NULL DEFAULT '',
+    action      TEXT NOT NULL,
+    tip_text    TEXT NOT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_tip_audit_user ON holdem_tip_audit(user_id);
+CREATE INDEX IF NOT EXISTS idx_tip_audit_action ON holdem_tip_audit(action, street);
 
 `
 
