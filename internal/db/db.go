@@ -133,6 +133,8 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE adventure_characters ADD COLUMN pet_supply_shop_unlocked INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE adventure_characters ADD COLUMN pet_level10_date TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE adventure_characters ADD COLUMN pet_morning_defense INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN auto_babysit INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN streak_decayed INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -163,6 +165,39 @@ func MarkJobCompleted(jobName, dateKey string) {
 		 ON CONFLICT(job_name, date) DO UPDATE SET completed = 1`,
 		jobName, dateKey,
 	)
+}
+
+// RecordCrash logs a panic/crash event with version and plugin context.
+func RecordCrash(botVersion, plugin, message string) {
+	if globalDB == nil {
+		return
+	}
+	Exec("crash log",
+		`INSERT INTO crash_log (bot_version, plugin, message) VALUES (?, ?, ?)`,
+		botVersion, plugin, message,
+	)
+}
+
+// RecordStartup logs a version startup event.
+func RecordStartup(version, commit string) {
+	Exec("version history",
+		`INSERT INTO version_history (version, commit_sha) VALUES (?, ?)`,
+		version, commit,
+	)
+}
+
+// CrashCount returns the number of crashes for a given bot version.
+func CrashCount(botVersion string) int {
+	var count int
+	_ = Get().QueryRow(`SELECT COUNT(*) FROM crash_log WHERE bot_version = ?`, botVersion).Scan(&count)
+	return count
+}
+
+// CrashCountAll returns the total number of recorded crashes.
+func CrashCountAll() int {
+	var count int
+	_ = Get().QueryRow(`SELECT COUNT(*) FROM crash_log`).Scan(&count)
+	return count
 }
 
 // CacheGet returns cached data for the given key if it exists and is within ttlSeconds.
@@ -1280,6 +1315,27 @@ CREATE TABLE IF NOT EXISTS lottery_history (
     pot_total       INTEGER NOT NULL,
     rolled_over     INTEGER DEFAULT 0,
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS crash_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_version TEXT NOT NULL,
+    plugin      TEXT NOT NULL DEFAULT '',
+    message     TEXT NOT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS version_history (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    version    TEXT NOT NULL,
+    commit_sha TEXT NOT NULL DEFAULT '',
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tax_ledger (
+    user_id    TEXT PRIMARY KEY,
+    total_paid INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 `

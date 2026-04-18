@@ -49,7 +49,8 @@ func NewWordlePlugin(client *mautrix.Client, euro *EuroPlugin, dict *dreamclient
 	}
 }
 
-func (p *WordlePlugin) Name() string { return "wordle" }
+func (p *WordlePlugin) Name() string    { return "wordle" }
+func (p *WordlePlugin) Version() string { return "2.0.0" }
 
 func (p *WordlePlugin) Commands() []CommandDef {
 	return []CommandDef{
@@ -695,8 +696,9 @@ func (p *WordlePlugin) awardPrize(puzzle *WordlePuzzle) []WordlePayout {
 		if c.solver {
 			amount += solverBonus
 		}
-		p.euro.Credit(uid, float64(amount), "wordle_win")
-		payouts = append(payouts, WordlePayout{UserID: uid, Name: c.name, Amount: amount, Solver: c.solver})
+		net, _ := communityTax(uid, float64(amount), 0.05)
+		p.euro.Credit(uid, net, "wordle_win")
+		payouts = append(payouts, WordlePayout{UserID: uid, Name: c.name, Amount: int(net), Solver: c.solver})
 	}
 	return payouts
 }

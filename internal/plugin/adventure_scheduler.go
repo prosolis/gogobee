@@ -345,6 +345,36 @@ func (p *AdventurePlugin) midnightReset() error {
 				continue
 			}
 
+			// Auto-babysit: if enabled, alive, and affordable, run a single babysit day instead of losing streak
+			if char.AutoBabysit && char.Alive && !char.BabysitActive {
+				daily := babysitDailyCost(char.CombatLevel)
+				if p.euro.GetBalance(char.UserID) >= float64(daily) {
+					if p.euro.Debit(char.UserID, float64(daily), "auto_babysit") {
+						p.runAutoBabysitDay(&char)
+						if char.CurrentStreak > 0 {
+							char.CurrentStreak++
+							if char.CurrentStreak > char.BestStreak {
+								char.BestStreak = char.CurrentStreak
+							}
+						} else {
+							char.CurrentStreak = 1
+						}
+						_ = saveAdvCharacter(&char)
+
+						if p.achievements != nil {
+							p.achievements.GrantAchievement(char.UserID, "adv_auto_babysit")
+						}
+
+						if dmsSent > 0 {
+							time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
+						}
+						dmsSent++
+						p.SendDM(char.UserID, fmt.Sprintf("🍼 **Auto-babysit activated** — €%d deducted. Your streak is safe at %d days.", daily, char.CurrentStreak))
+						continue
+					}
+				}
+			}
+
 			// Jitter between DMs to avoid Matrix rate limits
 			if dmsSent > 0 {
 				time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
@@ -353,14 +383,18 @@ func (p *AdventurePlugin) midnightReset() error {
 
 			// Idle shame DM
 			text := renderAdvIdleShameDM(&char)
+			if char.CurrentStreak > 0 {
+				oldStreak := char.CurrentStreak
+				char.CurrentStreak /= 2
+				char.StreakDecayed = true
+				text += fmt.Sprintf("\n\n🔥 Streak: %d → %d days", oldStreak, char.CurrentStreak)
+				if char.CurrentStreak > 0 {
+					text += " — not all is lost."
+				}
+				_ = saveAdvCharacter(&char)
+			}
 			if err := p.SendDM(char.UserID, text); err != nil {
 				slog.Error("adventure: failed to send idle shame DM", "user", char.UserID, "err", err)
-			}
-
-			// Reset streak
-			if char.CurrentStreak > 0 {
-				char.CurrentStreak = 0
-				_ = saveAdvCharacter(&char)
 			}
 		} else {
 			// Update streak — LastActionDate was set at action time

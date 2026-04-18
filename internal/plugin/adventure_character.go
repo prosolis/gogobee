@@ -93,6 +93,8 @@ type AdventureCharacter struct {
 	PetSupplyShopUnlocked bool
 	PetLevel10Date      string
 	PetMorningDefense   bool
+	AutoBabysit         bool
+	StreakDecayed        bool
 }
 
 type AdvEquipment struct {
@@ -417,6 +419,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 
 	var houseFrozen, houseAutopay int
 	var petChasedAway, petReactivated, petArrived, thomAnimalLine, petSupplyUnlocked, petMorningDef int
+	var autoBabysit, streakDecayed int
 
 	err := d.QueryRow(`
 		SELECT user_id, display_name,
@@ -442,7 +445,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		       pet_chased_away, pet_reactivated, pet_arrived,
 		       misty_encounter_count, misty_donated_count,
 		       thom_animal_line_fired, pet_supply_shop_unlocked, pet_level10_date,
-		       pet_morning_defense
+		       pet_morning_defense, auto_babysit, streak_decayed
 		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -467,7 +470,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&petChasedAway, &petReactivated, &petArrived,
 		&c.MistyEncounterCount, &c.MistyDonatedCount,
 		&thomAnimalLine, &petSupplyUnlocked, &c.PetLevel10Date,
-		&petMorningDef,
+		&petMorningDef, &autoBabysit, &streakDecayed,
 	)
 	if err != nil {
 		return nil, err
@@ -478,6 +481,8 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	c.RivalUnlockedNotified = rivalUnlocked == 1
 	c.BabysitActive = babysitAct == 1
 	c.PetMorningDefense = petMorningDef == 1
+	c.AutoBabysit = autoBabysit == 1
+	c.StreakDecayed = streakDecayed == 1
 	if deadUntil.Valid {
 		c.DeadUntil = &deadUntil.Time
 	}
@@ -598,6 +603,14 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 	if char.PetMorningDefense {
 		petMorningDef = 1
 	}
+	autoBabysit := 0
+	if char.AutoBabysit {
+		autoBabysit = 1
+	}
+	streakDecayed := 0
+	if char.StreakDecayed {
+		streakDecayed = 1
+	}
 
 	_, err := d.Exec(`
 		UPDATE adventure_characters SET
@@ -623,7 +636,9 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 			pet_chased_away = ?, pet_reactivated = ?, pet_arrived = ?,
 			misty_encounter_count = ?, misty_donated_count = ?,
 			thom_animal_line_fired = ?, pet_supply_shop_unlocked = ?, pet_level10_date = ?,
-			pet_morning_defense = ?
+			pet_morning_defense = ?,
+			auto_babysit = ?,
+			streak_decayed = ?
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
@@ -647,6 +662,8 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 		char.MistyEncounterCount, char.MistyDonatedCount,
 		thomAnimalLine, petSupplyUnlocked, char.PetLevel10Date,
 		petMorningDef,
+		autoBabysit,
+		streakDecayed,
 		string(char.UserID),
 	)
 	return err
@@ -777,7 +794,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		       pet_chased_away, pet_reactivated, pet_arrived,
 		       misty_encounter_count, misty_donated_count,
 		       thom_animal_line_fired, pet_supply_shop_unlocked, pet_level10_date,
-		       pet_morning_defense
+		       pet_morning_defense, auto_babysit, streak_decayed
 		FROM adventure_characters`)
 	if err != nil {
 		return nil, err
@@ -792,6 +809,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		var mistyLastSeen, arinaLastSeen, mistyBuffExp, mistyDebuffExp, arinaBuffExp sql.NullTime
 		var houseFrozen, houseAutopay int
 		var petChasedAway, petReactivated, petArrived, thomAnimalLine, petSupplyUnlocked, petMorningDef int
+		var autoBabysit, streakDecayed int
 		if err := rows.Scan(
 			&c.UserID, &c.DisplayName,
 			&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -816,7 +834,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 			&petChasedAway, &petReactivated, &petArrived,
 			&c.MistyEncounterCount, &c.MistyDonatedCount,
 			&thomAnimalLine, &petSupplyUnlocked, &c.PetLevel10Date,
-			&petMorningDef,
+			&petMorningDef, &autoBabysit, &streakDecayed,
 		); err != nil {
 			return nil, err
 		}
@@ -826,6 +844,8 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		c.RivalUnlockedNotified = rivalUnlocked == 1
 		c.BabysitActive = babysitAct == 1
 		c.PetMorningDefense = petMorningDef == 1
+		c.AutoBabysit = autoBabysit == 1
+		c.StreakDecayed = streakDecayed == 1
 		c.HouseLoanFrozen = houseFrozen == 1
 		c.HouseAutopay = houseAutopay == 1
 		c.PetChasedAway = petChasedAway == 1

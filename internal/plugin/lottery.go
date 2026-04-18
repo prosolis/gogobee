@@ -25,7 +25,8 @@ func NewLotteryPlugin(client *mautrix.Client, euro *EuroPlugin) *LotteryPlugin {
 	}
 }
 
-func (p *LotteryPlugin) Name() string { return "lottery" }
+func (p *LotteryPlugin) Name() string    { return "lottery" }
+func (p *LotteryPlugin) Version() string { return "1.1.0" }
 
 func (p *LotteryPlugin) Commands() []CommandDef {
 	return []CommandDef{
@@ -198,11 +199,9 @@ func (p *LotteryPlugin) handleLotteryOdds(ctx MessageContext) error {
 | Match | Prize | Odds (approx.) |
 |-------|-------|----------------|
 | 5 of 5 | Jackpot (split among winners) | 1 in 142,506 |
-| 4 of 5 | €1,000 (fixed) | 1 in 3,062 |
-| 3 of 5 | €100 (fixed) | 1 in 141 |
-| 2 of 5 | €10 (fixed) | 1 in 16 |
-| 1 of 5 | €2 (fixed) | 1 in 4 |
-| 0 of 5 | Nothing | — |
+| 4 of 5 | €5,000 (fixed) | 1 in 3,062 |
+| 3 of 5 | €500 (fixed) | 1 in 141 |
+| 2 of 5 | €25 (fixed) | 1 in 16 |
 
 Tickets: €1 each. Max 100 per week. 5 numbers from 1–30.
 Minimum €500 pot required for jackpot payout.`
@@ -228,8 +227,8 @@ func (p *LotteryPlugin) handleLotteryHistory(ctx MessageContext) error {
 		if h.RolledOver > 0 {
 			sb.WriteString(fmt.Sprintf("  |  Rolled over: €%d", h.RolledOver))
 		}
-		sb.WriteString(fmt.Sprintf("\n  4-match: %d  |  3-match: %d  |  2-match: %d  |  1-match: %d\n\n",
-			h.Match4Winners, h.Match3Winners, h.Match2Winners, h.Match1Winners))
+		sb.WriteString(fmt.Sprintf("\n  4-match: %d  |  3-match: %d  |  2-match: %d\n\n",
+			h.Match4Winners, h.Match3Winners, h.Match2Winners))
 	}
 
 	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())

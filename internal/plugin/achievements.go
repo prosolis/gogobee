@@ -44,7 +44,8 @@ func NewAchievementsPlugin(client *mautrix.Client, registry AchievementRegistry)
 	return p
 }
 
-func (p *AchievementsPlugin) Name() string { return "achievements" }
+func (p *AchievementsPlugin) Name() string    { return "achievements" }
+func (p *AchievementsPlugin) Version() string { return "1.2.0" }
 
 func (p *AchievementsPlugin) Commands() []CommandDef {
 	return []CommandDef{
@@ -1013,6 +1014,127 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 				var count int
 				_ = d.QueryRow(`SELECT COUNT(*) FROM arena_history WHERE user_id = ? AND outcome = 'cashed_out' AND earnings >= 10000`, string(u)).Scan(&count)
 				return count > 0
+			},
+		},
+
+		// ── Streak & Babysit ────────────────────────────────────────────────
+		{
+			ID: "adv_streaker", Name: "Streaker", Description: "Maintained a 7-day streak. Running wild.",
+			Emoji: "🏃",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var streak int
+				_ = d.QueryRow(`SELECT best_streak FROM adventure_characters WHERE user_id = ?`, string(u)).Scan(&streak)
+				return streak >= 7
+			},
+		},
+		{
+			ID: "adv_streak_60", Name: "Obsessed", Description: "60 days. The game plays you now.",
+			Emoji: "🔥",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var streak int
+				_ = d.QueryRow(`SELECT best_streak FROM adventure_characters WHERE user_id = ?`, string(u)).Scan(&streak)
+				return streak >= 60
+			},
+		},
+		{
+			ID: "adv_streak_100", Name: "Centurion", Description: "100 days. This is your life now.",
+			Emoji: "💯",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var streak int
+				_ = d.QueryRow(`SELECT best_streak FROM adventure_characters WHERE user_id = ?`, string(u)).Scan(&streak)
+				return streak >= 100
+			},
+		},
+		{
+			ID: "adv_babysit_hired", Name: "Delegation", Description: "Hired someone to do the hard part.",
+			Emoji: "🍼",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var count int
+				_ = d.QueryRow(`SELECT COUNT(*) FROM babysit_log WHERE user_id = ?`, string(u)).Scan(&count)
+				return count > 0
+			},
+		},
+		{
+			ID: "adv_auto_babysit", Name: "Safety Net", Description: "Auto-babysit saved your streak. Worth every euro.",
+			Emoji: "🛡️",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by scheduler when auto-babysit fires
+				return false
+			},
+		},
+		{
+			ID: "adv_streak_survivor", Name: "Streak Survivor", Description: "Rebuilt your streak to 14 after losing it.",
+			Emoji: "🔄",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				var current, best, decayed int
+				err := d.QueryRow(`SELECT current_streak, best_streak, streak_decayed FROM adventure_characters WHERE user_id = ?`, string(u)).Scan(&current, &best, &decayed)
+				return err == nil && current >= 14 && decayed > 0
+			},
+		},
+
+		// ── Combat Moments ──────────────────────────────────────────────────
+		{
+			ID: "combat_near_death", Name: "Clutch", Description: "Won with less than 15% HP. Barely.",
+			Emoji: "💔",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by combat bridge on near-death victory
+				return false
+			},
+		},
+		{
+			ID: "combat_pet_save", Name: "Good Boy", Description: "Your pet distracted the enemy at exactly the right moment.",
+			Emoji: "🐾",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by combat bridge on pet whiff event
+				return false
+			},
+		},
+		{
+			ID: "combat_sniper_kill", Name: "One Shot", Description: "Arina ended the fight before it started.",
+			Emoji: "🎯",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by combat bridge on sniper kill
+				return false
+			},
+		},
+		{
+			ID: "combat_death_save", Name: "Sovereign's Reprieve", Description: "The crown said not today.",
+			Emoji: "👑",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by combat bridge on death save event
+				return false
+			},
+		},
+		{
+			ID: "combat_misty_clutch", Name: "Misty's Touch", Description: "Healed mid-combat. She was watching.",
+			Emoji: "💚",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by combat bridge on Misty heal event
+				return false
+			},
+		},
+		{
+			ID: "combat_consumable_used", Name: "Prepared", Description: "Used a consumable in combat. Preparation pays off.",
+			Emoji: "🧪",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by combat bridge on consumable use event
+				return false
+			},
+		},
+		{
+			ID: "adv_first_craft", Name: "Apprentice Herbalist", Description: "Crafted your first consumable. The wilds provide.",
+			Emoji: "🌿",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by combat bridge on first successful craft
+				return false
+			},
+		},
+		{
+			ID: "adv_craft_t5", Name: "Master Alchemist", Description: "Crafted a Tier 5 consumable. Nature bends to your will.",
+			Emoji: "⚗️",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by combat bridge on T5 craft
+				return false
 			},
 		},
 	}

@@ -72,13 +72,39 @@ func (p *AdventurePlugin) handleBabysitCmd(ctx MessageContext, args string) erro
 		return p.handleBabysitPurchase(ctx, 7)
 	case lower == "month":
 		return p.handleBabysitPurchase(ctx, 30)
+	case lower == "auto":
+		return p.handleBabysitAutoToggle(ctx)
 	default:
 		return p.SendDM(ctx.Sender, "🍼 **Adventurer Babysitting Service**\n\n"+
 			"`!adventure babysit week` — 7 days of service\n"+
 			"`!adventure babysit month` — 30 days of service\n"+
+			"`!adventure babysit auto` — toggle auto-babysit on missed days\n"+
 			"`!adventure babysit status` — check service status\n"+
 			"`!adventure babysit cancel` — cancel early (no refund)")
 	}
+}
+
+func (p *AdventurePlugin) handleBabysitAutoToggle(ctx MessageContext) error {
+	userMu := p.advUserLock(ctx.Sender)
+	userMu.Lock()
+	defer userMu.Unlock()
+
+	char, err := loadAdvCharacter(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "No adventurer found. Type `!adventure` to create one.")
+	}
+
+	char.AutoBabysit = !char.AutoBabysit
+	if err := saveAdvCharacter(char); err != nil {
+		slog.Error("babysit: failed to save auto-babysit toggle", "user", ctx.Sender, "err", err)
+		return p.SendDM(ctx.Sender, "Something went wrong. Try again.")
+	}
+
+	daily := babysitDailyCost(char.CombatLevel)
+	if char.AutoBabysit {
+		return p.SendDM(ctx.Sender, fmt.Sprintf("🍼 **Auto-babysit: ON**\n\nIf you miss a day, the babysitter steps in automatically (€%d/day). Your streak stays alive. Disable anytime with `!adventure babysit auto`.", daily))
+	}
+	return p.SendDM(ctx.Sender, "🍼 **Auto-babysit: OFF**\n\nYou're on your own. Miss a day and your streak takes the hit.")
 }
 
 func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) error {
@@ -103,7 +129,7 @@ func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) er
 	totalCost := daily * days
 	balance := p.euro.GetBalance(char.UserID)
 	if balance < float64(totalCost) {
-		return p.SendDM(ctx.Sender, fmt.Sprintf("🍼 The babysitting service costs €%d for %d days. You have €%.0f. The service has standards. Not many, but some.", totalCost, days, balance))
+		return p.SendDM(ctx.Sender, fmt.Sprintf("🍼 The babysitting service costs %s for %d days. You have %s. The service has standards. Not many, but some.", fmtEuro(totalCost), days, fmtEuro(balance)))
 	}
 
 	// Debit gold
@@ -148,8 +174,13 @@ func (p *AdventurePlugin) handleBabysitStatus(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "No adventurer found.")
 	}
 
+	autoLabel := "OFF"
+	if char.AutoBabysit {
+		autoLabel = "ON"
+	}
+
 	if !char.BabysitActive {
-		return p.SendDM(ctx.Sender, "🍼 No active babysitting service. Use `!adventure babysit week` or `!adventure babysit month` to start.")
+		return p.SendDM(ctx.Sender, fmt.Sprintf("🍼 No active babysitting service.\nAuto-babysit: **%s** (`!adventure babysit auto` to toggle)\n\nUse `!adventure babysit week` or `!adventure babysit month` to start.", autoLabel))
 	}
 
 	remaining := "unknown"
@@ -176,8 +207,9 @@ func (p *AdventurePlugin) handleBabysitStatus(ctx MessageContext) error {
 		"Gold earned: €%d\n"+
 		"XP gained: %d\n"+
 		"Items claimed by babysitter: %d\n"+
-		"Rivals declined: %d",
-		remaining, titleCase(char.BabysitSkillFocus), len(logs), totalGold, totalXP, itemsClaimed, rivalsRefused)
+		"Rivals declined: %d\n"+
+		"Auto-babysit: %s",
+		remaining, titleCase(char.BabysitSkillFocus), len(logs), totalGold, totalXP, itemsClaimed, rivalsRefused, autoLabel)
 
 	return p.SendDM(ctx.Sender, text)
 }
@@ -302,7 +334,8 @@ func (p *AdventurePlugin) runBabysitAction(char *AdventureCharacter, equip map[E
 
 	// Credit gold
 	if result.TotalLootValue > 0 {
-		p.euro.Credit(char.UserID, float64(result.TotalLootValue), "babysit_haul")
+		net, _ := communityTax(char.UserID, float64(result.TotalLootValue), 0.05)
+		p.euro.Credit(char.UserID, net, "babysit_haul")
 	}
 
 	// No treasure drops during babysitting
@@ -313,6 +346,34 @@ func (p *AdventurePlugin) runBabysitAction(char *AdventureCharacter, equip map[E
 		items = append(items, item.Name)
 	}
 	return int(result.TotalLootValue), result.XPGained, items
+}
+
+// runAutoBabysitDay runs a single day of babysit actions for auto-babysit.
+// Called by the scheduler when a player with auto-babysit enabled misses a day.
+func (p *AdventurePlugin) runAutoBabysitDay(char *AdventureCharacter) {
+	equip, err := loadAdvEquipment(char.UserID)
+	if err != nil {
+		slog.Error("auto-babysit: failed to load equipment", "user", char.UserID, "err", err)
+		return
+	}
+
+	isHol, _ := isHolidayToday()
+	harvestMax := maxHarvestActions
+	if isHol {
+		harvestMax++
+	}
+
+	bonuses := &AdvBonusSummary{}
+	skill := babysitWeakestSkill(char)
+	activity := skillToActivity(skill)
+
+	for char.HarvestActionsUsed < harvestMax {
+		p.runBabysitAction(char, equip, activity, bonuses)
+		char.HarvestActionsUsed++
+	}
+
+	char.ActionTakenToday = true
+	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
 }
 
 // ── Expiry Check ────────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ import (
 
 	"gogobee/internal/db"
 	"gogobee/internal/util"
+	"gogobee/internal/version"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
@@ -55,6 +56,19 @@ type Plugin interface {
 	OnMessage(ctx MessageContext) error
 	OnReaction(ctx ReactionContext) error
 	Init() error
+}
+
+// Versioned is an optional interface plugins can implement to declare their version.
+type Versioned interface {
+	Version() string
+}
+
+// PluginVersion returns the version for a plugin, or "1.0.0" if it doesn't implement Versioned.
+func PluginVersion(p Plugin) string {
+	if v, ok := p.(Versioned); ok {
+		return v.Version()
+	}
+	return "1.0.0"
 }
 
 // dmCache maps user IDs to their DM room IDs to avoid creating duplicate rooms.
@@ -764,6 +778,7 @@ func safeGo(label string, fn func()) {
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("goroutine panic recovered", "label", label, "panic", r)
+				db.RecordCrash(version.Short(), label, fmt.Sprintf("%v", r))
 			}
 		}()
 		fn()

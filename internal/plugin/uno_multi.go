@@ -2564,7 +2564,8 @@ func (p *UnoPlugin) multiPlayerWins2(game *unoMultiGame, winner *unoMultiPlayer)
 		}
 	}
 	totalPot := game.ante * float64(humanCount+game.botAntes)
-	p.euro.Credit(winner.userID, totalPot, "uno_multi_win")
+	net, _ := communityTax(winner.userID, totalPot, 0.05)
+	p.euro.Credit(winner.userID, net, "uno_multi_win")
 
 	p.recordMultiGame(game, winner.userID, "sudden_death_win")
 	p.cleanupMultiGame(game)
@@ -2614,9 +2615,10 @@ func (p *UnoPlugin) multiPlayerWins(game *unoMultiGame, winner *unoMultiPlayer) 
 		}
 	}
 	totalPot := game.ante * float64(humanCount+game.botAntes)
+	net, _ := communityTax(winner.userID, totalPot, 0.05)
 
 	name := p.DisplayName(winner.userID)
-	p.euro.Credit(winner.userID, totalPot, "uno_multi_win")
+	p.euro.Credit(winner.userID, net, "uno_multi_win")
 
 	p.SendMessage(game.roomID, fmt.Sprintf(
 		"🎉 **%s wins Multiplayer UNO!**\nPot: €%d | Turns: %d\n\n%s",

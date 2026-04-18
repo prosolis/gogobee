@@ -289,7 +289,8 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 		if share < 1 {
 			share = 1
 		}
-		p.euro.Credit(ep.uid, float64(share), "twinbee_daily_share")
+		net, _ := communityTax(ep.uid, float64(share), 0.05)
+		p.euro.Credit(ep.uid, net, "twinbee_daily_share")
 		totalDistributed += share
 		if rollTwinBeeGift(ep.uid) {
 			summary.GiftCount++

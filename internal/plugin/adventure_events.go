@@ -176,8 +176,9 @@ func (p *AdventurePlugin) handleEventRespond(ctx MessageContext) error {
 		gold += rand.Int64N(event.GoldMax - event.GoldMin + 1)
 	}
 
-	// Credit gold
-	p.euro.Credit(ctx.Sender, float64(gold), "adventure_event_"+event.Key)
+	// Credit gold (5% community tax)
+	net, _ := communityTax(ctx.Sender, float64(gold), 0.05)
+	p.euro.Credit(ctx.Sender, net, "adventure_event_"+event.Key)
 
 	// Apply XP if applicable
 	xpSkill := event.XPSkill

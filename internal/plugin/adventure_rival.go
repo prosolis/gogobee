@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"strings"
 	"time"
@@ -166,6 +167,29 @@ func communityPotAdd(amount int) {
 		 VALUES (1, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(id) DO UPDATE SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP`,
 		amount, amount,
+	)
+}
+
+func communityTax(userID id.UserID, gross float64, rate float64) (net float64, tax int) {
+	t := math.Round(gross * rate)
+	tax = int(t)
+	net = gross - t
+	if tax > 0 {
+		communityPotAdd(tax)
+		trackTaxPaid(userID, tax)
+	}
+	return net, tax
+}
+
+func trackTaxPaid(userID id.UserID, amount int) {
+	if amount <= 0 {
+		return
+	}
+	db.Exec("tax: track paid",
+		`INSERT INTO tax_ledger (user_id, total_paid, updated_at)
+		 VALUES (?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(user_id) DO UPDATE SET total_paid = total_paid + ?, updated_at = CURRENT_TIMESTAMP`,
+		string(userID), amount, amount,
 	)
 }
 
@@ -556,13 +580,14 @@ func (p *AdventurePlugin) finalizeRivalMatch(challenge *advRivalChallenge, playe
 		}
 	}
 
-	winnerShare := stake / 2
+	winnerShare := int(math.Round(float64(stake) * 0.3))
 	potShare := stake - winnerShare
 	if winnerShare > 0 {
 		p.euro.Credit(winnerID, float64(winnerShare), "rival_duel_win")
 	}
 	if potShare > 0 {
 		communityPotAdd(potShare)
+		trackTaxPaid(loserID, potShare)
 	}
 
 	// Update rival records (both directions).
@@ -672,13 +697,14 @@ func (p *AdventurePlugin) expireRivalChallenges() {
 			}
 		}
 
-		winnerShare := stake / 2
+		winnerShare := int(math.Round(float64(stake) * 0.3))
 		potShare := stake - winnerShare
 		if winnerShare > 0 {
 			p.euro.Credit(challenge.ChallengerID, float64(winnerShare), "rival_forfeit_win")
 		}
 		if potShare > 0 {
 			communityPotAdd(potShare)
+			trackTaxPaid(challenge.ChallengedID, potShare)
 		}
 
 		upsertRivalRecord(challenge.ChallengedID, challenge.ChallengerID, false)

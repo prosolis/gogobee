@@ -14,6 +14,26 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
+// fmtEuro formats a currency value with thousand separators, e.g. "€12,500".
+func fmtEuro[T int | int64 | float64](v T) string {
+	n := int64(v)
+	if n < 0 {
+		return "-" + fmtEuro(-n)
+	}
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return "€" + s
+	}
+	var out []byte
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, byte(c))
+	}
+	return "€" + string(out)
+}
+
 // gamesRoom returns the configured GAMES_ROOM, or empty if unset.
 func gamesRoom() id.RoomID {
 	return id.RoomID(os.Getenv("GAMES_ROOM"))
@@ -63,7 +83,8 @@ func NewEuroPlugin(client *mautrix.Client) *EuroPlugin {
 	}
 }
 
-func (p *EuroPlugin) Name() string { return "euro" }
+func (p *EuroPlugin) Name() string    { return "euro" }
+func (p *EuroPlugin) Version() string { return "1.1.0" }
 
 func (p *EuroPlugin) Commands() []CommandDef {
 	return []CommandDef{
