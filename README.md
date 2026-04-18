@@ -475,7 +475,7 @@ Economy rewards are tracked per player — `!wordle stats` shows total earnings.
 
 ### Adventure (DM-based idle RPG)
 
-A daily DM-driven idle RPG where each player takes one action per day — dungeon, mine, fish, forage, visit the shop, or rest. Outcomes resolve with flavor text and loot is credited to your euro balance. An evening summary posts to the games room. TwinBee is a permanent NPC adventurer who distributes rewards to active players.
+A daily DM-driven idle RPG where each player takes one action per day — dungeon, mine, fish, forage, visit the shop, blacksmith, or rest. Outcomes resolve with flavor text and loot is credited to your euro balance. An evening summary posts to the games room. TwinBee is a permanent NPC adventurer who distributes rewards to active players.
 
 Characters auto-create on first `!adventure` (or `!adv`) command. All gameplay happens in DMs — reply to the bot's morning prompt with your choice. DM replies are only interpreted as adventure choices for 15 minutes after a menu is sent, so other DM-based games (UNO, Hold'em) won't conflict.
 
@@ -493,9 +493,15 @@ Characters auto-create on first `!adventure` (or `!adv`) command. All gameplay h
 | `!adventure revive @user` | Revive a dead player (admin) |
 | `!adventure respond <choice>` | Reply to today's action prompt (alternative to DM reply) |
 | `!adventure summary` | Force daily summary post (admin) |
+| `!adventure boost` | Double XP/money for all adventurers for a day (admin) |
+| `!adventure babysit [week\|month\|status\|cancel]` | Hire TwinBee to run your daily action (trains your weakest gathering skill) |
+| `!adventure blacksmith` | Show repair quotes for damaged gear |
+| `!adventure repair [all\|<slot>]` | Repair one slot or all damaged gear at the blacksmith |
+| `!adventure rivals` | Show the rival pool and any open challenges |
+| `!thom [shop\|buy\|pay\|payoff\|autopay\|petbuy]` | Thom Krooke — housing, mortgage, and pet adoption broker |
 | `!hospital` | Check in to St. Guildmore's Memorial Hospital for same-day revival (costs €25k × combat level) |
 
-**DM replies:** Reply to the morning prompt with a number (`1`–`5`) or activity name (`dungeon`, `mine`, `forage`, `shop`, `rest`). You can specify a location: `1 Soggy Cellar`, `mine 3`, etc.
+**DM replies:** Reply to the morning prompt with a number (`1`–`7`) or activity name (`dungeon`, `mine`, `fish`, `forage`, `shop`, `blacksmith`, `rest`). You can specify a location: `1 Soggy Cellar`, `mine 3`, etc.
 
 #### Activities
 
@@ -514,16 +520,55 @@ Four activity types across 5 tiers of locations. Higher tiers require higher cha
 - **Streaks** — consecutive days of activity grant escalating bonuses (XP, loot quality, death chance reduction). Resting resets your streak. Dead players' streaks are frozen — you won't lose your streak to involuntary downtime.
 - **Grudge** — dying at a location marks it as your grudge. Returning there grants +10% success and +25% XP. Clears on success.
 - **Party bonus** — if two players independently visit the same location on the same day, both get +10% loot value.
-- **Death** — locked out for 6 hours (or until midnight, whichever comes first). Natural respawn happens automatically. Use `!hospital` for same-day revival at a cost. Death's Reprieve (surviving a lethal roll) sets all equipment to 1 condition instead of destroying it. Dead players' streaks are preserved with a grace period — if you die and can't act on revival day, your streak won't reset.
+- **Death** — locked out for 6 hours. Natural respawn happens automatically when the timer expires. Use `!hospital` for immediate revival at a cost. Death's Reprieve (surviving a lethal roll) sets all equipment to 1 condition instead of destroying it. Dead players' streaks are preserved with a grace period — if you die and can't act on revival day, your streak won't reset.
 - **Holidays** — on recognized holidays (~20/year across religious and cultural calendars), you get a second daily action. Hebrew and Islamic calendar support for floating holidays.
 - **TwinBee NPC** — takes a daily action (location tier capped by best player's combined level), distributes loot share to active players scaled quadratically by level, and occasionally gifts random buffs.
 - **Hospital** — St. Guildmore's Memorial Hospital offers same-day revival for dead players. The bill is comically inflated (€125k × combat level) but guild insurance covers 80%, leaving €25k × combat level. Players who can't afford it are discharged back to the natural respawn queue. Nurse Joy provides the bedside manner.
 - **Robbie the Friendly Bandit** — an automated NPC who visits at a random hour each day (8:00–21:00 UTC). Robbie takes sub-tier gear from your inventory (shop gear below your equipped tier, masterwork gear you've outgrown), leaves €50 per item as a "handling fee," and donates everything to the community pot. If he takes masterwork gear and you don't already have one, he drops a "Get Out of Medical Debt Free" card. No player command — Robbie comes to you.
 - **Mid-day events** — random events can trigger between actions, delivering bonus loot, buffs, or narrative encounters.
+- **Chat level perks** — active chat participation boosts your adventurer. +5% XP per 10 chat levels (capped at +25% at level 50+), plus +0.5% rare drop chance per 10 levels.
+
+#### Blacksmith & Repair
+
+Equipment accumulates damage on bad outcomes and breaks at 0 condition. The blacksmith repairs gear for a per-point fee that scales with tier (base rates T1→T5: €1, €3, €8, €20, €55; masterwork and arena gear use the next tier up). `!adventure blacksmith` previews quotes; `!adventure repair all` or `!adventure repair <slot>` commits. Visiting the blacksmith counts as your daily action.
+
+#### Babysitting Service
+
+Busy days? Hire TwinBee to run your daily action for you. Daily cost is `€100 + combatLevel × €20`. TwinBee trains your weakest gathering skill (mining/fishing/foraging) so the service doubles as catch-up for neglected tracks. Subscribe by the week or month, or check/cancel anytime: `!adventure babysit week|month|status|cancel`.
+
+#### Rival Duels
+
+At combat level 5 and above you're entered into the rival pool. Every 3–4 days a random eligible player is matched as your rival and challenges you to a rock-paper-scissors duel via DM. You have 24 hours to accept and play. Stake is `(combatLevel / 5) × €1,000`, winner-take-all. Use `!adventure rivals` to see the pool and open challenges.
+
+#### Housing & Mortgage (Thom Krooke)
+
+Thom Krooke is the guild's housing broker. Four tiers are available:
+
+| Tier | Name | Price |
+|------|------|-------|
+| 1 | Base | €75,000 |
+| 2 | Livable | €150,000 |
+| 3 | Comfortable | €300,000 |
+| 4 | Established | €600,000 |
+
+Buy outright or finance with a mortgage. Rates track the real-world US 5/1 ARM via the FRED API (`MORTGAGE5US` series; requires `FRED_API_KEY`, defaults to 6.5% if unset). Autopay pulls from your euro balance each day. Commands: `!thom shop`, `!thom buy <tier>`, `!thom pay <amount>`, `!thom payoff`, `!thom autopay on|off`, `!thom petbuy`.
+
+#### Pets
+
+Once you reach the Livable tier (HouseTier ≥ 2) a stray pet may show up at your door — 15% daily chance. When a pet arrives you'll get a DM prompt to `chase` it away or `feed` it to adopt. Each pet interaction grants +1.5 XP to a random skill. At pet Level 10, Thom unlocks pet armor for purchase (`!thom petbuy <tier>`).
+
+#### Guest NPCs — Misty & Arina
+
+Two rotating guest adventurers can be hired to join you on encounters:
+
+- **Misty** — €100 hire fee, 7-day cooldown.
+- **Arina** — €5,000 hire fee, 7-day cooldown.
+
+After hiring, there's a 7.5% chance per action over the next 7 days that your NPC shows up mid-adventure and applies a buff to the outcome.
 
 #### Arena (`!arena`)
 
-A multi-tier combat gauntlet independent of the daily adventure action. Fight through 5 tiers of 4 rounds each — 20 unique named monsters with escalating lethality. Earnings accumulate across rounds but are forfeited on death. After clearing a tier, choose to descend deeper (keep earnings at risk) or cash out. Death locks you out of both arena and adventure until midnight UTC. Each fight produces a turn-based combat log (Dragon Quest style) with fabricated HP pools and action narration — the outcome is determined by the roll, the log is assembled backward from the result. Arena losses award +60 participation XP.
+A multi-tier combat gauntlet independent of the daily adventure action. Fight through 5 tiers of 4 rounds each — 20 unique named monsters with escalating lethality. Earnings accumulate across rounds but are forfeited on death. After clearing a tier, choose to descend deeper (keep earnings at risk) or cash out. Death locks you out of both arena and adventure for 6 hours. Each fight produces a turn-based combat log (Dragon Quest style) with fabricated HP pools and action narration — the outcome is determined by the roll, the log is assembled backward from the result. Arena losses award +60 participation XP.
 
 | Command | Description |
 |---------|-------------|
