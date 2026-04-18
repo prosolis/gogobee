@@ -367,13 +367,16 @@ func renderAdvResolutionDM(result *AdvActionResult, char *AdventureCharacter) st
 	}
 
 	if len(result.LootItems) > 0 {
-		sb.WriteString(fmt.Sprintf("💰 Loot: €%d total\n", result.TotalLootValue))
+		sb.WriteString(fmt.Sprintf("💰 Loot: %s total\n", fmtEuro(result.TotalLootValue)))
 		for _, item := range result.LootItems {
-			sb.WriteString(fmt.Sprintf("  • %s — €%d\n", item.Name, item.Value))
+			sb.WriteString(fmt.Sprintf("  • %s — %s\n", item.Name, fmtEuro(item.Value)))
 		}
 	}
 
 	sb.WriteString(fmt.Sprintf("✨ +%d %s XP", result.XPGained, result.XPSkill))
+	if result.XPBreakdown != "" {
+		sb.WriteString(fmt.Sprintf(" (%s)", result.XPBreakdown))
+	}
 	if result.LeveledUp {
 		sb.WriteString(fmt.Sprintf(" — **LEVEL UP! %s Lv.%d!** 🎉", titleCase(result.XPSkill), result.NewLevel))
 	}

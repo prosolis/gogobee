@@ -130,6 +130,9 @@ func (p *AdventurePlugin) handleArenaFight(ctx MessageContext) error {
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Failed to load character.")
 	}
+	if !char.Alive {
+		return p.SendDM(ctx.Sender, "You're dead. The arena requires living participants.")
+	}
 
 	equip, _ := loadAdvEquipment(ctx.Sender)
 
@@ -139,57 +142,7 @@ func (p *AdventurePlugin) handleArenaFight(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Arena data error. This shouldn't happen.")
 	}
 
-	// NPC arena effects — sniper checked first (independent of combat roll)
-	npcResult := npcCheckArenaEffects(char, monster.Name)
-
-	if npcResult != nil && npcResult.SniperKill {
-		// Sniper fired — enemy dies, skip combat roll entirely
-		combatLog := &ArenaCombatLog{PlayerHP: 100, EnemyHP: 0, PlayerWon: true}
-		return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
-	}
-
-	// Pet combat actions
-	petResult := petRollCombatActions(char, monster.Name)
-
-	// Normal combat roll — pet deflect reduces effective death chance
-	deathChance := arenaDeathChance(monster, char, equip)
-	if petResult != nil && petResult.Deflected {
-		deathChance *= 0.5 // deflect halves death chance for this round
-	}
-	roll := rand.Float64()
-	died := roll < deathChance
-
-	closeness := 1.0 - math.Abs(roll-deathChance)/math.Max(deathChance, 1-deathChance)
-	combatLog := generateArenaCombatLog(!died, closeness)
-
-	// Append pet text to combat log
-	var petText string
-	if petResult != nil {
-		if petResult.Attacked {
-			petText += "\n\n" + petResult.AttackText
-		}
-		if petResult.Deflected {
-			petText += "\n\n" + petResult.DeflectText
-		}
-	}
-
-	if died {
-		if npcResult != nil && npcResult.Text != "" {
-			combatLog.NPCText = npcResult.Text
-		}
-		combatLog.NPCText += petText
-		if petResult != nil && (petResult.Attacked || petResult.Deflected) {
-			combatLog.NPCText += "\n\n" + petDeathText(char)
-		}
-		return p.resolveArenaDeath(ctx, run, char, tier, monster, combatLog)
-	}
-
-	combatLog.NPCText += petText
-	if petResult != nil && (petResult.Attacked || petResult.Deflected) {
-		combatLog.NPCText += "\n\n" + petVictoryText(char)
-	}
-
-	return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
+	return p.resolveArenaRound(ctx, run, char, equip, tier, monster)
 }
 
 func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext) error {
@@ -231,52 +184,42 @@ func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext) error {
 	equip, _ := loadAdvEquipment(ctx.Sender)
 	monster := arenaGetMonster(1, 1)
 
-	npcResult := npcCheckArenaEffects(char, monster.Name)
+	return p.resolveArenaRound(ctx, run, char, equip, tier, monster)
+}
 
-	if npcResult != nil && npcResult.SniperKill {
-		combatLog := &ArenaCombatLog{PlayerHP: 100, EnemyHP: 0, PlayerWon: true}
-		return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
-	}
+// resolveArenaRound runs a single arena round through the combat engine and
+// dispatches to survival or death handlers.
+func (p *AdventurePlugin) resolveArenaRound(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, tier *ArenaTier, monster *ArenaMonster) error {
+	result, condRepair := p.runArenaCombat(ctx.Sender, char, equip, monster, run.Round, run.Tier)
 
-	petResult := petRollCombatActions(char, monster.Name)
-
-	deathChance := arenaDeathChance(monster, char, equip)
-	if petResult != nil && petResult.Deflected {
-		deathChance *= 0.5
-	}
-	roll := rand.Float64()
-	died := roll < deathChance
-
-	closeness := 1.0 - math.Abs(roll-deathChance)/math.Max(deathChance, 1-deathChance)
-	combatLog := generateArenaCombatLog(!died, closeness)
-
-	var petText string
-	if petResult != nil {
-		if petResult.Attacked {
-			petText += "\n\n" + petResult.AttackText
-		}
-		if petResult.Deflected {
-			petText += "\n\n" + petResult.DeflectText
+	// Apply event-based equipment degradation
+	degradation := combatDegradation(result, equip)
+	for slot, eq := range equip {
+		if d, ok := degradation[slot]; ok && d > 0 {
+			_ = saveAdvEquipment(ctx.Sender, eq)
 		}
 	}
 
-	if died {
-		if npcResult != nil && npcResult.Text != "" {
-			combatLog.NPCText = npcResult.Text
+	deathSaved := checkDeathSaveEvent(result.Events)
+
+	if deathSaved {
+		now := time.Now().UTC()
+		char.DeathReprieveLast = &now
+		if err := saveAdvCharacter(char); err != nil {
+			slog.Error("arena: failed to save character after reprieve", "user", ctx.Sender, "err", err)
 		}
-		combatLog.NPCText += petText
-		if petResult != nil && (petResult.Attacked || petResult.Deflected) {
-			combatLog.NPCText += "\n\n" + petDeathText(char)
-		}
-		return p.resolveArenaDeath(ctx, run, char, tier, monster, combatLog)
 	}
 
-	combatLog.NPCText += petText
-	if petResult != nil && (petResult.Attacked || petResult.Deflected) {
-		combatLog.NPCText += "\n\n" + petVictoryText(char)
+	if !result.PlayerWon {
+		return p.resolveArenaDeath(ctx, run, char, tier, monster, result)
 	}
 
-	return p.resolveArenaSurvival(ctx, run, char, tier, monster, combatLog, npcResult)
+	// Misty condition repair (post-combat)
+	if condRepair > 0 {
+		npcRepairMostDamaged(ctx.Sender, equip, condRepair)
+	}
+
+	return p.resolveArenaSurvival(ctx, run, char, tier, monster, result)
 }
 
 func (p *AdventurePlugin) handleArenaCancel(ctx MessageContext) error {
@@ -323,7 +266,7 @@ func (p *AdventurePlugin) handleArenaStatus(ctx MessageContext) error {
 
 	run, err := loadActiveArenaRun(ctx.Sender)
 	if err != nil || run == nil {
-		return p.SendDM(ctx.Sender, "No active arena run. Start one with `!arena tier <1-5>`.")
+		return p.SendDM(ctx.Sender, "No active arena run. Start one with `!arena`.")
 	}
 
 	return p.SendDM(ctx.Sender, renderArenaStatus(run, char))
@@ -355,7 +298,7 @@ func (p *AdventurePlugin) handleArenaLeaderboard(ctx MessageContext) error {
 var arenaStreakEuroMultiplier = [6]float64{0, 1.0, 1.5, 2.0, 2.75, 4.0} // index = tier
 var arenaStreakXPMultiplier = [6]float64{0, 1.0, 1.2, 1.5, 1.85, 2.5}   // index = tiers won
 
-func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, combatLog *ArenaCombatLog, npcResult *npcArenaResult) error {
+func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, result CombatResult) error {
 	// Calculate reward — accumulate in tier earnings, not credited yet
 	reward := arenaRoundReward(tier, run.Round, char.CombatLevel)
 	run.TierEarnings += reward
@@ -373,27 +316,18 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 	}
 	run.XPAccumulated += battleXP
 
-	// Build survival message
-	var text string
-	if npcResult != nil && npcResult.SniperKill {
-		// Sniper killed the enemy — no combat, just the sniper line
-		text = npcResult.Text + "\n\n"
-		text += fmt.Sprintf("🏆 +%d XP | €%d earned\n", battleXP, reward)
-	} else {
-		closer := arenaWinCloser(monster.Name, len(combatLog.Rounds))
-		text = renderArenaCombatLog(combatLog, monster, true, reward, battleXP, closer)
+	// Render combat log as phased messages + final outcome
+	phaseMessages := RenderCombatLogArena(result, char.DisplayName, monster.Name)
+	phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
+	finalMessage := renderArenaCombatFinalMessage(result, monster, reward, battleXP, run.Round)
 
-		// Append NPC effects (Misty food/crowd)
-		if npcResult != nil && npcResult.Text != "" {
-			text += npcResult.Text
-			if npcResult.CondRepair > 0 {
-				npcRepairMostDamaged(ctx.Sender, equip, npcResult.CondRepair)
-			}
-		}
+	// Suppress the "(at risk)" line on the tier-completing round — those earnings
+	// are about to be locked in by the tier-complete branch below, so labelling
+	// them as at-risk is stale the moment it's written.
+	if run.Round < 4 {
+		finalMessage += fmt.Sprintf("\nTier earnings: %s | Session total: %s (at risk)\n",
+			fmtEuro(run.TierEarnings), fmtEuro(run.Earnings+run.TierEarnings))
 	}
-
-	text += fmt.Sprintf("\nTier earnings: €%d | Session total: €%d (at risk)\n",
-		run.TierEarnings, run.Earnings+run.TierEarnings)
 
 	// Achievement: first blood
 	if run.RoundsSurvived == 1 && p.achievements != nil {
@@ -407,21 +341,18 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 
 	// Check if tier is complete (4 rounds)
 	if run.Round >= 4 {
-		// Add completion bonus to tier earnings
-		run.TierEarnings += tier.CompletionBonus
 		run.Round = 4
 
-		// Apply streak euro multiplier for this tier and add to session total
+		tierRaw := run.TierEarnings
+		run.TierEarnings += tier.CompletionBonus
+
 		multiplier := arenaStreakEuroMultiplier[run.Tier]
 		run.Earnings += int64(float64(run.TierEarnings) * multiplier)
-		tierRaw := run.TierEarnings
-		run.TierEarnings = 0 // reset for next tier
+		run.TierEarnings = 0
 
-		// Grant tier achievement
 		p.grantArenaTierAchievement(ctx.Sender, run.Tier)
 
 		if run.Tier >= 5 {
-			// Tier 5 complete — session ends, process full payout
 			run.Status = "completed"
 			now := time.Now().UTC()
 			run.EndedAt = &now
@@ -429,35 +360,33 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 				slog.Error("arena: failed to save run after T5", "user", ctx.Sender, "err", err)
 			}
 
-			text += fmt.Sprintf("\n🏆 **Tier %d cleared!** Completion bonus: €%d (×%.1f streak)\n",
-				tier.Number, tierRaw, multiplier)
+			finalMessage += fmt.Sprintf("\n🏆 **Tier %d cleared!** Round earnings: €%d + completion bonus: €%d (×%.1f streak)\n",
+				tier.Number, tierRaw, tier.CompletionBonus, multiplier)
 
-			return p.arenaCompleteSession(ctx.Sender, run, char, text)
+			done := p.sendCombatMessages(ctx.Sender, phaseMessages, finalMessage)
+			<-done
+			return p.arenaCompleteSession(ctx.Sender, run, char, "")
 		}
 
-		// Tier complete — start 30-second countdown for next tier
 		run.Status = "awaiting"
 		if err := saveArenaRun(run); err != nil {
 			slog.Error("arena: failed to save run after tier complete", "user", ctx.Sender, "err", err)
 		}
 
-		text += fmt.Sprintf("\n🏆 **Tier %d cleared!** Completion bonus: €%d (×%.1f streak)\n"+
-			"Session total: €%d (at risk)\n",
-			tier.Number, tierRaw, multiplier, run.Earnings)
+		finalMessage += fmt.Sprintf("\n🏆 **Tier %d cleared!** Round earnings: %s + completion bonus: %s (×%.1f streak)\n"+
+			"Session total: %s (at risk)\n",
+			tier.Number, fmtEuro(tierRaw), fmtEuro(tier.CompletionBonus), multiplier, fmtEuro(run.Earnings))
 
-		// Check for arena helmet drop (existing per-tier helmets)
 		if dropped := p.arenaRollHelmetDrop(ctx.Sender, run.Tier); dropped != nil {
-			text += "\n" + renderArenaHelmetDrop(dropped)
+			finalMessage += "\n" + renderArenaHelmetDrop(dropped)
 			p.postArenaDropAnnouncement(char.DisplayName, dropped)
 		}
 
-		// Send the tier complete message, then start countdown
-		if err := p.SendDM(ctx.Sender, text); err != nil {
-			slog.Error("arena: failed to send tier complete DM", "user", ctx.Sender, "err", err)
-		}
-
-		// Launch countdown goroutine
-		go p.arenaCountdown(ctx.Sender, run)
+		done := p.sendCombatMessages(ctx.Sender, phaseMessages, finalMessage)
+		go func() {
+			<-done
+			p.arenaCountdown(ctx.Sender, run)
+		}()
 		return nil
 	}
 
@@ -467,172 +396,28 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 		slog.Error("arena: failed to save run after round", "user", ctx.Sender, "err", err)
 	}
 
-	// Reveal next monster
 	nextMonster := arenaGetMonster(run.Tier, run.Round)
 	if nextMonster != nil {
-		text += fmt.Sprintf("\n\n─────────────────────────────\n\n")
-		text += fmt.Sprintf("**Round %d/4 — %s**\n", run.Round, nextMonster.Name)
-		text += fmt.Sprintf("_%s_\n\n", nextMonster.Flavor)
-		text += "`!arena fight` — Face this opponent"
+		finalMessage += fmt.Sprintf("\n\n─────────────────────────────\n\n")
+		finalMessage += fmt.Sprintf("**Round %d/4 — %s**\n", run.Round, nextMonster.Name)
+		finalMessage += fmt.Sprintf("_%s_\n\n", nextMonster.Flavor)
+		finalMessage += "`!arena fight` — Face this opponent"
 	}
 
-	return p.SendDM(ctx.Sender, text)
+	p.sendCombatMessages(ctx.Sender, phaseMessages, finalMessage)
+	return nil
 }
 
-func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, combatLog *ArenaCombatLog) error {
+func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, result CombatResult) error {
 	run.LastMonster = monster.Name
-
-	// Sovereign set: Death's Reprieve — survive lethal arena outcome
-	equip, _ := loadAdvEquipment(ctx.Sender)
-	if advEquippedArenaSets(equip)["sovereign"] && char.DeathReprieveAvailable() {
-		now := time.Now().UTC()
-		char.DeathReprieveLast = &now
-		if err := saveAdvCharacter(char); err != nil {
-			slog.Error("arena: failed to save character after reprieve", "user", ctx.Sender, "err", err)
-		}
-
-		// Gear absorbs the blow — all equipment set to 1 condition
-		for _, slot := range allSlots {
-			if eq, ok := equip[slot]; ok {
-				eq.Condition = 1
-				saveAdvEquipment(ctx.Sender, eq)
-			}
-		}
-
-		// Run continues — not dead, streak preserved
-		nextWindow := now.Add(168 * time.Hour)
-		gr := gamesRoom()
-		if gr != "" {
-			p.SendMessage(gr, renderArenaDeathReprieve(char.DisplayName, monster.Name, nextWindow))
-		}
-
-		closer := arenaLoseCloser(monster.Name, len(combatLog.Rounds))
-		text := renderArenaCombatLog(combatLog, monster, false, 0, 0, closer)
-		text += fmt.Sprintf("\n💀→⚔️ **%s nearly killed you.**\n\n"+
-			"Your Sovereign gear activated **Death's Reprieve**. You survived — barely.\n"+
-			"All equipment set to 1 condition.\n\n"+
-			"Next reprieve window: %s\n",
-			monster.Name, nextWindow.Format("2006-01-02 15:04 UTC"))
-
-		run.RoundsSurvived++
-
-		// Check if this was round 4 — tier completion via reprieve
-		if run.Round >= 4 {
-			run.TierEarnings += tier.CompletionBonus
-			run.Round = 4
-
-			// Apply streak multiplier
-			multiplier := arenaStreakEuroMultiplier[run.Tier]
-			run.Earnings += int64(float64(run.TierEarnings) * multiplier)
-			tierRaw := run.TierEarnings
-			run.TierEarnings = 0
-
-			p.grantArenaTierAchievement(ctx.Sender, run.Tier)
-
-			if run.Tier >= 5 {
-				run.Status = "completed"
-				endNow := time.Now().UTC()
-				run.EndedAt = &endNow
-				if err := saveArenaRun(run); err != nil {
-					slog.Error("arena: failed to save run after reprieve T5", "user", ctx.Sender, "err", err)
-				}
-				text += fmt.Sprintf("\n🏆 **Tier %d cleared!** Completion bonus: €%d (×%.1f streak)\n",
-					tier.Number, tierRaw, multiplier)
-				return p.arenaCompleteSession(ctx.Sender, run, char, text)
-			}
-
-			// Tier complete — start countdown
-			run.Status = "awaiting"
-			if err := saveArenaRun(run); err != nil {
-				slog.Error("arena: failed to save run after reprieve tier complete", "user", ctx.Sender, "err", err)
-			}
-
-			text += fmt.Sprintf("\n🏆 **Tier %d cleared!** Completion bonus: €%d (×%.1f streak)\nSession total: €%d (at risk)\n",
-				tier.Number, tierRaw, multiplier, run.Earnings)
-
-			if dropped := p.arenaRollHelmetDrop(ctx.Sender, run.Tier); dropped != nil {
-				text += "\n" + renderArenaHelmetDrop(dropped)
-				p.postArenaDropAnnouncement(char.DisplayName, dropped)
-			}
-
-			if err := p.SendDM(ctx.Sender, text); err != nil {
-				slog.Error("arena: failed to send reprieve tier complete DM", "user", ctx.Sender, "err", err)
-			}
-			go p.arenaCountdown(ctx.Sender, run)
-			return nil
-		}
-
-		// Not round 4 — advance to next round
-		run.Round++
-		if err := saveArenaRun(run); err != nil {
-			slog.Error("arena: failed to save run after reprieve", "user", ctx.Sender, "err", err)
-		}
-
-		text += fmt.Sprintf("\nSession earnings: €%d (still at risk)\n", run.Earnings+run.TierEarnings)
-
-		nextMonster := arenaGetMonster(run.Tier, run.Round)
-		if nextMonster != nil {
-			text += fmt.Sprintf("\n─────────────────────────────\n\n")
-			text += fmt.Sprintf("**Round %d/4 — %s**\n", run.Round, nextMonster.Name)
-			text += fmt.Sprintf("_%s_\n\n", nextMonster.Flavor)
-			text += "`!arena fight` — Face this opponent"
-		}
-
-		return p.SendDM(ctx.Sender, text)
-	}
-
-	// ── Pet ditch recovery — reduced death penalty ──
-	petRecovery := petRollDitchRecovery(char)
-	if petRecovery {
-		// Pet intervenes — player still dies but respawn timer is reduced
-		char.Kill()
-		if char.DeadUntil != nil {
-			reduced := time.Now().UTC().Add(petDitchRecoveryTime(char.PetLevel))
-			char.DeadUntil = &reduced
-		}
-
-		char.ArenaLosses++
-		char.CombatXP += arenaParticipationXP
-		if leveled, _ := checkAdvLevelUp(char, "combat"); leveled {
-			p.checkRivalPoolUnlock(char)
-		}
-		if err := saveAdvCharacter(char); err != nil {
-			slog.Error("arena: failed to save after pet ditch recovery", "user", ctx.Sender, "err", err)
-		}
-
-		run.Status = "dead"
-		run.Earnings = 0
-		run.TierEarnings = 0
-		run.XPAccumulated = 0
-		endNow := time.Now().UTC()
-		run.EndedAt = &endNow
-		_ = saveArenaRun(run)
-		insertArenaHistory(run.UserID, run.StartTier, run.Tier, run.RoundsSurvived, 0, "dead", monster.Name)
-		upsertArenaStats(run.UserID, 0, true, run.Tier)
-
-		closer := arenaLoseCloser(monster.Name, len(combatLog.Rounds))
-		text := renderArenaCombatLog(combatLog, monster, false, 0, arenaParticipationXP, closer)
-		text += "\n\n_oof_"
-
-		_ = p.SendDM(ctx.Sender, text)
-
-		// Game room posts
-		gr := gamesRoom()
-		if gr != "" {
-			_ = p.SendMessage(gr, petDitchRecoveryGameRoom(char.DisplayName, char.PetName, true))
-		}
-
-		p.sendHospitalAd(ctx.Sender, char)
-		return nil
-	}
-
-	// ── Actual death — forfeit all session rewards ──
 	lostEarnings := run.Earnings + run.TierEarnings
 
-	char.Kill()
-	now := time.Now().UTC()
+	phaseMessages := RenderCombatLogArena(result, char.DisplayName, monster.Name)
+
+	dt := transitionDeath(DeathTransitionParams{Char: char})
+
 	char.ArenaLosses++
-	char.CombatXP += arenaParticipationXP // +60 flat participation XP
+	char.CombatXP += arenaParticipationXP
 	if leveled, _ := checkAdvLevelUp(char, "combat"); leveled {
 		p.checkRivalPoolUnlock(char)
 	}
@@ -640,7 +425,7 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 		slog.Error("arena: failed to save character after death", "user", ctx.Sender, "err", err)
 	}
 
-	// End the run — everything forfeited
+	now := time.Now().UTC()
 	run.Status = "dead"
 	run.Earnings = 0
 	run.TierEarnings = 0
@@ -649,32 +434,35 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	if err := saveArenaRun(run); err != nil {
 		slog.Error("arena: failed to end arena run", "user", ctx.Sender, "err", err)
 	}
-
-	// Insert history
 	insertArenaHistory(run.UserID, run.StartTier, run.Tier, run.RoundsSurvived, 0, "dead", monster.Name)
-
-	// Update stats
 	upsertArenaStats(run.UserID, 0, true, run.Tier)
 
-	// Achievement: death in T5
-	if run.Tier == 5 && p.achievements != nil {
-		p.achievements.GrantAchievement(ctx.Sender, "arena_death_t5")
+	finalMsg := renderArenaCombatFinalMessage(result, monster, 0, arenaParticipationXP, run.Round)
+	if dt.PetRecovered {
+		finalMsg += fmt.Sprintf("\n\nYour pet dragged you out of the arena. Death timer reduced. All session earnings forfeited.")
+	} else {
+		if run.Tier == 5 && p.achievements != nil {
+			p.achievements.GrantAchievement(ctx.Sender, "arena_death_t5")
+		}
+		finalMsg += fmt.Sprintf("\nYou died in Tier %d. Everything you were carrying goes with you. The arena keeps its own ledger.\n", run.Tier)
+		if lostEarnings > 0 {
+			finalMsg += fmt.Sprintf("Forfeited: %s\n", fmtEuro(lostEarnings))
+		}
 	}
 
-	// Death message per spec
-	closer := arenaLoseCloser(monster.Name, len(combatLog.Rounds))
-	text := renderArenaCombatLog(combatLog, monster, false, 0, arenaParticipationXP, closer)
-	text += fmt.Sprintf("\nYou died in Tier %d. Everything you were carrying goes with you. The arena keeps its own ledger.\n", run.Tier)
-	if lostEarnings > 0 {
-		text += fmt.Sprintf("Forfeited: €%d\n", lostEarnings)
+	done := p.sendCombatMessages(ctx.Sender, phaseMessages, finalMsg)
+
+	if dt.PetRecovered {
+		gr := gamesRoom()
+		if gr != "" {
+			_ = p.SendMessage(gr, petDitchRecoveryGameRoom(char.DisplayName, char.PetName, true))
+		}
 	}
 
-	if err := p.SendDM(ctx.Sender, text); err != nil {
-		slog.Error("arena: failed to send death DM", "user", ctx.Sender, "err", err)
-	}
-
-	// Send hospital ad (delayed)
-	p.sendHospitalAd(ctx.Sender, char)
+	go func() {
+		<-done
+		p.sendHospitalAd(ctx.Sender, char)
+	}()
 
 	return nil
 }
@@ -691,8 +479,14 @@ func (p *AdventurePlugin) arenaCompleteSession(userID id.UserID, run *ArenaRun, 
 	}
 	totalXP := int(float64(run.XPAccumulated) * xpMult)
 
-	// Credit euros
-	p.euro.Credit(userID, float64(run.Earnings), "arena_streak_payout")
+	// Arena tax: 10% of earnings to community pot.
+	arenaTax := int64(math.Round(float64(run.Earnings) * 0.1))
+	arenaNet := run.Earnings - arenaTax
+	if arenaTax > 0 {
+		communityPotAdd(int(arenaTax))
+		trackTaxPaid(userID, int(arenaTax))
+	}
+	p.euro.Credit(userID, float64(arenaNet), "arena_streak_payout")
 
 	// Credit XP
 	char.CombatXP += totalXP
@@ -763,9 +557,12 @@ func (p *AdventurePlugin) arenaCompleteSession(userID id.UserID, run *ArenaRun, 
 	}
 
 	// Build payout summary DM
-	text := prefixText + "\n\n"
+	text := ""
+	if prefixText != "" {
+		text = prefixText + "\n\n"
+	}
 	text += fmt.Sprintf("⚔️ **Arena Session Complete — %d tiers cleared**\n\n", tiersWon)
-	text += fmt.Sprintf("Euros:     +€%d\n", run.Earnings)
+	text += fmt.Sprintf("Euros:     +%s (%s after 10%% arena tax → community pot)\n", fmtEuro(run.Earnings), fmtEuro(arenaNet))
 	text += fmt.Sprintf("XP:        +%d (%.1f× streak bonus)\n", totalXP, xpMult)
 	if helmText != "" {
 		text += fmt.Sprintf("Helm drop: %s\n", helmText)
@@ -1266,8 +1063,8 @@ func (p *AdventurePlugin) arenaRollHelmetDrop(userID id.UserID, tier int) *Arena
 	}
 
 	helmet, hasHelmet := equip[SlotHelmet]
-	if hasHelmet && helmet.ArenaTier >= tier {
-		// Already has same or better arena helmet — silent discard
+	if hasHelmet && (helmet.ArenaTier >= tier || helmet.Tier > tier) {
+		// Already has same-or-better arena helmet, or a higher-tier normal helmet — discard
 		return nil
 	}
 

@@ -217,7 +217,7 @@ func renderArenaHelmetDrop(gear *ArenaGearSet) string {
 
 	switch gear.SetKey {
 	case "bloodied":
-		b.WriteString("Set bonus: **Survivor's Instinct** — +3% to all activity success rates.")
+		b.WriteString("Set bonus: **Survivor's Instinct** — +3% to all activity success rates, +3% critical hit rate in combat.")
 	case "ironclad":
 		b.WriteString("Set bonus: **Battle-Hardened** — +5% XP gain from all activities.")
 	case "tempered":

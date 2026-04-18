@@ -35,6 +35,7 @@ type AdventurePlugin struct {
 	arenaBailCh    sync.Map // userID string -> chan struct{} (bail signal for countdown goroutine)
 	shopSessions   sync.Map // userID string -> *advShopSession
 	hospitalNudges sync.Map // userID string -> time.Time (when to send nudge)
+	craftResults   sync.Map // userID string -> []CraftResult (pending craft results for narrative)
 	morningHour int
 	summaryHour int
 }
@@ -92,7 +93,8 @@ func (p *AdventurePlugin) chatLevel(userID id.UserID) int {
 	return p.xp.GetLevel(userID)
 }
 
-func (p *AdventurePlugin) Name() string { return "adventure" }
+func (p *AdventurePlugin) Name() string    { return "adventure" }
+func (p *AdventurePlugin) Version() string { return "2.5.0" }
 
 // SetAchievements wires the achievements plugin after both are initialized.
 func (p *AdventurePlugin) SetAchievements(ach *AchievementsPlugin) {
@@ -275,6 +277,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure respond`" + ` — Respond to a mid-day event
 ` + "`!adventure rivals`" + ` — View rival duel records
 ` + "`!adventure babysit`" + ` — Adventurer Babysitting Service
+` + "`!adventure babysit auto`" + ` — Toggle auto-babysit (protects streaks on missed days)
 ` + "`!adventure blacksmith`" + ` — Visit the blacksmith (view repair costs)
 ` + "`!adventure repair all`" + ` — Repair all damaged equipment
 ` + "`!adventure repair <slot>`" + ` — Repair a specific slot
@@ -290,6 +293,10 @@ const advHelpText = `**Adventure Commands**
 ` + "`!arena cashout`" + ` — Take earnings and leave
 ` + "`!arena status`" + ` — Current run state
 ` + "`!arena leaderboard`" + ` — Top arena players
+
+**Systems:**
+• Foraging level 10+ unlocks auto-crafting consumables from loot ingredients before combat.
+• A 5% community tax funds the lottery pot. Arena and hospital apply 10%.
 
 **In DM:** Reply with a number (e.g. ` + "`1`" + `) or location name to take your daily action.`
 
@@ -581,6 +588,8 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.resolveShopCategoryChoice(ctx, interaction)
 	case "shop_item":
 		return p.resolveShopItemChoice(ctx, interaction)
+	case "shop_supply":
+		return p.resolveShopSupplyChoice(ctx, interaction)
 	case "shop_confirm":
 		return p.resolveShopConfirm(ctx, interaction)
 	case "hospital_pay":
@@ -804,8 +813,13 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		return p.SendDM(ctx.Sender, fmt.Sprintf("🕐 %s is still being cleared out. Try again in %d minutes, or pick a different location.", loc.Name, m))
 	}
 
-	// Resolve the action
-	result := resolveAdvAction(char, equip, loc, bonuses, inPenaltyZone)
+	// Resolve the action — dungeon uses combat engine, others use probability bands
+	var result *AdvActionResult
+	if loc.Activity == AdvActivityDungeon {
+		result = p.resolveDungeonAction(char, equip, loc, bonuses, inPenaltyZone)
+	} else {
+		result = resolveAdvAction(char, equip, loc, bonuses, inPenaltyZone)
+	}
 
 	// Select flavor text
 	result.FlavorText, result.FlavorKey = p.selectFlavorText(char, result)
@@ -836,42 +850,33 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		p.checkRivalPoolUnlock(char)
 	}
 
+	engineDeathSaved := result.CombatLog != nil && checkDeathSaveEvent(result.CombatLog.Events)
+
 	// Handle death
 	deathReprieved := false
 	pardonFired := false
+	petRecovered := false
 	if result.Outcome == AdvOutcomeDeath {
-		// Chat level death pardon (does NOT apply in arena — arena uses separate code path)
-		chatLvl := p.chatLevel(char.UserID)
-		if chatLvl >= 20 && char.PardonAvailable() && rand.Float64() < 0.33 {
-			pardonFired = true
-			deathReprieved = true
-			now := time.Now().UTC()
-			char.LastPardonUsed = &now
+		dt := transitionDeath(DeathTransitionParams{
+			Char:           char,
+			Equip:          equip,
+			ChatLevel:      p.chatLevel(char.UserID),
+			Location:       loc.Name,
+			AllowPardon:    true,
+			AllowSovereign: true,
+			EngineSaved:    engineDeathSaved,
+		})
+		pardonFired = dt.Pardoned
+		deathReprieved = dt.Pardoned || dt.Reprieved
+		petRecovered = dt.PetRecovered
+		if dt.Pardoned {
 			result.Outcome = AdvOutcomeEmpty
-			char.GrudgeLocation = loc.Name
 		}
-		if !pardonFired {
-			// Sovereign set: Death's Reprieve — survive lethal outcome
-			if advEquippedArenaSets(equip)["sovereign"] && char.DeathReprieveAvailable() {
-				deathReprieved = true
-				now := time.Now().UTC()
-				char.DeathReprieveLast = &now
-				char.GrudgeLocation = loc.Name
-				// Gear absorbs the blow — all equipment set to 1 condition
-				for _, slot := range allSlots {
-					if eq, ok := equip[slot]; ok {
-						eq.Condition = 1
-					}
-				}
-				// Post room announcement
-				nextWindow := now.Add(168 * time.Hour)
-				gr := gamesRoom()
-				if gr != "" {
-					p.SendMessage(gr, renderArenaDeathReprieve(char.DisplayName, loc.Name, nextWindow))
-				}
-			} else {
-				char.Kill()
-				char.GrudgeLocation = loc.Name
+		if dt.Reprieved {
+			nextWindow := time.Now().UTC().Add(168 * time.Hour)
+			gr := gamesRoom()
+			if gr != "" {
+				p.SendMessage(gr, renderArenaDeathReprieve(char.DisplayName, loc.Name, nextWindow))
 			}
 		}
 	} else if hasGrudge && (result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional) {
@@ -882,6 +887,14 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	// Add loot to inventory
 	for _, item := range result.LootItems {
 		_ = addAdvInventoryItem(char.UserID, item)
+	}
+
+	// Roll for consumable drop on success/exceptional at T2+
+	if (result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional) && loc.Tier >= 2 {
+		if drop := RollConsumableDrop(loc.Activity, loc.Tier); drop != nil {
+			_ = addAdvInventoryItem(char.UserID, *drop)
+			result.LootItems = append(result.LootItems, *drop)
+		}
 	}
 
 	// Mark action consumed in the correct bucket
@@ -932,8 +945,8 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 			partyBonus := int64(float64(result.TotalLootValue) * 0.10)
 			if partyBonus > 0 {
 				result.TotalLootValue += partyBonus
-				// Credit the bonus directly
-				p.euro.Credit(char.UserID, float64(partyBonus), "adventure_party_bonus")
+				net, _ := communityTax(char.UserID, float64(partyBonus), 0.05)
+				p.euro.Credit(char.UserID, net, "adventure_party_bonus")
 			}
 		}
 	}
@@ -950,18 +963,38 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	if closing != "" {
 		text += "\n" + closing
 	}
-	if err := p.SendDM(ctx.Sender, text); err != nil {
-		slog.Error("adventure: failed to send resolution DM", "user", ctx.Sender, "err", err)
-	}
 
-	// Quiet DM for death pardon
-	if pardonFired {
-		p.SendDM(ctx.Sender, "The healers got there in time. Barely. Don't make this a habit.")
-	}
+	// Dungeon combat: send phased combat messages with delays, then resolution DM
+	if result.CombatLog != nil {
+		phaseMessages := RenderCombatLog(*result.CombatLog, char.DisplayName, loc.Denizens)
+		phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
+		done := p.sendCombatMessages(ctx.Sender, phaseMessages, text)
 
-	// Send hospital ad on death (delayed, arrives after resolution DM)
-	if result.Outcome == AdvOutcomeDeath && !deathReprieved {
-		p.sendHospitalAd(ctx.Sender, char)
+		go func() {
+			<-done
+			if pardonFired {
+				p.SendDM(ctx.Sender, "The crowd intervened. A healer pulled you back at the last second. Don't count on this again — 7-day cooldown.")
+			}
+			if petRecovered && char.PetName != "" {
+				p.SendDM(ctx.Sender, fmt.Sprintf("Your pet %s dragged you to safety. Death timer reduced.", char.PetName))
+			}
+			if result.Outcome == AdvOutcomeDeath && !deathReprieved {
+				p.sendHospitalAd(ctx.Sender, char)
+			}
+		}()
+	} else {
+		if err := p.SendDM(ctx.Sender, text); err != nil {
+			slog.Error("adventure: failed to send resolution DM", "user", ctx.Sender, "err", err)
+		}
+		if pardonFired {
+			p.SendDM(ctx.Sender, "The crowd intervened. A healer pulled you back at the last second. Don't count on this again — 7-day cooldown.")
+		}
+		if petRecovered && char.PetName != "" {
+			p.SendDM(ctx.Sender, fmt.Sprintf("Your pet %s dragged you to safety. Death timer reduced.", char.PetName))
+		}
+		if result.Outcome == AdvOutcomeDeath && !deathReprieved {
+			p.sendHospitalAd(ctx.Sender, char)
+		}
 	}
 
 	// Check for treasure drop

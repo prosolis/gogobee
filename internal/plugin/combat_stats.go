@@ -1,0 +1,222 @@
+package plugin
+
+import (
+	"math/rand/v2"
+	"time"
+)
+
+// DerivePlayerStats converts game-layer objects into the combat engine's stat model.
+func DerivePlayerStats(
+	char *AdventureCharacter,
+	equip map[EquipmentSlot]*AdvEquipment,
+	bonuses *AdvBonusSummary,
+	chatLevel int,
+	streak int,
+	hasGrudge bool,
+) (CombatStats, CombatModifiers) {
+	arenaSets := advEquippedArenaSets(equip)
+
+	// Base stats from combat level
+	stats := CombatStats{
+		MaxHP:     50 + char.CombatLevel*2,
+		Attack:    5 + char.CombatLevel + bonuses.CombatBonus,
+		Defense:   3 + char.CombatLevel/2 + bonuses.CombatBonus/2,
+		Speed:     5 + char.CombatLevel/3,
+		CritRate:  0.03,
+		DodgeRate: 0.02,
+		BlockRate: 0.02,
+	}
+
+	// Equipment contributions
+	for _, slot := range allSlots {
+		eq, ok := equip[slot]
+		if !ok || eq == nil {
+			continue
+		}
+		eTier := advEffectiveTier(eq)
+		cond := 0.3 + 0.7*(float64(eq.Condition)/100.0) // smooth degradation curve
+		effective := eTier * cond
+
+		switch slot {
+		case SlotWeapon:
+			stats.Attack += int(effective * 2)
+			stats.CritRate += eTier * 0.005
+		case SlotArmor:
+			stats.Defense += int(effective * 1.5)
+			stats.MaxHP += int(float64(stats.MaxHP) * eTier * 0.03)
+		case SlotHelmet:
+			stats.Defense += int(effective * 0.5)
+			stats.DodgeRate += eTier * 0.01
+		case SlotBoots:
+			stats.Speed += int(effective)
+			stats.DodgeRate += eTier * 0.005
+		case SlotTool:
+			stats.Attack += int(effective * 0.5)
+			stats.BlockRate += eTier * 0.01
+		}
+	}
+
+	// Arena set bonuses
+	if arenaSets["champions"] {
+		stats.MaxHP = int(float64(stats.MaxHP) * 1.10)
+		stats.Attack = int(float64(stats.Attack) * 1.10)
+		stats.Defense = int(float64(stats.Defense) * 1.10)
+		stats.Speed = int(float64(stats.Speed) * 1.10)
+	}
+	if arenaSets["bloodied"] {
+		stats.CritRate += 0.03
+	}
+	if arenaSets["ironclad"] {
+		stats.MaxHP = int(float64(stats.MaxHP) * 1.05)
+	}
+	// Sovereign: handled via DeathSave modifier
+	// Tempered: handled post-combat in degradation
+
+	// Housing HP bonus
+	stats.MaxHP += int(float64(stats.MaxHP) * char.HouseHPBonus())
+
+	// Streak bonuses
+	switch {
+	case streak >= 30:
+		stats.Attack = int(float64(stats.Attack) * 1.20)
+		stats.Defense = int(float64(stats.Defense) * 1.15)
+	case streak >= 14:
+		stats.Attack = int(float64(stats.Attack) * 1.15)
+		stats.Defense = int(float64(stats.Defense) * 1.10)
+	case streak >= 7:
+		stats.Attack = int(float64(stats.Attack) * 1.10)
+		stats.Defense = int(float64(stats.Defense) * 1.05)
+	case streak >= 3:
+		stats.Attack = int(float64(stats.Attack) * 1.05)
+	}
+
+	// Grudge bonus
+	if hasGrudge {
+		stats.Attack = int(float64(stats.Attack) * 1.10)
+	}
+
+	// Treasure bonuses mapped to stats
+	if bonuses.DeathModifier < 0 {
+		stats.Defense += int(-bonuses.DeathModifier * 2)
+	}
+	if bonuses.SuccessBonus > 0 {
+		stats.Attack += int(bonuses.SuccessBonus * 0.5)
+	}
+	if bonuses.ExceptionalBonus > 0 {
+		stats.CritRate += bonuses.ExceptionalBonus / 100.0
+	}
+
+	// Chat level perks
+	chatTier := chatLevel / 10
+	if chatTier > 5 {
+		chatTier = 5
+	}
+	stats.CritRate += float64(chatTier) * 0.005
+
+	// Cap rates
+	if stats.CritRate > 0.50 {
+		stats.CritRate = 0.50
+	}
+	if stats.DodgeRate > 0.40 {
+		stats.DodgeRate = 0.40
+	}
+	if stats.BlockRate > 0.40 {
+		stats.BlockRate = 0.40
+	}
+
+	// Modifiers
+	mods := CombatModifiers{
+		DamageBonus:  0,
+		DamageReduct: 1.0,
+	}
+
+	// Streak damage reduction
+	switch {
+	case streak >= 30:
+		mods.DamageReduct = 0.95
+	case streak >= 14:
+		mods.DamageReduct = 0.97
+	}
+
+	// Sovereign death save
+	if arenaSets["sovereign"] {
+		if char.DeathReprieveLast == nil || time.Since(*char.DeathReprieveLast) >= 168*time.Hour {
+			mods.DeathSave = true
+		}
+	}
+
+	// Pet modifiers
+	if char.HasPet() {
+		mods.PetAttackProc = petAttackChance(char.PetLevel)
+		mods.PetAttackDmg = 3 + char.PetLevel // per-attack variance added in engine
+		mods.PetDeflectProc = petDeflectChance(char.PetLevel, char.PetArmorTier)
+		mods.PetWhiffProc = 0.01 + float64(char.PetLevel)*0.005
+	}
+	if char.PetMorningDefense {
+		mods.DamageReduct *= 0.95 // 5% less damage
+	}
+
+	// NPC debuffs
+	now := time.Now().UTC()
+	if char.MistyDebuffExpires != nil && now.Before(*char.MistyDebuffExpires) {
+		mods.CrowdRevengeProc = 0.20
+		mods.CrowdRevengeDmg = 3 + rand.IntN(6) // 3-8 damage
+	}
+
+	// NPC buffs
+	if char.MistyBuffExpires != nil && now.Before(*char.MistyBuffExpires) {
+		mods.MistyHealProc = 0.20
+		mods.MistyHealAmt = 8 + char.CombatLevel/5 + rand.IntN(5)
+	}
+	if char.ArinaBuffExpires != nil && now.Before(*char.ArinaBuffExpires) {
+		mods.SniperKillProc = 0.08
+	}
+
+	return stats, mods
+}
+
+// DeriveArenaMonsterStats converts an ArenaMonster to combat engine stats.
+// Arena monsters face players with high combat level and arena-tier gear,
+// so stats must scale hard with ThreatLevel.
+func DeriveArenaMonsterStats(monster *ArenaMonster) (CombatStats, CombatModifiers) {
+	tl := float64(monster.ThreatLevel)
+	bl := monster.BaseLethality
+
+	stats := CombatStats{
+		MaxHP:     40 + int(tl*4+bl*60),
+		Attack:    8 + int(bl*40) + int(tl*0.8),
+		Defense:   3 + int(tl*0.5+bl*10),
+		Speed:     5 + int(tl*0.3),
+		CritRate:  bl * 0.20,
+		DodgeRate: 0.02 + tl*0.003,
+		BlockRate: 0.01 + bl*0.03,
+	}
+	mods := CombatModifiers{DamageBonus: 0, DamageReduct: 1.0}
+	return stats, mods
+}
+
+// DeriveDungeonMonsterStats synthesizes monster stats from a dungeon location.
+// Target: the stat block should produce a death rate roughly matching BaseDeathPct
+// when the player is at the location's MinLevel with tier-appropriate equipment.
+// The player typically has higher base stats, so monsters compensate with HP bulk
+// and just enough Attack to be threatening over the fight's duration.
+func DeriveDungeonMonsterStats(loc *AdvLocation) (CombatStats, CombatModifiers) {
+	t := float64(loc.Tier)
+	death := loc.BaseDeathPct // 8 to 60
+
+	// Well-equipped players at the right level should be dominant (win 85-95%+).
+	// Deaths come from bad luck: enemy crits, environmental hazards, unlucky initiative.
+	// Monster Attack needs to be high enough to threaten over multiple rounds via
+	// penetration damage, but not enough to kill quickly.
+	stats := CombatStats{
+		MaxHP:     25 + int(t*t*6+death*0.6),             // quadratic: T1=33, T5=187
+		Attack:    3 + int(death*0.2) + int(t*t*1.5),     // quadratic: T1=5, T5=49
+		Defense:   2 + int(t*1.5),
+		Speed:     4 + int(t*1.5),
+		CritRate:  0.03 + death*0.003,
+		DodgeRate: 0.02 + t*0.008,
+		BlockRate: 0.01 + t*0.005,
+	}
+	mods := CombatModifiers{DamageBonus: 0, DamageReduct: 1.0}
+	return stats, mods
+}

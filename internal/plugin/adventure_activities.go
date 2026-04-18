@@ -548,7 +548,6 @@ func applyAdvEquipDegradation(equip map[EquipmentSlot]*AdvEquipment, outcome Adv
 
 	switch outcome {
 	case AdvOutcomeDeath:
-		// All slots -20, weapon and armor -30 (additional)
 		for _, slot := range allSlots {
 			damage[slot] = 20
 		}
@@ -560,7 +559,6 @@ func applyAdvEquipDegradation(equip map[EquipmentSlot]*AdvEquipment, outcome Adv
 		damage[SlotArmor] = 10
 
 	case AdvOutcomeEmpty:
-		// Failed dungeon run
 		damage[SlotWeapon] = 15
 		damage[SlotArmor] = 10
 
@@ -572,32 +570,9 @@ func applyAdvEquipDegradation(equip map[EquipmentSlot]*AdvEquipment, outcome Adv
 		damage[SlotBoots] = 20
 
 	case AdvOutcomeHornets:
-		// No equipment damage — they don't care about your sword
 	}
 
-	// Tempered set: Seasoned — condition degrades 25% slower (applied once per set)
-	tempered := advEquippedArenaSets(equip)["tempered"]
-
-	// Apply damage and check for breaks
-	for slot, dmg := range damage {
-		eq, ok := equip[slot]
-		if !ok {
-			continue
-		}
-		if tempered {
-			dmg = int(float64(dmg) * 0.75)
-		}
-		// Equipment mastery: well-used gear degrades slower
-		if eq.ActionsUsed >= 20 {
-			dmg = int(float64(dmg) * 0.8)
-		}
-		eq.Condition -= dmg
-		if eq.Condition < 0 {
-			eq.Condition = 0
-		}
-	}
-
-	return damage
+	return applyDegradationModifiers(damage, equip)
 }
 
 // advCheckBrokenEquipment checks which slots hit 0 condition and reverts them to tier 0.
@@ -645,6 +620,7 @@ type AdvActionResult struct {
 	LootItems      []AdvItem
 	TotalLootValue int64
 	XPGained       int
+	XPBreakdown    string // human-readable bonus breakdown
 	XPSkill        string
 	EquipDamage    map[EquipmentSlot]int
 	LeveledUp      bool
@@ -655,6 +631,7 @@ type AdvActionResult struct {
 	EquipBroken    []EquipmentSlot
 	NearDeath      bool
 	StreakBonus     int
+	CombatLog      *CombatResult
 }
 
 func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, loc *AdvLocation, bonuses *AdvBonusSummary, inPenaltyZone bool) *AdvActionResult {
@@ -712,24 +689,15 @@ func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEqui
 		}
 	}
 
-	// Near-death XP bonus
-	if result.NearDeath {
-		xp = int(float64(xp) * 1.15)
-	}
-
-	// XP multiplier from bonuses
-	if bonuses.XPMultiplier != 0 {
-		xp = int(float64(xp) * (1 + bonuses.XPMultiplier/100))
-	}
-	// Ironclad set: Battle-Hardened — +5% XP gain
-	if advEquippedArenaSets(equip)["ironclad"] {
-		xp = int(float64(xp) * 1.05)
-	}
-	// Apply overlevel penalty to XP
-	if overlevelMult < 1.0 {
-		xp = max(1, int(float64(xp)*overlevelMult))
-	}
-	result.XPGained = xp
+	xpResult := applyXPBonuses(XPBonusParams{
+		BaseXP:        xp,
+		NearDeath:     result.NearDeath,
+		BonusMult:     bonuses.XPMultiplier,
+		Ironclad:      advEquippedArenaSets(equip)["ironclad"],
+		OverlevelMult: overlevelMult,
+	})
+	result.XPGained = xpResult.Total
+	result.XPBreakdown = xpResult.Breakdown
 
 	// Equipment degradation on bad outcomes
 	if result.Outcome == AdvOutcomeDeath || result.Outcome == AdvOutcomeEmpty ||
