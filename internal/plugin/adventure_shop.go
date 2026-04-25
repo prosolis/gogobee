@@ -417,10 +417,10 @@ func (p *AdventurePlugin) resolveShopItemChoice(ctx MessageContext, interaction 
 	// Check Arena/Masterwork block — only block if shop item isn't clearly better.
 	// Arena gear always blocks (1.5x multiplier, earned through combat).
 	// Masterwork blocks only if the shop item's tier doesn't exceed the MW effective tier.
-	if current != nil && current.ArenaTier > 0 {
+	if current != nil && current.ArenaTier > 0 && def.Tier <= current.ArenaTier {
 		p.pending.Store(string(ctx.Sender), interaction)
-		return p.SendDM(ctx.Sender, fmt.Sprintf("You have **%s** (Arena gear) in that slot. A shop item can't replace that. You earned it.\n\nPick something else, or \"back\" to return.",
-			current.Name))
+		return p.SendDM(ctx.Sender, fmt.Sprintf("You have **%s** (Arena gear, T%d) in that slot. That T%d shop item isn't an upgrade.\n\nPick something else, or \"back\" to return.",
+			current.Name, current.ArenaTier, def.Tier))
 	}
 	if current != nil && current.Masterwork && float64(def.Tier) <= advEffectiveTier(current) {
 		p.pending.Store(string(ctx.Sender), interaction)
@@ -479,8 +479,8 @@ func (p *AdventurePlugin) resolveShopConfirm(ctx MessageContext, interaction *ad
 	current := equip[data.Slot]
 
 	// Re-check Arena/Masterwork block.
-	if current != nil && current.ArenaTier > 0 {
-		return p.SendDM(ctx.Sender, fmt.Sprintf("Your **%s** is Arena gear. Luigi won't overwrite it.", current.Name))
+	if current != nil && current.ArenaTier > 0 && def.Tier <= current.ArenaTier {
+		return p.SendDM(ctx.Sender, fmt.Sprintf("Your **%s** (Arena gear T%d) is not worse than that T%d shop item.", current.Name, current.ArenaTier, def.Tier))
 	}
 	if current != nil && current.Masterwork && float64(def.Tier) <= advEffectiveTier(current) {
 		return p.SendDM(ctx.Sender, fmt.Sprintf("Your **%s** (Masterwork ⭐) is better than that T%d shop item.", current.Name, def.Tier))
@@ -510,6 +510,8 @@ func (p *AdventurePlugin) resolveShopConfirm(ctx MessageContext, interaction *ad
 		if current.Masterwork {
 			itemType = "MasterworkGear"
 			// Masterwork has no resale value (it's special, not shop-priced)
+		} else if current.ArenaTier > 0 {
+			itemType = "ArenaGear"
 		} else if current.Tier < len(equipmentTiers[data.Slot]) {
 			resaleValue = int64(equipmentTiers[data.Slot][current.Tier].Price * 0.3)
 		}
@@ -682,10 +684,9 @@ func (p *AdventurePlugin) advBuyEquipment(userID id.UserID, slot EquipmentSlot, 
 	}
 	// Block shop purchases that would overwrite arena gear (always) or
 	// masterwork gear (only if shop item isn't clearly better).
-	if current != nil && current.ArenaTier > 0 {
-		return fmt.Sprintf("You already have **%s** (Arena gear). A shop item cannot replace this. "+
-			"You earned that. Don't throw it away.",
-			current.Name)
+	if current != nil && current.ArenaTier > 0 && def.Tier <= current.ArenaTier {
+		return fmt.Sprintf("You already have **%s** (Arena gear T%d). That T%d shop item isn't an upgrade.",
+			current.Name, current.ArenaTier, def.Tier)
 	}
 	if current != nil && current.Masterwork && float64(def.Tier) <= advEffectiveTier(current) {
 		return fmt.Sprintf("You already have **%s** (Masterwork ⭐ T%d). That T%d shop item isn't an upgrade.",
@@ -714,6 +715,8 @@ func (p *AdventurePlugin) advBuyEquipment(userID id.UserID, slot EquipmentSlot, 
 		var resaleValue int64
 		if current.Masterwork {
 			itemType = "MasterworkGear"
+		} else if current.ArenaTier > 0 {
+			itemType = "ArenaGear"
 		} else if current.Tier < len(equipmentTiers[slot]) {
 			resaleValue = int64(equipmentTiers[slot][current.Tier].Price * 0.3)
 		}

@@ -46,7 +46,7 @@ func (p *AdventurePlugin) advUserLock(userID id.UserID) *sync.Mutex {
 	return val.(*sync.Mutex)
 }
 
-const advDMResponseWindow = 15 * time.Minute
+const advDMResponseWindow = 3 * time.Hour
 
 // advMarkMenuSent records that an actionable adventure menu was DM'd to the user.
 // Only bare-number DM replies within this window will be treated as adventure choices.
@@ -1108,7 +1108,7 @@ func (p *AdventurePlugin) checkTreasureDrop(userID id.UserID, char *AdventureCha
 			NewTreasure: drop.Def,
 			Existing:    existing,
 		},
-		ExpiresAt: time.Now().Add(5 * time.Minute),
+		ExpiresAt: time.Now().Add(advDMResponseWindow),
 	})
 
 	text := renderAdvTreasureDiscardPrompt(drop.Def, existing)

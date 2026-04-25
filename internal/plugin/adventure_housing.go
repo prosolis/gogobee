@@ -217,7 +217,7 @@ func thomShopView(char *AdventureCharacter, balance float64) string {
 			sb.WriteString(fmt.Sprintf("   Closing costs (5%%): €%d\n", int(float64(def.BasePrice)*0.05)))
 			sb.WriteString(fmt.Sprintf("   Realtor fees (6%%): €%d\n", int(float64(def.BasePrice)*0.06)))
 			sb.WriteString(fmt.Sprintf("   **Total: €%d**\n\n", total))
-			sb.WriteString(fmt.Sprintf("Reply `buy` to purchase, or `buy <amount>` for a down payment.\n"))
+			sb.WriteString(fmt.Sprintf("`!thom buy` to purchase outright, or `!thom buy <amount>` for a down payment.\n"))
 		}
 	}
 

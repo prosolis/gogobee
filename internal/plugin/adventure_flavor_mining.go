@@ -363,9 +363,9 @@ var MiningSuccess = map[int][]string{
 
 		"In and out. {ore}, €{value}, zero cave-ins, one bat that thought about it " +
 			"and decided not to. Your {tool} is slightly worse. Everything else is better. " +
-			"By Surface Pits standards, a professional operation.",
+			"By {location} standards, a professional operation.",
 
-		"The copper vein ran further than the map suggested. Further and richer. " +
+		"The seam ran further than the map suggested. Further and richer. " +
 			"You took {ore} worth €{value} and left more than you could carry. " +
 			"This is the correct response to a rich vein. Come back tomorrow. " +
 			"Bring a bigger bag. Bring a better pickaxe.",
@@ -380,68 +380,69 @@ var MiningSuccess = map[int][]string{
 			"and the rock rewarded you for it. This is the entire transaction. " +
 			"It is, when it works, genuinely satisfying.",
 
-		"The tin seam yielded more than expected and the coal beneath it " +
-			"turned out to have a copper pocket behind it " +
+		"The upper seam yielded more than expected and the layer beneath it " +
+			"turned out to have a pocket behind it " +
 			"that wasn't on any map because nobody had gone that far before. " +
 			"You went that far. {ore} total, €{value}. " +
 			"The {tool} is worse. The discovery is better.",
 	},
 
 	2: {
-		"Iron Ridge delivered today. {ore} extracted, €{value} assessed, " +
+		"{location} delivered today. {ore} extracted, €{value} assessed, " +
 			"cave troll acknowledged and navigated around with something approaching grace. " +
 			"The {tool} performed admirably. Your back has filed a formal complaint. " +
 			"The back's complaint is noted and will not change the outcome.",
 
-		"A good seam. A real seam — proper iron, " +
-			"the kind where the rock splits cleanly and the ore sits in it " +
-			"like it's been waiting. {ore} worth €{value}. {xp} XP. " +
+		"A good seam. A real seam — the kind where the rock splits cleanly " +
+			"and the ore sits in it like it's been waiting. " +
+			"{ore} worth €{value}. {xp} XP. " +
 			"This is what mining is supposed to feel like. " +
 			"Remember it for the days it doesn't.",
 
-		"The lead pocket was deeper than the iron, which meant going deeper " +
-			"than planned, which meant more exposure to everything Iron Ridge contains. " +
+		"The deeper pocket was further in than the surface yield suggested, " +
+			"which meant going deeper than planned, " +
+			"which meant more exposure to everything {location} contains. " +
 			"You made it. {ore} worth €{value}. The depth was worth it. " +
 			"The {tool} has opinions about the depth. The opinions are structural.",
 	},
 
 	3: {
-		"Silver. Real silver, properly embedded, not quartz, not illusion, " +
-			"not iron-coloured rock lying about its nature. Silver. " +
+		"Whatever you came down here for, you took it. No illusions, no " +
+			"iron-coloured rock lying about its nature. " +
 			"{ore} worth €{value}. {xp} XP. Your {tool} is a real tool " +
-			"and this was a real seam and you extracted the silver. " +
+			"and this was a real seam and you extracted what was in it. " +
 			"That's the whole job. Today the whole job got done.",
 
-		"The Silver Seam at depth, past the quartz formations, " +
+		"{location} at depth, past the decorative formations, " +
 			"past the section that looks better than it is, " +
-			"down to where the silver sits in the rock like an argument for effort. " +
+			"down to where the yield sits in the rock like an argument for effort. " +
 			"{ore}, €{value}, {xp} XP, home by sunset. " +
 			"A good day. In a mine. Those exist.",
 	},
 
 	4: {
-		"Deeprock gold. Actual gold, not pyrite, not gold-coloured copper, " +
-			"not optimism in mineral form. Gold. {ore} worth €{value}. " +
-			"The Deeprock tried to discourage you with atmosphere and pressure. " +
-			"You brought a Mithril Pickaxe and ignored the atmosphere.",
+		"Proper haul. No pyrite, no gold-coloured copper, " +
+			"no optimism in mineral form. {ore} worth €{value}. " +
+			"{location} tried to discourage you with atmosphere and pressure. " +
+			"You brought a {tool} and ignored the atmosphere.",
 
-		"You went to the fourth level of the Deeprock and you came back " +
+		"You went to the fourth level of {location} and you came back " +
 			"with {ore} worth €{value} and {xp} XP and a story " +
 			"that mostly involves how far down the fourth level is. " +
 			"It is very far down. The ore was worth being very far down. Today.",
 	},
 
 	5: {
-		"Mythril. You found mythril and extracted mythril " +
-			"and brought mythril home and mythril is worth €{value} per unit. " +
-			"The {ore} you're carrying is worth €{value} total. " +
-			"{xp} XP. The Diamond Pickaxe is a Diamond Pickaxe for a reason. " +
+		"You found the seam and you extracted the seam " +
+			"and brought the seam home. " +
+			"{ore} worth €{value} total. " +
+			"{xp} XP. The {tool} is a {tool} for a reason. " +
 			"Today you proved the reason.",
 
 		"The Voidstone was present but passive today. " +
 			"The Dragon Crystals were warm but not hostile. " +
-			"The mythril seam was open and you took {ore} worth €{value} from it. " +
-			"{xp} XP. The Mythril Caverns had a good day at the same time you did. " +
+			"The seam was open and you took {ore} worth €{value} from it. " +
+			"{xp} XP. {location} had a good day at the same time you did. " +
 			"This does not happen often. Don't examine it. Take the ore home.",
 	},
 }

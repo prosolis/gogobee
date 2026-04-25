@@ -1040,6 +1040,15 @@ func arenaGearByTier(tier int) *ArenaGearSet {
 	return &arenaGearSets[tier-1]
 }
 
+func arenaGearByName(name string) *ArenaGearSet {
+	for i := range arenaGearSets {
+		if arenaGearSets[i].HelmetName == name {
+			return &arenaGearSets[i]
+		}
+	}
+	return nil
+}
+
 // arenaRollHelmetDrop checks if a helmet should drop and equips it if the player
 // doesn't already have an arena helmet at this tier or higher. If they do, the
 // drop is silently discarded (no duplicate drops).
@@ -1063,14 +1072,49 @@ func (p *AdventurePlugin) arenaRollHelmetDrop(userID id.UserID, tier int) *Arena
 	}
 
 	helmet, hasHelmet := equip[SlotHelmet]
-	if hasHelmet && (helmet.ArenaTier >= tier || helmet.Tier > tier) {
-		// Already has same-or-better arena helmet, or a higher-tier normal helmet — discard
+	hasRealHelmet := hasHelmet && helmet.Tier > 0
+
+	// Discard only if existing is a same-or-better arena helmet (duplicate suppression).
+	if hasRealHelmet && helmet.ArenaTier >= tier {
 		return nil
 	}
 
-	// Equip the arena helmet
+	// If existing is a strictly better non-arena helmet, stash the drop in inventory
+	// so the player can equip it later via !adventure equip rather than overwriting.
+	if hasRealHelmet && helmet.ArenaTier == 0 && helmet.Tier > tier {
+		if err := addAdvInventoryItem(userID, AdvItem{
+			Name: gear.HelmetName,
+			Type: "ArenaGear",
+			Tier: tier,
+			Slot: SlotHelmet,
+		}); err != nil {
+			slog.Error("arena: failed to stash arena helmet drop", "user", userID, "err", err)
+			return nil
+		}
+		return gear
+	}
+
+	// Auto-equip: move the old helmet to inventory first (preserving its flavor)
+	// so the player doesn't silently lose it.
+	if hasRealHelmet {
+		oldType := "ShopGear"
+		if helmet.Masterwork {
+			oldType = "MasterworkGear"
+		} else if helmet.ArenaTier > 0 {
+			oldType = "ArenaGear"
+		}
+		if err := addAdvInventoryItem(userID, AdvItem{
+			Name:        helmet.Name,
+			Type:        oldType,
+			Tier:        helmet.Tier,
+			Slot:        SlotHelmet,
+			SkillSource: helmet.SkillSource,
+		}); err != nil {
+			slog.Error("arena: failed to move old helmet to inventory", "user", userID, "err", err)
+		}
+	}
+
 	if !hasHelmet {
-		// Shouldn't happen (all slots created at character creation), but be safe
 		helmet = &AdvEquipment{Slot: SlotHelmet}
 	}
 	helmet.Tier = tier
@@ -1079,6 +1123,8 @@ func (p *AdventurePlugin) arenaRollHelmetDrop(userID id.UserID, tier int) *Arena
 	helmet.ActionsUsed = 0
 	helmet.ArenaTier = tier
 	helmet.ArenaSet = gear.SetKey
+	helmet.Masterwork = false
+	helmet.SkillSource = ""
 
 	if err := saveAdvEquipment(userID, helmet); err != nil {
 		slog.Error("arena: failed to save arena helmet drop", "user", userID, "err", err)

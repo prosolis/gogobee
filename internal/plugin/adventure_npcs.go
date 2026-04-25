@@ -158,7 +158,7 @@ func (p *AdventurePlugin) npcFireEncounter(userID id.UserID, npc string) {
 	p.pending.Store(string(userID), &advPendingInteraction{
 		Type:      "npc_encounter",
 		Data:      npc,
-		ExpiresAt: time.Now().Add(5 * time.Minute),
+		ExpiresAt: time.Now().Add(advDMResponseWindow),
 	})
 
 	if err := p.SendDM(userID, prompt); err != nil {
