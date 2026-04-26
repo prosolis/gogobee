@@ -137,6 +137,9 @@ func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) er
 		return p.SendDM(ctx.Sender, "Payment failed. The babysitter looked at your wallet and walked away.")
 	}
 
+	// Clear any leftover logs from prior service so this period's summary is clean
+	clearBabysitLogs(char.UserID)
+
 	// Set babysit fields
 	skill := babysitWeakestSkill(char)
 	expires := time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour)
@@ -242,9 +245,6 @@ func (p *AdventurePlugin) handleBabysitCancel(ctx MessageContext) error {
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("babysit: failed to save character on cancel", "user", char.UserID, "err", err)
 	}
-
-	// Clear logs
-	clearBabysitLogs(char.UserID)
 
 	return p.SendDM(ctx.Sender, "🍼 Service cancelled. No refund. The babysitter was already there.\n\n"+summary)
 }
@@ -367,13 +367,26 @@ func (p *AdventurePlugin) runAutoBabysitDay(char *AdventureCharacter) {
 	skill := babysitWeakestSkill(char)
 	activity := skillToActivity(skill)
 
+	var totalGold int
+	var totalXP int
+	var allItems []string
 	for char.HarvestActionsUsed < harvestMax {
-		p.runBabysitAction(char, equip, activity, bonuses)
+		gold, xp, items := p.runBabysitAction(char, equip, activity, bonuses)
+		totalGold += gold
+		totalXP += xp
+		allItems = append(allItems, items...)
 		char.HarvestActionsUsed++
 	}
 
 	char.ActionTakenToday = true
 	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
+
+	itemsJSON := ""
+	if len(allItems) > 0 {
+		itemsJSON = strings.Join(allItems, ", ")
+	}
+	logBabysitActivity(char.UserID, string(activity), "auto_babysit_daily",
+		totalGold, totalXP, itemsJSON)
 }
 
 // ── Expiry Check ────────────────────────────────────────────────────────────
@@ -402,8 +415,6 @@ func (p *AdventurePlugin) checkBabysitExpiry(chars []AdventureCharacter) {
 			slog.Error("babysit: failed to save character on expiry", "user", char.UserID, "err", err)
 			continue
 		}
-
-		clearBabysitLogs(char.UserID)
 
 		if err := p.SendDM(char.UserID, summary); err != nil {
 			slog.Error("babysit: failed to send expiry summary DM", "user", char.UserID, "err", err)

@@ -12,7 +12,7 @@ import (
 
 // ── Pricing ─────────────────────────────────────────────────────────────────
 
-var blacksmithBaseRates = [6]int{1, 3, 8, 20, 55, 150}
+var blacksmithBaseRates = [6]int{1, 2, 5, 12, 30, 80}
 
 func blacksmithRepairCost(eq *AdvEquipment) int {
 	if eq == nil || eq.Condition >= 100 {
@@ -34,7 +34,7 @@ func blacksmithRepairCost(eq *AdvEquipment) int {
 	}
 	baseRate := float64(blacksmithBaseRates[tier])
 	damage := float64(100 - eq.Condition)
-	condMult := 1.0 + damage/100.0
+	condMult := 1.0 + damage/200.0
 	costPerPoint := baseRate * condMult
 	return int(math.Ceil(costPerPoint * damage))
 }

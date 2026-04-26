@@ -1050,7 +1050,7 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			Emoji: "🍼",
 			Check: func(d *sql.DB, u id.UserID) bool {
 				var count int
-				_ = d.QueryRow(`SELECT COUNT(*) FROM babysit_log WHERE user_id = ?`, string(u)).Scan(&count)
+				_ = d.QueryRow(`SELECT COUNT(*) FROM adventure_babysit_log WHERE user_id = ?`, string(u)).Scan(&count)
 				return count > 0
 			},
 		},
