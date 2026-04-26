@@ -68,6 +68,9 @@ func (p *AdventurePlugin) coopProcessLocks() {
 			_ = setCoopRunStatus(run.ID, "cancelled")
 			gr := gamesRoom()
 			if gr != "" {
+				if run.InvitePostID != "" {
+					_ = p.UnpinEvent(gr, run.InvitePostID)
+				}
 				_ = p.SendMessage(gr, fmt.Sprintf("⚔️ Tier %d Co-op #%d expired with no party. Cancelled.", run.Tier, run.ID))
 			}
 			_ = p.SendDM(run.LeaderID, fmt.Sprintf("Co-op #%d expired before anyone joined. No party, no run.", run.ID))
@@ -94,6 +97,9 @@ func (p *AdventurePlugin) coopProcessLocks() {
 		fresh, _ := loadCoopRun(run.ID)
 		gr := gamesRoom()
 		if gr != "" {
+			if run.InvitePostID != "" {
+				_ = p.UnpinEvent(gr, run.InvitePostID)
+			}
 			_ = p.SendMessage(gr, renderCoopLock(fresh, members, p))
 		}
 		// Per-player DM with funding instructions.

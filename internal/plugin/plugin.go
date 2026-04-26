@@ -37,6 +37,10 @@ type MessageContext struct {
 	Body      string
 	IsCommand bool // true if the message starts with the command prefix
 	Event     *event.Event
+	// OriginRoomID is set by plugins that rewrite RoomID for dispatch (e.g. holdem
+	// routes DM commands to the player's game room). When set, sender-private
+	// replies should go here instead of the rewritten RoomID.
+	OriginRoomID id.RoomID
 }
 
 // ReactionContext holds the context for a reaction event.
@@ -701,6 +705,61 @@ func (b *Base) SendDMID(userID id.UserID, text string) (id.EventID, error) {
 		return "", err
 	}
 	return b.SendMessageID(roomID, text)
+}
+
+// PinEvent appends the given event ID to the room's m.room.pinned_events
+// state. No-op if already pinned. Requires the bot to have power level for
+// state events; failures are logged and returned without retry.
+func (b *Base) PinEvent(roomID id.RoomID, eventID id.EventID) error {
+	var content event.PinnedEventsEventContent
+	err := b.Client.StateEvent(context.Background(), roomID, event.StatePinnedEvents, "", &content)
+	if err != nil && !strings.Contains(err.Error(), "M_NOT_FOUND") {
+		slog.Error("pin: read state", "room", roomID, "err", err)
+		return err
+	}
+	for _, id := range content.Pinned {
+		if id == eventID {
+			return nil // already pinned
+		}
+	}
+	content.Pinned = append(content.Pinned, eventID)
+	_, err = b.Client.SendStateEvent(context.Background(), roomID, event.StatePinnedEvents, "", content)
+	if err != nil {
+		slog.Error("pin: write state", "room", roomID, "event", eventID, "err", err)
+	}
+	return err
+}
+
+// UnpinEvent removes the given event ID from the room's pinned events.
+// No-op if not currently pinned.
+func (b *Base) UnpinEvent(roomID id.RoomID, eventID id.EventID) error {
+	var content event.PinnedEventsEventContent
+	err := b.Client.StateEvent(context.Background(), roomID, event.StatePinnedEvents, "", &content)
+	if err != nil {
+		if strings.Contains(err.Error(), "M_NOT_FOUND") {
+			return nil
+		}
+		slog.Error("unpin: read state", "room", roomID, "err", err)
+		return err
+	}
+	out := content.Pinned[:0]
+	found := false
+	for _, id := range content.Pinned {
+		if id == eventID {
+			found = true
+			continue
+		}
+		out = append(out, id)
+	}
+	if !found {
+		return nil
+	}
+	content.Pinned = out
+	_, err = b.Client.SendStateEvent(context.Background(), roomID, event.StatePinnedEvents, "", content)
+	if err != nil {
+		slog.Error("unpin: write state", "room", roomID, "event", eventID, "err", err)
+	}
+	return err
 }
 
 // EditMessage edits an existing message using Matrix m.replace relation.

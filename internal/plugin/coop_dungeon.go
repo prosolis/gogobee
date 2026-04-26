@@ -174,7 +174,11 @@ func (p *AdventurePlugin) handleCoopStart(ctx MessageContext, tierArg string) er
 
 	gr := gamesRoom()
 	if gr != "" {
-		_ = p.SendMessage(gr, renderCoopInvite(run, []CoopMember{{UserID: ctx.Sender, TurnOrder: 0}}, char.DisplayName))
+		postID, err := p.SendMessageID(gr, renderCoopInvite(run, []CoopMember{{UserID: ctx.Sender, TurnOrder: 0}}, char.DisplayName))
+		if err == nil {
+			_ = setCoopRunInvitePostID(run.ID, postID)
+			_ = p.PinEvent(gr, postID)
+		}
 	}
 	return p.SendDM(ctx.Sender, fmt.Sprintf("⚔️ Tier %d co-op invite opened (#%d). Locks in 24h. Recruit your party.", tier, run.ID))
 }
@@ -353,6 +357,9 @@ func (p *AdventurePlugin) handleCoopCancel(ctx MessageContext) error {
 	}
 	gr := gamesRoom()
 	if gr != "" {
+		if run.InvitePostID != "" {
+			_ = p.UnpinEvent(gr, run.InvitePostID)
+		}
 		_ = p.SendMessage(gr, fmt.Sprintf("⚔️ Tier %d Co-op #%d cancelled by the leader.", run.Tier, run.ID))
 	}
 	return p.SendDM(ctx.Sender, fmt.Sprintf("Run #%d cancelled.", run.ID))

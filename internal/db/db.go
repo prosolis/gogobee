@@ -137,6 +137,7 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE adventure_characters ADD COLUMN streak_decayed INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE coop_dungeon_runs ADD COLUMN last_resolved_day INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE coop_dungeon_members ADD COLUMN member_payout INTEGER`,
+		`ALTER TABLE coop_dungeon_runs ADD COLUMN invite_post_id TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1387,6 +1388,7 @@ CREATE TABLE IF NOT EXISTS coop_dungeon_runs (
     gold_pool         INTEGER NOT NULL DEFAULT 0,    -- accumulated funding
     reward_total      INTEGER NOT NULL DEFAULT 0,    -- final reward (set on completion)
     last_resolved_day INTEGER NOT NULL DEFAULT 0,    -- crash-resume guard: highest day whose floor outcome is final
+    invite_post_id    TEXT NOT NULL DEFAULT '',      -- Matrix event ID of the games-room invite (for pin/unpin)
     created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     locked_at         DATETIME,
     completed_at      DATETIME

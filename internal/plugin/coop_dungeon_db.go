@@ -24,6 +24,7 @@ type CoopRun struct {
 	GoldPool        int
 	RewardTotal     int
 	LastResolvedDay int
+	InvitePostID    id.EventID
 	CreatedAt       time.Time
 	LockedAt        *time.Time
 	CompletedAt     *time.Time
@@ -55,10 +56,11 @@ func loadCoopRun(runID int) (*CoopRun, error) {
 	var leader string
 	var lockedAt, completedAt sql.NullTime
 	err := d.QueryRow(`SELECT id, tier, status, leader_id, current_day, total_days,
-		base_difficulty, gold_pool, reward_total, last_resolved_day, created_at, locked_at, completed_at
+		base_difficulty, gold_pool, reward_total, last_resolved_day, invite_post_id, created_at, locked_at, completed_at
 		FROM coop_dungeon_runs WHERE id = ?`, runID).Scan(
 		&r.ID, &r.Tier, &r.Status, &leader, &r.CurrentDay, &r.TotalDays,
 		&r.BaseDifficulty, &r.GoldPool, &r.RewardTotal, &r.LastResolvedDay,
+		(*string)(&r.InvitePostID),
 		&r.CreatedAt, &lockedAt, &completedAt)
 	if err != nil {
 		return nil, err
@@ -94,7 +96,7 @@ func loadMostRecentOpenCoopRun() (*CoopRun, error) {
 func queryCoopRuns(whereClause string) ([]*CoopRun, error) {
 	d := db.Get()
 	rows, err := d.Query(`SELECT id, tier, status, leader_id, current_day, total_days,
-		base_difficulty, gold_pool, reward_total, last_resolved_day, created_at, locked_at, completed_at
+		base_difficulty, gold_pool, reward_total, last_resolved_day, invite_post_id, created_at, locked_at, completed_at
 		FROM coop_dungeon_runs WHERE ` + whereClause)
 	if err != nil {
 		return nil, err
@@ -108,6 +110,7 @@ func queryCoopRuns(whereClause string) ([]*CoopRun, error) {
 		var lockedAt, completedAt sql.NullTime
 		if err := rows.Scan(&r.ID, &r.Tier, &r.Status, &leader, &r.CurrentDay, &r.TotalDays,
 			&r.BaseDifficulty, &r.GoldPool, &r.RewardTotal, &r.LastResolvedDay,
+			(*string)(&r.InvitePostID),
 			&r.CreatedAt, &lockedAt, &completedAt); err != nil {
 			return nil, err
 		}
@@ -166,6 +169,12 @@ func completeCoopRun(runID int, status string, reward int) error {
 	_, err := d.Exec(`UPDATE coop_dungeon_runs
 		SET status = ?, reward_total = ?, completed_at = CURRENT_TIMESTAMP
 		WHERE id = ?`, status, reward, runID)
+	return err
+}
+
+func setCoopRunInvitePostID(runID int, postID id.EventID) error {
+	d := db.Get()
+	_, err := d.Exec(`UPDATE coop_dungeon_runs SET invite_post_id = ? WHERE id = ?`, string(postID), runID)
 	return err
 }
 
