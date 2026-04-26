@@ -158,7 +158,7 @@ Describe the room's current vibe:`, botName, transcript)
 	if err != nil {
 		slog.Error("vibe: ollama call", "err", err)
 		p.resetCooldown(ctx.RoomID) // Don't consume cooldown on failure
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to read the vibe. LLM might be offline.")
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to read the vibe. Thanks, Ollama.")
 	}
 
 	return p.SendMessage(ctx.RoomID, response)
@@ -203,7 +203,7 @@ Summary:`, tldrBotName, transcript)
 	if err != nil {
 		slog.Error("vibe: ollama call", "err", err)
 		p.resetCooldown(ctx.RoomID) // Don't consume cooldown on failure
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to summarize. LLM might be offline.")
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Couldn't summarize. Thanks, Ollama.")
 	}
 
 	return p.SendMessage(ctx.RoomID, response)

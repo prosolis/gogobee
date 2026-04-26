@@ -87,7 +87,7 @@ Write the roast now. Do not include any preamble or explanation, just the roast 
 		response, err := callOllama(ollamaHost, ollamaModel, prompt)
 		if err != nil {
 			slog.Error("howami: ollama call", "err", err)
-			p.SendReply(ctx.RoomID, ctx.EventID, "Failed to generate profile. LLM might be offline.")
+			p.SendReply(ctx.RoomID, ctx.EventID, "Couldn't generate the profile. Thanks, Ollama.")
 			return
 		}
 
