@@ -86,6 +86,8 @@ func (p *AdventurePlugin) handleCoopCmd(ctx MessageContext) error {
 		return p.handleCoopList(ctx)
 	case lower == "status":
 		return p.handleCoopStatus(ctx)
+	case lower == "stats":
+		return p.SendDM(ctx.Sender, renderCoopStats())
 	case strings.HasPrefix(lower, "start "):
 		return p.handleCoopStart(ctx, strings.TrimSpace(args[6:]))
 	case strings.HasPrefix(lower, "join"):
@@ -118,6 +120,7 @@ const coopHelpText = `**Co-op Dungeon Commands**
 ` + "`!coop gift <run_id> <basket|mimic>`" + ` — Send a gift (1 harvest action)
 ` + "`!coop giftvote <id> <open|leave>`" + ` — Party votes whether to open a gift
 ` + "`!coop status`" + ` — Show your current run
+` + "`!coop stats`" + ` — Aggregate stats: outcomes, gold flow, betting, gifts, TwinBee helpfulness
 ` + "`!coop cancel`" + ` — Cancel an open invite (leader only, before lock)
 
 **How it runs:**
