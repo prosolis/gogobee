@@ -1373,6 +1373,75 @@ CREATE TABLE IF NOT EXISTS holdem_tip_audit (
 CREATE INDEX IF NOT EXISTS idx_tip_audit_user ON holdem_tip_audit(user_id);
 CREATE INDEX IF NOT EXISTS idx_tip_audit_action ON holdem_tip_audit(action, street);
 
+-- Co-op Dungeon (party multi-day runs)
+CREATE TABLE IF NOT EXISTS coop_dungeon_runs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    tier            INTEGER NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'open',  -- open, active, complete, wiped, cancelled
+    leader_id       TEXT NOT NULL,
+    current_day     INTEGER NOT NULL DEFAULT 0,
+    total_days      INTEGER NOT NULL,
+    base_difficulty INTEGER NOT NULL,              -- per-floor failure % at zero modifier
+    gold_pool       INTEGER NOT NULL DEFAULT 0,    -- accumulated funding
+    reward_total    INTEGER NOT NULL DEFAULT 0,    -- final reward (set on completion)
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    locked_at       DATETIME,
+    completed_at    DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_coop_runs_status ON coop_dungeon_runs(status);
+
+CREATE TABLE IF NOT EXISTS coop_dungeon_members (
+    run_id            INTEGER NOT NULL,
+    user_id           TEXT NOT NULL,
+    turn_order        INTEGER NOT NULL,
+    total_contributed INTEGER NOT NULL DEFAULT 0,
+    is_liability      INTEGER NOT NULL DEFAULT 0,
+    daily_funding     TEXT NOT NULL DEFAULT '{}',  -- JSON: {"1":"standard","2":"all_in",...}
+    PRIMARY KEY (run_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_coop_members_user ON coop_dungeon_members(user_id);
+
+CREATE TABLE IF NOT EXISTS coop_dungeon_events (
+    run_id           INTEGER NOT NULL,
+    day              INTEGER NOT NULL,
+    category         TEXT NOT NULL,                  -- obstacle, opportunity, crisis, encounter
+    event_index      INTEGER NOT NULL,               -- index into the category flavor pool
+    recommended      TEXT NOT NULL,                  -- A, B, or C — TwinBee's pick
+    votes            TEXT NOT NULL DEFAULT '{}',     -- JSON {"@user:host": "A"}
+    winning_vote     TEXT DEFAULT NULL,
+    outcome          TEXT DEFAULT NULL,              -- 'success' or 'failure' (after resolution)
+    modifier_applied INTEGER DEFAULT 0,
+    post_event_id    TEXT DEFAULT NULL,              -- Matrix event ID for live edit
+    PRIMARY KEY (run_id, day)
+);
+CREATE INDEX IF NOT EXISTS idx_coop_events_outcome ON coop_dungeon_events(outcome);
+
+CREATE TABLE IF NOT EXISTS coop_dungeon_bets (
+    run_id     INTEGER NOT NULL,
+    player_id  TEXT NOT NULL,
+    position   TEXT NOT NULL,                 -- 'success' or 'failure'
+    amount     INTEGER NOT NULL,
+    placed_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    payout     INTEGER,                       -- NULL until run resolves
+    PRIMARY KEY (run_id, player_id)
+);
+CREATE INDEX IF NOT EXISTS idx_coop_bets_run ON coop_dungeon_bets(run_id);
+
+CREATE TABLE IF NOT EXISTS coop_dungeon_gifts (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id        INTEGER NOT NULL,
+    sender_id     TEXT NOT NULL,
+    day           INTEGER NOT NULL,
+    gift_type     TEXT NOT NULL,                 -- 'basket' or 'mimic'
+    votes         TEXT NOT NULL DEFAULT '{}',    -- JSON {"@user:host": "open"|"leave"}
+    vote_result   TEXT,                          -- 'opened' or 'left'
+    outcome       TEXT,                          -- 'boost' or 'reduction'
+    modifier      INTEGER NOT NULL DEFAULT 0,
+    post_event_id TEXT,
+    sent_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resolved_at   DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_coop_gifts_run_day ON coop_dungeon_gifts(run_id, day, vote_result);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

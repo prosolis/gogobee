@@ -141,6 +141,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.robbieTicker()
 	go p.hospitalNudgeTicker()
 	go p.mortgageTicker()
+	go p.coopTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()
@@ -183,6 +184,11 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	// 1b. Hospital commands (work in rooms and DMs)
 	if p.IsCommand(ctx.Body, "hospital") {
 		return p.handleHospitalCmd(ctx)
+	}
+
+	// 1c. Co-op dungeon commands (work in rooms and DMs)
+	if p.IsCommand(ctx.Body, "coop") {
+		return p.handleCoopCmd(ctx)
 	}
 
 	// 2. Check if this is a DM reply from a registered player
@@ -281,6 +287,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure blacksmith`" + ` — Visit the blacksmith (view repair costs)
 ` + "`!adventure repair all`" + ` — Repair all damaged equipment
 ` + "`!adventure repair <slot>`" + ` — Repair a specific slot
+` + "`!coop`" + ` — Co-op dungeons (multi-day party runs). See ` + "`!coop help`" + `.
 ` + "`!hospital`" + ` — Visit St. Guildmore's Memorial Hospital (same-day revival when dead)
 ` + "`!thom`" + ` — Visit Thom Krooke (housing and loans)
 ` + "`!adventure help`" + ` — This message
