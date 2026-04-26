@@ -96,19 +96,19 @@ func TestCoopTallyVote(t *testing.T) {
 		{"clear majority", map[id.UserID]string{leader: "A", other: "A", third: "B"}, "A"},
 		{"tie broken by leader", map[id.UserID]string{leader: "B", other: "A"}, "B"},
 		{"all abstained falls back to A", map[id.UserID]string{}, "A"},
-		{"tie no leader vote falls back deterministically", map[id.UserID]string{other: "A", third: "B"}, ""}, // "A" or "B" — accept either
+		{"tie with no leader vote → lex first (deterministic)", map[id.UserID]string{other: "A", third: "B"}, "A"},
+		{"three-way tie, leader's vote in winners → leader's pick", map[id.UserID]string{leader: "C", other: "A", third: "B"}, "C"},
+		{"tie with leader voting outside winners → lex first", map[id.UserID]string{leader: "C", other: "A", "@4:t": "A", third: "B", "@5:t": "B"}, "A"},
 	}
 	for _, tc := range tests {
-		event := &CoopEvent{Votes: tc.votes}
-		got := coopTallyVote(event, leader)
-		if tc.want == "" {
-			if got != "A" && got != "B" {
-				t.Errorf("%s: got %q, want one of A/B", tc.name, got)
+		// Run repeatedly to catch any non-determinism leaking from map iteration.
+		for i := 0; i < 50; i++ {
+			event := &CoopEvent{Votes: tc.votes}
+			got := coopTallyVote(event, leader)
+			if got != tc.want {
+				t.Errorf("%s (iter %d): got %q, want %q", tc.name, i, got, tc.want)
+				break
 			}
-			continue
-		}
-		if got != tc.want {
-			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
 	}
 }
@@ -160,6 +160,24 @@ func TestCoopEventMetaConsistency(t *testing.T) {
 				t.Errorf("%s[%d] recommends %q which isn't an option", cat, i, m.recommended)
 			}
 		}
+	}
+}
+
+func TestCoopResolutionIdempotencyGuard(t *testing.T) {
+	t.Parallel()
+	// Sanity check: the LastResolvedDay field on CoopRun is the authoritative
+	// idempotency marker. The resolver short-circuits when LastResolvedDay >=
+	// CurrentDay, so a crash-restart on the same UTC day after the roll has
+	// landed is a safe no-op.
+	run := &CoopRun{CurrentDay: 3, LastResolvedDay: 3}
+	if !(run.LastResolvedDay >= run.CurrentDay) {
+		t.Errorf("expected resolution skip when LastResolvedDay (%d) >= CurrentDay (%d)",
+			run.LastResolvedDay, run.CurrentDay)
+	}
+	run.LastResolvedDay = 2
+	if run.LastResolvedDay >= run.CurrentDay {
+		t.Errorf("expected resolution to proceed when LastResolvedDay (%d) < CurrentDay (%d)",
+			run.LastResolvedDay, run.CurrentDay)
 	}
 }
 

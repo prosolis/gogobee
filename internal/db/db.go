@@ -135,6 +135,8 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE adventure_characters ADD COLUMN pet_morning_defense INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE adventure_characters ADD COLUMN auto_babysit INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE adventure_characters ADD COLUMN streak_decayed INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE coop_dungeon_runs ADD COLUMN last_resolved_day INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE coop_dungeon_members ADD COLUMN member_payout INTEGER`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1375,18 +1377,19 @@ CREATE INDEX IF NOT EXISTS idx_tip_audit_action ON holdem_tip_audit(action, stre
 
 -- Co-op Dungeon (party multi-day runs)
 CREATE TABLE IF NOT EXISTS coop_dungeon_runs (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    tier            INTEGER NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'open',  -- open, active, complete, wiped, cancelled
-    leader_id       TEXT NOT NULL,
-    current_day     INTEGER NOT NULL DEFAULT 0,
-    total_days      INTEGER NOT NULL,
-    base_difficulty INTEGER NOT NULL,              -- per-floor failure % at zero modifier
-    gold_pool       INTEGER NOT NULL DEFAULT 0,    -- accumulated funding
-    reward_total    INTEGER NOT NULL DEFAULT 0,    -- final reward (set on completion)
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    locked_at       DATETIME,
-    completed_at    DATETIME
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    tier              INTEGER NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'open',  -- open, active, complete, wiped, cancelled
+    leader_id         TEXT NOT NULL,
+    current_day       INTEGER NOT NULL DEFAULT 0,
+    total_days        INTEGER NOT NULL,
+    base_difficulty   INTEGER NOT NULL,              -- per-floor failure % at zero modifier
+    gold_pool         INTEGER NOT NULL DEFAULT 0,    -- accumulated funding
+    reward_total      INTEGER NOT NULL DEFAULT 0,    -- final reward (set on completion)
+    last_resolved_day INTEGER NOT NULL DEFAULT 0,    -- crash-resume guard: highest day whose floor outcome is final
+    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    locked_at         DATETIME,
+    completed_at      DATETIME
 );
 CREATE INDEX IF NOT EXISTS idx_coop_runs_status ON coop_dungeon_runs(status);
 
@@ -1397,6 +1400,7 @@ CREATE TABLE IF NOT EXISTS coop_dungeon_members (
     total_contributed INTEGER NOT NULL DEFAULT 0,
     is_liability      INTEGER NOT NULL DEFAULT 0,
     daily_funding     TEXT NOT NULL DEFAULT '{}',  -- JSON: {"1":"standard","2":"all_in",...}
+    member_payout     INTEGER,                     -- NULL until reward credited; idempotency claim
     PRIMARY KEY (run_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_coop_members_user ON coop_dungeon_members(user_id);

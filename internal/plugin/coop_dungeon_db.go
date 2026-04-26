@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -13,18 +14,19 @@ import (
 )
 
 type CoopRun struct {
-	ID             int
-	Tier           int
-	Status         string
-	LeaderID       id.UserID
-	CurrentDay     int
-	TotalDays      int
-	BaseDifficulty int
-	GoldPool       int
-	RewardTotal    int
-	CreatedAt      time.Time
-	LockedAt       *time.Time
-	CompletedAt    *time.Time
+	ID              int
+	Tier            int
+	Status          string
+	LeaderID        id.UserID
+	CurrentDay      int
+	TotalDays       int
+	BaseDifficulty  int
+	GoldPool        int
+	RewardTotal     int
+	LastResolvedDay int
+	CreatedAt       time.Time
+	LockedAt        *time.Time
+	CompletedAt     *time.Time
 }
 
 type CoopMember struct {
@@ -53,10 +55,10 @@ func loadCoopRun(runID int) (*CoopRun, error) {
 	var leader string
 	var lockedAt, completedAt sql.NullTime
 	err := d.QueryRow(`SELECT id, tier, status, leader_id, current_day, total_days,
-		base_difficulty, gold_pool, reward_total, created_at, locked_at, completed_at
+		base_difficulty, gold_pool, reward_total, last_resolved_day, created_at, locked_at, completed_at
 		FROM coop_dungeon_runs WHERE id = ?`, runID).Scan(
 		&r.ID, &r.Tier, &r.Status, &leader, &r.CurrentDay, &r.TotalDays,
-		&r.BaseDifficulty, &r.GoldPool, &r.RewardTotal,
+		&r.BaseDifficulty, &r.GoldPool, &r.RewardTotal, &r.LastResolvedDay,
 		&r.CreatedAt, &lockedAt, &completedAt)
 	if err != nil {
 		return nil, err
@@ -92,7 +94,7 @@ func loadMostRecentOpenCoopRun() (*CoopRun, error) {
 func queryCoopRuns(whereClause string) ([]*CoopRun, error) {
 	d := db.Get()
 	rows, err := d.Query(`SELECT id, tier, status, leader_id, current_day, total_days,
-		base_difficulty, gold_pool, reward_total, created_at, locked_at, completed_at
+		base_difficulty, gold_pool, reward_total, last_resolved_day, created_at, locked_at, completed_at
 		FROM coop_dungeon_runs WHERE ` + whereClause)
 	if err != nil {
 		return nil, err
@@ -105,7 +107,7 @@ func queryCoopRuns(whereClause string) ([]*CoopRun, error) {
 		var leader string
 		var lockedAt, completedAt sql.NullTime
 		if err := rows.Scan(&r.ID, &r.Tier, &r.Status, &leader, &r.CurrentDay, &r.TotalDays,
-			&r.BaseDifficulty, &r.GoldPool, &r.RewardTotal,
+			&r.BaseDifficulty, &r.GoldPool, &r.RewardTotal, &r.LastResolvedDay,
 			&r.CreatedAt, &lockedAt, &completedAt); err != nil {
 			return nil, err
 		}
@@ -164,6 +166,14 @@ func completeCoopRun(runID int, status string, reward int) error {
 	_, err := d.Exec(`UPDATE coop_dungeon_runs
 		SET status = ?, reward_total = ?, completed_at = CURRENT_TIMESTAMP
 		WHERE id = ?`, status, reward, runID)
+	return err
+}
+
+// setCoopRunLastResolvedDay marks a day as resolved for crash-resume idempotency.
+// Resolution is idempotent: re-entering coopResolveFloor for the same day is a no-op.
+func setCoopRunLastResolvedDay(runID, day int) error {
+	d := db.Get()
+	_, err := d.Exec(`UPDATE coop_dungeon_runs SET last_resolved_day = ? WHERE id = ?`, day, runID)
 	return err
 }
 
@@ -232,6 +242,21 @@ func loadCoopMember(runID int, userID id.UserID) (*CoopMember, error) {
 	return m, nil
 }
 
+// claimCoopMemberPayout atomically claims a member's reward slot. Returns true
+// only if this call wins the race (member_payout was NULL and we set it).
+// Prevents double-credit on crash-retry.
+func claimCoopMemberPayout(runID int, userID id.UserID, payout int) (bool, error) {
+	d := db.Get()
+	res, err := d.Exec(`UPDATE coop_dungeon_members SET member_payout = ?
+		WHERE run_id = ? AND user_id = ? AND member_payout IS NULL`,
+		payout, runID, string(userID))
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 func saveCoopMemberFunding(m *CoopMember) error {
 	d := db.Get()
 	jsonBytes, err := json.Marshal(serializeCoopFundingMap(m.DailyFunding))
@@ -252,6 +277,7 @@ func parseCoopFundingMap(s string) map[int]CoopFundingTier {
 	}
 	raw := map[string]string{}
 	if err := json.Unmarshal([]byte(s), &raw); err != nil {
+		slog.Error("coop: parse funding map", "raw", s, "err", err)
 		return out
 	}
 	for k, v := range raw {
@@ -289,7 +315,9 @@ type CoopEvent struct {
 
 func createCoopEvent(runID, day int, cat CoopEventCategory, idx int, recommended string) error {
 	d := db.Get()
-	_, err := d.Exec(`INSERT INTO coop_dungeon_events
+	// INSERT OR IGNORE: idempotent on retry. If the row already exists from a
+	// prior tick, leave it untouched (don't re-roll the event index).
+	_, err := d.Exec(`INSERT OR IGNORE INTO coop_dungeon_events
 		(run_id, day, category, event_index, recommended) VALUES (?, ?, ?, ?, ?)`,
 		runID, day, string(cat), idx, recommended)
 	return err
@@ -390,6 +418,7 @@ func parseCoopVotes(s string) map[id.UserID]string {
 	}
 	raw := map[string]string{}
 	if err := json.Unmarshal([]byte(s), &raw); err != nil {
+		slog.Error("coop: parse votes map", "raw", s, "err", err)
 		return out
 	}
 	for k, v := range raw {

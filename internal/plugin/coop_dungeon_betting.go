@@ -255,6 +255,21 @@ func setCoopBetPayout(runID int, userID id.UserID, payout int) error {
 	return err
 }
 
+// claimCoopBetPayout atomically claims a bet for payout: returns true only if
+// this call wins the race (the row had payout IS NULL and we set it). Used to
+// prevent double-credit on retry after a mid-resolution crash.
+func claimCoopBetPayout(runID int, userID id.UserID, payout int) (bool, error) {
+	d := db.Get()
+	res, err := d.Exec(`UPDATE coop_dungeon_bets SET payout = ?
+		WHERE run_id = ? AND player_id = ? AND payout IS NULL`,
+		payout, runID, string(userID))
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 func loadMostRecentBettableCoopRun() (*CoopRun, error) {
 	runs, err := queryCoopRuns(`status IN ('open','active') ORDER BY id DESC LIMIT 1`)
 	if err != nil || len(runs) == 0 {
@@ -278,15 +293,22 @@ func (p *AdventurePlugin) coopResolveBets(run *CoopRun, won bool) string {
 	}
 	winners, total, rake, payouts := coopParimutuelPayouts(bets, winningPosition)
 
+	// Idempotent: claim each bet's payout slot (UPDATE...WHERE payout IS NULL)
+	// before crediting. If the claim fails, this bet was already paid by a
+	// prior resolution attempt — skip the credit. Prevents double-pay on
+	// crash-restart.
 	for _, b := range winners {
 		payout := payouts[b.PlayerID]
+		claimed, err := claimCoopBetPayout(run.ID, b.PlayerID, payout)
+		if err != nil || !claimed {
+			continue
+		}
 		if payout > 0 {
 			p.euro.Credit(b.PlayerID, float64(payout), "coop_bet_payout")
 		}
-		_ = setCoopBetPayout(run.ID, b.PlayerID, payout)
 	}
 	for _, b := range bets {
-		if b.Position != winningPosition {
+		if b.Position != winningPosition && !b.Payout.Valid {
 			_ = setCoopBetPayout(run.ID, b.PlayerID, 0)
 		}
 	}
