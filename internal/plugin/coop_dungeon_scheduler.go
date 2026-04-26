@@ -70,7 +70,7 @@ func (p *AdventurePlugin) coopProcessLocks() {
 			if gr != "" {
 				_ = p.SendMessage(gr, fmt.Sprintf("⚔️ Tier %d Co-op #%d expired with no party. Cancelled.", run.Tier, run.ID))
 			}
-			_ = p.SendDM(run.LeaderID, fmt.Sprintf("Co-op #%d expired before anyone joined. Combat action refunded.", run.ID))
+			_ = p.SendDM(run.LeaderID, fmt.Sprintf("Co-op #%d expired before anyone joined. No party, no run.", run.ID))
 			continue
 		}
 
