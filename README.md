@@ -30,7 +30,7 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
 - **50 plugins** with dependency injection and ordered registration
-- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict, difficulty tier display), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-20 letter words, guess persistence across restarts, midnight expiry announcements, video game themed bonus words with category hints, dupe prevention across last 500 puzzles, earnings tracked in stats), Adventure (daily idle RPG via DMs — dungeon, mine, forage, fish, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions, hospital revival system, Robbie the Friendly Bandit automated inventory cleaner), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), all with channel restriction
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict, difficulty tier display), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-20 letter words, guess persistence across restarts, midnight expiry announcements, video game themed bonus words with category hints, dupe prevention across last 500 puzzles, earnings tracked in stats), Adventure (daily idle RPG via DMs — dungeon, mine, forage, fish, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions, hospital revival system, Robbie the Friendly Bandit automated inventory cleaner), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), Co-op Dungeons (2–7 day party runs with funding tiers, TwinBee-narrated floor events with voting, spectator parimutuel betting, basket/mimic gift system, weighted-roll item distribution including masterworks at T4–T5), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - Palavra do Dia (Portuguese WOTD with en/fr translations and etymology), holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
@@ -530,7 +530,7 @@ Four activity types across 5 tiers of locations. Higher tiers require higher cha
 
 #### Blacksmith & Repair
 
-Equipment accumulates damage on bad outcomes and breaks at 0 condition. The blacksmith repairs gear for a per-point fee that scales with tier (base rates T1→T5: €1, €3, €8, €20, €55; masterwork and arena gear use the next tier up). `!adventure blacksmith` previews quotes; `!adventure repair all` or `!adventure repair <slot>` commits. Visiting the blacksmith counts as your daily action.
+Equipment accumulates damage on bad outcomes and breaks at 0 condition. The blacksmith repairs gear for a per-point fee that scales with tier (base rates T0→T5: €1, €2, €5, €12, €30, €80; masterwork and arena gear use the next tier up). The cost has a mild convexity (`baseRate × damage × (1 + damage/200)`), so repairing earlier is slightly cheaper per point than letting gear sit at low condition — but not punitively so. `!adventure blacksmith` previews quotes; `!adventure repair all` or `!adventure repair <slot>` commits. Visiting the blacksmith counts as your daily action.
 
 #### Babysitting Service
 
@@ -588,6 +588,58 @@ A multi-tier combat gauntlet independent of the daily adventure action. Fight th
 - **Rewards** — tier base payout * round number + battle skill * tier multiplier. Higher tiers and later rounds pay more.
 - **Auto-cashout** — 10 minutes to decide after clearing a tier. GogoBee cashes out on your behalf if you're slow.
 - **Tier entry confirmation** — `!arena tier N` previews the first opponent; `!arena fight` commits.
+
+#### Co-op Dungeons (`!coop`)
+
+Multi-day party runs separate from solo. 2–4 players, 2–7 days depending on tier, scaled rewards, and a public game-room thread the whole community watches. The combat action is consumed once at lock; subsequent days only ask for a daily funding decision (harvest activities continue normally).
+
+| Tier | Days | Difficulty | Reward Pool | Optimal Funding |
+|------|------|------------|-------------|-----------------|
+| 1 | 2 | Moderate | €22,500 | Minimal/Standard |
+| 2 | 3 | Hard | €40,000 | Standard |
+| 3 | 4 | Very Hard | €72,500 | Standard |
+| 4 | 5 | Brutal | €120,000 | Standard or Aggressive |
+| 5 | 7 | Murderous | €600,000 | Aggressive (must commit) |
+
+| Command | Description |
+|---------|-------------|
+| `!coop list` | Show open invites |
+| `!coop start <1-5>` | Open an invite (24h window, pinned in the games room) |
+| `!coop join [<id>]` | Join an open invite (defaults to most recent) |
+| `!coop fund <tier>` | Set today's funding (`none` / `minimal` / `standard` / `aggressive` / `all_in`) |
+| `!coop vote <A\|B\|C>` | Vote on the day's TwinBee-narrated floor event |
+| `!coop bet <amount> <success\|failure>` | Spectator parimutuel bet (10% rake) |
+| `!coop gift <run_id> <basket\|mimic>` | Send a gift (1 harvest action) |
+| `!coop giftvote <id> <open\|leave>` | Party votes whether to open a received gift |
+| `!coop status` | Your current run state |
+| `!coop stats` | Community-wide aggregates: outcomes, gold flow, betting, gifts, helpfulness |
+| `!coop cancel` | Leader cancels an open invite before lock |
+| `!coop help` | Co-op command list |
+
+**Funding tiers** add to the per-floor success modifier: None −10%, Minimal +0%, Standard +8%, Aggressive +18%, All-In +30%. None is free; Minimal €500/day; Standard €1,500; Aggressive €4,000; All-In €10,000. Funding is non-refundable. Inactive players auto-play None.
+
+**Floor events.** TwinBee narrates 1 of 4 categories per floor (Obstacle / Opportunity / Crisis / Encounter), tier-weighted. Each event has 2–3 options; majority vote wins, ties go to the leader, leader has the casting tiebreak. TwinBee always recommends an option — he is wrong roughly half the time. The party's vote modifier (−15 to +12 per floor depending on the option) stacks on the funding modifier. The 95% per-floor success cap means once you're saturated, more funding is wasted.
+
+**Party strength factors.** Each member contributes a small per-floor modifier based on their combat level relative to the tier minimum (clamped ±8) plus a pet bonus (max +2.5 at pet level 10). A maxed veteran party at T5 can succeed at Standard funding where a fresh party would need Aggressive.
+
+**Newbie liability.** Players below a tier's minimum combat level are flagged in the party post and capped at +8% funding modifier regardless of how much they pay. The party chose to let them in. Their reward share is unchanged — the cost is borne by the funding economy, not the post-run split.
+
+**Spectator betting.** Parimutuel pool, 10% rake. Bets can be placed or increased any time during the run; positions are locked in (success or failure can't be switched). Party members can bet on their own run — sandbagging while heavily bet against is exploitative and visible. Odds line shows estimated success% based on party levels, pets, neutral funding assumption, and a hidden TwinBee Helpfulness Rating (rolling last 30 floor events: how often his recommendation was right). Helpfulness shifts the line ±20% but is never shown directly — players notice the line moves after events resolve.
+
+**Gifts.** Anyone *not* in the run can spend one harvest action to send a Care Basket or a Mimic. The party never sees which type. Vote `open` or `leave`. Modifiers are EV-symmetric at a 50/50 sender mix:
+
+|             | Open | Leave |
+|-------------|------|-------|
+| **Care Basket** | +7% (boost) | −4% (basket explodes) |
+| **Mimic**       | −7% (mimic does what mimics do) | +4% (sad mimic helps anyway) |
+
+Multiple gifts stack additively — coordinated senders can swing odds significantly. The full gift log is public at end of run.
+
+**Loot.** On success, gold pool splits evenly (5% community tax). 2–6 items drop from the corresponding solo dungeon loot table (count scales with tier). Each item goes to a member via weighted roll — your share of total funding is your odds. **T5 always drops a masterwork**; T4 has a 25% chance. Masterworks go to inventory (not auto-equipped) so winners with better gear can sell or trade.
+
+**Wipes.** No reward. Funding is gone. No combat-action refund (the tick already gave you a fresh one at midnight). Bet pool pays out to the failure side. The dungeon does not editorialize.
+
+**Pinning.** Invite posts are pinned in the games room when opened, unpinned when the run locks or cancels. Bot needs power level for state events.
 
 ### Reminders
 | Command | Description |
