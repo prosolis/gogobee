@@ -16,21 +16,21 @@ import (
 
 // ── Gift Constants ──────────────────────────────────────────────────────────
 //
-// Modifiers chosen so the EV of "always open" vs "always leave" is symmetric
-// at a 50/50 sender mix — the party has to read the context, not the math.
+// Magnitudes equalized across all four outcomes so neither "always open" nor
+// "always leave" is variance-dominant at a 50/50 sender mix. Asymmetric
+// magnitudes (e.g., open=±7, leave=±4) gave leave the same EV with lower
+// variance, making it a dominant strategy for risk-averse parties — which
+// collapses the dilemma into "always leave."
 //
-//   basket opened:    +7        basket unopened:  -4
-//   mimic opened:     -7        mimic unopened:   +4
+//   basket opened:    +6        basket unopened:  -6
+//   mimic opened:     -6        mimic unopened:   +6
 //
-// At 50/50 sender mix:
-//   always open  EV = 0.5×(+7) + 0.5×(−7) = 0
-//   always leave EV = 0.5×(−4) + 0.5×(+4) = 0
-
+// Both strategies: EV=0, σ=6. The choice becomes "read sender intent" only.
 const (
-	coopGiftBasketOpened   = 7
-	coopGiftBasketUnopened = -4
-	coopGiftMimicOpened    = -7
-	coopGiftMimicUnopened  = 4
+	coopGiftBasketOpened   = 6
+	coopGiftBasketUnopened = -6
+	coopGiftMimicOpened    = -6
+	coopGiftMimicUnopened  = 6
 )
 
 const (

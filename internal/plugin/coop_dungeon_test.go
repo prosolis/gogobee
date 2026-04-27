@@ -293,6 +293,31 @@ func TestCoopGiftEVSymmetric(t *testing.T) {
 	}
 }
 
+func TestCoopGiftVarianceSymmetric(t *testing.T) {
+	t.Parallel()
+	// Equal EV is not enough — if open and leave have different variance, a
+	// risk-averse party always picks the lower-variance side and the
+	// dilemma collapses. Magnitudes must be equal across all four outcomes.
+	abs := func(x int) int {
+		if x < 0 {
+			return -x
+		}
+		return x
+	}
+	mags := []int{
+		abs(coopGiftBasketOpened),
+		abs(coopGiftBasketUnopened),
+		abs(coopGiftMimicOpened),
+		abs(coopGiftMimicUnopened),
+	}
+	for i := 1; i < len(mags); i++ {
+		if mags[i] != mags[0] {
+			t.Errorf("gift magnitudes must be equal across all four outcomes; got %v", mags)
+			break
+		}
+	}
+}
+
 func TestCoopParimutuelNoWinners(t *testing.T) {
 	t.Parallel()
 	bets := []CoopBet{
