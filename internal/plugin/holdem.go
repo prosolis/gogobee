@@ -971,6 +971,12 @@ func (p *HoldemPlugin) broadcastDM(game *HoldemGame, msg string) {
 		if pl.IsNPC || pl.State == PlayerSatOut {
 			continue
 		}
+		// Skip players whose DM room IS the game room — they already saw
+		// the message via the public-room post (solo-vs-bot case, where
+		// game.RoomID == player's DM).
+		if pl.DMRoomID == game.RoomID {
+			continue
+		}
 		p.SendMessage(pl.DMRoomID, msg)
 	}
 }
