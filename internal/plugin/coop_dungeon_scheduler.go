@@ -14,20 +14,24 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-// coopTicker fires once per UTC day to:
-//  1. Lock open invites whose 24h window has elapsed.
-//  2. For each active run, resolve the day's floor and advance/complete.
+// coopTicker has two cadences:
 //
-// Reuses the daily_prefetch job-completion guard so a bot restart on the same
-// UTC day does not double-process.
+//  1. Lock checks fire every minute. They're cheap (one timestamp comparison
+//     per open run) and a 24h invite window is poorly served by a 24h tick —
+//     a run started after 08:00 UTC would otherwise wait 30-48h to lock.
+//  2. Floor resolution fires once per UTC day at morningHour, gated by the
+//     daily_prefetch JobCompleted guard. Resolution is the heavy step that
+//     advances days, distributes rewards, and posts to the room.
 func (p *AdventurePlugin) coopTicker() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	for range ticker.C {
+		// Locks: every minute.
+		p.coopProcessLocks()
+
+		// Resolutions: once per day at morningHour:00 UTC.
 		now := time.Now().UTC()
-		// Run at the same minute as the morning DM (08:00 UTC) — same cadence as
-		// the rest of the adventure system.
 		if now.Hour() != p.morningHour || now.Minute() != 0 {
 			continue
 		}
@@ -36,8 +40,7 @@ func (p *AdventurePlugin) coopTicker() {
 		if db.JobCompleted(jobName, dateKey) {
 			continue
 		}
-		slog.Info("coop: daily tick")
-		p.coopProcessLocks()
+		slog.Info("coop: daily tick — resolving active runs")
 		p.coopProcessActiveRuns()
 		db.MarkJobCompleted(jobName, dateKey)
 	}
