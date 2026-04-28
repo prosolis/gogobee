@@ -104,6 +104,8 @@ func (p *AdventurePlugin) handleCoopCmd(ctx MessageContext) error {
 		return p.handleCoopGift(ctx, strings.TrimSpace(args[5:]))
 	case strings.HasPrefix(lower, "giftvote "):
 		return p.handleCoopGiftVote(ctx, strings.TrimSpace(args[9:]))
+	case strings.HasPrefix(lower, "admgift "):
+		return p.handleCoopAdmGift(ctx, strings.TrimSpace(args[8:]))
 	}
 
 	return p.SendDM(ctx.Sender, "Unknown coop command. Try `!coop help`.")
@@ -363,6 +365,62 @@ func (p *AdventurePlugin) handleCoopCancel(ctx MessageContext) error {
 		_ = p.SendMessage(gr, fmt.Sprintf("⚔️ Tier %d Co-op #%d cancelled by the leader.", run.Tier, run.ID))
 	}
 	return p.SendDM(ctx.Sender, fmt.Sprintf("Run #%d cancelled.", run.ID))
+}
+
+// handleCoopAdmGift is an admin-only debug path that creates a gift on
+// behalf of the caller (or a specified sender) without the harvest-action
+// or party-membership checks. Useful for testing the gift mechanic without
+// recruiting a non-party spectator.
+//
+// Usage: !coop admgift <run_id> <basket|mimic> [sender_user_id]
+func (p *AdventurePlugin) handleCoopAdmGift(ctx MessageContext, args string) error {
+	if !p.IsAdmin(ctx.Sender) {
+		return nil
+	}
+	parts := strings.Fields(args)
+	if len(parts) < 2 {
+		return p.SendDM(ctx.Sender, "Usage: `!coop admgift <run_id> <basket|mimic> [sender_user_id]`. Admin-only — bypasses party-member and harvest checks.")
+	}
+	runID, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Run ID must be a number.")
+	}
+	giftType := strings.ToLower(parts[1])
+	if giftType != coopGiftBasket && giftType != coopGiftMimic {
+		return p.SendDM(ctx.Sender, "Gift type must be `basket` or `mimic`.")
+	}
+	sender := ctx.Sender
+	if len(parts) >= 3 {
+		sender = id.UserID(parts[2])
+	}
+
+	run, err := loadCoopRun(runID)
+	if err != nil || run == nil {
+		return p.SendDM(ctx.Sender, "Run not found.")
+	}
+	if run.Status != "active" {
+		return p.SendDM(ctx.Sender, fmt.Sprintf("Run #%d is %s — gifts only land during active runs.", runID, run.Status))
+	}
+
+	giftID, err := createCoopGift(runID, sender, run.CurrentDay, giftType)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't create gift.")
+	}
+
+	gr := gamesRoom()
+	if gr != "" {
+		gift, _ := loadCoopGift(giftID)
+		members, _ := loadCoopMembers(runID)
+		if gift != nil {
+			postID, perr := p.SendMessageID(gr, renderCoopGiftPost(run, gift, members))
+			if perr == nil {
+				_ = saveCoopGiftPostID(giftID, postID)
+			}
+		}
+	}
+
+	return p.SendDM(ctx.Sender, fmt.Sprintf("📦 Admin gift dispatched: %s from %s to run #%d (day %d). Gift id #%d. No harvest action consumed.",
+		giftType, sender, runID, run.CurrentDay, giftID))
 }
 
 func (p *AdventurePlugin) handleCoopVote(ctx MessageContext, voteArg string) error {
