@@ -614,6 +614,7 @@ Multi-day party runs separate from solo. 2–4 players, 2–7 days depending on 
 | `!coop status` | Your current run state |
 | `!coop stats` | Community-wide aggregates: outcomes, gold flow, betting, gifts, helpfulness |
 | `!coop cancel` | Leader cancels an open invite before lock |
+| `!coop admgift <run_id> <basket\|mimic> [sender]` | Drop a gift into an active run, bypassing party-member and harvest-action checks (admin only — debug/testing) |
 | `!coop help` | Co-op command list |
 
 **Funding tiers** add to the per-floor success modifier: None −10%, Minimal +0%, Standard +8%, Aggressive +18%, All-In +30%. None is free; Minimal €500/day; Standard €1,500; Aggressive €4,000; All-In €10,000. Funding is non-refundable. Inactive players auto-play None.
