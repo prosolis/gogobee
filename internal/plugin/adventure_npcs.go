@@ -154,11 +154,12 @@ func (p *AdventurePlugin) npcFireEncounter(userID id.UserID, npc string) {
 		return
 	}
 
-	// Set pending interaction
+	// Set pending interaction — NPC encounters stay valid until end of UTC day
+	endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Add(24 * time.Hour)
 	p.pending.Store(string(userID), &advPendingInteraction{
 		Type:      "npc_encounter",
 		Data:      npc,
-		ExpiresAt: time.Now().Add(advDMResponseWindow),
+		ExpiresAt: endOfDay,
 	})
 
 	if err := p.SendDM(userID, prompt); err != nil {
