@@ -412,7 +412,7 @@ func (p *AdventurePlugin) handleCoopAdmGift(ctx MessageContext, args string) err
 		gift, _ := loadCoopGift(giftID)
 		members, _ := loadCoopMembers(runID)
 		if gift != nil {
-			postID, perr := p.SendMessageID(gr, renderCoopGiftPost(run, gift, members))
+			postID, perr := p.SendMessageID(gr, renderCoopGiftPost(p, run, gift, members))
 			if perr == nil {
 				_ = saveCoopGiftPostID(giftID, postID)
 			}

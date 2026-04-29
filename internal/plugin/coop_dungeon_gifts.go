@@ -119,7 +119,7 @@ func (p *AdventurePlugin) handleCoopGift(ctx MessageContext, args string) error 
 	if gr != "" {
 		gift, _ := loadCoopGift(giftID)
 		members, _ := loadCoopMembers(runID)
-		postID, err := p.SendMessageID(gr, renderCoopGiftPost(run, gift, members))
+		postID, err := p.SendMessageID(gr, renderCoopGiftPost(p, run, gift, members))
 		if err == nil {
 			_ = saveCoopGiftPostID(giftID, postID)
 		}
@@ -182,7 +182,7 @@ func (p *AdventurePlugin) handleCoopGiftVote(ctx MessageContext, args string) er
 	gr := gamesRoom()
 	if gr != "" && gift.PostEventID != "" {
 		members, _ := loadCoopMembers(run.ID)
-		_ = p.EditMessage(gr, gift.PostEventID, renderCoopGiftPost(run, gift, members))
+		_ = p.EditMessage(gr, gift.PostEventID, renderCoopGiftPost(p, run, gift, members))
 	}
 	return p.SendDM(ctx.Sender, fmt.Sprintf("Gift #%d vote recorded: %s.", gift.ID, choice))
 }
@@ -588,17 +588,34 @@ func markCoopGiftApplied(giftID int) (bool, error) {
 
 // ── Render ──────────────────────────────────────────────────────────────────
 
-func renderCoopGiftPost(run *CoopRun, gift *CoopGift, members []CoopMember) string {
+func renderCoopGiftPost(p *AdventurePlugin, run *CoopRun, gift *CoopGift, members []CoopMember) string {
 	var sb strings.Builder
-	flavor := ""
-	if len(TwinBeeGiftArrival) > 0 {
-		flavor = TwinBeeGiftArrival[rand.IntN(len(TwinBeeGiftArrival))]
-	}
 	sb.WriteString(fmt.Sprintf("📦 **Gift #%d arrived — Co-op #%d, Day %d**\n\n", gift.ID, run.ID, gift.Day))
-	if flavor != "" {
+
+	// Tally before substitution so the flavor's "Open: {count} · Leave it: {count}"
+	// renders with real numbers.
+	opens, leaves := 0, 0
+	for _, v := range gift.Votes {
+		if v == "open" {
+			opens++
+		} else if v == "leave" {
+			leaves++
+		}
+	}
+	leaderName := coopDisplayName(p, run.LeaderID)
+
+	// Pick a flavor entry and substitute its template fields. Two {count}
+	// placeholders are positional: first = opens, second = leaves.
+	if len(TwinBeeGiftArrival) > 0 {
+		flavor := TwinBeeGiftArrival[rand.IntN(len(TwinBeeGiftArrival))]
+		flavor = strings.Replace(flavor, "{count}", strconv.Itoa(opens), 1)
+		flavor = strings.Replace(flavor, "{count}", strconv.Itoa(leaves), 1)
+		flavor = strings.ReplaceAll(flavor, "{leader}", leaderName)
 		sb.WriteString(flavor)
 		sb.WriteString("\n\n")
 	}
+
+	// Actionable line — the flavor doesn't include the actual command.
 	closesIn := ""
 	if gift.ExpiresAt != nil {
 		remaining := time.Until(*gift.ExpiresAt).Truncate(time.Minute)
@@ -608,16 +625,8 @@ func renderCoopGiftPost(run *CoopRun, gift *CoopGift, members []CoopMember) stri
 			closesIn = " · voting closing"
 		}
 	}
-	sb.WriteString("Vote with `!coop giftvote " + strconv.Itoa(gift.ID) + " open|leave`" + closesIn + ".\n\n")
-	opens, leaves := 0, 0
-	for _, v := range gift.Votes {
-		if v == "open" {
-			opens++
-		} else if v == "leave" {
-			leaves++
-		}
-	}
-	sb.WriteString(fmt.Sprintf("Current votes: open (%d) · leave (%d)", opens, leaves))
+	sb.WriteString("Vote with `!coop giftvote " + strconv.Itoa(gift.ID) + " open|leave`" + closesIn + ".")
+
 	awaiting := 0
 	for _, m := range members {
 		if _, ok := gift.Votes[m.UserID]; !ok {
