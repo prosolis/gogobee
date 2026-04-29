@@ -128,6 +128,9 @@ func (p *AdventurePlugin) Init() error {
 	if err := resetAllAdvDailyActions(); err != nil {
 		slog.Error("adventure: startup daily reset failed", "err", err)
 	}
+	if err := lockCoopCombatActions(); err != nil {
+		slog.Error("adventure: startup coop combat lock failed", "err", err)
+	}
 	// Revive any characters whose DeadUntil has expired
 	p.catchUpRespawns(chars)
 

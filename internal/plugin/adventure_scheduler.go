@@ -422,6 +422,13 @@ func (p *AdventurePlugin) midnightReset() error {
 		slog.Warn("adventure: daily action reset failed, retrying", "attempt", attempt+1, "err", resetErr)
 		time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
 	}
+	if resetErr == nil {
+		// Re-lock combat for active co-op participants after the universal
+		// reset would otherwise have given them a fresh combat action.
+		if err := lockCoopCombatActions(); err != nil {
+			slog.Error("adventure: post-reset coop combat lock failed", "err", err)
+		}
+	}
 	if resetErr != nil {
 		return fmt.Errorf("reset daily actions after 3 attempts: %w", resetErr)
 	}

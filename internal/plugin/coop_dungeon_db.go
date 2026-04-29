@@ -172,6 +172,23 @@ func completeCoopRun(runID int, status string, reward int) error {
 	return err
 }
 
+// lockCoopCombatActions sets combat_actions_used to a value that exceeds the
+// holiday cap on every active co-op participant. Called after the midnight
+// reset (which would otherwise zero them) and at bot startup. Combat stays
+// locked for the full duration of the run — players in a co-op cannot also
+// solo-grind dungeons or arena.
+func lockCoopCombatActions() error {
+	d := db.Get()
+	_, err := d.Exec(`UPDATE adventure_characters
+		SET combat_actions_used = 99
+		WHERE user_id IN (
+			SELECT m.user_id FROM coop_dungeon_members m
+			JOIN coop_dungeon_runs r ON r.id = m.run_id
+			WHERE r.status = 'active'
+		)`)
+	return err
+}
+
 func setCoopRunInvitePostID(runID int, postID id.EventID) error {
 	d := db.Get()
 	_, err := d.Exec(`UPDATE coop_dungeon_runs SET invite_post_id = ? WHERE id = ?`, string(postID), runID)

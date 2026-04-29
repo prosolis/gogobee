@@ -283,11 +283,26 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 		harvestMax++
 	}
 	combatLeft := combatMax - char.CombatActionsUsed
+	if combatLeft < 0 {
+		combatLeft = 0
+	}
 	harvestLeft := harvestMax - char.HarvestActionsUsed
-	sb.WriteString(fmt.Sprintf("📋 **Actions:** %d/%d combat · %d/%d harvest\n\n", combatLeft, combatMax, harvestLeft, harvestMax))
+
+	// Co-op participants have combat locked for the duration of the run.
+	coopRun, _ := loadCoopRunForUser(char.UserID)
+	inCoop := coopRun != nil && coopRun.Status == "active"
+
+	if inCoop {
+		sb.WriteString(fmt.Sprintf("📋 **Actions:** combat locked (in Co-op #%d, day %d/%d) · %d/%d harvest\n\n",
+			coopRun.ID, coopRun.CurrentDay, coopRun.TotalDays, harvestLeft, harvestMax))
+	} else {
+		sb.WriteString(fmt.Sprintf("📋 **Actions:** %d/%d combat · %d/%d harvest\n\n", combatLeft, combatMax, harvestLeft, harvestMax))
+	}
 
 	// Location choices
-	if char.CanDoCombat(isHol) {
+	if inCoop {
+		sb.WriteString(fmt.Sprintf("**1️⃣ Dungeon:** _(off in the Co-op, no solo combat — `!coop status` for run state)_\n"))
+	} else if char.CanDoCombat(isHol) {
 		sb.WriteString("**1️⃣ Dungeon:**\n")
 		for _, el := range advEligibleLocations(char, equip, AdvActivityDungeon, bonuses) {
 			warn := ""
