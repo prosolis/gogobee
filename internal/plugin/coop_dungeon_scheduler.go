@@ -148,11 +148,15 @@ func (p *AdventurePlugin) coopProcessActiveRuns() {
 		slog.Error("coop: load active runs", "err", err)
 		return
 	}
-	today := time.Now().UTC().Format("2006-01-02")
+	now := time.Now().UTC()
 	for _, run := range runs {
-		// Skip runs locked on this same tick — they need a full day for
-		// funding decisions and voting before the first floor resolves.
-		if run.LockedAt != nil && run.LockedAt.UTC().Format("2006-01-02") == today {
+		// Need at least a 12h funding window between lock and the first
+		// floor resolution. Without this, a run locked at 07:00 UTC would
+		// resolve an hour later at 08:00 UTC. With per-minute lock checks
+		// (locks now fire any time), the previous "same UTC date" guard
+		// was too conservative — it pushed first-day windows out to 24-32h
+		// even when 13-23h would have been plenty.
+		if run.LockedAt != nil && now.Sub(run.LockedAt.UTC()) < 12*time.Hour {
 			continue
 		}
 		if err := p.coopResolveFloor(run); err != nil {
