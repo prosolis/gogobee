@@ -402,25 +402,30 @@ func (p *AdventurePlugin) handleCoopAdmGift(ctx MessageContext, args string) err
 		return p.SendDM(ctx.Sender, fmt.Sprintf("Run #%d is %s — gifts only land during active runs.", runID, run.Status))
 	}
 
-	giftID, err := createCoopGift(runID, sender, run.CurrentDay, giftType)
+	giftID, leadID, isNewLead, err := createCoopGift(runID, sender, run.CurrentDay, giftType)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't create gift.")
 	}
 
 	gr := gamesRoom()
 	if gr != "" {
-		gift, _ := loadCoopGift(giftID)
 		members, _ := loadCoopMembers(runID)
-		if gift != nil {
+		if isNewLead {
+			gift, _ := loadCoopGift(giftID)
 			postID, perr := p.SendMessageID(gr, renderCoopGiftPost(p, run, gift, members))
 			if perr == nil {
 				_ = saveCoopGiftPostID(giftID, postID)
 			}
+		} else {
+			lead, _ := loadCoopGift(leadID)
+			if lead != nil && lead.PostEventID != "" {
+				_ = p.EditMessage(gr, lead.PostEventID, renderCoopGiftPost(p, run, lead, members))
+			}
 		}
 	}
 
-	return p.SendDM(ctx.Sender, fmt.Sprintf("📦 Admin gift dispatched: %s from %s to run #%d (day %d). Gift id #%d. No harvest action consumed.",
-		giftType, sender, runID, run.CurrentDay, giftID))
+	return p.SendDM(ctx.Sender, fmt.Sprintf("📦 Admin gift dispatched: %s from %s to run #%d (day %d). Gift id #%d (stack lead %d). No harvest action consumed.",
+		giftType, sender, runID, run.CurrentDay, giftID, leadID))
 }
 
 func (p *AdventurePlugin) handleCoopVote(ctx MessageContext, voteArg string) error {

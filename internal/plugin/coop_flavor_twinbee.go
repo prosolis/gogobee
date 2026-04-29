@@ -389,6 +389,19 @@ var TwinBeeGiftArrival = []string{
 		"Majority rules. Ties go to {leader}.",
 }
 
+// ── GIFT STACK ESCALATION ─────────────────────────────────────────────────────
+// Posted once when a stack reaches size 2+. TwinBee notes the escalation and
+// then leaves it alone — further additions silently bump the count without
+// fresh narration.
+
+var TwinBeeGiftStackEscalation = []string{
+	"Oh snap.. upon closer inspection, this gift stack looks REALLY special!",
+	"Wait wait wait. Wait. There's MORE. Someone else sent something! This is becoming an event!",
+	"Hold on -- is this... another one? Someone really wants you to have this. The energy here is escalating!",
+	"Plot twist! This isn't just a gift, it's a gift situation. I love a gift situation!",
+	"That's not one gift, that's a whole stack of gifts! Someone is COMMITTED. I respect commitment!",
+}
+
 // ── GIFT OUTCOME NARRATION ────────────────────────────────────────────────────
 
 // Care basket opened (good outcome):

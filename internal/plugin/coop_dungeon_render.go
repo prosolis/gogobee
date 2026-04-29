@@ -217,22 +217,43 @@ func renderCoopStatus(p *AdventurePlugin, run *CoopRun, members []CoopMember) st
 		sb.WriteString(renderCoopOddsLine(run, members, bets))
 	}
 
-	// Pending gift list with per-gift countdowns. Voting windows expire
-	// independently throughout the day, so this is the canonical place to
-	// see what's still open.
+	// Pending stacks with per-stack countdowns. Each game-room post is one
+	// stack (lead + N followers); we show the lead's id and the stack size.
 	if run.Status == "active" {
 		all, _ := loadAllCoopGifts(run.ID)
-		var pending []CoopGift
-		for _, g := range all {
-			if g.VoteResult == "" {
-				pending = append(pending, g)
-			}
+		// Group unresolved gifts by lead. Followers contribute to the size
+		// but use the lead's expiry/votes.
+		type stackInfo struct {
+			lead  CoopGift
+			size  int
 		}
-		if len(pending) > 0 {
+		stacks := map[int]*stackInfo{}
+		order := []int{}
+		for _, g := range all {
+			if g.VoteResult != "" {
+				continue
+			}
+			leadID := g.ID
+			if g.StackLeadID != nil {
+				leadID = *g.StackLeadID
+			}
+			s, ok := stacks[leadID]
+			if !ok {
+				s = &stackInfo{}
+				stacks[leadID] = s
+				order = append(order, leadID)
+			}
+			if g.StackLeadID == nil {
+				s.lead = g
+			}
+			s.size++
+		}
+		if len(stacks) > 0 {
 			sb.WriteString("\n\nPending gifts:\n")
-			for _, g := range pending {
+			for _, leadID := range order {
+				s := stacks[leadID]
 				opens, leaves := 0, 0
-				for _, v := range g.Votes {
+				for _, v := range s.lead.Votes {
 					if v == "open" {
 						opens++
 					} else if v == "leave" {
@@ -240,16 +261,20 @@ func renderCoopStatus(p *AdventurePlugin, run *CoopRun, members []CoopMember) st
 					}
 				}
 				countdown := "—"
-				if g.ExpiresAt != nil {
-					remaining := time.Until(*g.ExpiresAt).Truncate(time.Minute)
+				if s.lead.ExpiresAt != nil {
+					remaining := time.Until(*s.lead.ExpiresAt).Truncate(time.Minute)
 					if remaining > 0 {
 						countdown = remaining.String()
 					} else {
 						countdown = "closing"
 					}
 				}
-				sb.WriteString(fmt.Sprintf("  #%d (day %d) — open %d / leave %d — closes in %s\n",
-					g.ID, g.Day, opens, leaves, countdown))
+				stackLabel := fmt.Sprintf("#%d", s.lead.ID)
+				if s.size > 1 {
+					stackLabel = fmt.Sprintf("#%d ×%d", s.lead.ID, s.size)
+				}
+				sb.WriteString(fmt.Sprintf("  %s (day %d) — open %d / leave %d — closes in %s\n",
+					stackLabel, s.lead.Day, opens, leaves, countdown))
 			}
 		}
 	}
