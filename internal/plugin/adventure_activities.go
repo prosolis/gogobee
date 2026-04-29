@@ -603,9 +603,20 @@ func advCheckBrokenEquipment(equip map[EquipmentSlot]*AdvEquipment) []EquipmentS
 // advOverlevelMultiplier returns a multiplier (0.05–1.0) that reduces XP and
 // loot when a character's effective level far exceeds the location's minimum.
 // Gap 0-3: no penalty. Gap 4+: −15% per level over 3, floor 5%.
-func advOverlevelMultiplier(effectiveLevel, minLevel int) float64 {
-	gap := effectiveLevel - minLevel
+// No penalty if no higher-tier location of the same activity is accessible.
+func advOverlevelMultiplier(effectiveLevel int, loc *AdvLocation) float64 {
+	gap := effectiveLevel - loc.MinLevel
 	if gap <= 3 {
+		return 1.0
+	}
+	hasHigherAccessible := false
+	for _, other := range allAdvLocations(loc.Activity) {
+		if other.MinLevel > loc.MinLevel && other.MinLevel <= effectiveLevel {
+			hasHigherAccessible = true
+			break
+		}
+	}
+	if !hasHigherAccessible {
 		return 1.0
 	}
 	mult := 1.0 - 0.15*float64(gap-3)
@@ -644,7 +655,7 @@ func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEqui
 
 	// Overlevel penalty — reduces loot and XP for farming low-tier content
 	skillLevel := advEffectiveSkill(char, loc.Activity, bonuses)
-	overlevelMult := advOverlevelMultiplier(skillLevel, loc.MinLevel)
+	overlevelMult := advOverlevelMultiplier(skillLevel, loc)
 
 	// Roll outcome
 	roll := rand.Float64() * 100

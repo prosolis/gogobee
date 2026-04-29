@@ -524,7 +524,7 @@ func (p *AdventurePlugin) resolveDungeonAction(
 
 	// Overlevel penalty
 	skillLevel := advEffectiveSkill(char, loc.Activity, bonuses)
-	overlevelMult := advOverlevelMultiplier(skillLevel, loc.MinLevel)
+	overlevelMult := advOverlevelMultiplier(skillLevel, loc)
 
 	// Loot on success/exceptional
 	if result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional {
