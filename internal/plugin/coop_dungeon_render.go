@@ -216,5 +216,42 @@ func renderCoopStatus(p *AdventurePlugin, run *CoopRun, members []CoopMember) st
 		sb.WriteString("\n")
 		sb.WriteString(renderCoopOddsLine(run, members, bets))
 	}
+
+	// Pending gift list with per-gift countdowns. Voting windows expire
+	// independently throughout the day, so this is the canonical place to
+	// see what's still open.
+	if run.Status == "active" {
+		all, _ := loadAllCoopGifts(run.ID)
+		var pending []CoopGift
+		for _, g := range all {
+			if g.VoteResult == "" {
+				pending = append(pending, g)
+			}
+		}
+		if len(pending) > 0 {
+			sb.WriteString("\n\nPending gifts:\n")
+			for _, g := range pending {
+				opens, leaves := 0, 0
+				for _, v := range g.Votes {
+					if v == "open" {
+						opens++
+					} else if v == "leave" {
+						leaves++
+					}
+				}
+				countdown := "—"
+				if g.ExpiresAt != nil {
+					remaining := time.Until(*g.ExpiresAt).Truncate(time.Minute)
+					if remaining > 0 {
+						countdown = remaining.String()
+					} else {
+						countdown = "closing"
+					}
+				}
+				sb.WriteString(fmt.Sprintf("  #%d (day %d) — open %d / leave %d — closes in %s\n",
+					g.ID, g.Day, opens, leaves, countdown))
+			}
+		}
+	}
 	return sb.String()
 }
