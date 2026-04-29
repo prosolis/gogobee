@@ -339,9 +339,19 @@ type CraftResult struct {
 	Success bool
 }
 
+// craftXPRewards: per-tier foraging XP granted on successful (and tiny on
+// failed) auto-crafts. Successful T1 ≈ 30% of a Foraging Success haul, scaling
+// up so T5 grants are meaningful. Failures get a token consolation grant —
+// you tried.
+var craftXPSuccess = map[int]int{1: 12, 2: 25, 3: 40, 4: 60, 5: 90}
+var craftXPFailure = map[int]int{1: 3, 2: 5, 3: 8, 4: 12, 5: 18}
+
 // autoCraftConsumables scans the player's inventory for craftable recipes and
 // attempts to craft the highest-tier recipe available. Consumes ingredients on
 // attempt; on failure one ingredient is lost. Returns crafted items and results.
+//
+// Side effects: grants foraging XP per attempt (success > failure) and bumps
+// the player's CraftsSucceeded counter on each success.
 func autoCraftConsumables(userID id.UserID, items []AdvItem, foragingLevel int) ([]CraftResult, []AdvItem) {
 	if foragingLevel < 10 {
 		return nil, items
@@ -393,6 +403,13 @@ func autoCraftConsumables(userID id.UserID, items []AdvItem, foragingLevel int) 
 			}
 			results = append(results, CraftResult{Recipe: bestRecipe, Success: true})
 			crafted++
+			// Foraging XP + lifetime counter bump.
+			if char, err := loadAdvCharacter(userID); err == nil {
+				char.ForagingXP += craftXPSuccess[bestRecipe.Tier]
+				char.CraftsSucceeded++
+				checkAdvLevelUp(char, "foraging")
+				_ = saveAdvCharacter(char)
+			}
 		} else {
 			// Failure: all ingredients destroyed
 			for _, id := range ingredientIDs {
@@ -400,6 +417,12 @@ func autoCraftConsumables(userID id.UserID, items []AdvItem, foragingLevel int) 
 			}
 			remaining = removeItemsByIDs(remaining, ingredientIDs)
 			results = append(results, CraftResult{Recipe: bestRecipe, Success: false})
+			// Token foraging XP for the attempt.
+			if char, err := loadAdvCharacter(userID); err == nil {
+				char.ForagingXP += craftXPFailure[bestRecipe.Tier]
+				checkAdvLevelUp(char, "foraging")
+				_ = saveAdvCharacter(char)
+			}
 		}
 	}
 

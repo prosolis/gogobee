@@ -95,6 +95,7 @@ type AdventureCharacter struct {
 	PetMorningDefense   bool
 	AutoBabysit         bool
 	StreakDecayed        bool
+	CraftsSucceeded     int
 }
 
 type AdvEquipment struct {
@@ -445,7 +446,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		       pet_chased_away, pet_reactivated, pet_arrived,
 		       misty_encounter_count, misty_donated_count,
 		       thom_animal_line_fired, pet_supply_shop_unlocked, pet_level10_date,
-		       pet_morning_defense, auto_babysit, streak_decayed
+		       pet_morning_defense, auto_babysit, streak_decayed, crafts_succeeded
 		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -470,7 +471,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&petChasedAway, &petReactivated, &petArrived,
 		&c.MistyEncounterCount, &c.MistyDonatedCount,
 		&thomAnimalLine, &petSupplyUnlocked, &c.PetLevel10Date,
-		&petMorningDef, &autoBabysit, &streakDecayed,
+		&petMorningDef, &autoBabysit, &streakDecayed, &c.CraftsSucceeded,
 	)
 	if err != nil {
 		return nil, err
@@ -638,7 +639,8 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 			thom_animal_line_fired = ?, pet_supply_shop_unlocked = ?, pet_level10_date = ?,
 			pet_morning_defense = ?,
 			auto_babysit = ?,
-			streak_decayed = ?
+			streak_decayed = ?,
+			crafts_succeeded = ?
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
@@ -664,6 +666,7 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 		petMorningDef,
 		autoBabysit,
 		streakDecayed,
+		char.CraftsSucceeded,
 		string(char.UserID),
 	)
 	return err
@@ -794,7 +797,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		       pet_chased_away, pet_reactivated, pet_arrived,
 		       misty_encounter_count, misty_donated_count,
 		       thom_animal_line_fired, pet_supply_shop_unlocked, pet_level10_date,
-		       pet_morning_defense, auto_babysit, streak_decayed
+		       pet_morning_defense, auto_babysit, streak_decayed, crafts_succeeded
 		FROM adventure_characters`)
 	if err != nil {
 		return nil, err
@@ -834,7 +837,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 			&petChasedAway, &petReactivated, &petArrived,
 			&c.MistyEncounterCount, &c.MistyDonatedCount,
 			&thomAnimalLine, &petSupplyUnlocked, &c.PetLevel10Date,
-			&petMorningDef, &autoBabysit, &streakDecayed,
+			&petMorningDef, &autoBabysit, &streakDecayed, &c.CraftsSucceeded,
 		); err != nil {
 			return nil, err
 		}
