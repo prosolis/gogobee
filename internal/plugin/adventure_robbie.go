@@ -184,8 +184,10 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 func robbieQualifyingItems(inv []AdvItem, equip map[EquipmentSlot]*AdvEquipment) []AdvItem {
 	var result []AdvItem
 	for _, item := range inv {
-		// Never touch Arena gear or cards
-		if item.Type == "ArenaGear" || item.Type == "card" {
+		// Never touch Arena gear, cards, or consumables. Consumables are a
+		// player-curated stockpile (crafted or dropped); selling them is an
+		// explicit decision the player must make themselves.
+		if item.Type == "ArenaGear" || item.Type == "card" || item.Type == "consumable" {
 			continue
 		}
 
