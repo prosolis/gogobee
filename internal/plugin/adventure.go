@@ -267,6 +267,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleRepairSlotCmd(ctx, strings.TrimSpace(args[7:]))
 	case lower == "boost":
 		return p.handleBoostCmd(ctx)
+	case lower == "recipes":
+		return p.handleRecipesCmd(ctx)
 	}
 
 	return p.SendDM(ctx.Sender, "Unknown command. Type `!adventure help` to see available commands.")
@@ -290,6 +292,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure blacksmith`" + ` — Visit the blacksmith (view repair costs)
 ` + "`!adventure repair all`" + ` — Repair all damaged equipment
 ` + "`!adventure repair <slot>`" + ` — Repair a specific slot
+` + "`!adventure recipes`" + ` — List crafting recipes known at your current Foraging level
 ` + "`!coop`" + ` — Co-op dungeons (multi-day party runs). See ` + "`!coop help`" + `.
 ` + "`!hospital`" + ` — Visit St. Guildmore's Memorial Hospital (same-day revival when dead)
 ` + "`!thom`" + ` — Visit Thom Krooke (housing and loans)
@@ -1341,6 +1344,14 @@ func advApplyBoost(result *AdvActionResult) {
 		result.LootItems[i].Value *= 2
 		result.TotalLootValue += result.LootItems[i].Value
 	}
+}
+
+func (p *AdventurePlugin) handleRecipesCmd(ctx MessageContext) error {
+	char, _, err := p.ensureCharacter(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Failed to load your character.")
+	}
+	return p.SendDM(ctx.Sender, renderRecipesKnown(char.ForagingSkill))
 }
 
 func (p *AdventurePlugin) handleBoostCmd(ctx MessageContext) error {

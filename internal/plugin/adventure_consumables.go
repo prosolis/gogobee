@@ -1,8 +1,10 @@
 package plugin
 
 import (
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 
 	"maunium.net/go/mautrix/id"
 )
@@ -337,6 +339,61 @@ func craftingSuccessRate(foragingLevel, minForaging int) float64 {
 type CraftResult struct {
 	Recipe  *CraftingRecipe
 	Success bool
+}
+
+// renderRecipesKnown returns a player-facing list of recipes available at
+// their current foraging level, plus a teaser line for the next unlock
+// threshold. Hides exact ingredient lists for recipes the player hasn't
+// unlocked — only the count of locked recipes is shown.
+func renderRecipesKnown(foragingLevel int) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🧪 **Crafting Recipes** — Foraging Lv.%d\n\n", foragingLevel))
+
+	if foragingLevel < 10 {
+		sb.WriteString("_Auto-crafting unlocks at Foraging Lv.10. Keep gathering._")
+		return sb.String()
+	}
+
+	// Group recipes by tier, list those known.
+	known := map[int][]CraftingRecipe{}
+	totalKnown := 0
+	totalLocked := 0
+	nextUnlock := 0
+	for _, r := range craftingRecipes {
+		if r.MinForaging <= foragingLevel {
+			known[r.Tier] = append(known[r.Tier], r)
+			totalKnown++
+		} else {
+			totalLocked++
+			if nextUnlock == 0 || r.MinForaging < nextUnlock {
+				nextUnlock = r.MinForaging
+			}
+		}
+	}
+
+	for tier := 1; tier <= 5; tier++ {
+		recipes := known[tier]
+		if len(recipes) == 0 {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("**Tier %d** (Foraging %d+)\n", tier, recipes[0].MinForaging))
+		for _, r := range recipes {
+			rate := craftingSuccessRate(foragingLevel, r.MinForaging) * 100
+			sb.WriteString(fmt.Sprintf("  • %s — %s (%.0f%% success)\n",
+				r.Result, strings.Join(r.Ingredients, " + "), rate))
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("\nKnown: %d · ", totalKnown))
+	if totalLocked == 0 {
+		sb.WriteString("All recipes unlocked. ⭐")
+	} else {
+		sb.WriteString(fmt.Sprintf("Locked: %d (next unlock at Foraging Lv.%d)", totalLocked, nextUnlock))
+	}
+
+	maxCrafts := 1 + (foragingLevel-10)/10
+	sb.WriteString(fmt.Sprintf("\nMax auto-crafts per combat: %d.", maxCrafts))
+	return sb.String()
 }
 
 // craftXPRewards: per-tier foraging XP granted on successful (and tiny on
