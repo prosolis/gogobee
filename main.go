@@ -15,6 +15,7 @@ import (
 	"gogobee/internal/dreamclient"
 	"gogobee/internal/plugin"
 	"gogobee/internal/util"
+	"gogobee/internal/version"
 
 	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
@@ -35,7 +36,7 @@ func main() {
 		logLevel = "info"
 	}
 	util.InitLogger(logLevel)
-	slog.Info("logger initialized", "level", logLevel,
+	slog.Info(version.Full(), "level", logLevel,
 		"ollama_host", os.Getenv("OLLAMA_HOST"),
 		"ollama_model", os.Getenv("OLLAMA_MODEL"))
 
@@ -52,6 +53,7 @@ func main() {
 	if err := db.SeedSchedulerDefaults(db.Get()); err != nil {
 		slog.Warn("seed scheduler defaults failed", "err", err)
 	}
+	db.RecordStartup(version.Version, version.Commit)
 
 	// Create Matrix client
 	cfg := bot.Config{
@@ -132,7 +134,7 @@ func main() {
 	registry.Register(plugin.NewBlackjackPlugin(client, euroPlugin))
 	registry.Register(plugin.NewUnoPlugin(client, euroPlugin))
 	registry.Register(plugin.NewHoldemPlugin(client, euroPlugin))
-	adventurePlugin := plugin.NewAdventurePlugin(client, euroPlugin)
+	adventurePlugin := plugin.NewAdventurePlugin(client, euroPlugin, xpPlugin)
 	registry.Register(adventurePlugin)
 	wordlePlugin := plugin.NewWordlePlugin(client, euroPlugin, dictClient)
 	registry.Register(wordlePlugin)
@@ -207,6 +209,7 @@ func main() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				slog.Error("member event handler panic", "panic", rec, "room", evt.RoomID)
+				db.RecordCrash(version.Short(), "member_handler", fmt.Sprintf("%v", rec))
 			}
 		}()
 
@@ -239,6 +242,7 @@ func main() {
 			if rec := recover(); rec != nil {
 				slog.Error("message event handler panic", "panic", rec,
 					"sender", evt.Sender, "room", evt.RoomID)
+				db.RecordCrash(version.Short(), "message_handler", fmt.Sprintf("%v", rec))
 			}
 		}()
 
@@ -283,6 +287,7 @@ func main() {
 			if rec := recover(); rec != nil {
 				slog.Error("reaction event handler panic", "panic", rec,
 					"sender", evt.Sender, "room", evt.RoomID)
+				db.RecordCrash(version.Short(), "reaction_handler", fmt.Sprintf("%v", rec))
 			}
 		}()
 
@@ -349,6 +354,7 @@ syncLoop:
 		}
 	}
 
+	db.Close()
 	slog.Info("GogoBee stopped")
 }
 

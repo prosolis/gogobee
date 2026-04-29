@@ -16,6 +16,7 @@ import (
 var (
 	mu       sync.Mutex
 	globalDB *sql.DB
+	dataPath string
 )
 
 // Init opens (or creates) the SQLite database and runs migrations.
@@ -44,6 +45,7 @@ func Init(dataDir string) error {
 	}
 
 	globalDB = d
+	dataPath = dataDir
 	slog.Info("database initialized", "path", dbPath)
 	return nil
 }
@@ -54,6 +56,18 @@ func Get() *sql.DB {
 		panic("db.Get() called before db.Init()")
 	}
 	return globalDB
+}
+
+// Close closes the database connection. Call on shutdown.
+func Close() {
+	mu.Lock()
+	defer mu.Unlock()
+	if globalDB != nil {
+		if err := globalDB.Close(); err != nil {
+			slog.Error("db: close failed", "err", err)
+		}
+		globalDB = nil
+	}
 }
 
 func runMigrations(d *sql.DB) error {
@@ -83,6 +97,50 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE adventure_characters ADD COLUMN robbie_visit_count INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE wordle_stats ADD COLUMN total_earned INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE adventure_characters ADD COLUMN last_death_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN combat_actions_used INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN harvest_actions_used INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN last_pardon_used DATETIME`,
+		`ALTER TABLE arena_runs ADD COLUMN tier_earnings INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE arena_runs ADD COLUMN xp_accumulated INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_last_seen DATETIME`,
+		`ALTER TABLE adventure_characters ADD COLUMN arina_last_seen DATETIME`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_buff_expires DATETIME`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_debuff_expires DATETIME`,
+		`ALTER TABLE adventure_characters ADD COLUMN arina_buff_expires DATETIME`,
+		`ALTER TABLE adventure_characters ADD COLUMN npc_msg_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN npc_msg_count_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_roll_target INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN arina_roll_target INTEGER NOT NULL DEFAULT 0`,
+		// Housing
+		`ALTER TABLE adventure_characters ADD COLUMN house_tier INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN house_loan_balance INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN house_loan_frozen INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN house_missed_payments INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN house_autopay INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN house_current_rate REAL NOT NULL DEFAULT 0`,
+		// Pets
+		`ALTER TABLE adventure_characters ADD COLUMN pet_type TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_xp INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_level INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_armor_tier INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_chased_away INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_reactivated INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_arrived INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_encounter_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN misty_donated_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN thom_animal_line_fired INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_supply_shop_unlocked INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_level10_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN pet_morning_defense INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN auto_babysit INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN streak_decayed INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE coop_dungeon_runs ADD COLUMN last_resolved_day INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE coop_dungeon_members ADD COLUMN member_payout INTEGER`,
+		`ALTER TABLE coop_dungeon_runs ADD COLUMN invite_post_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE coop_dungeon_gifts ADD COLUMN expires_at DATETIME`,
+		`ALTER TABLE coop_dungeon_gifts ADD COLUMN applied_at DATETIME`,
+		`ALTER TABLE coop_dungeon_gifts ADD COLUMN stack_lead_id INTEGER`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -115,6 +173,50 @@ func MarkJobCompleted(jobName, dateKey string) {
 	)
 }
 
+// RecordCrash logs a panic/crash event with version and plugin context.
+func RecordCrash(botVersion, plugin, message string) {
+	if globalDB == nil {
+		return
+	}
+	Exec("crash log",
+		`INSERT INTO crash_log (bot_version, plugin, message) VALUES (?, ?, ?)`,
+		botVersion, plugin, message,
+	)
+}
+
+// RecordTipAudit logs a poker tip with full context for bulk review.
+func RecordTipAudit(userID, hole, board, street, position string, numActive int, equityPct float64, pot, toCall, stack int64, spr float64, handCat, drawDesc, preflopTier, action, tipText string) {
+	if globalDB == nil {
+		return
+	}
+	Exec("tip audit",
+		`INSERT INTO holdem_tip_audit (user_id, hole, board, street, position, num_active, equity_pct, pot, to_call, stack, spr, hand_cat, draw_desc, preflop_tier, action, tip_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, hole, board, street, position, numActive, equityPct, pot, toCall, stack, spr, handCat, drawDesc, preflopTier, action, tipText,
+	)
+}
+
+// RecordStartup logs a version startup event.
+func RecordStartup(version, commit string) {
+	Exec("version history",
+		`INSERT INTO version_history (version, commit_sha) VALUES (?, ?)`,
+		version, commit,
+	)
+}
+
+// CrashCount returns the number of crashes for a given bot version.
+func CrashCount(botVersion string) int {
+	var count int
+	_ = Get().QueryRow(`SELECT COUNT(*) FROM crash_log WHERE bot_version = ?`, botVersion).Scan(&count)
+	return count
+}
+
+// CrashCountAll returns the total number of recorded crashes.
+func CrashCountAll() int {
+	var count int
+	_ = Get().QueryRow(`SELECT COUNT(*) FROM crash_log`).Scan(&count)
+	return count
+}
+
 // CacheGet returns cached data for the given key if it exists and is within ttlSeconds.
 // Returns empty string if not cached or expired.
 func CacheGet(key string, ttlSeconds int) string {
@@ -137,6 +239,47 @@ func CacheSet(key, data string) {
 		 ON CONFLICT(cache_key) DO UPDATE SET data = ?, cached_at = unixepoch()`,
 		key, data, data,
 	)
+}
+
+// Backup creates a consistent snapshot of the database using VACUUM INTO.
+// Keeps the last 7 daily backups, deleting older ones.
+func Backup() error {
+	backupDir := filepath.Join(dataPath, "backups")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return fmt.Errorf("create backup dir: %w", err)
+	}
+
+	filename := fmt.Sprintf("gogobee_%s.db", time.Now().UTC().Format("2006-01-02"))
+	backupPath := filepath.Join(backupDir, filename)
+
+	_, err := Get().Exec(fmt.Sprintf(`VACUUM INTO '%s'`, backupPath))
+	if err != nil {
+		return fmt.Errorf("vacuum into backup: %w", err)
+	}
+
+	slog.Info("database backup created", "path", backupPath)
+
+	// Prune backups older than 7 days
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		return nil // backup succeeded, prune failure is non-fatal
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -7)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".db") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			os.Remove(filepath.Join(backupDir, e.Name()))
+			slog.Info("pruned old backup", "file", e.Name())
+		}
+	}
+
+	return nil
 }
 
 // RunMaintenance purges stale data from cache tables, old rate limits,
@@ -695,6 +838,8 @@ CREATE TABLE IF NOT EXISTS euro_balances (
 	updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_euro_bal_user ON euro_balances(user_id);
+
 CREATE TABLE IF NOT EXISTS euro_transactions (
 	id           INTEGER PRIMARY KEY AUTOINCREMENT,
 	user_id      TEXT NOT NULL,
@@ -1027,6 +1172,8 @@ CREATE TABLE IF NOT EXISTS arena_runs (
 	ended_at        INTEGER
 );
 
+CREATE INDEX IF NOT EXISTS idx_arena_runs_user ON arena_runs(user_id, status);
+
 CREATE TABLE IF NOT EXISTS arena_history (
 	id              INTEGER PRIMARY KEY AUTOINCREMENT,
 	user_id         TEXT NOT NULL,
@@ -1187,6 +1334,126 @@ CREATE TABLE IF NOT EXISTS lottery_history (
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS crash_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_version TEXT NOT NULL,
+    plugin      TEXT NOT NULL DEFAULT '',
+    message     TEXT NOT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS version_history (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    version    TEXT NOT NULL,
+    commit_sha TEXT NOT NULL DEFAULT '',
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tax_ledger (
+    user_id    TEXT PRIMARY KEY,
+    total_paid INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS holdem_tip_audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     TEXT NOT NULL,
+    hole        TEXT NOT NULL,
+    board       TEXT NOT NULL DEFAULT '',
+    street      TEXT NOT NULL,
+    position    TEXT NOT NULL,
+    num_active  INTEGER NOT NULL,
+    equity_pct  REAL NOT NULL,
+    pot         INTEGER NOT NULL,
+    to_call     INTEGER NOT NULL,
+    stack       INTEGER NOT NULL,
+    spr         REAL NOT NULL,
+    hand_cat    TEXT NOT NULL DEFAULT '',
+    draw_desc   TEXT NOT NULL DEFAULT '',
+    preflop_tier TEXT NOT NULL DEFAULT '',
+    action      TEXT NOT NULL,
+    tip_text    TEXT NOT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_tip_audit_user ON holdem_tip_audit(user_id);
+CREATE INDEX IF NOT EXISTS idx_tip_audit_action ON holdem_tip_audit(action, street);
+
+-- Co-op Dungeon (party multi-day runs)
+CREATE TABLE IF NOT EXISTS coop_dungeon_runs (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    tier              INTEGER NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'open',  -- open, active, complete, wiped, cancelled
+    leader_id         TEXT NOT NULL,
+    current_day       INTEGER NOT NULL DEFAULT 0,
+    total_days        INTEGER NOT NULL,
+    base_difficulty   INTEGER NOT NULL,              -- per-floor failure % at zero modifier
+    gold_pool         INTEGER NOT NULL DEFAULT 0,    -- accumulated funding
+    reward_total      INTEGER NOT NULL DEFAULT 0,    -- final reward (set on completion)
+    last_resolved_day INTEGER NOT NULL DEFAULT 0,    -- crash-resume guard: highest day whose floor outcome is final
+    invite_post_id    TEXT NOT NULL DEFAULT '',      -- Matrix event ID of the games-room invite (for pin/unpin)
+    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    locked_at         DATETIME,
+    completed_at      DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_coop_runs_status ON coop_dungeon_runs(status);
+
+CREATE TABLE IF NOT EXISTS coop_dungeon_members (
+    run_id            INTEGER NOT NULL,
+    user_id           TEXT NOT NULL,
+    turn_order        INTEGER NOT NULL,
+    total_contributed INTEGER NOT NULL DEFAULT 0,
+    is_liability      INTEGER NOT NULL DEFAULT 0,
+    daily_funding     TEXT NOT NULL DEFAULT '{}',  -- JSON: {"1":"standard","2":"all_in",...}
+    member_payout     INTEGER,                     -- NULL until reward credited; idempotency claim
+    PRIMARY KEY (run_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_coop_members_user ON coop_dungeon_members(user_id);
+
+CREATE TABLE IF NOT EXISTS coop_dungeon_events (
+    run_id           INTEGER NOT NULL,
+    day              INTEGER NOT NULL,
+    category         TEXT NOT NULL,                  -- obstacle, opportunity, crisis, encounter
+    event_index      INTEGER NOT NULL,               -- index into the category flavor pool
+    recommended      TEXT NOT NULL,                  -- A, B, or C — TwinBee's pick
+    votes            TEXT NOT NULL DEFAULT '{}',     -- JSON {"@user:host": "A"}
+    winning_vote     TEXT DEFAULT NULL,
+    outcome          TEXT DEFAULT NULL,              -- 'success' or 'failure' (after resolution)
+    modifier_applied INTEGER DEFAULT 0,
+    post_event_id    TEXT DEFAULT NULL,              -- Matrix event ID for live edit
+    PRIMARY KEY (run_id, day)
+);
+CREATE INDEX IF NOT EXISTS idx_coop_events_outcome ON coop_dungeon_events(outcome);
+
+CREATE TABLE IF NOT EXISTS coop_dungeon_bets (
+    run_id     INTEGER NOT NULL,
+    player_id  TEXT NOT NULL,
+    position   TEXT NOT NULL,                 -- 'success' or 'failure'
+    amount     INTEGER NOT NULL,
+    placed_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    payout     INTEGER,                       -- NULL until run resolves
+    PRIMARY KEY (run_id, player_id)
+);
+CREATE INDEX IF NOT EXISTS idx_coop_bets_run ON coop_dungeon_bets(run_id);
+
+CREATE TABLE IF NOT EXISTS coop_dungeon_gifts (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id        INTEGER NOT NULL,
+    sender_id     TEXT NOT NULL,
+    day           INTEGER NOT NULL,
+    gift_type     TEXT NOT NULL,                 -- 'basket' or 'mimic'
+    votes         TEXT NOT NULL DEFAULT '{}',    -- JSON {"@user:host": "open"|"leave"}
+    vote_result   TEXT,                          -- 'opened' or 'left'
+    outcome       TEXT,                          -- 'boost' or 'reduction'
+    modifier      INTEGER NOT NULL DEFAULT 0,
+    post_event_id TEXT,
+    sent_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at    DATETIME,                      -- voting closes; tally fires when reached
+    resolved_at   DATETIME,                      -- vote tallied (vote_result/modifier set)
+    applied_at    DATETIME,                      -- modifier merged into a floor success roll
+    stack_lead_id INTEGER                        -- NULL for lead/standalone; follower points to lead's id
+);
+CREATE INDEX IF NOT EXISTS idx_coop_gifts_run_day ON coop_dungeon_gifts(run_id, day, vote_result);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

@@ -42,7 +42,7 @@ func (p *AdventurePlugin) robbieTicker() {
 			slog.Info("adventure: robbie target hour set", "hour", robbieTargetHour, "date", dateKey)
 		}
 
-		if now.Hour() != robbieTargetHour || now.Minute() != 0 {
+		if now.Hour() < robbieTargetHour {
 			continue
 		}
 
@@ -122,7 +122,11 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 			continue
 		}
 		takenItems = append(takenItems, item)
-		totalPayout += 50
+		payout := item.Value / 4
+		if payout < 1 {
+			payout = 1
+		}
+		totalPayout += payout
 		communityTotal += item.Value
 		if item.Type == "MasterworkGear" {
 			masterworkTaken = true
@@ -180,15 +184,18 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 func robbieQualifyingItems(inv []AdvItem, equip map[EquipmentSlot]*AdvEquipment) []AdvItem {
 	var result []AdvItem
 	for _, item := range inv {
-		// Only gear with a slot (skip ores, wood, fruit, gems, fish, etc.)
-		if item.Slot == "" {
-			continue
-		}
 		// Never touch Arena gear or cards
 		if item.Type == "ArenaGear" || item.Type == "card" {
 			continue
 		}
 
+		// Non-gear items (ores, fish, junk, treasure, etc.) — always take
+		if item.Slot == "" {
+			result = append(result, item)
+			continue
+		}
+
+		// Slotted gear — check against equipped piece
 		eq, hasSlot := equip[item.Slot]
 		if !hasSlot {
 			continue
@@ -243,14 +250,18 @@ func renderRobbieDM(userID id.UserID, items []AdvItem, total int64, mwTaken, gav
 	cardShownOnLine := false
 	for _, item := range items {
 		emoji := slotEmoji(item.Slot)
+		payout := item.Value / 4
+		if payout < 1 {
+			payout = 1
+		}
 		if item.Type == "MasterworkGear" {
-			sb.WriteString(fmt.Sprintf("  %s  %s (Masterwork T%d)   → €50", emoji, item.Name, item.Tier))
+			sb.WriteString(fmt.Sprintf("  %s  %s (Masterwork T%d)   → €%d", emoji, item.Name, item.Tier, payout))
 			if gaveCard && !cardShownOnLine {
 				sb.WriteString("  + 🃏 Get Out of Medical Debt Free card")
 				cardShownOnLine = true
 			}
 		} else {
-			sb.WriteString(fmt.Sprintf("  %s  %s (T%d)   → €50", emoji, item.Name, item.Tier))
+			sb.WriteString(fmt.Sprintf("  %s  %s (T%d)   → €%d", emoji, item.Name, item.Tier, payout))
 		}
 		sb.WriteByte('\n')
 	}

@@ -85,7 +85,7 @@ func (p *URLsPlugin) OnMessage(ctx MessageContext) error {
 		return nil
 	}
 
-	go p.previewURL(ctx, urls[0])
+	safeGo("url-preview", func() { p.previewURL(ctx, urls[0]) })
 	return nil
 }
 

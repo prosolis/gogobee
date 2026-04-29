@@ -56,7 +56,7 @@ func twinBeeMaxTier() int {
 		if !c.Alive {
 			continue
 		}
-		combined := c.CombatLevel + c.MiningSkill + c.ForagingSkill
+		combined := c.CombatLevel + c.MiningSkill + c.ForagingSkill + c.FishingSkill
 		if combined > bestLevel {
 			bestLevel = combined
 		}
@@ -236,7 +236,7 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 
 	var eligible []id.UserID
 	for _, c := range chars {
-		if c.ActionTakenToday {
+		if c.HasActedToday() {
 			eligible = append(eligible, c.UserID)
 		}
 	}
@@ -264,12 +264,12 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 	var players []eligiblePlayer
 	totalWeight := 0
 	for _, uid := range eligible {
-		weight := 3 // minimum (level 1 in all 3 skills)
+		weight := 4 // minimum (level 1 in all 4 skills)
 		for _, c := range chars {
 			if c.UserID == uid {
-				weight = c.CombatLevel + c.MiningSkill + c.ForagingSkill
-				if weight < 3 {
-					weight = 3
+				weight = c.CombatLevel + c.MiningSkill + c.ForagingSkill + c.FishingSkill
+				if weight < 4 {
+					weight = 4
 				}
 				break
 			}
@@ -289,7 +289,8 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 		if share < 1 {
 			share = 1
 		}
-		p.euro.Credit(ep.uid, float64(share), "twinbee_daily_share")
+		net, _ := communityTax(ep.uid, float64(share), 0.05)
+		p.euro.Credit(ep.uid, net, "twinbee_daily_share")
 		totalDistributed += share
 		if rollTwinBeeGift(ep.uid) {
 			summary.GiftCount++

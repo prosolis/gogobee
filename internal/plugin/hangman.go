@@ -296,7 +296,8 @@ func NewHangmanPlugin(client *mautrix.Client, euro *EuroPlugin, dict *dreamclien
 	}
 }
 
-func (p *HangmanPlugin) Name() string { return "hangman" }
+func (p *HangmanPlugin) Name() string    { return "hangman" }
+func (p *HangmanPlugin) Version() string { return "1.1.0" }
 
 func (p *HangmanPlugin) Commands() []CommandDef {
 	return []CommandDef{
@@ -820,10 +821,11 @@ func (p *HangmanPlugin) endGame(roomID id.RoomID, game *hangmanGame) error {
 				payout = share * p.bonusMul
 				label = " (early solve bonus!)"
 			}
-			p.euro.Credit(uid, payout, "hangman_win")
-			p.recordHangmanScore(uid, payout)
+			net, _ := communityTax(uid, payout, 0.05)
+			p.euro.Credit(uid, net, "hangman_win")
+			p.recordHangmanScore(uid, net)
 			name := p.DisplayName(uid)
-			sb.WriteString(fmt.Sprintf("  **%s**: +€%d%s\n", name, int(payout), label))
+			sb.WriteString(fmt.Sprintf("  **%s**: +€%d%s\n", name, int(net), label))
 		}
 	}
 

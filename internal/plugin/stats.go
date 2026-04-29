@@ -30,7 +30,8 @@ func NewStatsPlugin(client *mautrix.Client) *StatsPlugin {
 	}
 }
 
-func (p *StatsPlugin) Name() string { return "stats" }
+func (p *StatsPlugin) Name() string    { return "stats" }
+func (p *StatsPlugin) Version() string { return "1.1.0" }
 
 func (p *StatsPlugin) Commands() []CommandDef {
 	return []CommandDef{
@@ -199,6 +200,9 @@ func (p *StatsPlugin) handleStats(ctx MessageContext) error {
 		avgWords = totalWords / totalMsg
 	}
 
+	var taxPaid int
+	_ = d.QueryRow(`SELECT total_paid FROM tax_ledger WHERE user_id = ?`, string(target)).Scan(&taxPaid)
+
 	msg := fmt.Sprintf(
 		"📊 Stats for %s\n"+
 			"Messages: %s | Words: %s | Chars: %s\n"+
@@ -213,6 +217,9 @@ func (p *StatsPlugin) handleStats(ctx MessageContext) error {
 		formatNumber(nightMsg), formatNumber(morningMsg),
 		avgWords,
 	)
+	if taxPaid > 0 {
+		msg += fmt.Sprintf("\n🏛️ Community tax paid: %s", fmtEuro(taxPaid))
+	}
 	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
@@ -322,8 +329,15 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 	var achievementCount int
 	_ = d.QueryRow(`SELECT COUNT(*) FROM achievements WHERE user_id = ?`, uid).Scan(&achievementCount)
 
-	sb.WriteString(fmt.Sprintf("⭐ **Level %d** · %s XP · 💰 €%.0f · 🏅 %d achievements\n\n",
-		level, formatNumber(xp), balance, achievementCount))
+	var taxPaid int
+	_ = d.QueryRow(`SELECT total_paid FROM tax_ledger WHERE user_id = ?`, uid).Scan(&taxPaid)
+
+	taxLine := ""
+	if taxPaid > 0 {
+		taxLine = fmt.Sprintf(" · 🏛️ %s tax paid", fmtEuro(taxPaid))
+	}
+	sb.WriteString(fmt.Sprintf("⭐ **Level %d** · %s XP · 💰 €%.0f · 🏅 %d achievements%s\n\n",
+		level, formatNumber(xp), balance, achievementCount, taxLine))
 
 	// ── Chat Stats ──
 	var totalMsg, totalWords, totalLinks, totalEmojis, totalQuestions int

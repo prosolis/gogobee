@@ -201,11 +201,26 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 		sb.WriteString(" — `!adventure rivals` for details\n")
 	}
 
-	// Today's action
-	if char.ActionTakenToday {
-		sb.WriteString("\n📅 Today: Action taken")
+	// Today's actions
+	isHolSheet, _ := isHolidayToday()
+	combatMax := maxCombatActions
+	harvestMax := maxHarvestActions
+	if isHolSheet {
+		combatMax++
+		harvestMax++
+	}
+	combatRemaining := combatMax - char.CombatActionsUsed
+	if combatRemaining < 0 {
+		combatRemaining = 0
+	}
+	harvestRemaining := harvestMax - char.HarvestActionsUsed
+	if harvestRemaining < 0 {
+		harvestRemaining = 0
+	}
+	if char.HasActedToday() {
+		sb.WriteString(fmt.Sprintf("\n📅 Today: %d combat, %d harvest actions remaining", combatRemaining, harvestRemaining))
 	} else {
-		sb.WriteString("\n📅 Today: No action yet — reply to morning DM or type `!adventure`")
+		sb.WriteString(fmt.Sprintf("\n📅 Today: %d combat, %d harvest actions available", combatRemaining, harvestRemaining))
 	}
 
 	return sb.String()
@@ -218,7 +233,7 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 
 	// Holiday notice (before greeting)
 	if holidayName != "" {
-		sb.WriteString(fmt.Sprintf("🎉 Happy %s! In recognition of %s, you are able to take **two actions** today.\n\n", holidayName, holidayName))
+		sb.WriteString(fmt.Sprintf("🎉 Happy %s! In recognition of %s, you get an extra combat and harvest action today.\n\n", holidayName, holidayName))
 	}
 
 	// Pick a morning greeting
@@ -259,100 +274,87 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 		sb.WriteString("\n\n")
 	}
 
+	// Action budget
+	isHol := holidayName != ""
+	combatMax := maxCombatActions
+	harvestMax := maxHarvestActions
+	if isHol {
+		combatMax++
+		harvestMax++
+	}
+	combatLeft := combatMax - char.CombatActionsUsed
+	if combatLeft < 0 {
+		combatLeft = 0
+	}
+	harvestLeft := harvestMax - char.HarvestActionsUsed
+
+	// Co-op participants have combat locked for the duration of the run.
+	coopRun, _ := loadCoopRunForUser(char.UserID)
+	inCoop := coopRun != nil && coopRun.Status == "active"
+
+	if inCoop {
+		sb.WriteString(fmt.Sprintf("📋 **Actions:** combat locked (in Co-op #%d, day %d/%d) · %d/%d harvest\n\n",
+			coopRun.ID, coopRun.CurrentDay, coopRun.TotalDays, harvestLeft, harvestMax))
+	} else {
+		sb.WriteString(fmt.Sprintf("📋 **Actions:** %d/%d combat · %d/%d harvest\n\n", combatLeft, combatMax, harvestLeft, harvestMax))
+	}
+
 	// Location choices
-	sb.WriteString("**1️⃣ Dungeon:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityDungeon, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
+	if inCoop {
+		sb.WriteString(fmt.Sprintf("**1️⃣ Dungeon:** _(off in the Co-op, no solo combat — `!coop status` for run state)_\n"))
+	} else if char.CanDoCombat(isHol) {
+		sb.WriteString("**1️⃣ Dungeon:**\n")
+		for _, el := range advEligibleLocations(char, equip, AdvActivityDungeon, bonuses) {
+			warn := ""
+			if el.InPenaltyZone {
+				warn = " ⚠️"
+			}
+			sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
 		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
+	} else {
+		sb.WriteString("**1️⃣ Dungeon:** _(no combat actions remaining)_\n")
 	}
 
-	sb.WriteString("**2️⃣ Mine:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityMining, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
+	if char.CanDoHarvest(isHol) {
+		sb.WriteString("**2️⃣ Mine:**\n")
+		for _, el := range advEligibleLocations(char, equip, AdvActivityMining, bonuses) {
+			warn := ""
+			if el.InPenaltyZone {
+				warn = " ⚠️"
+			}
+			sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
 		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-	}
 
-	sb.WriteString("**3️⃣ Forage:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityForaging, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
+		sb.WriteString("**3️⃣ Forage:**\n")
+		for _, el := range advEligibleLocations(char, equip, AdvActivityForaging, bonuses) {
+			warn := ""
+			if el.InPenaltyZone {
+				warn = " ⚠️"
+			}
+			sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
 		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-	}
 
-	sb.WriteString("**4️⃣ Fish:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityFishing, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
+		sb.WriteString("**4️⃣ Fish:**\n")
+		for _, el := range advEligibleLocations(char, equip, AdvActivityFishing, bonuses) {
+			warn := ""
+			if el.InPenaltyZone {
+				warn = " ⚠️"
+			}
+			sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
 		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
+	} else {
+		sb.WriteString("**2️⃣ Mine:** _(no harvest actions remaining)_\n")
+		sb.WriteString("**3️⃣ Forage:** _(no harvest actions remaining)_\n")
+		sb.WriteString("**4️⃣ Fish:** _(no harvest actions remaining)_\n")
 	}
 
 	sb.WriteString("**5️⃣ Shop** — buy/sell gear and loot\n")
 	sb.WriteString("**6️⃣ Blacksmith** — repair damaged equipment\n")
-	sb.WriteString("**7️⃣ Rest** — skip today, bank your luck\n\n")
+	sb.WriteString("**7️⃣ Rest** — skip today, bank your luck\n")
+	sb.WriteString("**8️⃣ Thom** — `!thom` visit Krooke Realty 🏠\n\n")
 
 	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`\n")
 	sb.WriteString("You have until midnight UTC to choose.")
-
-	return sb.String()
-}
-
-// ── Holiday Second Action Prompt ──────────────────────────────────────────────
-
-func renderAdvHolidaySecondPrompt(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, bonuses *AdvBonusSummary) string {
-	var sb strings.Builder
-
-	sb.WriteString("✅ Action 1 complete.\n\nNow choose your **second action**:\n\n")
-
-	sb.WriteString("**1️⃣ Dungeon:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityDungeon, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
-		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-	}
-
-	sb.WriteString("**2️⃣ Mine:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityMining, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
-		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-	}
-
-	sb.WriteString("**3️⃣ Forage:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityForaging, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
-		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-	}
-
-	sb.WriteString("**4️⃣ Fish:**\n")
-	for _, el := range advEligibleLocations(char, equip, AdvActivityFishing, bonuses) {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
-		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-	}
-
-	sb.WriteString("**5️⃣ Shop** — buy/sell gear and loot\n")
-	sb.WriteString("**6️⃣ Blacksmith** — repair damaged equipment\n")
-	sb.WriteString("**7️⃣ Rest** — skip the second action\n\n")
-	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`")
 
 	return sb.String()
 }
@@ -380,13 +382,16 @@ func renderAdvResolutionDM(result *AdvActionResult, char *AdventureCharacter) st
 	}
 
 	if len(result.LootItems) > 0 {
-		sb.WriteString(fmt.Sprintf("💰 Loot: €%d total\n", result.TotalLootValue))
+		sb.WriteString(fmt.Sprintf("💰 Loot: %s total\n", fmtEuro(result.TotalLootValue)))
 		for _, item := range result.LootItems {
-			sb.WriteString(fmt.Sprintf("  • %s — €%d\n", item.Name, item.Value))
+			sb.WriteString(fmt.Sprintf("  • %s — %s\n", item.Name, fmtEuro(item.Value)))
 		}
 	}
 
 	sb.WriteString(fmt.Sprintf("✨ +%d %s XP", result.XPGained, result.XPSkill))
+	if result.XPBreakdown != "" {
+		sb.WriteString(fmt.Sprintf(" (%s)", result.XPBreakdown))
+	}
 	if result.LeveledUp {
 		sb.WriteString(fmt.Sprintf(" — **LEVEL UP! %s Lv.%d!** 🎉", titleCase(result.XPSkill), result.NewLevel))
 	}
@@ -619,8 +624,12 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 
 		sb.WriteString(fmt.Sprintf("⚔️ **%s** — Combat Lv.%d | Mining Lv.%d | Forage Lv.%d | Fishing Lv.%d\n",
 			p.DisplayName, p.CombatLevel, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
-		sb.WriteString(fmt.Sprintf("   Went to: %s\n", p.Location))
-		sb.WriteString(fmt.Sprintf("   Outcome: %s\n\n", p.SummaryLine))
+		if p.Location != "" {
+			sb.WriteString(fmt.Sprintf("   Went to: %s\n", p.Location))
+			sb.WriteString(fmt.Sprintf("   Outcome: %s\n\n", p.SummaryLine))
+		} else {
+			sb.WriteString("   Acted today — no log recorded.\n\n")
+		}
 
 		if bestPlayer == nil || p.LootValue > bestPlayer.LootValue {
 			bestPlayer = p
@@ -737,11 +746,11 @@ func renderAdvLeaderboard(chars []AdventureCharacter) string {
 	}
 	var entries []entry
 	for _, c := range chars {
-		score := (c.CombatLevel + c.MiningSkill + c.ForagingSkill) * 10
+		score := (c.CombatLevel + c.MiningSkill + c.ForagingSkill + c.FishingSkill) * 10
 		entries = append(entries, entry{
 			Name:   c.DisplayName,
 			Score:  score,
-			Levels: fmt.Sprintf("⚔️%d ⛏️%d 🌿%d", c.CombatLevel, c.MiningSkill, c.ForagingSkill),
+			Levels: fmt.Sprintf("⚔️%d ⛏️%d 🌿%d 🎣%d", c.CombatLevel, c.MiningSkill, c.ForagingSkill, c.FishingSkill),
 			Streak: c.CurrentStreak,
 		})
 	}

@@ -55,11 +55,11 @@ func (p *DictionaryPlugin) OnMessage(ctx MessageContext) error {
 	default:
 		return nil
 	}
-	go func() {
+	safeGo("dictionary-handler", func() {
 		if err := handler(ctx); err != nil {
 			slog.Error("dictionary: handler error", "err", err)
 		}
-	}()
+	})
 	return nil
 }
 

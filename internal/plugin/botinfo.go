@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/version"
 
 	"maunium.net/go/mautrix"
 )
@@ -43,6 +44,7 @@ func (p *BotInfoPlugin) Name() string { return "botinfo" }
 func (p *BotInfoPlugin) Commands() []CommandDef {
 	return []CommandDef{
 		{Name: "botinfo", Description: "Show bot diagnostics (admin only)", Usage: "!botinfo", Category: "Admin", AdminOnly: true},
+		{Name: "version", Description: "Show bot version", Usage: "!version", Category: "Info"},
 	}
 }
 
@@ -51,8 +53,10 @@ func (p *BotInfoPlugin) Init() error { return nil }
 func (p *BotInfoPlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *BotInfoPlugin) OnMessage(ctx MessageContext) error {
+	if p.IsCommand(ctx.Body, "version") {
+		return p.handleVersion(ctx)
+	}
 	if !p.IsCommand(ctx.Body, "botinfo") {
-		// Passively count messages
 		IncrementMessageCount()
 		return nil
 	}
@@ -64,9 +68,24 @@ func (p *BotInfoPlugin) OnMessage(ctx MessageContext) error {
 	return p.handleBotInfo(ctx)
 }
 
+func (p *BotInfoPlugin) handleVersion(ctx MessageContext) error {
+	uptime := time.Since(botStartTime)
+	days := int(uptime.Hours() / 24)
+	hours := int(uptime.Hours()) % 24
+
+	msg := fmt.Sprintf("**%s**\nUptime: %dd %dh", version.Full(), days, hours)
+
+	crashes := db.CrashCount(version.Short())
+	if crashes > 0 {
+		msg += fmt.Sprintf(" · %d crash(es) this version", crashes)
+	}
+
+	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
+}
+
 func (p *BotInfoPlugin) handleBotInfo(ctx MessageContext) error {
 	var sb strings.Builder
-	sb.WriteString("Bot Diagnostics\n\n")
+	sb.WriteString(fmt.Sprintf("**Bot Diagnostics** — %s\n\n", version.Short()))
 
 	// Uptime
 	uptime := time.Since(botStartTime)
@@ -108,6 +127,33 @@ func (p *BotInfoPlugin) handleBotInfo(ctx MessageContext) error {
 		sb.WriteString(fmt.Sprintf("LLM status: %s\n", llmStatus))
 	} else {
 		sb.WriteString("LLM status: not configured\n")
+	}
+
+	// Crash stats
+	crashesThisVersion := db.CrashCount(version.Short())
+	crashesTotal := db.CrashCountAll()
+	sb.WriteString(fmt.Sprintf("\nCrashes: %d this version / %d total\n", crashesThisVersion, crashesTotal))
+
+	// Recent crashes (last 5)
+	d2 := db.Get()
+	rows, err := d2.Query(`SELECT plugin, message, created_at FROM crash_log ORDER BY id DESC LIMIT 5`)
+	if err == nil {
+		defer rows.Close()
+		var hasCrashes bool
+		for rows.Next() {
+			var plug, msg, ts string
+			if rows.Scan(&plug, &msg, &ts) != nil {
+				continue
+			}
+			if !hasCrashes {
+				sb.WriteString("Recent crashes:\n")
+				hasCrashes = true
+			}
+			if len(msg) > 80 {
+				msg = msg[:80] + "..."
+			}
+			sb.WriteString(fmt.Sprintf("  %s [%s] %s\n", ts, plug, msg))
+		}
 	}
 
 	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())

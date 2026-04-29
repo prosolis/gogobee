@@ -127,6 +127,35 @@ func TestAdvIsEligible_NoPenalty(t *testing.T) {
 	}
 }
 
+func TestAdvIsEligible_BonusesDontUnlockTiers(t *testing.T) {
+	char := &AdventureCharacter{MiningSkill: 1}
+	equip := map[EquipmentSlot]*AdvEquipment{}
+	loc := &AdvLocation{Activity: AdvActivityMining, MinLevel: 8, MinEquipTier: 0}
+	bonuses := &AdvBonusSummary{MiningBonus: 10} // +10 would make effective 11, but base is 1
+
+	eligible, _ := advIsEligible(char, equip, loc, bonuses)
+	if eligible {
+		t.Error("bonuses should not unlock tiers — base mining 1 should not access min level 8")
+	}
+}
+
+func TestAdvIsEligible_BonusesDontAffectPenaltyZone(t *testing.T) {
+	char := &AdventureCharacter{CombatLevel: 21} // base 21, min 20 → penalty (21-20=1 < 3)
+	equip := map[EquipmentSlot]*AdvEquipment{
+		SlotWeapon: {Tier: 2, Condition: 100},
+	}
+	loc := &AdvLocation{Activity: AdvActivityDungeon, MinLevel: 20, MinEquipTier: 0}
+	bonuses := &AdvBonusSummary{CombatBonus: 10} // +10 would make effective 31, but penalty uses base
+
+	eligible, penalty := advIsEligible(char, equip, loc, bonuses)
+	if !eligible {
+		t.Error("should be eligible at base combat 21 for min 20")
+	}
+	if !penalty {
+		t.Error("should still be in penalty zone — bonuses don't affect penalty calculation")
+	}
+}
+
 func TestCalculateAdvProbabilities_SumsTo100(t *testing.T) {
 	char := &AdventureCharacter{CombatLevel: 10}
 	equip := map[EquipmentSlot]*AdvEquipment{

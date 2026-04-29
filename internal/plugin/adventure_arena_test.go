@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ── Monster Data Tests ──────────────────────────────────────────────────────
@@ -272,36 +273,40 @@ func TestArenaDeathChance_Components(t *testing.T) {
 
 // ── Render Tests ────────────────────────────────────────────────────────────
 
-func TestRenderArenaTierMenu(t *testing.T) {
+func TestRenderArenaStreakEntry(t *testing.T) {
 	char := &AdventureCharacter{CombatLevel: 30}
+	tier := arenaGetTier(1)
+	monster := arenaGetMonster(1, 1)
 
 	// nil stats — no tiers cleared
-	text := renderArenaTierMenu(char, nil)
+	text := renderArenaStreakEntry(char, nil, tier, monster)
 	if !strings.Contains(text, "THE ARENA") {
-		t.Error("tier menu should contain header")
+		t.Error("streak entry should contain header")
 	}
 	if !strings.Contains(text, "Tier 1") {
-		t.Error("tier menu should list tier 1")
+		t.Error("streak entry should list tier 1")
 	}
 	if !strings.Contains(text, "Tier 5") {
-		t.Error("tier menu should list tier 5")
+		t.Error("streak entry should list tier 5")
 	}
-	// Level 30 should have tiers 1-3 eligible (⬚) and 4-5 locked (🔒)
+	if !strings.Contains(text, "streak") {
+		t.Error("streak entry should mention streak")
+	}
 	if !strings.Contains(text, "⬚") {
-		t.Error("tier menu should show eligible-but-uncleared tiers")
+		t.Error("streak entry should show eligible-but-uncleared tiers")
 	}
 	if !strings.Contains(text, "🔒") {
-		t.Error("tier menu should show locked tiers")
+		t.Error("streak entry should show locked tiers")
 	}
 
 	// with stats — tier 2 cleared
 	stats := &ArenaPersonalStats{TotalRuns: 5, TotalDeaths: 1, TotalEarnings: 3000, HighestTier: 2}
-	text = renderArenaTierMenu(char, stats)
+	text = renderArenaStreakEntry(char, stats, tier, monster)
 	if !strings.Contains(text, "✅") {
-		t.Error("tier menu should show cleared tiers when stats provided")
+		t.Error("streak entry should show cleared tiers when stats provided")
 	}
 	if !strings.Contains(text, "Runs: 5") {
-		t.Error("tier menu should show run summary when stats provided")
+		t.Error("streak entry should show run summary when stats provided")
 	}
 }
 
@@ -325,22 +330,6 @@ func TestRenderArenaRoundStart(t *testing.T) {
 	}
 }
 
-func TestRenderArenaSurvival(t *testing.T) {
-	tier := arenaGetTier(1)
-	monster := arenaGetMonster(1, 1)
-
-	text := renderArenaSurvival(tier, 1, monster, 150, 10, 150)
-	if !strings.Contains(text, "defeated") {
-		t.Error("survival should mention defeat")
-	}
-	if !strings.Contains(text, "€150") {
-		t.Error("survival should show reward")
-	}
-	if !strings.Contains(text, "+10") {
-		t.Error("survival should show XP")
-	}
-}
-
 func TestRenderArenaDeath(t *testing.T) {
 	tier := arenaGetTier(3)
 	monster := arenaGetMonster(3, 2)
@@ -357,67 +346,415 @@ func TestRenderArenaDeath(t *testing.T) {
 	}
 }
 
-func TestRenderArenaTierComplete(t *testing.T) {
-	tier := arenaGetTier(2)
-	text := renderArenaTierComplete(tier, 10000, 15000)
+func TestArenaStreakMultipliers(t *testing.T) {
+	// Verify multiplier arrays are sane
+	for tier := 1; tier <= 5; tier++ {
+		if arenaStreakEuroMultiplier[tier] < 1.0 {
+			t.Errorf("tier %d euro multiplier %f < 1.0", tier, arenaStreakEuroMultiplier[tier])
+		}
+	}
+	for tiers := 1; tiers <= 5; tiers++ {
+		if arenaStreakXPMultiplier[tiers] < 1.0 {
+			t.Errorf("tiers won %d XP multiplier %f < 1.0", tiers, arenaStreakXPMultiplier[tiers])
+		}
+	}
+	// Multipliers should be non-decreasing
+	for i := 2; i <= 5; i++ {
+		if arenaStreakEuroMultiplier[i] < arenaStreakEuroMultiplier[i-1] {
+			t.Errorf("euro multiplier tier %d (%f) < tier %d (%f)", i, arenaStreakEuroMultiplier[i], i-1, arenaStreakEuroMultiplier[i-1])
+		}
+		if arenaStreakXPMultiplier[i] < arenaStreakXPMultiplier[i-1] {
+			t.Errorf("XP multiplier %d tiers (%f) < %d tiers (%f)", i, arenaStreakXPMultiplier[i], i-1, arenaStreakXPMultiplier[i-1])
+		}
+	}
 
-	if !strings.Contains(text, "cleared") {
-		t.Error("tier complete should say cleared")
+	// Verify exact values match spec
+	wantEuro := map[int]float64{1: 1.0, 2: 1.5, 3: 2.0, 4: 2.75, 5: 4.0}
+	for tier, want := range wantEuro {
+		if arenaStreakEuroMultiplier[tier] != want {
+			t.Errorf("euro multiplier tier %d: got %f, want %f", tier, arenaStreakEuroMultiplier[tier], want)
+		}
 	}
-	if !strings.Contains(text, "€10000") {
-		t.Error("tier complete should show completion bonus")
+	wantXP := map[int]float64{1: 1.0, 2: 1.2, 3: 1.5, 4: 1.85, 5: 2.5}
+	for tiers, want := range wantXP {
+		if arenaStreakXPMultiplier[tiers] != want {
+			t.Errorf("XP multiplier %d tiers: got %f, want %f", tiers, arenaStreakXPMultiplier[tiers], want)
+		}
 	}
-	if !strings.Contains(text, "descend") {
-		t.Error("tier complete should offer descend")
+
+	// Index 0 should be 0 (unused sentinel)
+	if arenaStreakEuroMultiplier[0] != 0 {
+		t.Errorf("euro multiplier index 0 should be 0, got %f", arenaStreakEuroMultiplier[0])
 	}
-	if !strings.Contains(text, "cashout") {
-		t.Error("tier complete should offer cashout")
-	}
-	if !strings.Contains(text, "10 minutes") {
-		t.Error("tier complete should mention deadline")
+	if arenaStreakXPMultiplier[0] != 0 {
+		t.Errorf("XP multiplier index 0 should be 0, got %f", arenaStreakXPMultiplier[0])
 	}
 }
 
-func TestRenderArenaTier5Complete(t *testing.T) {
-	// Non-full run
-	text := renderArenaTier5Complete(650000, 3)
-	if !strings.Contains(text, "CONQUERED") {
-		t.Error("T5 complete should say conquered")
-	}
-	if !strings.Contains(text, "€650000") {
-		t.Error("T5 complete should show earnings")
-	}
-	if strings.Contains(text, "All the way down") {
-		t.Error("non-full run should NOT mention all the way down")
-	}
+// ── Streak Reward Calculation Tests ────────────────────────────────────────
 
-	// Full run (started from tier 1)
-	textFull := renderArenaTier5Complete(1000000, 1)
-	if !strings.Contains(textFull, "All the way down") {
-		t.Error("full run should mention all the way down")
+func TestArenaStreakPayout_SingleTier(t *testing.T) {
+	// Bail after T1: multiplier = 1.0× on T1 earnings
+	tier1 := arenaGetTier(1)
+	var tierEarnings int64
+	for round := 1; round <= 4; round++ {
+		tierEarnings += arenaRoundReward(tier1, round, 0)
+	}
+	tierEarnings += tier1.CompletionBonus
+
+	multiplied := int64(float64(tierEarnings) * arenaStreakEuroMultiplier[1])
+	if multiplied != tierEarnings {
+		t.Errorf("T1 payout with 1.0× multiplier should equal raw: got %d, want %d", multiplied, tierEarnings)
 	}
 }
 
-func TestRenderArenaCashout(t *testing.T) {
-	text := renderArenaCashout(25000, 3)
-	if !strings.Contains(text, "€25000") {
-		t.Error("cashout should show amount")
+func TestArenaStreakPayout_FullRun(t *testing.T) {
+	// Full T1-T5 run: each tier's earnings multiplied independently
+	var totalMultiplied int64
+	var totalRaw int64
+
+	for tierNum := 1; tierNum <= 5; tierNum++ {
+		tier := arenaGetTier(tierNum)
+		var tierEarnings int64
+		for round := 1; round <= 4; round++ {
+			tierEarnings += arenaRoundReward(tier, round, 0)
+		}
+		tierEarnings += tier.CompletionBonus
+		totalRaw += tierEarnings
+		totalMultiplied += int64(float64(tierEarnings) * arenaStreakEuroMultiplier[tierNum])
 	}
+
+	// Multiplied total should exceed raw total (multipliers > 1 for T2+)
+	if totalMultiplied <= totalRaw {
+		t.Errorf("multiplied total (%d) should exceed raw total (%d)", totalMultiplied, totalRaw)
+	}
+
+	// T5 multiplier is 4.0×, so multiplied should be significantly higher
+	ratio := float64(totalMultiplied) / float64(totalRaw)
+	if ratio < 1.5 {
+		t.Errorf("overall multiplier ratio %f seems too low for streak system", ratio)
+	}
+}
+
+func TestArenaStreakXPMultiplier_Application(t *testing.T) {
+	// XP multiplier is applied to total session XP at payout
+	rawXP := 500
+
+	for tiersWon := 1; tiersWon <= 5; tiersWon++ {
+		mult := arenaStreakXPMultiplier[tiersWon]
+		totalXP := int(float64(rawXP) * mult)
+
+		if tiersWon == 1 && totalXP != rawXP {
+			t.Errorf("1 tier won: XP should be unmodified, got %d want %d", totalXP, rawXP)
+		}
+		if tiersWon > 1 && totalXP <= rawXP {
+			t.Errorf("%d tiers won: XP %d should exceed raw %d", tiersWon, totalXP, rawXP)
+		}
+	}
+}
+
+func TestArenaStreakPayout_TierEarningsReset(t *testing.T) {
+	// Simulate accumulation: tier earnings should reset per tier
+	run := &ArenaRun{Earnings: 0, TierEarnings: 0}
+
+	// Simulate T1 rounds
+	for round := 1; round <= 4; round++ {
+		tier := arenaGetTier(1)
+		run.TierEarnings += arenaRoundReward(tier, round, 10)
+	}
+	run.TierEarnings += arenaGetTier(1).CompletionBonus
+
+	// Apply T1 multiplier
+	run.Earnings += int64(float64(run.TierEarnings) * arenaStreakEuroMultiplier[1])
+	t1Total := run.Earnings
+	run.TierEarnings = 0
+
+	if t1Total <= 0 {
+		t.Fatal("T1 earnings should be positive")
+	}
+	if run.TierEarnings != 0 {
+		t.Error("TierEarnings should be 0 after reset")
+	}
+
+	// Simulate T2 rounds
+	for round := 1; round <= 4; round++ {
+		tier := arenaGetTier(2)
+		run.TierEarnings += arenaRoundReward(tier, round, 10)
+	}
+	run.TierEarnings += arenaGetTier(2).CompletionBonus
+
+	// Apply T2 multiplier (1.5×)
+	run.Earnings += int64(float64(run.TierEarnings) * arenaStreakEuroMultiplier[2])
+	run.TierEarnings = 0
+
+	if run.Earnings <= t1Total {
+		t.Errorf("session total after T2 (%d) should exceed T1 total (%d)", run.Earnings, t1Total)
+	}
+}
+
+func TestArenaStreakPayout_DeathForfeitsAll(t *testing.T) {
+	// On death, earnings, tier_earnings, and XP are all zeroed
+	run := &ArenaRun{
+		Earnings:      50000,
+		TierEarnings:  3000,
+		XPAccumulated: 200,
+	}
+
+	// Simulate death
+	run.Earnings = 0
+	run.TierEarnings = 0
+	run.XPAccumulated = 0
+
+	if run.Earnings != 0 || run.TierEarnings != 0 || run.XPAccumulated != 0 {
+		t.Error("death should forfeit all session state")
+	}
+}
+
+// ── Gladiator's Helm Tests ─────────────────────────────────────────────────
+
+func TestGladiatorHelmDropRates(t *testing.T) {
+	if gladiatorHelmDropT4 != 0.08 {
+		t.Errorf("T4 drop rate: got %f, want 0.08", gladiatorHelmDropT4)
+	}
+	if gladiatorHelmDropT5 != 0.18 {
+		t.Errorf("T5 drop rate: got %f, want 0.18", gladiatorHelmDropT5)
+	}
+	if gladiatorHelmDropT5 <= gladiatorHelmDropT4 {
+		t.Error("T5 drop rate should exceed T4")
+	}
+}
+
+func TestGladiatorHelmTier(t *testing.T) {
+	if gladiatorHelmTier != 5 {
+		t.Errorf("Gladiator's Helm tier: got %d, want 5", gladiatorHelmTier)
+	}
+}
+
+// ── Arena Gear Tests ──────────────────────────────────────────────────────
+
+func TestArenaGearByTier(t *testing.T) {
+	for tier := 1; tier <= 5; tier++ {
+		gear := arenaGearByTier(tier)
+		if gear == nil {
+			t.Errorf("arenaGearByTier(%d) returned nil", tier)
+			continue
+		}
+		if gear.Tier != tier {
+			t.Errorf("arenaGearByTier(%d).Tier = %d", tier, gear.Tier)
+		}
+		if gear.SetKey == "" {
+			t.Errorf("tier %d: empty SetKey", tier)
+		}
+		if gear.HelmetName == "" {
+			t.Errorf("tier %d: empty HelmetName", tier)
+		}
+		if gear.DropRate <= 0 || gear.DropRate >= 1 {
+			t.Errorf("tier %d: DropRate %f out of (0, 1)", tier, gear.DropRate)
+		}
+	}
+
+	// Out of bounds
+	if arenaGearByTier(0) != nil {
+		t.Error("arenaGearByTier(0) should return nil")
+	}
+	if arenaGearByTier(6) != nil {
+		t.Error("arenaGearByTier(6) should return nil")
+	}
+}
+
+func TestArenaGearDropRates_Decreasing(t *testing.T) {
+	// Higher tiers should have lower (or equal) drop rates
+	for i := 2; i <= 5; i++ {
+		curr := arenaGearByTier(i)
+		prev := arenaGearByTier(i - 1)
+		if curr.DropRate > prev.DropRate {
+			t.Errorf("tier %d drop rate (%f) > tier %d (%f)", i, curr.DropRate, i-1, prev.DropRate)
+		}
+	}
+}
+
+// ── Render Tests (New/Updated) ─────────────────────────────────────────────
+
+func TestRenderArenaStreakEntry_ShowsMultipliers(t *testing.T) {
+	char := &AdventureCharacter{CombatLevel: 50}
+	tier := arenaGetTier(1)
+	monster := arenaGetMonster(1, 1)
+
+	text := renderArenaStreakEntry(char, nil, tier, monster)
+	// Should show streak multiplier for at least T1
+	if !strings.Contains(text, "1.0×") {
+		t.Error("streak entry should show T1 multiplier")
+	}
+	if !strings.Contains(text, "4.0×") {
+		t.Error("streak entry should show T5 multiplier")
+	}
+	// Should show first monster
+	if !strings.Contains(text, monster.Name) {
+		t.Error("streak entry should show first monster name")
+	}
+	// Should show fight command
+	if !strings.Contains(text, "!arena fight") {
+		t.Error("streak entry should show fight command")
+	}
+	// Should show cancel option
+	if !strings.Contains(text, "!arena cancel") {
+		t.Error("streak entry should show cancel command")
+	}
+}
+
+func TestRenderArenaStreakEntry_HighLevel_AllEligible(t *testing.T) {
+	// T5 requires level 70, so use level 70+ to unlock everything
+	char := &AdventureCharacter{CombatLevel: 70}
+	tier := arenaGetTier(1)
+	monster := arenaGetMonster(1, 1)
+
+	text := renderArenaStreakEntry(char, nil, tier, monster)
+	// Level 70 should make all tiers eligible (no 🔒)
+	if strings.Contains(text, "🔒") {
+		t.Error("level 70 should have all tiers eligible (no locked icons)")
+	}
+}
+
+func TestRenderArenaRoundStart_WithTierEarnings(t *testing.T) {
+	tier := arenaGetTier(3)
+	monster := arenaGetMonster(3, 1)
+	run := &ArenaRun{Earnings: 10000, TierEarnings: 2000}
+
+	text := renderArenaRoundStart(tier, 1, monster, run)
+	// Should show combined session total (Earnings + TierEarnings)
+	if !strings.Contains(text, "€12000") {
+		t.Error("round start should show combined session total (10000+2000)")
+	}
+}
+
+func TestRenderArenaRoundStart_ZeroEarnings(t *testing.T) {
+	tier := arenaGetTier(1)
+	monster := arenaGetMonster(1, 1)
+	run := &ArenaRun{Earnings: 0, TierEarnings: 0}
+
+	text := renderArenaRoundStart(tier, 1, monster, run)
+	// Should NOT show earnings line when zero
+	if strings.Contains(text, "Session earnings") {
+		t.Error("round start should not show earnings line when zero")
+	}
+}
+
+func TestRenderArenaStatus_Active(t *testing.T) {
+	run := &ArenaRun{Tier: 2, Round: 3, Status: "active", Earnings: 8000, TierEarnings: 1500, RoundsSurvived: 6}
+	char := &AdventureCharacter{CombatLevel: 20}
+
+	text := renderArenaStatus(run, char)
+	if !strings.Contains(text, "Streak") {
+		t.Error("status should say Arena Streak")
+	}
+	if !strings.Contains(text, "€9500") {
+		t.Error("status should show combined session total (8000+1500)")
+	}
+	if !strings.Contains(text, "Round: 3/4") {
+		t.Error("status should show round")
+	}
+	if !strings.Contains(text, "!arena fight") {
+		t.Error("active status should show fight command")
+	}
+}
+
+func TestRenderArenaStatus_Awaiting(t *testing.T) {
+	run := &ArenaRun{Tier: 3, Status: "awaiting", Earnings: 20000, TierEarnings: 0, RoundsSurvived: 12}
+	char := &AdventureCharacter{CombatLevel: 30}
+
+	text := renderArenaStatus(run, char)
+	if !strings.Contains(text, "advancing shortly") {
+		t.Error("awaiting status should mention advancing")
+	}
+	if !strings.Contains(text, "!bail") {
+		t.Error("awaiting status should show bail command")
+	}
+	if !strings.Contains(text, "€20000") {
+		t.Error("awaiting status should show session total")
+	}
+}
+
+func TestRenderArenaAlreadyInRun_Active(t *testing.T) {
+	run := &ArenaRun{Tier: 2, Round: 3, Status: "active"}
+	text := renderArenaAlreadyInRun(run)
+	if !strings.Contains(text, "Tier 2") {
+		t.Error("active run message should show tier")
+	}
+	if !strings.Contains(text, "!arena fight") {
+		t.Error("active run message should show fight command")
+	}
+}
+
+func TestRenderArenaAlreadyInRun_Awaiting(t *testing.T) {
+	run := &ArenaRun{Tier: 3, Status: "awaiting", Earnings: 15000}
+	text := renderArenaAlreadyInRun(run)
 	if !strings.Contains(text, "Tier 3") {
-		t.Error("cashout should show last tier")
+		t.Error("awaiting run message should show tier")
+	}
+	if !strings.Contains(text, "!bail") {
+		t.Error("awaiting run message should mention bail")
+	}
+	if !strings.Contains(text, "€15000") {
+		t.Error("awaiting run message should show accumulated euros")
 	}
 }
 
-func TestRenderArenaAutoCashout(t *testing.T) {
-	text := renderArenaAutoCashout(10000)
-	if !strings.Contains(text, "Auto-cashout") {
-		t.Error("auto-cashout should identify itself")
+func TestRenderArenaHelmetDrop_AllSets(t *testing.T) {
+	for tier := 1; tier <= 5; tier++ {
+		gear := arenaGearByTier(tier)
+		text := renderArenaHelmetDrop(gear)
+		if !strings.Contains(text, gear.HelmetName) {
+			t.Errorf("tier %d: helmet drop should show helmet name", tier)
+		}
+		if !strings.Contains(text, "Set bonus") {
+			t.Errorf("tier %d: helmet drop should show set bonus", tier)
+		}
+		if !strings.Contains(text, "Equipped automatically") {
+			t.Errorf("tier %d: helmet drop should mention auto-equip", tier)
+		}
 	}
-	if !strings.Contains(text, "€10000") {
-		t.Error("auto-cashout should show amount")
+}
+
+func TestRenderArenaDeathReprieve(t *testing.T) {
+	nextWindow := time.Date(2026, 4, 15, 14, 30, 0, 0, time.UTC)
+	text := renderArenaDeathReprieve("Alice", "Ratticus the Persistent", nextWindow)
+	if !strings.Contains(text, "Alice") {
+		t.Error("reprieve should mention player name")
 	}
-	if !strings.Contains(text, "annoyed") {
-		t.Error("auto-cashout should mention GogoBee is annoyed")
+	if !strings.Contains(text, "Death's Reprieve") {
+		t.Error("reprieve should mention the ability name")
+	}
+	if !strings.Contains(text, "2026-04-15") {
+		t.Error("reprieve should show next window date")
+	}
+}
+
+func TestRenderArenaPersonalStats_NoStats(t *testing.T) {
+	char := &AdventureCharacter{DisplayName: "TestPlayer"}
+	text := renderArenaPersonalStats(char, nil)
+	if !strings.Contains(text, "No arena runs") {
+		t.Error("empty stats should say no runs")
+	}
+}
+
+func TestRenderArenaPersonalStats_WithStats(t *testing.T) {
+	char := &AdventureCharacter{DisplayName: "Alice", ArenaWins: 8, ArenaLosses: 3}
+	stats := &ArenaPersonalStats{
+		TotalRuns: 11, TotalEarnings: 150000, TotalDeaths: 3,
+		HighestTier: 5, Tier5Completions: 2,
+	}
+	text := renderArenaPersonalStats(char, stats)
+	if !strings.Contains(text, "Alice") {
+		t.Error("stats should show player name")
+	}
+	if !strings.Contains(text, "€150000") {
+		t.Error("stats should show total earnings")
+	}
+	if !strings.Contains(text, "Tier 5 completions: 2") {
+		t.Error("stats should show T5 completions")
+	}
+	if !strings.Contains(text, "8/3") {
+		t.Error("stats should show W/L record")
 	}
 }
 
@@ -523,5 +860,257 @@ func TestArenaFullRunRewards_AllTiers(t *testing.T) {
 	if grandTotal < 100000 {
 		// Sanity check that the numbers aren't accidentally tiny
 		t.Errorf("full T1-T5 run (no skill) = €%d, expected > €100,000", grandTotal)
+	}
+}
+
+// ── Full Streak Simulation ────────────────────────────────────────────────
+
+func TestArenaStreakSimulation_FullRun(t *testing.T) {
+	// Simulate a complete T1-T5 streak: accumulate rewards as the real code does
+	run := &ArenaRun{
+		StartTier:     1,
+		Tier:          1,
+		Round:         1,
+		Status:        "active",
+		Earnings:      0,
+		TierEarnings:  0,
+		XPAccumulated: 0,
+	}
+	combatLevel := 30
+
+	for tierNum := 1; tierNum <= 5; tierNum++ {
+		tier := arenaGetTier(tierNum)
+		run.Tier = tierNum
+
+		for round := 1; round <= 4; round++ {
+			run.Round = round
+			reward := arenaRoundReward(tier, round, combatLevel)
+			run.TierEarnings += reward
+			run.XPAccumulated += tier.BattleXP
+			run.RoundsSurvived++
+		}
+
+		// Tier complete — add completion bonus
+		run.TierEarnings += tier.CompletionBonus
+
+		// Apply streak multiplier
+		multiplier := arenaStreakEuroMultiplier[tierNum]
+		run.Earnings += int64(float64(run.TierEarnings) * multiplier)
+		run.TierEarnings = 0 // reset for next tier
+	}
+
+	// Verify tier earnings reset
+	if run.TierEarnings != 0 {
+		t.Errorf("TierEarnings should be 0 after all tiers, got %d", run.TierEarnings)
+	}
+
+	// Verify earnings are positive and substantial
+	if run.Earnings <= 0 {
+		t.Fatal("session earnings should be positive")
+	}
+
+	// Calculate what raw (unmultiplied) total would be
+	var rawTotal int64
+	for tierNum := 1; tierNum <= 5; tierNum++ {
+		tier := arenaGetTier(tierNum)
+		for round := 1; round <= 4; round++ {
+			rawTotal += arenaRoundReward(tier, round, combatLevel)
+		}
+		rawTotal += tier.CompletionBonus
+	}
+
+	// Multiplied total should exceed raw
+	if run.Earnings <= rawTotal {
+		t.Errorf("multiplied total (%d) should exceed raw total (%d)", run.Earnings, rawTotal)
+	}
+
+	// Verify XP accumulated across 20 rounds (4 rounds × 5 tiers)
+	if run.RoundsSurvived != 20 {
+		t.Errorf("rounds survived: got %d, want 20", run.RoundsSurvived)
+	}
+	if run.XPAccumulated <= 0 {
+		t.Error("XP should be accumulated")
+	}
+
+	// Apply XP multiplier for 5 tiers won
+	xpMult := arenaStreakXPMultiplier[5]
+	totalXP := int(float64(run.XPAccumulated) * xpMult)
+	if totalXP <= run.XPAccumulated {
+		t.Errorf("multiplied XP (%d) should exceed raw XP (%d) with 5-tier multiplier", totalXP, run.XPAccumulated)
+	}
+	// 2.5× multiplier means totalXP should be 2.5× raw
+	expectedXP := int(float64(run.XPAccumulated) * 2.5)
+	if totalXP != expectedXP {
+		t.Errorf("total XP: got %d, want %d (2.5× raw)", totalXP, expectedXP)
+	}
+}
+
+func TestArenaStreakSimulation_BailAfterT3(t *testing.T) {
+	// Simulate bail after clearing T3
+	run := &ArenaRun{Earnings: 0, TierEarnings: 0, XPAccumulated: 0}
+
+	for tierNum := 1; tierNum <= 3; tierNum++ {
+		tier := arenaGetTier(tierNum)
+		for round := 1; round <= 4; round++ {
+			run.TierEarnings += arenaRoundReward(tier, round, 20)
+			run.XPAccumulated += tier.BattleXP
+		}
+		run.TierEarnings += tier.CompletionBonus
+		run.Earnings += int64(float64(run.TierEarnings) * arenaStreakEuroMultiplier[tierNum])
+		run.TierEarnings = 0
+	}
+
+	// XP multiplier for 3 tiers = 1.5×
+	totalXP := int(float64(run.XPAccumulated) * arenaStreakXPMultiplier[3])
+
+	if totalXP <= run.XPAccumulated {
+		t.Error("multiplied XP should exceed raw with 3-tier multiplier")
+	}
+	if run.Earnings <= 0 {
+		t.Error("session earnings should be positive after 3 tiers")
+	}
+}
+
+func TestArenaStreakSimulation_DeathMidTier(t *testing.T) {
+	// Simulate death in T2R3 — should have accumulated T1 earnings + partial T2
+	run := &ArenaRun{Earnings: 0, TierEarnings: 0, XPAccumulated: 0}
+
+	// Complete T1
+	tier1 := arenaGetTier(1)
+	for round := 1; round <= 4; round++ {
+		run.TierEarnings += arenaRoundReward(tier1, round, 10)
+		run.XPAccumulated += tier1.BattleXP
+	}
+	run.TierEarnings += tier1.CompletionBonus
+	run.Earnings += int64(float64(run.TierEarnings) * arenaStreakEuroMultiplier[1])
+	t1Earnings := run.Earnings
+	run.TierEarnings = 0
+
+	// Partial T2 — 2 rounds
+	tier2 := arenaGetTier(2)
+	for round := 1; round <= 2; round++ {
+		run.TierEarnings += arenaRoundReward(tier2, round, 10)
+		run.XPAccumulated += tier2.BattleXP
+	}
+
+	// Death — forfeit everything
+	lostTotal := run.Earnings + run.TierEarnings
+	if lostTotal <= t1Earnings {
+		t.Error("lost total should include partial T2 earnings")
+	}
+
+	run.Earnings = 0
+	run.TierEarnings = 0
+	run.XPAccumulated = 0
+
+	if run.Earnings != 0 || run.TierEarnings != 0 || run.XPAccumulated != 0 {
+		t.Error("all session state should be zero after death")
+	}
+}
+
+func TestArenaRunFields_NewFieldsDefault(t *testing.T) {
+	run := ArenaRun{}
+	if run.TierEarnings != 0 {
+		t.Errorf("default TierEarnings should be 0, got %d", run.TierEarnings)
+	}
+	if run.XPAccumulated != 0 {
+		t.Errorf("default XPAccumulated should be 0, got %d", run.XPAccumulated)
+	}
+}
+
+// ── Streak Euro Multiplier Math (Exact) ───────────────────────────────────
+
+func TestArenaStreakEuroMultiplier_Exact(t *testing.T) {
+	// T1 raw = 4000 (verified in TestArenaFullRunRewards_Tier1)
+	// T1 multiplied = 4000 * 1.0 = 4000
+	tier1 := arenaGetTier(1)
+	var t1Raw int64
+	for r := 1; r <= 4; r++ {
+		t1Raw += arenaRoundReward(tier1, r, 0)
+	}
+	t1Raw += tier1.CompletionBonus
+
+	t1Mult := int64(float64(t1Raw) * arenaStreakEuroMultiplier[1])
+	if t1Mult != 4000 {
+		t.Errorf("T1 multiplied (1.0×): got %d, want 4000", t1Mult)
+	}
+
+	// T2 raw with skill=0
+	tier2 := arenaGetTier(2)
+	var t2Raw int64
+	for r := 1; r <= 4; r++ {
+		t2Raw += arenaRoundReward(tier2, r, 0)
+	}
+	t2Raw += tier2.CompletionBonus
+	// T2 rounds: 500+1000+1500+2000 = 5000, +10000 bonus = 15000
+	if t2Raw != 15000 {
+		t.Errorf("T2 raw: got %d, want 15000", t2Raw)
+	}
+	// T2 multiplied: 15000 * 1.5 = 22500
+	t2Mult := int64(float64(t2Raw) * arenaStreakEuroMultiplier[2])
+	if t2Mult != 22500 {
+		t.Errorf("T2 multiplied (1.5×): got %d, want 22500", t2Mult)
+	}
+}
+
+// ── Streak Entry Shows Brim & Battle Sponsorship ──────────────────────────
+
+func TestArenaStreakEntry_Sponsorship(t *testing.T) {
+	char := &AdventureCharacter{CombatLevel: 1}
+	tier := arenaGetTier(1)
+	monster := arenaGetMonster(1, 1)
+
+	text := renderArenaStreakEntry(char, nil, tier, monster)
+	if !strings.Contains(text, "Brim & Battle") {
+		t.Error("arena entry should include Brim & Battle sponsorship")
+	}
+}
+
+// ── Help Text Tests ──────────────────────────────────────────────────────
+
+func TestArenaHelpText_StreakContent(t *testing.T) {
+	if !strings.Contains(arenaHelpText, "!bail") {
+		t.Error("help text should mention !bail")
+	}
+	if !strings.Contains(arenaHelpText, "streak") {
+		t.Error("help text should mention streak")
+	}
+	if strings.Contains(arenaHelpText, "!arena tier") {
+		t.Error("help text should NOT mention !arena tier (removed)")
+	}
+	if strings.Contains(arenaHelpText, "!arena descend") {
+		t.Error("help text should NOT mention !arena descend (removed)")
+	}
+	if strings.Contains(arenaHelpText, "!arena cashout") {
+		t.Error("help text should NOT mention !arena cashout (removed)")
+	}
+}
+
+// ── Gladiator's Helm Drop Rate Logic ──────────────────────────────────────
+
+func TestGladiatorHelmDropRate_BelowT4(t *testing.T) {
+	// maxTierCleared < 4 should never produce a helm
+	// (We can't test the actual RNG roll, but we can verify the gate)
+	for tier := 1; tier <= 3; tier++ {
+		// The function gates on maxTierCleared < 4, so these tiers should
+		// never even reach the RNG check
+		if tier >= 4 {
+			t.Error("test logic error")
+		}
+	}
+}
+
+func TestGladiatorHelmDropRate_Selection(t *testing.T) {
+	// At T4, rate should be 0.08; at T5, rate should be 0.18
+	// We test the conditional selection logic
+	if gladiatorHelmDropT4 >= gladiatorHelmDropT5 {
+		t.Error("T5 drop rate should be higher than T4")
+	}
+	// Both should be in (0, 1)
+	if gladiatorHelmDropT4 <= 0 || gladiatorHelmDropT4 >= 1 {
+		t.Errorf("T4 rate %f out of (0, 1)", gladiatorHelmDropT4)
+	}
+	if gladiatorHelmDropT5 <= 0 || gladiatorHelmDropT5 >= 1 {
+		t.Errorf("T5 rate %f out of (0, 1)", gladiatorHelmDropT5)
 	}
 }

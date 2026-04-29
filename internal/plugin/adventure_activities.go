@@ -130,7 +130,7 @@ func findAdvLocationByTier(activity AdvActivityType, tier int) *AdvLocation {
 // ── Loot Tables ──────────────────────────────────────────────────────────────
 
 var advDungeonLoot = map[int][]AdvLootDef{
-	1: {{"Copper Coins", "treasure", 1, 5}, {"Rat Pelt", "treasure", 3, 8}, {"Mouldy Bread", "treasure", 1, 3}, {"Bent Nail", "treasure", 1, 2}},
+	1: {{"Copper Coins", "treasure", 5, 12}, {"Rat Pelt", "treasure", 8, 18}, {"Mouldy Bread", "treasure", 3, 8}, {"Bent Nail", "treasure", 2, 6}},
 	2: {{"Iron Scraps", "ore", 20, 40}, {"Goblin Trinket", "treasure", 25, 50}, {"Small Gem", "gem", 40, 80}},
 	3: {{"Silver Bar", "ore", 100, 200}, {"Ancient Artifact", "treasure", 150, 300}, {"Quality Gem", "gem", 200, 400}},
 	4: {{"Gold Ingot", "ore", 500, 1000}, {"Enchanted Fragment", "treasure", 800, 1500}, {"Rare Gem", "gem", 1000, 2000}},
@@ -138,7 +138,7 @@ var advDungeonLoot = map[int][]AdvLootDef{
 }
 
 var advMiningLoot = map[int][]AdvLootDef{
-	1: {{"Copper Ore", "ore", 2, 5}, {"Tin Ore", "ore", 3, 6}, {"Coal", "ore", 2, 4}},
+	1: {{"Copper Ore", "ore", 5, 12}, {"Tin Ore", "ore", 6, 14}, {"Coal", "ore", 4, 10}},
 	2: {{"Iron Ore", "ore", 15, 25}, {"Lead Ore", "ore", 18, 30}, {"Saltpetre", "ore", 20, 40}},
 	3: {{"Silver Ore", "ore", 60, 100}, {"Quartz", "ore", 80, 120}, {"Nickel Ore", "ore", 70, 110}},
 	4: {{"Gold Ore", "ore", 200, 400}, {"Sapphire", "gem", 300, 500}, {"Titanium Ore", "ore", 250, 450}},
@@ -146,7 +146,7 @@ var advMiningLoot = map[int][]AdvLootDef{
 }
 
 var advForagingLoot = map[int][]AdvLootDef{
-	1: {{"Berries", "fruit", 1, 4}, {"Twigs", "wood", 2, 5}, {"Common Herbs", "fruit", 3, 8}},
+	1: {{"Berries", "fruit", 3, 10}, {"Twigs", "wood", 5, 12}, {"Common Herbs", "fruit", 6, 15}},
 	2: {{"Hardwood", "wood", 10, 20}, {"Wild Fruit", "fruit", 12, 22}, {"Mushrooms", "fruit", 15, 30}},
 	3: {{"Ancient Timber", "wood", 40, 80}, {"Rare Herbs", "fruit", 50, 100}, {"Honey", "fruit", 60, 120}},
 	4: {{"Exotic Wood", "wood", 150, 300}, {"Tropical Fruits", "fruit", 180, 400}, {"Spores", "fruit", 200, 500}},
@@ -154,7 +154,7 @@ var advForagingLoot = map[int][]AdvLootDef{
 }
 
 var advFishingLoot = map[int][]AdvLootDef{
-	1: {{"Sad Fish", "fish", 1, 4}, {"Old Boot", "junk", 2, 5}, {"Tin Can", "junk", 1, 3}},
+	1: {{"Sad Fish", "fish", 4, 10}, {"Old Boot", "junk", 5, 12}, {"Tin Can", "junk", 3, 8}},
 	2: {{"Creek Trout", "fish", 12, 22}, {"Iron Scale", "fish", 15, 28}, {"River Pearl", "gem", 20, 40}},
 	3: {{"Silver Bass", "fish", 50, 90}, {"Lake Sturgeon", "fish", 60, 110}, {"Blooper Ink", "treasure", 80, 150}},
 	4: {{"Deep Eel", "fish", 180, 350}, {"River Serpent Scale", "treasure", 250, 500}, {"Abyssal Pearl", "gem", 300, 600}},
@@ -376,10 +376,9 @@ func advLocationCooldown(userID id.UserID, location string) time.Duration {
 // advIsEligible checks if a character can enter a location.
 // Returns (eligible, inPenaltyZone).
 func advIsEligible(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, loc *AdvLocation, bonuses *AdvBonusSummary) (bool, bool) {
-	// Get effective skill level
-	skillLevel := advEffectiveSkill(char, loc.Activity, bonuses)
-
-	if skillLevel < loc.MinLevel {
+	// Tier gating uses base skill only — buffs improve success chances, not access.
+	baseLevel := advBaseSkill(char, loc.Activity)
+	if baseLevel < loc.MinLevel {
 		return false, false
 	}
 
@@ -397,9 +396,23 @@ func advIsEligible(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipme
 		return false, false
 	}
 
-	// Penalty zone: within 3 levels of minimum
-	penalty := skillLevel-loc.MinLevel < 3
+	// Penalty zone: within 3 levels of minimum (base skill only)
+	penalty := baseLevel-loc.MinLevel < 3
 	return true, penalty
+}
+
+func advBaseSkill(char *AdventureCharacter, activity AdvActivityType) int {
+	switch activity {
+	case AdvActivityDungeon:
+		return char.CombatLevel
+	case AdvActivityMining:
+		return char.MiningSkill
+	case AdvActivityForaging:
+		return char.ForagingSkill
+	case AdvActivityFishing:
+		return char.FishingSkill
+	}
+	return 1
 }
 
 func advEffectiveSkill(char *AdventureCharacter, activity AdvActivityType, bonuses *AdvBonusSummary) int {
@@ -535,7 +548,6 @@ func applyAdvEquipDegradation(equip map[EquipmentSlot]*AdvEquipment, outcome Adv
 
 	switch outcome {
 	case AdvOutcomeDeath:
-		// All slots -20, weapon and armor -30 (additional)
 		for _, slot := range allSlots {
 			damage[slot] = 20
 		}
@@ -547,7 +559,6 @@ func applyAdvEquipDegradation(equip map[EquipmentSlot]*AdvEquipment, outcome Adv
 		damage[SlotArmor] = 10
 
 	case AdvOutcomeEmpty:
-		// Failed dungeon run
 		damage[SlotWeapon] = 15
 		damage[SlotArmor] = 10
 
@@ -559,32 +570,9 @@ func applyAdvEquipDegradation(equip map[EquipmentSlot]*AdvEquipment, outcome Adv
 		damage[SlotBoots] = 20
 
 	case AdvOutcomeHornets:
-		// No equipment damage — they don't care about your sword
 	}
 
-	// Tempered set: Seasoned — condition degrades 25% slower (applied once per set)
-	tempered := advEquippedArenaSets(equip)["tempered"]
-
-	// Apply damage and check for breaks
-	for slot, dmg := range damage {
-		eq, ok := equip[slot]
-		if !ok {
-			continue
-		}
-		if tempered {
-			dmg = int(float64(dmg) * 0.75)
-		}
-		// Equipment mastery: well-used gear degrades slower
-		if eq.ActionsUsed >= 20 {
-			dmg = int(float64(dmg) * 0.8)
-		}
-		eq.Condition -= dmg
-		if eq.Condition < 0 {
-			eq.Condition = 0
-		}
-	}
-
-	return damage
+	return applyDegradationModifiers(damage, equip)
 }
 
 // advCheckBrokenEquipment checks which slots hit 0 condition and reverts them to tier 0.
@@ -615,9 +603,20 @@ func advCheckBrokenEquipment(equip map[EquipmentSlot]*AdvEquipment) []EquipmentS
 // advOverlevelMultiplier returns a multiplier (0.05–1.0) that reduces XP and
 // loot when a character's effective level far exceeds the location's minimum.
 // Gap 0-3: no penalty. Gap 4+: −15% per level over 3, floor 5%.
-func advOverlevelMultiplier(effectiveLevel, minLevel int) float64 {
-	gap := effectiveLevel - minLevel
+// No penalty if no higher-tier location of the same activity is accessible.
+func advOverlevelMultiplier(effectiveLevel int, loc *AdvLocation) float64 {
+	gap := effectiveLevel - loc.MinLevel
 	if gap <= 3 {
+		return 1.0
+	}
+	hasHigherAccessible := false
+	for _, other := range allAdvLocations(loc.Activity) {
+		if other.MinLevel > loc.MinLevel && other.MinLevel <= effectiveLevel {
+			hasHigherAccessible = true
+			break
+		}
+	}
+	if !hasHigherAccessible {
 		return 1.0
 	}
 	mult := 1.0 - 0.15*float64(gap-3)
@@ -632,6 +631,7 @@ type AdvActionResult struct {
 	LootItems      []AdvItem
 	TotalLootValue int64
 	XPGained       int
+	XPBreakdown    string // human-readable bonus breakdown
 	XPSkill        string
 	EquipDamage    map[EquipmentSlot]int
 	LeveledUp      bool
@@ -642,6 +642,7 @@ type AdvActionResult struct {
 	EquipBroken    []EquipmentSlot
 	NearDeath      bool
 	StreakBonus     int
+	CombatLog      *CombatResult
 }
 
 func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, loc *AdvLocation, bonuses *AdvBonusSummary, inPenaltyZone bool) *AdvActionResult {
@@ -654,7 +655,7 @@ func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEqui
 
 	// Overlevel penalty — reduces loot and XP for farming low-tier content
 	skillLevel := advEffectiveSkill(char, loc.Activity, bonuses)
-	overlevelMult := advOverlevelMultiplier(skillLevel, loc.MinLevel)
+	overlevelMult := advOverlevelMultiplier(skillLevel, loc)
 
 	// Roll outcome
 	roll := rand.Float64() * 100
@@ -699,24 +700,15 @@ func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEqui
 		}
 	}
 
-	// Near-death XP bonus
-	if result.NearDeath {
-		xp = int(float64(xp) * 1.15)
-	}
-
-	// XP multiplier from bonuses
-	if bonuses.XPMultiplier != 0 {
-		xp = int(float64(xp) * (1 + bonuses.XPMultiplier/100))
-	}
-	// Ironclad set: Battle-Hardened — +5% XP gain
-	if advEquippedArenaSets(equip)["ironclad"] {
-		xp = int(float64(xp) * 1.05)
-	}
-	// Apply overlevel penalty to XP
-	if overlevelMult < 1.0 {
-		xp = max(1, int(float64(xp)*overlevelMult))
-	}
-	result.XPGained = xp
+	xpResult := applyXPBonuses(XPBonusParams{
+		BaseXP:        xp,
+		NearDeath:     result.NearDeath,
+		BonusMult:     bonuses.XPMultiplier,
+		Ironclad:      advEquippedArenaSets(equip)["ironclad"],
+		OverlevelMult: overlevelMult,
+	})
+	result.XPGained = xpResult.Total
+	result.XPBreakdown = xpResult.Breakdown
 
 	// Equipment degradation on bad outcomes
 	if result.Outcome == AdvOutcomeDeath || result.Outcome == AdvOutcomeEmpty ||
@@ -797,7 +789,7 @@ func advEligibleLocations(char *AdventureCharacter, equip map[EquipmentSlot]*Adv
 
 // advCheckPartyBonus checks if other players visited the same location today.
 func advCheckPartyBonus(userID id.UserID, location string) bool {
-	logs, err := loadAdvTodayLogs()
+	logs, err := loadAdvLogsForDate(time.Now().UTC().Format("2006-01-02"))
 	if err != nil {
 		return false
 	}

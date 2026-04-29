@@ -21,6 +21,7 @@ type ArenaMonster struct {
 	Flavor        string
 	BaseLethality float64
 	ThreatLevel   int
+	Ability       *MonsterAbility // nil = no special ability
 }
 
 var arenaTiers = [5]ArenaTier{
@@ -75,6 +76,7 @@ var arenaTiers = [5]ArenaTier{
 				Name:          "Armored Disagreement",
 				Flavor:        "A dark knight who has made peace with violence as a communication strategy. Extensively equipped.",
 				BaseLethality: 0.65, ThreatLevel: 30,
+				Ability: &MonsterAbility{Name: "Shield Bash", Phase: "clash", ProcChance: 0.20, Effect: "stun"},
 			},
 		},
 	},
@@ -92,6 +94,7 @@ var arenaTiers = [5]ArenaTier{
 				Name:          "Wyrm of Moderate Ambition",
 				Flavor:        "Aspires to be a world-ending dragon. Currently a regional threat at best. Very sensitive about this.",
 				BaseLethality: 0.65, ThreatLevel: 42,
+				Ability: &MonsterAbility{Name: "Venom Breath", Phase: "clash", ProcChance: 0.30, Effect: "poison"},
 			},
 			{
 				Name:          "Behemoth Adjacent",
@@ -102,6 +105,7 @@ var arenaTiers = [5]ArenaTier{
 				Name:          "The Inevitable",
 				Flavor:        "A reaper-class entity. No grievances. No agenda. Simply the direction all things are heading.",
 				BaseLethality: 0.80, ThreatLevel: 55,
+				Ability: &MonsterAbility{Name: "Soul Drain", Phase: "clash", ProcChance: 0.25, Effect: "lifesteal"},
 			},
 		},
 	},
@@ -114,6 +118,7 @@ var arenaTiers = [5]ArenaTier{
 				Name:          "The Watcher in the Peripheral",
 				Flavor:        "Seventeen eyes. None of them blink at the same time. Has been observing you specifically for longer than you've been alive.",
 				BaseLethality: 0.72, ThreatLevel: 62,
+				Ability: &MonsterAbility{Name: "Gaze of Unmaking", Phase: "opening", ProcChance: 0.35, Effect: "armor_break"},
 			},
 			{
 				Name:          "Herald of the Outer Dark",
@@ -124,11 +129,13 @@ var arenaTiers = [5]ArenaTier{
 				Name:          "Lich Adjacent",
 				Flavor:        "Not the Lich King. Definitely not. Unrelated individual. Happens to be a skeletal sorcerer of immense power. Coincidence.",
 				BaseLethality: 0.87, ThreatLevel: 78,
+				Ability: &MonsterAbility{Name: "Necrotic Siphon", Phase: "any", ProcChance: 0.30, Effect: "lifesteal"},
 			},
 			{
 				Name:          "The Collector of Faces",
 				Flavor:        "It has yours already. Has had it for some time. The fight is a formality at this point.",
 				BaseLethality: 0.92, ThreatLevel: 88,
+				Ability: &MonsterAbility{Name: "Harvest", Phase: "clash", ProcChance: 0.35, Effect: "cleave"},
 			},
 		},
 	},
@@ -141,21 +148,25 @@ var arenaTiers = [5]ArenaTier{
 				Name:          "Omega Mk. Zero",
 				Flavor:        "A machine built to be the final test. Has never lost. Is aware of this.",
 				BaseLethality: 0.85, ThreatLevel: 95,
+				Ability: &MonsterAbility{Name: "System Override", Phase: "opening", ProcChance: 0.40, Effect: "armor_break"},
 			},
 			{
 				Name:          "The Calamity That Dreamed It Was Sleeping",
 				Flavor:        "An ancient parasitic entity that fell from the sky an indeterminate number of years ago and has been ending timelines since. Definitely not Lavos.",
 				BaseLethality: 0.90, ThreatLevel: 105,
+				Ability: &MonsterAbility{Name: "Temporal Drain", Phase: "any", ProcChance: 0.35, Effect: "lifesteal"},
 			},
 			{
 				Name:          "The Architect of Endings",
 				Flavor:        "A god who decided the world was a failed experiment and appointed itself project manager of its destruction. Silver hair. Long coat. Personal.",
 				BaseLethality: 0.95, ThreatLevel: 115,
+				Ability: &MonsterAbility{Name: "Deconstruct", Phase: "clash", ProcChance: 0.40, Effect: "cleave"},
 			},
 			{
 				Name:          "That Which Has Always Been",
 				Flavor:        "Pre-dates language. Pre-dates light. The Arena was built around it, not the other way around. Winning this fight is not something the game's designers fully accounted for.",
 				BaseLethality: 0.98, ThreatLevel: 130,
+				Ability: &MonsterAbility{Name: "Primordial Wrath", Phase: "decisive", ProcChance: 0.50, Effect: "enrage"},
 			},
 		},
 	},

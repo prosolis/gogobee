@@ -411,7 +411,8 @@ func NewUnoPlugin(client *mautrix.Client, euro *EuroPlugin) *UnoPlugin {
 	}
 }
 
-func (p *UnoPlugin) Name() string { return "uno" }
+func (p *UnoPlugin) Name() string    { return "uno" }
+func (p *UnoPlugin) Version() string { return "1.2.0" }
 
 func (p *UnoPlugin) Commands() []CommandDef {
 	return []CommandDef{
@@ -1689,7 +1690,8 @@ func (p *UnoPlugin) suddenDeathWinner(game *unoGame) {
 	if playerWins {
 		payout := p.claimFromPot(game.wager)
 		totalPayout := game.wager + payout
-		p.euro.Credit(game.playerID, totalPayout, "uno_win")
+		net, _ := communityTax(game.playerID, totalPayout, 0.05)
+		p.euro.Credit(game.playerID, net, "uno_win")
 
 		newPot := p.getPot()
 		p.SendMessage(game.dmRoomID, "🎉 **You win on points!**")
@@ -1885,7 +1887,8 @@ func (p *UnoPlugin) playerWins(game *unoGame) error {
 	potBefore := p.getPot()
 	payout := p.claimFromPot(game.wager)
 	totalPayout := game.wager + payout
-	p.euro.Credit(game.playerID, totalPayout, "uno_win")
+	net, _ := communityTax(game.playerID, totalPayout, 0.05)
+	p.euro.Credit(game.playerID, net, "uno_win")
 
 	newPot := p.getPot()
 	playerName := p.DisplayName(game.playerID)

@@ -159,14 +159,14 @@ func (p *LLMPassivePlugin) OnMessage(ctx MessageContext) error {
 
 	// Check for fancy words on every message (independent of LLM sampling)
 	if p.dict != nil {
-		go func() {
+		safeGo("llm-fancy-word", func() {
 			if p.hasFancyWord(ctx.Body) {
 				_ = p.SendReact(ctx.RoomID, ctx.EventID, "\U0001f393") // 🎓 graduation cap
 				db.Exec("llm: track fancy word",
 					`UPDATE user_stats SET fancy_words = fancy_words + 1 WHERE user_id = ?`,
 					string(ctx.Sender))
 			}
-		}()
+		})
 	}
 
 	// Pre-filter: only classify messages that match certain criteria

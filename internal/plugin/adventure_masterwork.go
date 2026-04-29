@@ -169,8 +169,9 @@ func (p *AdventurePlugin) checkMasterworkDrop(userID id.UserID, char *AdventureC
 		return // no masterwork available for this activity+tier (e.g. dungeon)
 	}
 
-	// Roll for drop
-	if rand.Float64() >= def.DropRate {
+	// Roll for drop (chat level rare bonus applied additively)
+	dropRate := def.DropRate + chatLevelRareBonus(p.chatLevel(userID))
+	if rand.Float64() >= dropRate {
 		return
 	}
 
@@ -332,16 +333,16 @@ func (p *AdventurePlugin) handleEquipCmd(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Failed to load inventory.")
 	}
 
-	// Filter to masterwork items only
+	// Filter to special gear (Masterwork + Arena) items only
 	var mwItems []AdvItem
 	for _, it := range items {
-		if it.Type == "MasterworkGear" {
+		if it.Type == "MasterworkGear" || it.Type == "ArenaGear" {
 			mwItems = append(mwItems, it)
 		}
 	}
 
 	if len(mwItems) == 0 {
-		return p.SendDM(ctx.Sender, "You have no Masterwork gear waiting to be equipped. Go find some.")
+		return p.SendDM(ctx.Sender, "You have no special gear waiting to be equipped. Go find some.")
 	}
 
 	equip, err := loadAdvEquipment(ctx.Sender)
@@ -351,7 +352,7 @@ func (p *AdventurePlugin) handleEquipCmd(ctx MessageContext) error {
 
 	// Build listing
 	var sb strings.Builder
-	sb.WriteString("⭐ **Your unequipped Masterwork gear:**\n\n")
+	sb.WriteString("⭐ **Your unequipped special gear:**\n\n")
 
 	for i, it := range mwItems {
 		current := equip[it.Slot]
@@ -365,8 +366,12 @@ func (p *AdventurePlugin) handleEquipCmd(ctx MessageContext) error {
 			}
 			currentDesc = fmt.Sprintf("%s (%s)", current.Name, tag)
 		}
-		sb.WriteString(fmt.Sprintf("%d. %s (T%d %s) — currently: %s\n",
-			i+1, it.Name, it.Tier, slotTitle(it.Slot), currentDesc))
+		marker := "⭐"
+		if it.Type == "ArenaGear" {
+			marker = "⚔️"
+		}
+		sb.WriteString(fmt.Sprintf("%d. %s %s (T%d %s) — currently: %s\n",
+			i+1, marker, it.Name, it.Tier, slotTitle(it.Slot), currentDesc))
 	}
 
 	sb.WriteString("\nReply with a number to equip, or \"cancel\".")
@@ -374,7 +379,7 @@ func (p *AdventurePlugin) handleEquipCmd(ctx MessageContext) error {
 	p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 		Type:      "masterwork_equip",
 		Data:      &advPendingMasterworkEquip{Items: mwItems},
-		ExpiresAt: time.Now().Add(5 * time.Minute),
+		ExpiresAt: time.Now().Add(advDMResponseWindow),
 	})
 
 	return p.SendDM(ctx.Sender, sb.String())
@@ -429,17 +434,22 @@ func (p *AdventurePlugin) handleMasterworkEquipReply(ctx MessageContext, interac
 	p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 		Type:      "masterwork_equip_confirm",
 		Data:      &advPendingMasterworkConfirm{Item: selected},
-		ExpiresAt: time.Now().Add(5 * time.Minute),
+		ExpiresAt: time.Now().Add(advDMResponseWindow),
 	})
 
-	def := masterworkDefFor(slotToActivity(selected.Slot), selected.Tier)
 	bonusDesc := ""
-	if def != nil {
-		bonusDesc = fmt.Sprintf("\n%s gives 1.25x %s effectiveness and +5%% %s success.\n", selected.Name, slotTitle(selected.Slot), def.SkillSource)
+	marker := "⭐"
+	if selected.Type == "ArenaGear" {
+		marker = "⚔️"
+	} else {
+		def := masterworkDefFor(slotToActivity(selected.Slot), selected.Tier)
+		if def != nil {
+			bonusDesc = fmt.Sprintf("\n%s gives 1.25x %s effectiveness and +5%% %s success.\n", selected.Name, slotTitle(selected.Slot), def.SkillSource)
+		}
 	}
 
-	return p.SendDM(ctx.Sender, fmt.Sprintf("Equip **%s** (T%d ⭐ %s)?%s\nThis replaces your %s. The old item goes to inventory.%s\nReply \"yes\" to confirm.",
-		selected.Name, selected.Tier, slotTitle(selected.Slot), warning, currentName, bonusDesc))
+	return p.SendDM(ctx.Sender, fmt.Sprintf("Equip **%s** (T%d %s %s)?%s\nThis replaces your %s. The old item goes to inventory.%s\nReply \"yes\" to confirm.",
+		selected.Name, selected.Tier, marker, slotTitle(selected.Slot), warning, currentName, bonusDesc))
 }
 
 func (p *AdventurePlugin) handleMasterworkEquipConfirm(ctx MessageContext, interaction *advPendingInteraction) error {
@@ -487,10 +497,21 @@ func (p *AdventurePlugin) handleMasterworkEquipConfirm(ctx MessageContext, inter
 	eq.Condition = 100
 	eq.Name = selected.Name
 	eq.ActionsUsed = 0
-	eq.ArenaTier = 0
-	eq.ArenaSet = ""
-	eq.Masterwork = true
-	eq.SkillSource = selected.SkillSource
+
+	if selected.Type == "ArenaGear" {
+		eq.Masterwork = false
+		eq.SkillSource = ""
+		eq.ArenaTier = selected.Tier
+		eq.ArenaSet = ""
+		if gs := arenaGearByName(selected.Name); gs != nil {
+			eq.ArenaSet = gs.SetKey
+		}
+	} else {
+		eq.ArenaTier = 0
+		eq.ArenaSet = ""
+		eq.Masterwork = true
+		eq.SkillSource = selected.SkillSource
+	}
 
 	if err := saveAdvEquipment(ctx.Sender, eq); err != nil {
 		return p.SendDM(ctx.Sender, "Failed to save equipment. Try again.")
@@ -501,7 +522,11 @@ func (p *AdventurePlugin) handleMasterworkEquipConfirm(ctx MessageContext, inter
 		slog.Error("adventure: failed to remove equipped item from inventory", "user", ctx.Sender, "err", err)
 	}
 
-	return p.SendDM(ctx.Sender, fmt.Sprintf("**%s** equipped. ⭐ Masterwork %s, Tier %d.", selected.Name, slotTitle(selected.Slot), selected.Tier))
+	kind := "⭐ Masterwork"
+	if selected.Type == "ArenaGear" {
+		kind = "⚔️ Arena"
+	}
+	return p.SendDM(ctx.Sender, fmt.Sprintf("**%s** equipped. %s %s, Tier %d.", selected.Name, kind, slotTitle(selected.Slot), selected.Tier))
 }
 
 // slotToActivity converts an EquipmentSlot to the activity that drops masterwork for it.

@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -8,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gogobee/internal/db"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
@@ -18,6 +22,7 @@ import (
 type AdventurePlugin struct {
 	Base
 	euro         *EuroPlugin
+	xp           *XPPlugin
 	achievements *AchievementsPlugin
 	mu           sync.Mutex
 	dmToPlayer     map[id.RoomID]id.UserID
@@ -27,8 +32,10 @@ type AdventurePlugin struct {
 	dmMenuSentAt   sync.Map // userID string -> time.Time (last time actionable menu was DM'd)
 	arenaDeadlines sync.Map // userID string -> time.Time (auto-cashout deadline)
 	arenaPending   sync.Map // userID string -> int (pending tier number awaiting confirmation)
+	arenaBailCh    sync.Map // userID string -> chan struct{} (bail signal for countdown goroutine)
 	shopSessions   sync.Map // userID string -> *advShopSession
 	hospitalNudges sync.Map // userID string -> time.Time (when to send nudge)
+	craftResults   sync.Map // userID string -> []CraftResult (pending craft results for narrative)
 	morningHour int
 	summaryHour int
 }
@@ -39,7 +46,7 @@ func (p *AdventurePlugin) advUserLock(userID id.UserID) *sync.Mutex {
 	return val.(*sync.Mutex)
 }
 
-const advDMResponseWindow = 15 * time.Minute
+const advDMResponseWindow = 3 * time.Hour
 
 // advMarkMenuSent records that an actionable adventure menu was DM'd to the user.
 // Only bare-number DM replies within this window will be treated as adventure choices.
@@ -67,17 +74,27 @@ type advPendingTreasureDiscard struct {
 	Existing    []AdvTreasureDef
 }
 
-func NewAdventurePlugin(client *mautrix.Client, euro *EuroPlugin) *AdventurePlugin {
+func NewAdventurePlugin(client *mautrix.Client, euro *EuroPlugin, xp *XPPlugin) *AdventurePlugin {
 	return &AdventurePlugin{
 		Base:        NewBase(client),
 		euro:        euro,
+		xp:          xp,
 		dmToPlayer:  make(map[id.RoomID]id.UserID),
 		morningHour: envInt("ADVENTURE_MORNING_HOUR", 8),
 		summaryHour: envInt("ADVENTURE_SUMMARY_HOUR", 20),
 	}
 }
 
-func (p *AdventurePlugin) Name() string { return "adventure" }
+// chatLevel returns the user's chat level for perk calculations.
+func (p *AdventurePlugin) chatLevel(userID id.UserID) int {
+	if p.xp == nil {
+		return 0
+	}
+	return p.xp.GetLevel(userID)
+}
+
+func (p *AdventurePlugin) Name() string    { return "adventure" }
+func (p *AdventurePlugin) Version() string { return "2.5.0" }
 
 // SetAchievements wires the achievements plugin after both are initialized.
 func (p *AdventurePlugin) SetAchievements(ach *AchievementsPlugin) {
@@ -88,6 +105,7 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 	return []CommandDef{
 		{Name: "adventure", Description: "Daily adventure game — dungeon, mine, forage, or rest", Usage: "!adventure", Category: "Games"},
 		{Name: "arena", Description: "Arena combat — fight through 5 tiers of increasingly deadly monsters", Usage: "!arena", Category: "Games"},
+		{Name: "thom", Description: "Visit Thom Krooke — housing and loans", Usage: "!thom", Category: "Games"},
 	}
 }
 
@@ -110,6 +128,9 @@ func (p *AdventurePlugin) Init() error {
 	if err := resetAllAdvDailyActions(); err != nil {
 		slog.Error("adventure: startup daily reset failed", "err", err)
 	}
+	if err := lockCoopCombatActions(); err != nil {
+		slog.Error("adventure: startup coop combat lock failed", "err", err)
+	}
 	// Revive any characters whose DeadUntil has expired
 	p.catchUpRespawns(chars)
 
@@ -118,10 +139,12 @@ func (p *AdventurePlugin) Init() error {
 	go p.summaryTicker()
 	go p.midnightTicker()
 	go p.eventTicker()
-	go p.arenaAutoCashoutTicker()
+	// Arena auto-cashout ticker removed — replaced by per-session countdown goroutines
 	go p.rivalChallengeTicker()
 	go p.robbieTicker()
 	go p.hospitalNudgeTicker()
+	go p.mortgageTicker()
+	go p.coopTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()
@@ -154,6 +177,9 @@ func (p *AdventurePlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	// 1. Arena commands (work in rooms and DMs)
+	if p.IsCommand(ctx.Body, "bail") {
+		return p.handleArenaBail(ctx)
+	}
 	if p.IsCommand(ctx.Body, "arena") {
 		return p.dispatchArenaCommand(ctx)
 	}
@@ -161,6 +187,11 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	// 1b. Hospital commands (work in rooms and DMs)
 	if p.IsCommand(ctx.Body, "hospital") {
 		return p.handleHospitalCmd(ctx)
+	}
+
+	// 1c. Co-op dungeon commands (work in rooms and DMs)
+	if p.IsCommand(ctx.Body, "coop") {
+		return p.handleCoopCmd(ctx)
 	}
 
 	// 2. Check if this is a DM reply from a registered player
@@ -172,7 +203,19 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 		return p.handleDMReply(ctx)
 	}
 
-	// 3. Command dispatch
+	// 3. NPC encounter tracking — count room messages from adventure players
+	if !isDM && !strings.HasPrefix(ctx.Body, "!") {
+		safeGo("npc-track", func() {
+			p.npcTrackMessage(ctx.Sender)
+		})
+	}
+
+	// 4. Thom Krooke commands (work in rooms and DMs)
+	if p.IsCommand(ctx.Body, "thom") {
+		return p.handleThomCmd(ctx)
+	}
+
+	// 5. Command dispatch
 	if !p.IsCommand(ctx.Body, "adventure") && !p.IsCommand(ctx.Body, "adv") {
 		return nil
 	}
@@ -222,6 +265,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleRepairAllCmd(ctx)
 	case strings.HasPrefix(lower, "repair "):
 		return p.handleRepairSlotCmd(ctx, strings.TrimSpace(args[7:]))
+	case lower == "boost":
+		return p.handleBoostCmd(ctx)
 	}
 
 	return p.SendDM(ctx.Sender, "Unknown command. Type `!adventure help` to see available commands.")
@@ -241,10 +286,13 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure respond`" + ` — Respond to a mid-day event
 ` + "`!adventure rivals`" + ` — View rival duel records
 ` + "`!adventure babysit`" + ` — Adventurer Babysitting Service
+` + "`!adventure babysit auto`" + ` — Toggle auto-babysit (protects streaks on missed days)
 ` + "`!adventure blacksmith`" + ` — Visit the blacksmith (view repair costs)
 ` + "`!adventure repair all`" + ` — Repair all damaged equipment
 ` + "`!adventure repair <slot>`" + ` — Repair a specific slot
+` + "`!coop`" + ` — Co-op dungeons (multi-day party runs). See ` + "`!coop help`" + `.
 ` + "`!hospital`" + ` — Visit St. Guildmore's Memorial Hospital (same-day revival when dead)
+` + "`!thom`" + ` — Visit Thom Krooke (housing and loans)
 ` + "`!adventure help`" + ` — This message
 
 **Arena:**
@@ -255,6 +303,10 @@ const advHelpText = `**Adventure Commands**
 ` + "`!arena cashout`" + ` — Take earnings and leave
 ` + "`!arena status`" + ` — Current run state
 ` + "`!arena leaderboard`" + ` — Top arena players
+
+**Systems:**
+• Foraging level 10+ unlocks auto-crafting consumables from loot ingredients before combat.
+• A 5% community tax funds the lottery pot. Arena and hospital apply 10%.
 
 **In DM:** Reply with a number (e.g. ` + "`1`" + `) or location name to take your daily action.`
 
@@ -285,25 +337,15 @@ func (p *AdventurePlugin) handleMenu(ctx MessageContext) error {
 		}
 	}
 
-	if char.ActionTakenToday {
-		// On holidays, allow second action if not yet taken
-		isHol, _ := isHolidayToday()
-		if isHol && !char.HolidayActionTaken {
-			treasures, _ := loadAdvTreasureBonuses(char.UserID)
-			buffs, _ := loadAdvActiveBuffs(char.UserID)
-			bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, false)
-			text := renderAdvHolidaySecondPrompt(char, equip, bonuses)
-			p.advMarkMenuSent(ctx.Sender)
-			return p.SendDM(ctx.Sender, text)
-		}
-
+	isHol, holName := isHolidayToday()
+	if char.AllActionsUsed(isHol) {
 		now := time.Now().UTC()
 		midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
 		remaining := midnight.Sub(now)
 		hours := int(remaining.Hours())
 		minutes := int(remaining.Minutes()) % 60
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"You've already taken your action today. Tomorrow awaits. Try to survive it.\n\n"+
+			"You've used all your actions today. Tomorrow awaits. Try to survive it.\n\n"+
 				"Next action: 00:00 UTC (%dh %dm from now)\n"+
 				"Morning DM: %02d:00 UTC\n\n"+
 				"The Arena is always open: `!arena`",
@@ -315,7 +357,6 @@ func (p *AdventurePlugin) handleMenu(ctx MessageContext) error {
 	bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, false)
 	balance := p.euro.GetBalance(char.UserID)
 
-	_, holName := isHolidayToday()
 	text := renderAdvMorningDM(char, equip, balance, bonuses, holName)
 	p.advMarkMenuSent(ctx.Sender)
 	return p.SendDM(ctx.Sender, text)
@@ -369,7 +410,7 @@ func (p *AdventurePlugin) handleShopCmd(ctx MessageContext, args string) error {
 	p.shopSessionStart(ctx.Sender)
 
 	if category == "" {
-		text := luigiShopGreeting(ctx.Sender, equip, balance, showAll)
+		text := luigiShopGreeting(ctx.Sender, equip, balance, showAll, p.chatLevel(ctx.Sender))
 		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 			Type:      "shop_category",
 			Data:      &advPendingShopCategory{ShowAll: showAll},
@@ -399,10 +440,14 @@ func (p *AdventurePlugin) handleShopCmd(ctx MessageContext, args string) error {
 func (p *AdventurePlugin) handleBuyCmd(ctx MessageContext, itemName string) error {
 	char, equip, err := p.ensureCharacter(ctx.Sender)
 	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character.")
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character. Try `!adventure` to create one first.")
 	}
 	if !char.Alive {
 		return p.SendDM(ctx.Sender, "You're dead. Shopping can wait until you've respawned.")
+	}
+
+	if itemName == "" {
+		return p.SendDM(ctx.Sender, "Usage: `!buy <item name>`. Type `!adventure shop` to browse.")
 	}
 
 	slot, def, found := advFindShopItem(itemName)
@@ -417,7 +462,7 @@ func (p *AdventurePlugin) handleBuyCmd(ctx MessageContext, itemName string) erro
 func (p *AdventurePlugin) handleSellCmd(ctx MessageContext, args string) error {
 	char, _, err := p.ensureCharacter(ctx.Sender)
 	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character.")
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character. Try `!adventure` to create one first.")
 	}
 	if !char.Alive {
 		return p.SendDM(ctx.Sender, "You're dead. No haggling from beyond the grave.")
@@ -497,8 +542,13 @@ func (p *AdventurePlugin) handleDMReply(ctx MessageContext) error {
 
 	// Skip if it looks like a command for another plugin
 	lower := strings.ToLower(body)
-	if strings.HasPrefix(body, "!") && !strings.HasPrefix(lower, "!adventure") && !strings.HasPrefix(lower, "!adv") {
+	if strings.HasPrefix(body, "!") && !strings.HasPrefix(lower, "!adventure") && !strings.HasPrefix(lower, "!adv") && !strings.HasPrefix(lower, "!thom") {
 		return nil
+	}
+
+	// Handle !thom in DMs
+	if strings.HasPrefix(lower, "!thom") {
+		return p.handleThomCmd(ctx)
 	}
 
 	// Strip !adventure / !adv prefix if present — dispatch directly to avoid recursion
@@ -548,10 +598,20 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.resolveShopCategoryChoice(ctx, interaction)
 	case "shop_item":
 		return p.resolveShopItemChoice(ctx, interaction)
+	case "shop_supply":
+		return p.resolveShopSupplyChoice(ctx, interaction)
 	case "shop_confirm":
 		return p.resolveShopConfirm(ctx, interaction)
 	case "hospital_pay":
 		return p.resolveHospitalPay(ctx, interaction)
+	case "npc_encounter":
+		return p.resolveNPCEncounter(ctx, interaction)
+	case "pet_arrival":
+		return p.resolvePetArrival(ctx)
+	case "pet_type":
+		return p.resolvePetType(ctx)
+	case "pet_name":
+		return p.resolvePetName(ctx)
 	}
 	return nil
 }
@@ -613,30 +673,26 @@ func (p *AdventurePlugin) parseAndResolveChoice(ctx MessageContext, body string)
 		}
 	}
 
-	if char.ActionTakenToday {
-		// On holidays, allow second action if not yet taken
-		isHol, _ := isHolidayToday()
-		if !isHol || char.HolidayActionTaken {
-			// Only send the reminder once per day — subsequent DM messages
-			// are silently ignored so they can be handled by other plugins (e.g. UNO).
-			today := time.Now().UTC().Format("2006-01-02")
-			if prev, ok := p.dmRemindedDate.Load(string(ctx.Sender)); ok && prev.(string) == today {
-				return nil
-			}
-			p.dmRemindedDate.Store(string(ctx.Sender), today)
-
-			now := time.Now().UTC()
-			midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
-			remaining := midnight.Sub(now)
-			hours := int(remaining.Hours())
-			minutes := int(remaining.Minutes()) % 60
-			return p.SendDM(ctx.Sender, fmt.Sprintf(
-				"You've already taken your action today. Rest now. Try again tomorrow.\n\n"+
-					"Next action: 00:00 UTC (%dh %dm from now)\n\n"+
-					"The Arena is always open: `!arena`",
-				hours, minutes))
+	isHol, _ := isHolidayToday()
+	if char.AllActionsUsed(isHol) {
+		// Only send the reminder once per day — subsequent DM messages
+		// are silently ignored so they can be handled by other plugins (e.g. UNO).
+		today := time.Now().UTC().Format("2006-01-02")
+		if prev, ok := p.dmRemindedDate.Load(string(ctx.Sender)); ok && prev.(string) == today {
+			return nil
 		}
-		// Fall through for holiday second action
+		p.dmRemindedDate.Store(string(ctx.Sender), today)
+
+		now := time.Now().UTC()
+		midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+		remaining := midnight.Sub(now)
+		hours := int(remaining.Hours())
+		minutes := int(remaining.Minutes()) % 60
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"You've used all your actions today. Rest now. Try again tomorrow.\n\n"+
+				"Next action: 00:00 UTC (%dh %dm from now)\n\n"+
+				"The Arena is always open: `!arena`",
+			hours, minutes))
 	}
 
 	lower := strings.ToLower(body)
@@ -728,6 +784,14 @@ func (p *AdventurePlugin) parseActivityLocation(input string, char *AdventureCha
 // ── Activity Resolution ──────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCharacter, activity AdvActivityType, loc *AdvLocation) error {
+	isHol, _ := isHolidayToday()
+	if isCombatActivity(activity) && !char.CanDoCombat(isHol) {
+		return p.SendDM(ctx.Sender, "You've used your combat action for the day. Try a harvest activity (mining, fishing, foraging) or rest.")
+	}
+	if isHarvestActivity(activity) && !char.CanDoHarvest(isHol) {
+		return p.SendDM(ctx.Sender, "You've used all your harvest actions for the day. Try combat (dungeon) or rest.")
+	}
+
 	equip, err := loadAdvEquipment(char.UserID)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Failed to load your equipment.")
@@ -759,11 +823,24 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		return p.SendDM(ctx.Sender, fmt.Sprintf("🕐 %s is still being cleared out. Try again in %d minutes, or pick a different location.", loc.Name, m))
 	}
 
-	// Resolve the action
-	result := resolveAdvAction(char, equip, loc, bonuses, inPenaltyZone)
+	// Resolve the action — dungeon uses combat engine, others use probability bands
+	var result *AdvActionResult
+	if loc.Activity == AdvActivityDungeon {
+		result = p.resolveDungeonAction(char, equip, loc, bonuses, inPenaltyZone)
+	} else {
+		result = resolveAdvAction(char, equip, loc, bonuses, inPenaltyZone)
+	}
 
 	// Select flavor text
 	result.FlavorText, result.FlavorKey = p.selectFlavorText(char, result)
+
+	// Chat level XP bonus
+	if bonus := chatLevelXPBonus(p.chatLevel(char.UserID)); bonus > 0 {
+		result.XPGained = int(float64(result.XPGained) * (1.0 + bonus))
+	}
+
+	// Double XP/money boost
+	advApplyBoost(result)
 
 	// Apply XP
 	switch result.XPSkill {
@@ -783,30 +860,34 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		p.checkRivalPoolUnlock(char)
 	}
 
+	engineDeathSaved := result.CombatLog != nil && checkDeathSaveEvent(result.CombatLog.Events)
+
 	// Handle death
 	deathReprieved := false
+	pardonFired := false
+	petRecovered := false
 	if result.Outcome == AdvOutcomeDeath {
-		// Sovereign set: Death's Reprieve — survive lethal outcome
-		if advEquippedArenaSets(equip)["sovereign"] && char.DeathReprieveAvailable() {
-			deathReprieved = true
-			now := time.Now().UTC()
-			char.DeathReprieveLast = &now
-			char.GrudgeLocation = loc.Name
-			// Gear absorbs the blow — all equipment set to 1 condition
-			for _, slot := range allSlots {
-				if eq, ok := equip[slot]; ok {
-					eq.Condition = 1
-				}
-			}
-			// Post room announcement
-			nextWindow := now.Add(168 * time.Hour)
+		dt := transitionDeath(DeathTransitionParams{
+			Char:           char,
+			Equip:          equip,
+			ChatLevel:      p.chatLevel(char.UserID),
+			Location:       loc.Name,
+			AllowPardon:    true,
+			AllowSovereign: true,
+			EngineSaved:    engineDeathSaved,
+		})
+		pardonFired = dt.Pardoned
+		deathReprieved = dt.Pardoned || dt.Reprieved
+		petRecovered = dt.PetRecovered
+		if dt.Pardoned {
+			result.Outcome = AdvOutcomeEmpty
+		}
+		if dt.Reprieved {
+			nextWindow := time.Now().UTC().Add(168 * time.Hour)
 			gr := gamesRoom()
 			if gr != "" {
 				p.SendMessage(gr, renderArenaDeathReprieve(char.DisplayName, loc.Name, nextWindow))
 			}
-		} else {
-			char.Kill()
-			char.GrudgeLocation = loc.Name
 		}
 	} else if hasGrudge && (result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional) {
 		// Clear grudge on successful return
@@ -818,22 +899,22 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		_ = addAdvInventoryItem(char.UserID, item)
 	}
 
-	// Determine if this is the holiday second action
-	isAction2 := char.ActionTakenToday // already taken = this is the second
-	isHol, _ := isHolidayToday()
-
-	// Mark action taken and record the date for streak tracking
-	if !isAction2 {
-		char.ActionTakenToday = true
-		char.LastActionDate = time.Now().UTC().Format("2006-01-02")
+	// Roll for consumable drop on success/exceptional at T2+
+	if (result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional) && loc.Tier >= 2 {
+		if drop := RollConsumableDrop(loc.Activity, loc.Tier); drop != nil {
+			_ = addAdvInventoryItem(char.UserID, *drop)
+			result.LootItems = append(result.LootItems, *drop)
+		}
 	}
 
-	// Holiday flags: mark second action done, or mark it done on death during action 1
-	if isAction2 {
-		char.HolidayActionTaken = true
-	} else if isHol && result.Outcome == AdvOutcomeDeath && !deathReprieved {
-		char.HolidayActionTaken = true // died on action 1 — no second action
+	// Mark action consumed in the correct bucket
+	if isCombatActivity(activity) {
+		char.CombatActionsUsed++
+	} else if isHarvestActivity(activity) {
+		char.HarvestActionsUsed++
 	}
+	char.ActionTakenToday = true
+	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
 
 	// Update streak info
 	result.StreakBonus = char.CurrentStreak
@@ -842,6 +923,16 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("adventure: failed to save character", "user", char.UserID, "err", err)
 		return p.SendDM(ctx.Sender, "Something went wrong saving your progress. Your action was not recorded. Try again.")
+	}
+
+	// Pet XP
+	if char.HasPet() && result.Outcome != AdvOutcomeDeath {
+		if petGrantXP(char) {
+			_ = saveAdvCharacter(char)
+			_ = p.SendDM(char.UserID, fmt.Sprintf("🐾 %s leveled up to **Level %d**!", char.PetName, char.PetLevel))
+		} else {
+			_ = saveAdvCharacter(char)
+		}
 	}
 
 	// Save equipment changes
@@ -864,8 +955,8 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 			partyBonus := int64(float64(result.TotalLootValue) * 0.10)
 			if partyBonus > 0 {
 				result.TotalLootValue += partyBonus
-				// Credit the bonus directly
-				p.euro.Credit(char.UserID, float64(partyBonus), "adventure_party_bonus")
+				net, _ := communityTax(char.UserID, float64(partyBonus), 0.05)
+				p.euro.Credit(char.UserID, net, "adventure_party_bonus")
 			}
 		}
 	}
@@ -882,13 +973,38 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	if closing != "" {
 		text += "\n" + closing
 	}
-	if err := p.SendDM(ctx.Sender, text); err != nil {
-		slog.Error("adventure: failed to send resolution DM", "user", ctx.Sender, "err", err)
-	}
 
-	// Send hospital ad on death (delayed, arrives after resolution DM)
-	if result.Outcome == AdvOutcomeDeath && !deathReprieved {
-		p.sendHospitalAd(ctx.Sender, char)
+	// Dungeon combat: send phased combat messages with delays, then resolution DM
+	if result.CombatLog != nil {
+		phaseMessages := RenderCombatLog(*result.CombatLog, char.DisplayName, loc.Denizens)
+		phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
+		done := p.sendCombatMessages(ctx.Sender, phaseMessages, text)
+
+		go func() {
+			<-done
+			if pardonFired {
+				p.SendDM(ctx.Sender, "The crowd intervened. A healer pulled you back at the last second. Don't count on this again — 7-day cooldown.")
+			}
+			if petRecovered && char.PetName != "" {
+				p.SendDM(ctx.Sender, fmt.Sprintf("Your pet %s dragged you to safety. Death timer reduced.", char.PetName))
+			}
+			if result.Outcome == AdvOutcomeDeath && !deathReprieved {
+				p.sendHospitalAd(ctx.Sender, char)
+			}
+		}()
+	} else {
+		if err := p.SendDM(ctx.Sender, text); err != nil {
+			slog.Error("adventure: failed to send resolution DM", "user", ctx.Sender, "err", err)
+		}
+		if pardonFired {
+			p.SendDM(ctx.Sender, "The crowd intervened. A healer pulled you back at the last second. Don't count on this again — 7-day cooldown.")
+		}
+		if petRecovered && char.PetName != "" {
+			p.SendDM(ctx.Sender, fmt.Sprintf("Your pet %s dragged you to safety. Death timer reduced.", char.PetName))
+		}
+		if result.Outcome == AdvOutcomeDeath && !deathReprieved {
+			p.sendHospitalAd(ctx.Sender, char)
+		}
 	}
 
 	// Check for treasure drop
@@ -897,34 +1013,40 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 		p.checkMasterworkDrop(ctx.Sender, char, equip, loc, result.Outcome)
 	}
 
-	// TODO: holiday achievement hooks
-
-	// Holiday: offer second action if this was action 1 and player survived
-	if !isAction2 && isHol && (result.Outcome != AdvOutcomeDeath || deathReprieved) {
-		equip2, _ := loadAdvEquipment(char.UserID)
-		treasures2, _ := loadAdvTreasureBonuses(char.UserID)
-		buffs2, _ := loadAdvActiveBuffs(char.UserID)
-		bonuses2 := computeAdvBonuses(treasures2, buffs2, char.CurrentStreak, false)
-		prompt := renderAdvHolidaySecondPrompt(char, equip2, bonuses2)
-		if err := p.SendDM(ctx.Sender, prompt); err != nil {
-			slog.Error("adventure: failed to send holiday second prompt", "user", ctx.Sender, "err", err)
+	// If the player still has actions remaining, nudge them
+	if !char.AllActionsUsed(isHol) && (result.Outcome != AdvOutcomeDeath || deathReprieved) {
+		remaining := []string{}
+		if char.CanDoCombat(isHol) {
+			remaining = append(remaining, "combat")
 		}
+		if char.CanDoHarvest(isHol) {
+			harvestMax := maxHarvestActions
+			if isHol {
+				harvestMax++
+			}
+			harvestLeft := harvestMax - char.HarvestActionsUsed
+			remaining = append(remaining, fmt.Sprintf("%d harvest", harvestLeft))
+		}
+		p.SendDM(ctx.Sender, fmt.Sprintf("Actions remaining today: %s. Type `!adv` for the menu.", strings.Join(remaining, ", ")))
 	}
 
 	return nil
 }
 
 func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharacter) error {
-	isAction2 := char.ActionTakenToday
 	isHol, _ := isHolidayToday()
 
-	if !isAction2 {
-		char.ActionTakenToday = true
-		char.LastActionDate = time.Now().UTC().Format("2006-01-02")
+	// Rest consumes all remaining actions
+	combatMax := maxCombatActions
+	harvestMax := maxHarvestActions
+	if isHol {
+		combatMax++
+		harvestMax++
 	}
-	if isAction2 {
-		char.HolidayActionTaken = true
-	}
+	char.CombatActionsUsed = combatMax
+	char.HarvestActionsUsed = harvestMax
+	char.ActionTakenToday = true
+	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
 
 	if err := saveAdvCharacter(char); err != nil {
 		return p.SendDM(ctx.Sender, "Failed to save. Even resting is broken.")
@@ -954,25 +1076,13 @@ func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharact
 		slog.Error("adventure: failed to send rest DM", "user", ctx.Sender, "err", err)
 	}
 
-	// Holiday: offer second action if this was action 1
-	if !isAction2 && isHol {
-		equip, _ := loadAdvEquipment(char.UserID)
-		treasures, _ := loadAdvTreasureBonuses(char.UserID)
-		buffs, _ := loadAdvActiveBuffs(char.UserID)
-		bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, false)
-		prompt := renderAdvHolidaySecondPrompt(char, equip, bonuses)
-		if err := p.SendDM(ctx.Sender, prompt); err != nil {
-			slog.Error("adventure: failed to send holiday second prompt", "user", ctx.Sender, "err", err)
-		}
-	}
-
 	return nil
 }
 
 // ── Treasure Drop Check ─────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) checkTreasureDrop(userID id.UserID, char *AdventureCharacter, loc *AdvLocation) {
-	drop := rollAdvTreasureDrop(loc.Tier, userID)
+	drop := rollAdvTreasureDrop(loc.Tier, userID, p.chatLevel(userID))
 	if drop == nil {
 		return
 	}
@@ -1008,7 +1118,7 @@ func (p *AdventurePlugin) checkTreasureDrop(userID id.UserID, char *AdventureCha
 			NewTreasure: drop.Def,
 			Existing:    existing,
 		},
-		ExpiresAt: time.Now().Add(5 * time.Minute),
+		ExpiresAt: time.Now().Add(advDMResponseWindow),
 	})
 
 	text := renderAdvTreasureDiscardPrompt(drop.Def, existing)
@@ -1174,7 +1284,12 @@ func (p *AdventurePlugin) selectFlavorText(char *AdventureCharacter, result *Adv
 func (p *AdventurePlugin) ensureCharacter(userID id.UserID) (*AdventureCharacter, map[EquipmentSlot]*AdvEquipment, error) {
 	char, err := loadAdvCharacter(userID)
 	if err != nil {
-		// Auto-create
+		if !errors.Is(err, sql.ErrNoRows) {
+			// Query error (e.g. missing column) — do NOT auto-create over existing data
+			slog.Error("adventure: loadAdvCharacter failed", "user", userID, "err", err)
+			return nil, nil, fmt.Errorf("failed to load character: %w", err)
+		}
+		// Genuinely new player — auto-create
 		displayName := p.DisplayName(userID)
 		if err := createAdvCharacter(userID, displayName); err != nil {
 			return nil, nil, err
@@ -1198,5 +1313,46 @@ func (p *AdventurePlugin) ensureCharacter(userID id.UserID) (*AdventureCharacter
 	}
 
 	return char, equip, nil
+}
+
+// ── Double XP/Money Boost ───────────────────────────────────────────────────
+
+const advBoostCacheKey = "adv_boost_active"
+
+func advBoostActive() bool {
+	return db.CacheGet(advBoostCacheKey, 365*86400) == "1"
+}
+
+func advSetBoost(active bool) {
+	v := "0"
+	if active {
+		v = "1"
+	}
+	db.CacheSet(advBoostCacheKey, v)
+}
+
+func advApplyBoost(result *AdvActionResult) {
+	if !advBoostActive() {
+		return
+	}
+	result.XPGained *= 2
+	result.TotalLootValue = 0
+	for i := range result.LootItems {
+		result.LootItems[i].Value *= 2
+		result.TotalLootValue += result.LootItems[i].Value
+	}
+}
+
+func (p *AdventurePlugin) handleBoostCmd(ctx MessageContext) error {
+	if !p.IsAdmin(ctx.Sender) {
+		return nil
+	}
+
+	if advBoostActive() {
+		advSetBoost(false)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "⚡ Double XP/money boost **disabled**.")
+	}
+	advSetBoost(true)
+	return p.SendReply(ctx.RoomID, ctx.EventID, "⚡ Double XP/money boost **enabled**! All adventure XP and loot values are doubled.")
 }
 

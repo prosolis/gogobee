@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -52,15 +53,19 @@ func lotteryCurrentWeekStart() string {
 func lotteryTicketCount(userID id.UserID, weekStart string) int {
 	d := db.Get()
 	var count int
-	_ = d.QueryRow(`SELECT COUNT(*) FROM lottery_tickets WHERE user_id = ? AND week_start = ?`,
-		string(userID), weekStart).Scan(&count)
+	if err := d.QueryRow(`SELECT COUNT(*) FROM lottery_tickets WHERE user_id = ? AND week_start = ?`,
+		string(userID), weekStart).Scan(&count); err != nil {
+		slog.Error("lottery: ticket count query failed", "user", userID, "err", err)
+	}
 	return count
 }
 
 func lotteryTotalTicketCount(weekStart string) int {
 	d := db.Get()
 	var count int
-	_ = d.QueryRow(`SELECT COUNT(*) FROM lottery_tickets WHERE week_start = ?`, weekStart).Scan(&count)
+	if err := d.QueryRow(`SELECT COUNT(*) FROM lottery_tickets WHERE week_start = ?`, weekStart).Scan(&count); err != nil {
+		slog.Error("lottery: total ticket count query failed", "err", err)
+	}
 	return count
 }
 
@@ -72,6 +77,16 @@ func lotteryInsertTickets(userID id.UserID, weekStart string, tickets [][]int) e
 		return err
 	}
 	defer tx.Rollback()
+
+	// Re-check ticket count inside transaction to prevent TOCTOU race.
+	var existing int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM lottery_tickets WHERE user_id = ? AND week_start = ?`,
+		string(userID), weekStart).Scan(&existing); err != nil {
+		return fmt.Errorf("lottery: count tickets in tx: %w", err)
+	}
+	if existing+len(tickets) > 100 {
+		return fmt.Errorf("lottery: ticket limit exceeded (have %d, buying %d)", existing, len(tickets))
+	}
 
 	for _, nums := range tickets {
 		data, _ := json.Marshal(nums)
@@ -167,7 +182,9 @@ func lotteryLoadHistory(limit int) ([]lotteryHistoryRow, error) {
 			&h.PotTotal, &h.RolledOver); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(winJSON), &h.WinningNumbers)
+		if err := json.Unmarshal([]byte(winJSON), &h.WinningNumbers); err != nil {
+			slog.Warn("lottery: corrupt winning_numbers JSON", "draw", h.DrawDate, "err", err)
+		}
 		history = append(history, h)
 	}
 	return history, rows.Err()
@@ -200,7 +217,9 @@ func scanLotteryTickets(rows lotteryRows) ([]lotteryTicket, error) {
 		if err := rows.Scan(&t.ID, &t.UserID, &t.WeekStart, &numsJSON, &matchCount, &prize); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(numsJSON), &t.Numbers)
+		if err := json.Unmarshal([]byte(numsJSON), &t.Numbers); err != nil {
+			slog.Warn("lottery: corrupt ticket numbers JSON", "id", t.ID, "err", err)
+		}
 		t.MatchCount = matchCount
 		t.Prize = prize
 		tickets = append(tickets, t)

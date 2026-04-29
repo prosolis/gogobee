@@ -3,6 +3,7 @@ package plugin
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"strings"
 	"time"
@@ -101,7 +102,7 @@ func (p *AdventurePlugin) shopScheduleBrowseNudge(userID id.UserID) {
 	p.shopSessions.Store(string(userID)+":nudge_gen", gen)
 
 	capturedGen := gen
-	go func() {
+	safeGo("shop-nudge", func() {
 		time.Sleep(2 * time.Minute)
 		// Check if this goroutine is still the latest.
 		if val, ok := p.shopSessions.Load(string(userID) + ":nudge_gen"); !ok || val.(int64) != capturedGen {
@@ -117,12 +118,12 @@ func (p *AdventurePlugin) shopScheduleBrowseNudge(userID id.UserID) {
 		}
 		flavor, _ := advPickFlavor(luigiBrowseTimeout, userID, "luigi_browse")
 		p.SendDM(userID, fmt.Sprintf("*%s*", flavor))
-	}()
+	})
 }
 
 // ── Display: Luigi Greeting + Category Menu ─────────────────────────────────
 
-func luigiShopGreeting(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment, balance float64, showAll bool) string {
+func luigiShopGreeting(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment, balance float64, showAll bool, chatLevel int) string {
 	var sb strings.Builder
 
 	// Check if fully maxed out.
@@ -141,13 +142,18 @@ func luigiShopGreeting(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment, 
 		return sb.String()
 	}
 
-	greet, _ := advPickFlavor(luigiGreetings, userID, "luigi_greet")
+	var greet string
+	if chatLevel >= 10 {
+		greet = shopGreeting(chatLevel)
+	} else {
+		greet, _ = advPickFlavor(luigiGreetings, userID, "luigi_greet")
+	}
 	sb.WriteString(fmt.Sprintf("🛒 **Luigi's**\n💰 Balance: €%.0f\n\n", balance))
 	sb.WriteString(fmt.Sprintf("*%s*\n\n", greet))
 
 	sb.WriteString("⚔️  Weapons       🛡️  Armor\n")
 	sb.WriteString("🪖  Helmets       👢  Boots\n")
-	sb.WriteString("⛏️  Tools\n\n")
+	sb.WriteString("⛏️  Tools         🧪  Supplies\n\n")
 
 	if showAll {
 		flavor, _ := advPickFlavor(luigiShowAllComment, userID, "luigi_showall")
@@ -319,11 +325,25 @@ func (p *AdventurePlugin) resolveShopCategoryChoice(ctx MessageContext, interact
 		return p.SendDM(ctx.Sender, fmt.Sprintf("*%s*", flavor))
 	}
 
+	// Check for supplies category first
+	if reply == "supplies" || reply == "supply" || reply == "consumables" || reply == "potions" {
+		balance := p.euro.GetBalance(ctx.Sender)
+		text := luigiSuppliesView(ctx.Sender, balance)
+		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
+			Type:      "shop_supply",
+			Data:      data,
+			ExpiresAt: time.Now().Add(advDMResponseWindow),
+		})
+		p.advMarkMenuSent(ctx.Sender)
+		p.shopScheduleBrowseNudge(ctx.Sender)
+		return p.SendDM(ctx.Sender, text)
+	}
+
 	slot := advParseShopCategory(reply)
 	if slot == "" {
 		// Re-store pending and reprompt.
 		p.pending.Store(string(ctx.Sender), interaction)
-		return p.SendDM(ctx.Sender, "I didn't catch that. Reply with a category: weapons, armor, helmets, boots, or tools.")
+		return p.SendDM(ctx.Sender, "I didn't catch that. Reply with a category: weapons, armor, helmets, boots, tools, or supplies.")
 	}
 
 	_, equip, err := p.ensureCharacter(ctx.Sender)
@@ -359,7 +379,7 @@ func (p *AdventurePlugin) resolveShopItemChoice(ctx MessageContext, interaction 
 		}
 		balance := p.euro.GetBalance(ctx.Sender)
 
-		text := luigiShopGreeting(ctx.Sender, equip, balance, data.ShowAll)
+		text := luigiShopGreeting(ctx.Sender, equip, balance, data.ShowAll, p.chatLevel(ctx.Sender))
 		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 			Type:      "shop_category",
 			Data:      &advPendingShopCategory{ShowAll: data.ShowAll},
@@ -397,10 +417,10 @@ func (p *AdventurePlugin) resolveShopItemChoice(ctx MessageContext, interaction 
 	// Check Arena/Masterwork block — only block if shop item isn't clearly better.
 	// Arena gear always blocks (1.5x multiplier, earned through combat).
 	// Masterwork blocks only if the shop item's tier doesn't exceed the MW effective tier.
-	if current != nil && current.ArenaTier > 0 {
+	if current != nil && current.ArenaTier > 0 && def.Tier <= current.ArenaTier {
 		p.pending.Store(string(ctx.Sender), interaction)
-		return p.SendDM(ctx.Sender, fmt.Sprintf("You have **%s** (Arena gear) in that slot. A shop item can't replace that. You earned it.\n\nPick something else, or \"back\" to return.",
-			current.Name))
+		return p.SendDM(ctx.Sender, fmt.Sprintf("You have **%s** (Arena gear, T%d) in that slot. That T%d shop item isn't an upgrade.\n\nPick something else, or \"back\" to return.",
+			current.Name, current.ArenaTier, def.Tier))
 	}
 	if current != nil && current.Masterwork && float64(def.Tier) <= advEffectiveTier(current) {
 		p.pending.Store(string(ctx.Sender), interaction)
@@ -459,8 +479,8 @@ func (p *AdventurePlugin) resolveShopConfirm(ctx MessageContext, interaction *ad
 	current := equip[data.Slot]
 
 	// Re-check Arena/Masterwork block.
-	if current != nil && current.ArenaTier > 0 {
-		return p.SendDM(ctx.Sender, fmt.Sprintf("Your **%s** is Arena gear. Luigi won't overwrite it.", current.Name))
+	if current != nil && current.ArenaTier > 0 && def.Tier <= current.ArenaTier {
+		return p.SendDM(ctx.Sender, fmt.Sprintf("Your **%s** (Arena gear T%d) is not worse than that T%d shop item.", current.Name, current.ArenaTier, def.Tier))
 	}
 	if current != nil && current.Masterwork && float64(def.Tier) <= advEffectiveTier(current) {
 		return p.SendDM(ctx.Sender, fmt.Sprintf("Your **%s** (Masterwork ⭐) is better than that T%d shop item.", current.Name, def.Tier))
@@ -477,6 +497,12 @@ func (p *AdventurePlugin) resolveShopConfirm(ctx MessageContext, interaction *ad
 		return p.SendDM(ctx.Sender, "Transaction failed. The economy is having a moment.")
 	}
 
+	// Community contribution: 5% of purchase price.
+	if potCut := int(def.Price * 0.05); potCut > 0 {
+		communityPotAdd(potCut)
+		trackTaxPaid(ctx.Sender, potCut)
+	}
+
 	// Move old gear to inventory before replacing.
 	if current != nil && current.Tier > 0 {
 		itemType := "ShopGear"
@@ -484,6 +510,8 @@ func (p *AdventurePlugin) resolveShopConfirm(ctx MessageContext, interaction *ad
 		if current.Masterwork {
 			itemType = "MasterworkGear"
 			// Masterwork has no resale value (it's special, not shop-priced)
+		} else if current.ArenaTier > 0 {
+			itemType = "ArenaGear"
 		} else if current.Tier < len(equipmentTiers[data.Slot]) {
 			resaleValue = int64(equipmentTiers[data.Slot][current.Tier].Price * 0.3)
 		}
@@ -656,10 +684,9 @@ func (p *AdventurePlugin) advBuyEquipment(userID id.UserID, slot EquipmentSlot, 
 	}
 	// Block shop purchases that would overwrite arena gear (always) or
 	// masterwork gear (only if shop item isn't clearly better).
-	if current != nil && current.ArenaTier > 0 {
-		return fmt.Sprintf("You already have **%s** (Arena gear). A shop item cannot replace this. "+
-			"You earned that. Don't throw it away.",
-			current.Name)
+	if current != nil && current.ArenaTier > 0 && def.Tier <= current.ArenaTier {
+		return fmt.Sprintf("You already have **%s** (Arena gear T%d). That T%d shop item isn't an upgrade.",
+			current.Name, current.ArenaTier, def.Tier)
 	}
 	if current != nil && current.Masterwork && float64(def.Tier) <= advEffectiveTier(current) {
 		return fmt.Sprintf("You already have **%s** (Masterwork ⭐ T%d). That T%d shop item isn't an upgrade.",
@@ -676,12 +703,20 @@ func (p *AdventurePlugin) advBuyEquipment(userID id.UserID, slot EquipmentSlot, 
 		return "Transaction failed. The economy is having a moment."
 	}
 
+	// Community contribution: 5% of purchase price.
+	if potCut := int(def.Price * 0.05); potCut > 0 {
+		communityPotAdd(potCut)
+		trackTaxPaid(userID, potCut)
+	}
+
 	// Move old gear to inventory.
 	if current != nil && current.Tier > 0 {
 		itemType := "ShopGear"
 		var resaleValue int64
 		if current.Masterwork {
 			itemType = "MasterworkGear"
+		} else if current.ArenaTier > 0 {
+			itemType = "ArenaGear"
 		} else if current.Tier < len(equipmentTiers[slot]) {
 			resaleValue = int64(equipmentTiers[slot][current.Tier].Price * 0.3)
 		}
@@ -762,11 +797,17 @@ func (p *AdventurePlugin) advSellAll(userID id.UserID) string {
 		return "Your inventory is empty. There is nothing to sell. This is a metaphor for something but now is not the time."
 	}
 
-	p.euro.Credit(userID, total, "adventure_sell_all")
+	potCut := math.Round(total * 0.05)
+	payout := total - potCut
+	p.euro.Credit(userID, payout, "adventure_sell_all")
+	if int(potCut) > 0 {
+		communityPotAdd(int(potCut))
+		trackTaxPaid(userID, int(potCut))
+	}
 
-	msg := fmt.Sprintf("Sold %d items for **€%.0f**.\n\nThe merchant took everything without comment. "+
+	msg := fmt.Sprintf("Sold %d items for **%s** (%s after 5%% broker fee → community pot).\n\nThe merchant took everything without comment. "+
 		"This is the most respect anyone has shown your loot collection. Take the money.",
-		sold, total)
+		sold, fmtEuro(total), fmtEuro(payout))
 	if keptSpecial > 0 {
 		msg += fmt.Sprintf("\n\n(%d special gear items kept — the merchant knows better than to touch those.)", keptSpecial)
 	}
@@ -788,8 +829,14 @@ func (p *AdventurePlugin) advSellItem(userID id.UserID, itemName string) string 
 			if err := removeAdvInventoryItem(item.ID); err != nil {
 				return "Failed to sell that item."
 			}
-			p.euro.Credit(userID, float64(item.Value), "adventure_sell_"+item.Name)
-			return fmt.Sprintf("Sold **%s** for **€%d**. The merchant nodded. That's it. That's the transaction.", item.Name, item.Value)
+			potCut := int(math.Round(float64(item.Value) * 0.05))
+			payout := int(item.Value) - potCut
+			p.euro.Credit(userID, float64(payout), "adventure_sell_"+item.Name)
+			if potCut > 0 {
+				communityPotAdd(potCut)
+				trackTaxPaid(userID, potCut)
+			}
+			return fmt.Sprintf("Sold **%s** for **%s** (%s after 5%% broker fee → community pot). The merchant nodded. That's it. That's the transaction.", item.Name, fmtEuro(item.Value), fmtEuro(payout))
 		}
 	}
 
@@ -827,4 +874,117 @@ func advInventoryDisplay(userID id.UserID) string {
 	sb.WriteString("\n\nTo sell: `!adventure sell all` or `!adventure sell <item>`")
 	sb.WriteString("\nTo equip Masterwork gear: `!adventure equip`")
 	return sb.String()
+}
+
+// ── Supplies (Consumables) ──────────────────────────────────────────────────
+
+func luigiSuppliesView(_ id.UserID, balance float64) string {
+	var sb strings.Builder
+	sb.WriteString("🧪 **Supplies** — combat consumables (auto-used)\n")
+	sb.WriteString(fmt.Sprintf("💰 Balance: €%.0f\n\n", balance))
+	sb.WriteString("Items are used automatically during combat. The engine picks up to 2 per fight based on threat level — it won't waste them on easy fights.\n\n")
+
+	defs := BuyableConsumables()
+	if len(defs) == 0 {
+		sb.WriteString("_Nothing in stock right now._\n\n")
+	} else {
+		for _, def := range defs {
+			effectDesc := consumableEffectDescription(def.Effect, def.Value)
+			sb.WriteString(fmt.Sprintf("**%s** (T%d) — €%d\n  %s\n\n", def.Name, def.Tier, def.Price, effectDesc))
+		}
+	}
+
+	sb.WriteString("Reply with an item name to buy, or `back` to return.\n")
+	sb.WriteString("Stronger consumables drop from foraging, mining, fishing, and dungeons at T2+.")
+	return sb.String()
+}
+
+func consumableEffectDescription(effect ConsumableEffect, value float64) string {
+	switch effect {
+	case EffectHeal:
+		return fmt.Sprintf("Restores %d HP mid-combat (triggers at <50%% HP)", int(value))
+	case EffectDefBoost:
+		return fmt.Sprintf("+%.0f%% Defense for the fight", value*100)
+	case EffectAtkBoost:
+		return fmt.Sprintf("+%.0f%% Attack for the fight", value*100)
+	case EffectWard:
+		return "Blocks one hit completely"
+	case EffectSpeedBoost:
+		return fmt.Sprintf("+%.0f%% Speed for the fight (evasion boost)", value*100)
+	case EffectCritBoost:
+		return fmt.Sprintf("+%.0f%% Crit Rate for the fight", value*100)
+	case EffectFlatDmg:
+		return fmt.Sprintf("Deals %d damage at fight start", int(value))
+	case EffectSpore:
+		return fmt.Sprintf("15%% enemy miss chance for %d rounds", int(value))
+	case EffectReflect:
+		return fmt.Sprintf("Reflects %.0f%% of next hit back at enemy", value*100)
+	case EffectAutoCrit:
+		return fmt.Sprintf("First hit is auto-crit + %.0f%% Attack", value*100)
+	}
+	return ""
+}
+
+func (p *AdventurePlugin) resolveShopSupplyChoice(ctx MessageContext, interaction *advPendingInteraction) error {
+	reply := strings.ToLower(strings.TrimSpace(ctx.Body))
+
+	if reply == "back" {
+		data := interaction.Data.(*advPendingShopCategory)
+		_, equip, err := p.ensureCharacter(ctx.Sender)
+		if err != nil {
+			return p.SendDM(ctx.Sender, "Failed to load your character.")
+		}
+		balance := p.euro.GetBalance(ctx.Sender)
+		text := luigiShopGreeting(ctx.Sender, equip, balance, data.ShowAll, p.chatLevel(ctx.Sender))
+		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
+			Type:      "shop_category",
+			Data:      &advPendingShopCategory{ShowAll: data.ShowAll},
+			ExpiresAt: time.Now().Add(advDMResponseWindow),
+		})
+		return p.SendDM(ctx.Sender, text)
+	}
+	if reply == "exit" || reply == "cancel" {
+		p.shopSessionEnd(ctx.Sender)
+		return p.SendDM(ctx.Sender, "*Luigi nods and gestures toward the main counter.*")
+	}
+
+	// Find matching consumable
+	var match *ConsumableDef
+	for i := range consumableDefs {
+		if consumableDefs[i].Buyable && containsFold(consumableDefs[i].Name, reply) {
+			match = &consumableDefs[i]
+			break
+		}
+	}
+
+	if match == nil {
+		p.pending.Store(string(ctx.Sender), interaction)
+		return p.SendDM(ctx.Sender, "I don't have that. Reply with an item name from the list, or `back` to return.")
+	}
+
+	balance := p.euro.GetBalance(ctx.Sender)
+	if balance < float64(match.Price) {
+		p.pending.Store(string(ctx.Sender), interaction)
+		return p.SendDM(ctx.Sender, fmt.Sprintf("You need €%d for %s but only have €%.0f.", match.Price, match.Name, balance))
+	}
+
+	// Purchase the consumable
+	p.euro.Debit(ctx.Sender, float64(match.Price), "shop_consumable")
+	if potCut := int(math.Round(float64(match.Price) * 0.05)); potCut > 0 {
+		communityPotAdd(potCut)
+		trackTaxPaid(ctx.Sender, potCut)
+	}
+	item := AdvItem{
+		Name:  match.Name,
+		Type:  "consumable",
+		Tier:  match.Tier,
+		Value: match.Price / 2,
+	}
+	_ = addAdvInventoryItem(ctx.Sender, item)
+
+	// Stay in supplies view for more purchases
+	p.pending.Store(string(ctx.Sender), interaction)
+	newBalance := p.euro.GetBalance(ctx.Sender)
+	return p.SendDM(ctx.Sender, fmt.Sprintf("Purchased **%s** for €%d. Added to inventory.\n💰 Balance: €%.0f\n\nReply with another item name or `back` to return.",
+		match.Name, match.Price, newBalance))
 }

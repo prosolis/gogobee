@@ -74,7 +74,7 @@ func renderKeyboard(states map[rune]LetterResult) string {
 // renderWordleStartAnnouncement renders the puzzle start message.
 func renderWordleStartAnnouncement(puzzleNumber, wordLength int, hint string) string {
 	base := fmt.Sprintf(
-		"🟩 **Daily Wordle #%d**\nA new %d-letter puzzle is ready! Work together — %d guesses shared.",
+		"🟩 **Wordle #%d**\nA new %d-letter puzzle is ready! Work together — %d guesses shared.",
 		puzzleNumber, wordLength, wordleMaxGuesses(wordLength),
 	)
 	if hint != "" {

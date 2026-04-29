@@ -14,10 +14,9 @@ import (
 // ── Prize Tiers (fixed payouts) ─────────────────────────────────────────────
 
 var lotteryFixedPrizes = map[int]int{
-	4: 1000,
-	3: 100,
-	2: 10,
-	1: 2,
+	4: 5000,
+	3: 500,
+	2: 25,
 }
 
 // ── Draw Ticker ─────────────────────────────────────────────────────────────
@@ -66,9 +65,9 @@ func (p *LotteryPlugin) reminderTicker() {
 		if gr != "" {
 			pot := communityPotBalance()
 			p.SendMessage(gr, fmt.Sprintf(
-				"🎟️ Lottery draw tomorrow. 23:59 UTC. Current pot: €%d. "+
+				"🎟️ Lottery draw tomorrow. 23:59 UTC. Current pot: %s. "+
 					"Tickets €1 each. Max 100 per player. `!lottery buy [N]` to enter.",
-				pot))
+				fmtEuro(pot)))
 		}
 
 		db.MarkJobCompleted(jobName, weekKey)
@@ -101,7 +100,7 @@ func (p *LotteryPlugin) executeDraw(weekStart string) {
 		tickets[i].MatchCount = &mc
 
 		prize := 0
-		if mc >= 1 && mc <= 4 {
+		if mc >= 2 && mc <= 4 {
 			prize = lotteryFixedPrizes[mc]
 		}
 		tickets[i].Prize = &prize
@@ -192,7 +191,7 @@ func (p *LotteryPlugin) executeDraw(weekStart string) {
 		Match4Winners:  len(matchBuckets[4]),
 		Match3Winners:  len(matchBuckets[3]),
 		Match2Winners:  len(matchBuckets[2]),
-		Match1Winners:  len(matchBuckets[1]),
+		Match1Winners:  0,
 		PotTotal:       initialPot,
 		RolledOver:     rolledOver,
 	}
@@ -205,6 +204,9 @@ func (p *LotteryPlugin) executeDraw(weekStart string) {
 		p.SendMessage(gr, announcement)
 	}
 
+	// DM each winner with their tickets and results.
+	p.dmWinners(winning, tickets)
+
 	// Cleanup old tickets.
 	lotteryCleanupOldTickets()
 
@@ -213,6 +215,58 @@ func (p *LotteryPlugin) executeDraw(weekStart string) {
 		"tickets", len(tickets),
 		"pot", initialPot,
 		"jackpot_winners", len(jackpotWinners))
+}
+
+func (p *LotteryPlugin) dmWinners(winning []int, tickets []lotteryTicket) {
+	// Group winning tickets by user.
+	byUser := make(map[id.UserID][]lotteryTicket)
+	for _, t := range tickets {
+		if t.MatchCount == nil || *t.MatchCount < 2 {
+			continue
+		}
+		byUser[t.UserID] = append(byUser[t.UserID], t)
+	}
+
+	for uid, userTickets := range byUser {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("🎟️ **Lottery Results** — Winning numbers: **%s**\n\n", formatLotteryNumbers(winning)))
+
+		totalWon := 0
+		for _, t := range userTickets {
+			matches := *t.MatchCount
+			prize := 0
+			if t.Prize != nil {
+				prize = *t.Prize
+			}
+			totalWon += prize
+
+			// Show ticket numbers with matches highlighted
+			sb.WriteString(fmt.Sprintf("🎫 %s — **%d match** → %s\n",
+				formatTicketWithMatches(t.Numbers, winning), matches, fmtEuro(prize)))
+		}
+
+		sb.WriteString(fmt.Sprintf("\n💰 **Total: %s**", fmtEuro(totalWon)))
+
+		if err := p.SendDM(uid, sb.String()); err != nil {
+			slog.Error("lottery: failed to DM winner", "user", uid, "err", err)
+		}
+	}
+}
+
+func formatTicketWithMatches(ticket, winning []int) string {
+	winSet := make(map[int]bool, len(winning))
+	for _, n := range winning {
+		winSet[n] = true
+	}
+	parts := make([]string, len(ticket))
+	for i, n := range ticket {
+		if winSet[n] {
+			parts[i] = fmt.Sprintf("**%d**", n)
+		} else {
+			parts[i] = fmt.Sprintf("%d", n)
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 // ── Announcement Builder ────────────────────────────────────────────────────
@@ -227,10 +281,10 @@ func (p *LotteryPlugin) buildDrawAnnouncement(winning []int, h *lotteryHistoryRo
 	if len(jackpotWinners) > 0 && h.JackpotAmount > 0 {
 		names := p.resolveWinnerNames(jackpotWinners)
 		if len(jackpotWinners) == 1 {
-			sb.WriteString(fmt.Sprintf("Jackpot (5 match): **%s** — €%d 🎉\n", names[0], h.JackpotAmount))
+			sb.WriteString(fmt.Sprintf("Jackpot (5 match): **%s** — %s 🎉\n", names[0], fmtEuro(h.JackpotAmount)))
 		} else {
-			sb.WriteString(fmt.Sprintf("Jackpot (5 match): Split between %s. €%d each. 🎉\n",
-				joinNames(names), h.JackpotAmount))
+			sb.WriteString(fmt.Sprintf("Jackpot (5 match): Split between %s. %s each. 🎉\n",
+				joinNames(names), fmtEuro(h.JackpotAmount)))
 		}
 	} else if len(jackpotWinners) > 0 && h.JackpotAmount == 0 {
 		sb.WriteString("Jackpot withheld — pot insufficient. Rolls to next week. Fixed tiers paid as normal.\n")
@@ -239,13 +293,12 @@ func (p *LotteryPlugin) buildDrawAnnouncement(winning []int, h *lotteryHistoryRo
 	}
 
 	// Fixed tiers.
-	sb.WriteString(fmt.Sprintf("4 match: %d winner(s) — €1,000 each\n", h.Match4Winners))
-	sb.WriteString(fmt.Sprintf("3 match: %d winner(s) — €100 each\n", h.Match3Winners))
-	sb.WriteString(fmt.Sprintf("2 match: %d winner(s) — €10 each\n", h.Match2Winners))
-	sb.WriteString(fmt.Sprintf("1 match: %d winner(s) — €2 each\n", h.Match1Winners))
+	sb.WriteString(fmt.Sprintf("4 match: %d winner(s) — €5,000 each\n", h.Match4Winners))
+	sb.WriteString(fmt.Sprintf("3 match: %d winner(s) — €500 each\n", h.Match3Winners))
+	sb.WriteString(fmt.Sprintf("2 match: %d winner(s) — €25 each\n", h.Match2Winners))
 
 	distributed := h.PotTotal - h.RolledOver
-	sb.WriteString(fmt.Sprintf("\nPot distributed: €%d. Next draw: Friday. Tickets on sale now.", distributed))
+	sb.WriteString(fmt.Sprintf("\nPot distributed: %s. Next draw: Friday. Tickets on sale now.", fmtEuro(distributed)))
 
 	return sb.String()
 }

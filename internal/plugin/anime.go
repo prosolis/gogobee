@@ -123,7 +123,7 @@ func (p *AnimePlugin) OnMessage(ctx MessageContext) error {
 	}
 
 	// Subcommands that hit the Jikan API run async to avoid blocking dispatch
-	go func() {
+	safeGo("anime-handler", func() {
 		var err error
 		switch sub {
 		case "watch":
@@ -142,7 +142,7 @@ func (p *AnimePlugin) OnMessage(ctx MessageContext) error {
 		if err != nil {
 			slog.Error("anime: handler error", "err", err)
 		}
-	}()
+	})
 	return nil
 }
 

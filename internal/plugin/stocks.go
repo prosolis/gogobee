@@ -76,11 +76,11 @@ func (p *StocksPlugin) OnReaction(_ ReactionContext) error { return nil }
 
 func (p *StocksPlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "stock") {
-		go func() {
+		safeGo("stocks-handler", func() {
 			if err := p.handleStock(ctx); err != nil {
 				slog.Error("stocks: handler error", "err", err)
 			}
-		}()
+		})
 		return nil
 	}
 	if p.IsCommand(ctx.Body, "stockwatch") {

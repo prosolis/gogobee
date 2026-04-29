@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
@@ -50,21 +49,18 @@ func NewWordlePlugin(client *mautrix.Client, euro *EuroPlugin, dict *dreamclient
 	}
 }
 
-func (p *WordlePlugin) Name() string { return "wordle" }
+func (p *WordlePlugin) Name() string    { return "wordle" }
+func (p *WordlePlugin) Version() string { return "2.0.0" }
 
 func (p *WordlePlugin) Commands() []CommandDef {
 	return []CommandDef{
-		{Name: "wordle", Description: "Guess today's Wordle", Usage: "!wordle <word>", Category: "Games"},
+		{Name: "wordle", Description: "Guess the current Wordle puzzle", Usage: "!wordle <word>", Category: "Games"},
 	}
 }
 
 func (p *WordlePlugin) Init() error {
-	// Rehydrate today's puzzle from DB if it exists.
+	// Rehydrate any active puzzle from DB if it exists.
 	p.rehydratePuzzles()
-
-	// Start the midnight ticker for auto-posting.
-	go p.midnightTicker()
-
 	return nil
 }
 
@@ -113,26 +109,28 @@ func (p *WordlePlugin) handleHelp(ctx MessageContext) error {
 			"`!wordle new <5-20>` — New puzzle with specific length (admin)\n"+
 			"`!wordle new pt` — Portuguese puzzle (admin)\n"+
 			"`!wordle new fr` — French puzzle (admin)\n"+
-			"`!wordle skip` — Reveal answer and end puzzle (admin)")
+			"`!wordle skip` — Reveal answer and end puzzle (admin)\n\n"+
+			"A new puzzle starts automatically after each solve or failure.")
 }
 
 func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 	guess = strings.ToUpper(strings.TrimSpace(guess))
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	puzzle := p.puzzles[ctx.RoomID]
-	if puzzle == nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "No active puzzle. An admin can start one with `!wordle new`.")
-	}
-
-	if puzzle.Solved || puzzle.Failed {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Today's puzzle is already over. A new one starts at midnight UTC!")
+	if puzzle == nil || puzzle.Solved || puzzle.Failed {
+		p.mu.Unlock()
+		// Auto-start a new puzzle.
+		if err := p.createAndPostPuzzle(ctx.RoomID, p.defaultLength, WordleCategoryEN); err != nil {
+			return err
+		}
+		return p.SendReply(ctx.RoomID, ctx.EventID, "A new puzzle just started! Try your guess again.")
 	}
 
 	// Check length.
 	if len([]rune(guess)) != puzzle.WordLength {
+		p.mu.Unlock()
 		return p.SendReply(ctx.RoomID, ctx.EventID,
 			fmt.Sprintf("Guesses must be %d letters.", puzzle.WordLength))
 	}
@@ -140,6 +138,7 @@ func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 	// Check for non-alphabetic characters.
 	for _, r := range guess {
 		if r < 'A' || r > 'Z' {
+			p.mu.Unlock()
 			return p.SendReply(ctx.RoomID, ctx.EventID, "Guesses must contain only letters.")
 		}
 	}
@@ -147,6 +146,7 @@ func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 	// Check duplicate guess.
 	for _, g := range puzzle.Guesses {
 		if g.Word == guess {
+			p.mu.Unlock()
 			return p.SendReply(ctx.RoomID, ctx.EventID,
 				fmt.Sprintf("**%s** has already been tried.", guess))
 		}
@@ -155,10 +155,12 @@ func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 	// Validate word via DreamDict (with caching).
 	valid, apiErr := p.isValidWord(puzzle.PuzzleID, guess, puzzle.Category)
 	if apiErr {
+		p.mu.Unlock()
 		return p.SendReply(ctx.RoomID, ctx.EventID,
 			"Word validation is temporarily unavailable. Try again in a moment.")
 	}
 	if !valid {
+		p.mu.Unlock()
 		return p.SendReply(ctx.RoomID, ctx.EventID,
 			fmt.Sprintf("❌ **%s** is not a valid word.", guess))
 	}
@@ -196,8 +198,14 @@ func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 		payouts := p.awardPrize(puzzle)
 		p.updateStats(puzzle, payouts)
 		p.markPuzzleDone(puzzle)
+		p.mu.Unlock()
 
-		return p.SendMessage(ctx.RoomID, renderSolvedAnnouncement(puzzle, definition, payouts))
+		if err := p.SendMessage(ctx.RoomID, renderSolvedAnnouncement(puzzle, definition, payouts)); err != nil {
+			return err
+		}
+
+		// Auto-start next puzzle.
+		return p.createAndPostPuzzle(ctx.RoomID, p.defaultLength, WordleCategoryEN)
 	}
 
 	// Check for failure (all guesses used).
@@ -207,11 +215,18 @@ func (p *WordlePlugin) handleGuess(ctx MessageContext, guess string) error {
 		definition := p.fetchDefinition(puzzle.Answer)
 		p.updateStats(puzzle, nil)
 		p.markPuzzleDone(puzzle)
+		p.mu.Unlock()
 
-		return p.SendMessage(ctx.RoomID, renderFailedAnnouncement(puzzle, definition))
+		if err := p.SendMessage(ctx.RoomID, renderFailedAnnouncement(puzzle, definition)); err != nil {
+			return err
+		}
+
+		// Auto-start next puzzle.
+		return p.createAndPostPuzzle(ctx.RoomID, p.defaultLength, WordleCategoryEN)
 	}
 
 	// Post updated grid.
+	p.mu.Unlock()
 	return p.SendMessage(ctx.RoomID, renderWordleGrid(puzzle))
 }
 
@@ -220,8 +235,12 @@ func (p *WordlePlugin) handleGrid(ctx MessageContext) error {
 	puzzle := p.puzzles[ctx.RoomID]
 	p.mu.Unlock()
 
-	if puzzle == nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "No active puzzle.")
+	if puzzle == nil || puzzle.Solved || puzzle.Failed {
+		// Auto-start a new puzzle.
+		if err := p.createAndPostPuzzle(ctx.RoomID, p.defaultLength, WordleCategoryEN); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	if len(puzzle.Guesses) == 0 {
@@ -290,8 +309,13 @@ func (p *WordlePlugin) handleSkip(ctx MessageContext) error {
 		defLine = fmt.Sprintf("\n📖 *%s*\n", definition)
 	}
 
-	return p.SendMessage(ctx.RoomID,
-		fmt.Sprintf("⏭️ **Puzzle skipped.**\nThe word was **%s**.%s", puzzle.Answer, defLine))
+	if err := p.SendMessage(ctx.RoomID,
+		fmt.Sprintf("⏭️ **Puzzle skipped.**\nThe word was **%s**.%s", puzzle.Answer, defLine)); err != nil {
+		return err
+	}
+
+	// Auto-start next puzzle.
+	return p.createAndPostPuzzle(ctx.RoomID, p.defaultLength, WordleCategoryEN)
 }
 
 func (p *WordlePlugin) handleStats(ctx MessageContext) error {
@@ -337,11 +361,11 @@ func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int, cat
 	}
 
 	puzzleNumber := p.nextPuzzleNumber()
-	today := time.Now().UTC().Format("2006-01-02")
+	puzzleID := fmt.Sprintf("%d", puzzleNumber)
 	now := time.Now().UTC()
 
 	puzzle := &WordlePuzzle{
-		PuzzleID:     today,
+		PuzzleID:     puzzleID,
 		PuzzleNumber: puzzleNumber,
 		RoomID:       roomID,
 		Answer:       word,
@@ -355,48 +379,42 @@ func (p *WordlePlugin) createAndPostPuzzle(roomID id.RoomID, wordLength int, cat
 	// Persist to DB.
 	db.Exec("wordle: persist puzzle",
 		`INSERT INTO wordle_puzzles (puzzle_id, room_id, answer, word_length, category, solved, guess_count, started_at)
-		 VALUES (?, ?, ?, ?, ?, 0, 0, ?)
-		 ON CONFLICT(puzzle_id, room_id) DO UPDATE SET answer = ?, word_length = ?, category = ?, solved = 0, guess_count = 0, started_at = ?`,
-		today, string(roomID), word, wordLength, string(category), now,
-		word, wordLength, string(category), now,
-	)
-	// Clear any stale guesses from a previous puzzle on the same day (e.g. after skip+new).
-	db.Exec("wordle: clear old guesses",
-		`DELETE FROM wordle_guesses WHERE puzzle_id = ? AND room_id = ?`,
-		today, string(roomID),
+		 VALUES (?, ?, ?, ?, ?, 0, 0, ?)`,
+		puzzleID, string(roomID), word, wordLength, string(category), now,
 	)
 
 	p.mu.Lock()
 	p.puzzles[roomID] = puzzle
-	// Evict stale cache entries from previous days.
+	// Evict old cache entries — keep only current puzzle.
 	for key := range p.validCache {
-		if key != today {
+		if key != puzzleID {
 			delete(p.validCache, key)
 		}
 	}
-	p.validCache[today] = make(map[string]bool)
+	p.validCache[puzzleID] = make(map[string]bool)
 	p.mu.Unlock()
 
 	hint := wordleCategoryHint(category)
 	return p.SendMessage(roomID, renderWordleStartAnnouncement(puzzleNumber, wordLength, hint))
 }
 
-// pickWord tries DreamDict's RandomWord API first, falling back to the local
-// word pool if DreamDict is unavailable or only returns recently-used words.
+// pickWord tries DreamDict's RandomWord API first, gathering multiple candidates
+// and selecting the most common one by frequency. Falls back to the local word
+// pool if DreamDict is unavailable.
 func (p *WordlePlugin) pickWord(length int, category WordleCategory) string {
 	if p.dict != nil {
 		recent := loadRecentWordleAnswers(500)
 		lang := categoryLang(category)
 
-		// Try a few times to get a word that hasn't been used recently.
-		for range 10 {
+		// Gather candidate words, then pick the highest-frequency one.
+		var candidates []string
+		for range 15 {
 			word, err := p.dict.RandomWord(lang, "", length, length, 500)
 			if err != nil {
 				slog.Warn("wordle: DreamDict random word failed, falling back", "err", err)
 				break
 			}
 			word = strings.ToUpper(word)
-			// Verify the word is exactly the right length and contains only letters.
 			runes := []rune(word)
 			if len(runes) != length {
 				continue
@@ -411,9 +429,31 @@ func (p *WordlePlugin) pickWord(length int, category WordleCategory) string {
 			if !clean {
 				continue
 			}
-			if !recent[word] {
-				return word
+			if recent[word] {
+				continue
 			}
+			candidates = append(candidates, word)
+			if len(candidates) >= 5 {
+				break
+			}
+		}
+
+		if len(candidates) > 0 {
+			// Look up frequencies in batch and pick the most common word.
+			freqs, err := p.dict.FrequencyBatch(candidates, lang)
+			if err == nil && len(freqs) > 0 {
+				best := candidates[0]
+				bestFreq := 0
+				for _, w := range candidates {
+					if f, ok := freqs[strings.ToLower(w)]; ok && f > bestFreq {
+						best = w
+						bestFreq = f
+					}
+				}
+				return best
+			}
+			// FrequencyBatch failed — just use the first candidate.
+			return candidates[0]
 		}
 	}
 
@@ -444,47 +484,7 @@ func wordleCategoryHint(category WordleCategory) string {
 	return ""
 }
 
-// expireUnsolved marks an active puzzle as failed and posts an announcement.
-// Must be called without holding p.mu.
-func (p *WordlePlugin) expireUnsolved(roomID id.RoomID) {
-	p.mu.Lock()
-	existing := p.puzzles[roomID]
-	if existing == nil || existing.Solved || existing.Failed {
-		p.mu.Unlock()
-		return
-	}
-	existing.Failed = true
-	p.markPuzzleDone(existing)
-	p.updateStats(existing, nil)
-	p.mu.Unlock()
 
-	definition := p.fetchDefinition(existing.Answer)
-	defLine := ""
-	if definition != "" {
-		defLine = fmt.Sprintf("\n📖 *%s*\n", definition)
-	}
-	p.SendMessage(roomID,
-		fmt.Sprintf("⏰ **Time's up!** Yesterday's puzzle expired.\nThe word was **%s**.%s", existing.Answer, defLine))
-}
-
-// PostDailyPuzzle is called by the scheduler to post today's puzzle.
-func (p *WordlePlugin) PostDailyPuzzle(roomID id.RoomID) error {
-	today := time.Now().UTC().Format("2006-01-02")
-
-	// Check if already posted today.
-	p.mu.Lock()
-	existing := p.puzzles[roomID]
-	if existing != nil && existing.PuzzleID == today {
-		p.mu.Unlock()
-		return nil // already posted
-	}
-	p.mu.Unlock()
-
-	// Announce expiry of yesterday's unsolved puzzle before creating the new one.
-	p.expireUnsolved(roomID)
-
-	return p.createAndPostPuzzle(roomID, p.defaultLength, WordleCategoryEN)
-}
 
 // isValidWord checks if a word is valid, using the in-memory cache first,
 // then the custom allow-list, then DreamDict.
@@ -696,8 +696,9 @@ func (p *WordlePlugin) awardPrize(puzzle *WordlePuzzle) []WordlePayout {
 		if c.solver {
 			amount += solverBonus
 		}
-		p.euro.Credit(uid, float64(amount), "wordle_win")
-		payouts = append(payouts, WordlePayout{UserID: uid, Name: c.name, Amount: amount, Solver: c.solver})
+		net, _ := communityTax(uid, float64(amount), 0.05)
+		p.euro.Credit(uid, net, "wordle_win")
+		payouts = append(payouts, WordlePayout{UserID: uid, Name: c.name, Amount: int(net), Solver: c.solver})
 	}
 	return payouts
 }
@@ -705,7 +706,7 @@ func (p *WordlePlugin) awardPrize(puzzle *WordlePuzzle) []WordlePayout {
 func (p *WordlePlugin) communityStreak() int {
 	d := db.Get()
 	rows, err := d.Query(
-		`SELECT puzzle_id, solved FROM wordle_puzzles ORDER BY puzzle_id DESC LIMIT 100`)
+		`SELECT puzzle_id, solved FROM wordle_puzzles ORDER BY started_at DESC LIMIT 100`)
 	if err != nil {
 		return 0
 	}
@@ -728,7 +729,6 @@ func (p *WordlePlugin) communityStreak() int {
 }
 
 func (p *WordlePlugin) rehydratePuzzles() {
-	today := time.Now().UTC().Format("2006-01-02")
 	d := db.Get()
 
 	// Collect rows first, then close the cursor before doing any nested queries.
@@ -743,14 +743,16 @@ func (p *WordlePlugin) rehydratePuzzles() {
 		startedAt  time.Time
 	}
 
+	// Find the most recent unsolved puzzle per room.
 	rows, err := d.Query(
 		`SELECT puzzle_id, room_id, answer, word_length, COALESCE(category, ''), solved, guess_count, started_at
-		 FROM wordle_puzzles WHERE puzzle_id = ?`, today)
+		 FROM wordle_puzzles WHERE solved = 0 ORDER BY started_at DESC`)
 	if err != nil {
 		slog.Warn("wordle: rehydrate query failed", "err", err)
 		return
 	}
 
+	seen := make(map[string]bool) // track rooms already handled
 	var pending []puzzleRow
 	for rows.Next() {
 		var pid, roomStr, answer, category string
@@ -760,9 +762,15 @@ func (p *WordlePlugin) rehydratePuzzles() {
 			continue
 		}
 
-		if solved == 1 || guessCount >= wordleMaxGuesses(wordLength) {
+		if guessCount >= wordleMaxGuesses(wordLength) {
 			continue // already done
 		}
+
+		// Only take the most recent unsolved puzzle per room.
+		if seen[roomStr] {
+			continue
+		}
+		seen[roomStr] = true
 
 		pending = append(pending, puzzleRow{pid, roomStr, answer, wordLength, category, startedAt})
 	}
@@ -835,52 +843,3 @@ func (p *WordlePlugin) rehydratePuzzles() {
 	}
 }
 
-// midnightTicker checks every minute if it's time to post a new daily puzzle.
-func (p *WordlePlugin) midnightTicker() {
-	// Check immediately on startup.
-	p.checkAndPostDaily()
-
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-
-	lastDate := time.Now().UTC().Format("2006-01-02")
-	for range ticker.C {
-		today := time.Now().UTC().Format("2006-01-02")
-		if today != lastDate {
-			lastDate = today
-			p.checkAndPostDaily()
-		}
-	}
-}
-
-func (p *WordlePlugin) checkAndPostDaily() {
-	gr := gamesRoom()
-	if gr == "" {
-		return
-	}
-
-	today := time.Now().UTC().Format("2006-01-02")
-	d := db.Get()
-
-	// Check if today's puzzle already exists for this room.
-	var exists int
-	err := d.QueryRow(
-		`SELECT 1 FROM wordle_puzzles WHERE puzzle_id = ? AND room_id = ?`,
-		today, string(gr),
-	).Scan(&exists)
-	if err == nil {
-		return // already exists
-	}
-	if err != sql.ErrNoRows {
-		slog.Error("wordle: check daily puzzle", "err", err)
-		return
-	}
-
-	// Announce expiry of yesterday's unsolved puzzle before creating the new one.
-	p.expireUnsolved(gr)
-
-	slog.Info("wordle: posting daily puzzle", "room", gr)
-	if err := p.createAndPostPuzzle(gr, p.defaultLength, WordleCategoryEN); err != nil {
-		slog.Error("wordle: daily puzzle failed", "err", err)
-	}
-}

@@ -96,11 +96,11 @@ func (p *RetroPlugin) OnMessage(ctx MessageContext) error {
 	default:
 		return nil
 	}
-	go func() {
+	safeGo("retro-search", func() {
 		if err := p.handleSearch(ctx, query); err != nil {
 			slog.Error("retro: handler error", "err", err)
 		}
-	}()
+	})
 	return nil
 }
 

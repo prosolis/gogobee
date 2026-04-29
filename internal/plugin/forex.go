@@ -73,7 +73,7 @@ func (p *ForexPlugin) OnMessage(ctx MessageContext) error {
 	// API-calling subcommands run async
 	switch sub {
 	case "rate", "report":
-		go func() {
+		safeGo("forex-handler", func() {
 			var err error
 			if sub == "rate" {
 				err = p.cmdRate(ctx, parts[1:])
@@ -83,7 +83,7 @@ func (p *ForexPlugin) OnMessage(ctx MessageContext) error {
 			if err != nil {
 				slog.Error("forex: handler error", "err", err)
 			}
-		}()
+		})
 		return nil
 	default:
 		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Unknown subcommand `%s`. Try `!fx help`.", parts[0]))
@@ -110,7 +110,8 @@ func (p *ForexPlugin) cmdRate(ctx MessageContext, args []string) error {
 	currencies := fxParseCurrencies(args)
 	rates, err := p.fxLiveRates(currencies)
 	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Could not fetch rates: %v", err))
+		slog.Error("forex: fetch rates failed", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Could not fetch rates. Try again shortly.")
 	}
 
 	var lines []string
@@ -172,7 +173,8 @@ func fxIsSupported(cur string) bool {
 func (p *ForexPlugin) cmdPairRateOrReport(ctx MessageContext, pair *fxPair, full bool) error {
 	currentRate, err := p.fxLivePairRate(pair)
 	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Could not fetch rates: %v", err))
+		slog.Error("forex: fetch rates failed", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Could not fetch rates. Try again shortly.")
 	}
 
 	sig, err := fxComputePairSignal(pair, currentRate)
@@ -239,7 +241,8 @@ func (p *ForexPlugin) cmdReport(ctx MessageContext, args []string) error {
 	currencies := fxParseCurrencies(args)
 	rates, err := p.fxLiveRates(currencies)
 	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Could not fetch rates: %v", err))
+		slog.Error("forex: fetch rates failed", "err", err)
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Could not fetch rates. Try again shortly.")
 	}
 
 	var sections []string

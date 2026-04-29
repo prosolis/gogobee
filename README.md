@@ -30,7 +30,7 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
 - **50 plugins** with dependency injection and ordered registration
-- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict, difficulty tier display), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-20 letter words, guess persistence across restarts, midnight expiry announcements, video game themed bonus words with category hints, dupe prevention across last 500 puzzles, earnings tracked in stats), Adventure (daily idle RPG via DMs — dungeon, mine, forage, fish, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions, hospital revival system, Robbie the Friendly Bandit automated inventory cleaner), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), all with channel restriction
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict, difficulty tier display), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-20 letter words, guess persistence across restarts, midnight expiry announcements, video game themed bonus words with category hints, dupe prevention across last 500 puzzles, earnings tracked in stats), Adventure (daily idle RPG via DMs — dungeon, mine, forage, fish, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions, hospital revival system, Robbie the Friendly Bandit automated inventory cleaner), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), Co-op Dungeons (2–7 day party runs with funding tiers, TwinBee-narrated floor events with voting, spectator parimutuel betting, basket/mimic gift system, weighted-roll item distribution including masterworks at T4–T5), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - Palavra do Dia (Portuguese WOTD with en/fr translations and etymology), holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
@@ -475,7 +475,7 @@ Economy rewards are tracked per player — `!wordle stats` shows total earnings.
 
 ### Adventure (DM-based idle RPG)
 
-A daily DM-driven idle RPG where each player takes one action per day — dungeon, mine, fish, forage, visit the shop, or rest. Outcomes resolve with flavor text and loot is credited to your euro balance. An evening summary posts to the games room. TwinBee is a permanent NPC adventurer who distributes rewards to active players.
+A daily DM-driven idle RPG where each player takes one action per day — dungeon, mine, fish, forage, visit the shop, blacksmith, or rest. Outcomes resolve with flavor text and loot is credited to your euro balance. An evening summary posts to the games room. TwinBee is a permanent NPC adventurer who distributes rewards to active players.
 
 Characters auto-create on first `!adventure` (or `!adv`) command. All gameplay happens in DMs — reply to the bot's morning prompt with your choice. DM replies are only interpreted as adventure choices for 15 minutes after a menu is sent, so other DM-based games (UNO, Hold'em) won't conflict.
 
@@ -493,9 +493,15 @@ Characters auto-create on first `!adventure` (or `!adv`) command. All gameplay h
 | `!adventure revive @user` | Revive a dead player (admin) |
 | `!adventure respond <choice>` | Reply to today's action prompt (alternative to DM reply) |
 | `!adventure summary` | Force daily summary post (admin) |
+| `!adventure boost` | Double XP/money for all adventurers for a day (admin) |
+| `!adventure babysit [week\|month\|status\|cancel]` | Hire TwinBee to run your daily action (trains your weakest gathering skill) |
+| `!adventure blacksmith` | Show repair quotes for damaged gear |
+| `!adventure repair [all\|<slot>]` | Repair one slot or all damaged gear at the blacksmith |
+| `!adventure rivals` | Show the rival pool and any open challenges |
+| `!thom [shop\|buy\|pay\|payoff\|autopay\|petbuy]` | Thom Krooke — housing, mortgage, and pet adoption broker |
 | `!hospital` | Check in to St. Guildmore's Memorial Hospital for same-day revival (costs €25k × combat level) |
 
-**DM replies:** Reply to the morning prompt with a number (`1`–`5`) or activity name (`dungeon`, `mine`, `forage`, `shop`, `rest`). You can specify a location: `1 Soggy Cellar`, `mine 3`, etc.
+**DM replies:** Reply to the morning prompt with a number (`1`–`7`) or activity name (`dungeon`, `mine`, `fish`, `forage`, `shop`, `blacksmith`, `rest`). You can specify a location: `1 Soggy Cellar`, `mine 3`, etc.
 
 #### Activities
 
@@ -514,16 +520,55 @@ Four activity types across 5 tiers of locations. Higher tiers require higher cha
 - **Streaks** — consecutive days of activity grant escalating bonuses (XP, loot quality, death chance reduction). Resting resets your streak. Dead players' streaks are frozen — you won't lose your streak to involuntary downtime.
 - **Grudge** — dying at a location marks it as your grudge. Returning there grants +10% success and +25% XP. Clears on success.
 - **Party bonus** — if two players independently visit the same location on the same day, both get +10% loot value.
-- **Death** — locked out for 6 hours (or until midnight, whichever comes first). Natural respawn happens automatically. Use `!hospital` for same-day revival at a cost. Death's Reprieve (surviving a lethal roll) sets all equipment to 1 condition instead of destroying it. Dead players' streaks are preserved with a grace period — if you die and can't act on revival day, your streak won't reset.
+- **Death** — locked out for 6 hours. Natural respawn happens automatically when the timer expires. Use `!hospital` for immediate revival at a cost. Death's Reprieve (surviving a lethal roll) sets all equipment to 1 condition instead of destroying it. Dead players' streaks are preserved with a grace period — if you die and can't act on revival day, your streak won't reset.
 - **Holidays** — on recognized holidays (~20/year across religious and cultural calendars), you get a second daily action. Hebrew and Islamic calendar support for floating holidays.
 - **TwinBee NPC** — takes a daily action (location tier capped by best player's combined level), distributes loot share to active players scaled quadratically by level, and occasionally gifts random buffs.
 - **Hospital** — St. Guildmore's Memorial Hospital offers same-day revival for dead players. The bill is comically inflated (€125k × combat level) but guild insurance covers 80%, leaving €25k × combat level. Players who can't afford it are discharged back to the natural respawn queue. Nurse Joy provides the bedside manner.
 - **Robbie the Friendly Bandit** — an automated NPC who visits at a random hour each day (8:00–21:00 UTC). Robbie takes sub-tier gear from your inventory (shop gear below your equipped tier, masterwork gear you've outgrown), leaves €50 per item as a "handling fee," and donates everything to the community pot. If he takes masterwork gear and you don't already have one, he drops a "Get Out of Medical Debt Free" card. No player command — Robbie comes to you.
 - **Mid-day events** — random events can trigger between actions, delivering bonus loot, buffs, or narrative encounters.
+- **Chat level perks** — active chat participation boosts your adventurer. +5% XP per 10 chat levels (capped at +25% at level 50+), plus +0.5% rare drop chance per 10 levels.
+
+#### Blacksmith & Repair
+
+Equipment accumulates damage on bad outcomes and breaks at 0 condition. The blacksmith repairs gear for a per-point fee that scales with tier (base rates T0→T5: €1, €2, €5, €12, €30, €80; masterwork and arena gear use the next tier up). The cost has a mild convexity (`baseRate × damage × (1 + damage/200)`), so repairing earlier is slightly cheaper per point than letting gear sit at low condition — but not punitively so. `!adventure blacksmith` previews quotes; `!adventure repair all` or `!adventure repair <slot>` commits. Visiting the blacksmith counts as your daily action.
+
+#### Babysitting Service
+
+Busy days? Hire TwinBee to run your daily action for you. Daily cost is `€100 + combatLevel × €20`. TwinBee trains your weakest gathering skill (mining/fishing/foraging) so the service doubles as catch-up for neglected tracks. Subscribe by the week or month, or check/cancel anytime: `!adventure babysit week|month|status|cancel`.
+
+#### Rival Duels
+
+At combat level 5 and above you're entered into the rival pool. Every 3–4 days a random eligible player is matched as your rival and challenges you to a rock-paper-scissors duel via DM. You have 24 hours to accept and play. Stake is `(combatLevel / 5) × €1,000`, winner-take-all. Use `!adventure rivals` to see the pool and open challenges.
+
+#### Housing & Mortgage (Thom Krooke)
+
+Thom Krooke is the guild's housing broker. Four tiers are available:
+
+| Tier | Name | Price |
+|------|------|-------|
+| 1 | Base | €75,000 |
+| 2 | Livable | €150,000 |
+| 3 | Comfortable | €300,000 |
+| 4 | Established | €600,000 |
+
+Buy outright or finance with a mortgage. Rates track the real-world US 5/1 ARM via the FRED API (`MORTGAGE5US` series; requires `FRED_API_KEY`, defaults to 6.5% if unset). Autopay pulls from your euro balance each day. Commands: `!thom shop`, `!thom buy <tier>`, `!thom pay <amount>`, `!thom payoff`, `!thom autopay on|off`, `!thom petbuy`.
+
+#### Pets
+
+Once you reach the Livable tier (HouseTier ≥ 2) a stray pet may show up at your door — 15% daily chance. When a pet arrives you'll get a DM prompt to `chase` it away or `feed` it to adopt. Each pet interaction grants +1.5 XP to a random skill. At pet Level 10, Thom unlocks pet armor for purchase (`!thom petbuy <tier>`).
+
+#### Guest NPCs — Misty & Arina
+
+Two rotating guest adventurers can be hired to join you on encounters:
+
+- **Misty** — €100 hire fee, 7-day cooldown.
+- **Arina** — €5,000 hire fee, 7-day cooldown.
+
+After hiring, there's a 7.5% chance per action over the next 7 days that your NPC shows up mid-adventure and applies a buff to the outcome.
 
 #### Arena (`!arena`)
 
-A multi-tier combat gauntlet independent of the daily adventure action. Fight through 5 tiers of 4 rounds each — 20 unique named monsters with escalating lethality. Earnings accumulate across rounds but are forfeited on death. After clearing a tier, choose to descend deeper (keep earnings at risk) or cash out. Death locks you out of both arena and adventure until midnight UTC. Each fight produces a turn-based combat log (Dragon Quest style) with fabricated HP pools and action narration — the outcome is determined by the roll, the log is assembled backward from the result. Arena losses award +60 participation XP.
+A multi-tier combat gauntlet independent of the daily adventure action. Fight through 5 tiers of 4 rounds each — 20 unique named monsters with escalating lethality. Earnings accumulate across rounds but are forfeited on death. After clearing a tier, choose to descend deeper (keep earnings at risk) or cash out. Death locks you out of both arena and adventure for 6 hours. Each fight produces a turn-based combat log (Dragon Quest style) with fabricated HP pools and action narration — the outcome is determined by the roll, the log is assembled backward from the result. Arena losses award +60 participation XP.
 
 | Command | Description |
 |---------|-------------|
@@ -543,6 +588,61 @@ A multi-tier combat gauntlet independent of the daily adventure action. Fight th
 - **Rewards** — tier base payout * round number + battle skill * tier multiplier. Higher tiers and later rounds pay more.
 - **Auto-cashout** — 10 minutes to decide after clearing a tier. GogoBee cashes out on your behalf if you're slow.
 - **Tier entry confirmation** — `!arena tier N` previews the first opponent; `!arena fight` commits.
+
+#### Co-op Dungeons (`!coop`)
+
+Multi-day party runs separate from solo. 2–4 players, 2–7 days depending on tier, scaled rewards, and a public game-room thread the whole community watches. The combat action is consumed once at lock; subsequent days only ask for a daily funding decision (harvest activities continue normally).
+
+| Tier | Days | Difficulty | Reward Pool | Optimal Funding |
+|------|------|------------|-------------|-----------------|
+| 1 | 2 | Moderate | €22,500 | Minimal/Standard |
+| 2 | 3 | Hard | €40,000 | Standard |
+| 3 | 4 | Very Hard | €72,500 | Standard |
+| 4 | 5 | Brutal | €120,000 | Standard or Aggressive |
+| 5 | 7 | Murderous | €600,000 | Aggressive (must commit) |
+
+| Command | Description |
+|---------|-------------|
+| `!coop list` | Show open invites |
+| `!coop start <1-5>` | Open an invite (24h window, pinned in the games room) |
+| `!coop join [<id>]` | Join an open invite (defaults to most recent) |
+| `!coop fund <tier>` | Set today's funding (`none` / `minimal` / `standard` / `aggressive` / `all_in`) |
+| `!coop vote <A\|B\|C>` | Vote on the day's TwinBee-narrated floor event |
+| `!coop bet <amount> <success\|failure>` | Spectator parimutuel bet (10% rake) |
+| `!coop gift <run_id> <basket\|mimic>` | Send a gift (1 harvest action) |
+| `!coop giftvote <id> <open\|leave>` | Party votes whether to open a received gift |
+| `!coop status` | Your current run state |
+| `!coop stats` | Community-wide aggregates: outcomes, gold flow, betting, gifts, helpfulness |
+| `!coop cancel` | Leader cancels an open invite before lock |
+| `!coop admgift <run_id> <basket\|mimic> [sender]` | Drop a gift into an active run, bypassing party-member and harvest-action checks (admin only — debug/testing) |
+| `!coop help` | Co-op command list |
+
+**Funding tiers** add to the per-floor success modifier: None −10%, Minimal +0%, Standard +8%, Aggressive +18%, All-In +30%. None is free; Minimal €500/day; Standard €1,500; Aggressive €4,000; All-In €10,000. Funding is non-refundable. Inactive players auto-play None.
+
+**Floor events.** TwinBee narrates 1 of 4 categories per floor (Obstacle / Opportunity / Crisis / Encounter), tier-weighted. Each event has 2–3 options; majority vote wins, ties go to the leader, leader has the casting tiebreak. TwinBee always recommends an option — he is wrong roughly half the time. The party's vote modifier (−15 to +12 per floor depending on the option) stacks on the funding modifier. The 95% per-floor success cap means once you're saturated, more funding is wasted.
+
+**Party strength factors.** Each member contributes a small per-floor modifier based on their combat level relative to the tier minimum (clamped ±8) plus a pet bonus (max +2.5 at pet level 10). A maxed veteran party at T5 can succeed at Standard funding where a fresh party would need Aggressive.
+
+**Newbie liability.** Players below a tier's minimum combat level are flagged in the party post and capped at +8% funding modifier regardless of how much they pay. The party chose to let them in. Their reward share is unchanged — the cost is borne by the funding economy, not the post-run split.
+
+**Spectator betting.** Parimutuel pool, 10% rake. Bets can be placed or increased any time during the run; positions are locked in (success or failure can't be switched). Party members can bet on their own run — sandbagging while heavily bet against is exploitative and visible. Odds line shows estimated success% based on party levels, pets, neutral funding assumption, and a hidden TwinBee Helpfulness Rating (rolling last 30 floor events: how often his recommendation was right). Helpfulness shifts the line ±20% but is never shown directly — players notice the line moves after events resolve.
+
+**Gifts.** Anyone *not* in the run can spend one harvest action to send a Care Basket or a Mimic. The party never sees which type. Vote `open` or `leave`. **Each gift's voting window is 6 hours**; voting closes when it elapses, the stack is tallied, and every sender gets a DM with the result. The modifier sits on the run until the next floor resolution merges it in. Gifts "fire" throughout the day rather than piling up at the daily tick. Magnitudes are equalized across all four outcomes — both "always open" and "always leave" yield EV=0 with σ=6, so neither is risk-averse-dominant. The choice is purely about reading sender intent.
+
+**Stacking.** Multiple gifts of the same type sent on the same day **stack into a single game-room post** — one vote covers the whole stack, modifier scales with size (5 baskets opened = +30%, 5 baskets exploded = −30%). The first-in sets the deadline; subsequent additions inherit it without extending the timer. When a stack hits size 2, TwinBee notes "this gift looks REALLY special" once and then quietly bumps the count on further additions. The end-of-run gift log groups by stack with all senders attributed.
+
+|             | Open | Leave |
+|-------------|------|-------|
+| **Care Basket** | +6% (boost) | −6% (basket explodes) |
+| **Mimic**       | −6% (mimic does what mimics do) | +6% (sad mimic helps anyway) |
+
+Multiple gifts stack additively — coordinated senders can swing odds significantly. The full gift log is public at end of run.
+
+**Loot.** On success, gold pool splits evenly (5% community tax). 2–6 items drop from the corresponding solo dungeon loot table (count scales with tier). Each item goes to a member via weighted roll — your share of total funding is your odds. **T5 always drops a masterwork**; T4 has a 25% chance. Masterworks go to inventory (not auto-equipped) so winners with better gear can sell or trade.
+
+**Wipes.** No reward. Funding is gone. No combat-action refund (the tick already gave you a fresh one at midnight). Bet pool pays out to the failure side. The dungeon does not editorialize.
+
+**Pinning.** Invite posts are pinned in the games room when opened, unpinned when the run locks or cancels. Bot needs power level for state events.
 
 ### Reminders
 | Command | Description |

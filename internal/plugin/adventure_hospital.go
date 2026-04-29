@@ -3,6 +3,7 @@ package plugin
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
@@ -96,7 +97,7 @@ func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
 	sb.WriteString("\n\n")
 
 	// Payment prompt
-	sb.WriteString(fmt.Sprintf("**St. Guildmore's Memorial Hospital**\nAmount due: **€%d**\n\n", afterInsurance))
+	sb.WriteString(fmt.Sprintf("**St. Guildmore's Memorial Hospital**\nAmount due: **%s**\n\n", fmtEuro(afterInsurance)))
 	sb.WriteString("Pay now? (yes / no)\n\n")
 	sb.WriteString("*Note: Declining payment will result in discharge to the natural respawn queue. " +
 		"You'll be back tomorrow. The chair in the waiting room is available in the meantime.*")
@@ -162,6 +163,12 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 			return p.SendDM(ctx.Sender, text)
 		}
 
+		// Community health fund: 10% of revival cost.
+		if potCut := int(math.Round(float64(cost) * 0.1)); potCut > 0 {
+			communityPotAdd(potCut)
+			trackTaxPaid(ctx.Sender, potCut)
+		}
+
 		// Revive
 		char.Alive = true
 		char.DeadUntil = nil
@@ -176,10 +183,10 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 		// Discharge DM
 		p.SendDM(ctx.Sender, fmt.Sprintf(
 			"✅ **Discharged — you're alive!**\n\n"+
-				"€%d deducted. Nurse Joy wishes you the best. "+
+				"%s deducted. Nurse Joy wishes you the best. "+
 				"She means it. She always means it.\n\n"+
 				"Go get 'em. Type `!adventure` when you're ready.",
-			cost))
+			fmtEuro(cost)))
 
 		// Room announcement
 		gr := gamesRoom()
@@ -220,9 +227,9 @@ func (p *AdventurePlugin) sendHospitalAd(userID id.UserID, char *AdventureCharac
 		"🏥 **St. Guildmore's Memorial Hospital**\n\n"+
 			"Nurse Joy has been notified. A bed is being prepared.\n\n"+
 			"Type `!hospital` to check in for same-day revival.\n"+
-			"Estimated bill: €%d (Guild insurance covers €%d → you pay €%d)\n\n"+
+			"Estimated bill: %s (Guild insurance covers %s → you pay %s)\n\n"+
 			"Or rest up — natural respawn at %s UTC.",
-		beforeInsurance, beforeInsurance-afterInsurance, afterInsurance, respawnTime)
+		fmtEuro(beforeInsurance), fmtEuro(beforeInsurance-afterInsurance), fmtEuro(afterInsurance), respawnTime)
 
 	time.AfterFunc(10*time.Second, func() {
 		if err := p.SendDM(userID, text); err != nil {

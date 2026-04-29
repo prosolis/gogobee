@@ -104,7 +104,7 @@ func (p *ConcertsPlugin) OnMessage(ctx MessageContext) error {
 	}
 
 	// API-calling subcommands run async
-	go func() {
+	safeGo("concerts-handler", func() {
 		var err error
 		switch sub {
 		case "watch":
@@ -119,7 +119,7 @@ func (p *ConcertsPlugin) OnMessage(ctx MessageContext) error {
 		if err != nil {
 			slog.Error("concerts: handler error", "err", err)
 		}
-	}()
+	})
 	return nil
 }
 

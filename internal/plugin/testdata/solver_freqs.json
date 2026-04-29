@@ -1,0 +1,53 @@
+{
+  "flop/OESD facing small bet priced in": {
+    "call": 0.9594823122024536,
+    "fold": 0.000014199958059180062,
+    "raise": 0.04050343251947197
+  },
+  "flop/bottom pair facing big bet": {
+    "call": 1.662783510880672e-8,
+    "fold": 0.9999967813491821,
+    "raise": 0.000003206112978659803
+  },
+  "flop/flush draw with free card": {
+    "bet": 0.0002895280642860598,
+    "check": 0.9997105002403259
+  },
+  "flop/overpair on wet board facing bet": {
+    "call": 0.9996392726898193,
+    "fold": 0.0000029239877221698407,
+    "raise": 0.0003577816241886467
+  },
+  "flop/top set on dry board checked to": {
+    "bet": 0.9198929914534801,
+    "check": 0.08010699599981308
+  },
+  "river/bluffcatcher facing overbet": {
+    "call": 0,
+    "fold": 0.9697164297103882,
+    "raise": 0.03028361313045025
+  },
+  "river/nut flush checked to us": {
+    "bet": 1.0000000298023224,
+    "check": 0
+  },
+  "river/second pair facing bet": {
+    "call": 0.00007920627831481397,
+    "fold": 0.9981566071510315,
+    "raise": 0.0017642288767092396
+  },
+  "river/weak hand check available": {
+    "bet": 0.018236066796816885,
+    "check": 0.9817639589309692
+  },
+  "turn/combo draw facing half-pot bet": {
+    "call": 0.6370915174484253,
+    "fold": 0.00001531363341200631,
+    "raise": 0.3628932002466172
+  },
+  "turn/top set facing bet": {
+    "call": 0.6166651248931885,
+    "fold": 0,
+    "raise": 0.3833348592670518
+  }
+}

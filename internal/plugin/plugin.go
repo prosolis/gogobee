@@ -13,6 +13,7 @@ import (
 
 	"gogobee/internal/db"
 	"gogobee/internal/util"
+	"gogobee/internal/version"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
@@ -36,6 +37,10 @@ type MessageContext struct {
 	Body      string
 	IsCommand bool // true if the message starts with the command prefix
 	Event     *event.Event
+	// OriginRoomID is set by plugins that rewrite RoomID for dispatch (e.g. holdem
+	// routes DM commands to the player's game room). When set, sender-private
+	// replies should go here instead of the rewritten RoomID.
+	OriginRoomID id.RoomID
 }
 
 // ReactionContext holds the context for a reaction event.
@@ -55,6 +60,19 @@ type Plugin interface {
 	OnMessage(ctx MessageContext) error
 	OnReaction(ctx ReactionContext) error
 	Init() error
+}
+
+// Versioned is an optional interface plugins can implement to declare their version.
+type Versioned interface {
+	Version() string
+}
+
+// PluginVersion returns the version for a plugin, or "1.0.0" if it doesn't implement Versioned.
+func PluginVersion(p Plugin) string {
+	if v, ok := p.(Versioned); ok {
+		return v.Version()
+	}
+	return "1.0.0"
 }
 
 // dmCache maps user IDs to their DM room IDs to avoid creating duplicate rooms.
@@ -576,10 +594,12 @@ func (b *Base) SendNotice(roomID id.RoomID, text string) error {
 // SendReply sends a reply to a specific event.
 func (b *Base) SendReply(roomID id.RoomID, eventID id.EventID, text string) error {
 	content := textContent(text)
-	content.RelatesTo = &event.RelatesTo{
-		InReplyTo: &event.InReplyTo{
-			EventID: eventID,
-		},
+	if eventID != "" {
+		content.RelatesTo = &event.RelatesTo{
+			InReplyTo: &event.InReplyTo{
+				EventID: eventID,
+			},
+		}
 	}
 	_, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
 	if err != nil {
@@ -678,6 +698,107 @@ func (b *Base) SendDM(userID id.UserID, text string) error {
 	return b.SendMessage(roomID, text)
 }
 
+// SendDMID sends a direct message and returns the event ID (for later editing).
+func (b *Base) SendDMID(userID id.UserID, text string) (id.EventID, error) {
+	roomID, err := b.GetDMRoom(userID)
+	if err != nil {
+		return "", err
+	}
+	return b.SendMessageID(roomID, text)
+}
+
+// PinEvent appends the given event ID to the room's m.room.pinned_events
+// state. No-op if already pinned. Requires the bot to have power level for
+// state events; failures are logged and returned without retry.
+func (b *Base) PinEvent(roomID id.RoomID, eventID id.EventID) error {
+	var content event.PinnedEventsEventContent
+	err := b.Client.StateEvent(context.Background(), roomID, event.StatePinnedEvents, "", &content)
+	if err != nil && !strings.Contains(err.Error(), "M_NOT_FOUND") {
+		slog.Error("pin: read state", "room", roomID, "err", err)
+		return err
+	}
+	for _, id := range content.Pinned {
+		if id == eventID {
+			return nil // already pinned
+		}
+	}
+	content.Pinned = append(content.Pinned, eventID)
+	_, err = b.Client.SendStateEvent(context.Background(), roomID, event.StatePinnedEvents, "", content)
+	if err != nil {
+		slog.Error("pin: write state", "room", roomID, "event", eventID, "err", err)
+	}
+	return err
+}
+
+// UnpinEvent removes the given event ID from the room's pinned events.
+// No-op if not currently pinned.
+func (b *Base) UnpinEvent(roomID id.RoomID, eventID id.EventID) error {
+	var content event.PinnedEventsEventContent
+	err := b.Client.StateEvent(context.Background(), roomID, event.StatePinnedEvents, "", &content)
+	if err != nil {
+		if strings.Contains(err.Error(), "M_NOT_FOUND") {
+			return nil
+		}
+		slog.Error("unpin: read state", "room", roomID, "err", err)
+		return err
+	}
+	out := content.Pinned[:0]
+	found := false
+	for _, id := range content.Pinned {
+		if id == eventID {
+			found = true
+			continue
+		}
+		out = append(out, id)
+	}
+	if !found {
+		return nil
+	}
+	content.Pinned = out
+	_, err = b.Client.SendStateEvent(context.Background(), roomID, event.StatePinnedEvents, "", content)
+	if err != nil {
+		slog.Error("unpin: write state", "room", roomID, "event", eventID, "err", err)
+	}
+	return err
+}
+
+// EditMessage edits an existing message using Matrix m.replace relation.
+func (b *Base) EditMessage(roomID id.RoomID, eventID id.EventID, newText string) error {
+	newContent := textContent(newText)
+	content := &event.MessageEventContent{
+		MsgType: event.MsgText,
+		Body:    "* " + newContent.Body,
+		NewContent: &event.MessageEventContent{
+			MsgType:       newContent.MsgType,
+			Body:          newContent.Body,
+			Format:        newContent.Format,
+			FormattedBody: newContent.FormattedBody,
+		},
+		RelatesTo: &event.RelatesTo{
+			Type:    event.RelReplace,
+			EventID: eventID,
+		},
+	}
+	if newContent.Format == event.FormatHTML {
+		content.Format = event.FormatHTML
+		content.FormattedBody = "* " + newContent.FormattedBody
+	}
+	_, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
+	if err != nil {
+		slog.Error("failed to edit message", "room", roomID, "event", eventID, "err", err)
+	}
+	return err
+}
+
+// EditDM edits a message in a user's DM room.
+func (b *Base) EditDM(userID id.UserID, eventID id.EventID, newText string) error {
+	roomID, err := b.GetDMRoom(userID)
+	if err != nil {
+		return err
+	}
+	return b.EditMessage(roomID, eventID, newText)
+}
+
 // UploadContent uploads data to the Matrix content repository and returns the MXC URI.
 func (b *Base) UploadContent(data []byte, contentType, filename string) (id.ContentURI, error) {
 	resp, err := b.Client.UploadBytesWithName(context.Background(), data, contentType, filename)
@@ -707,4 +828,18 @@ func (b *Base) SendImage(roomID id.RoomID, imgData []byte, filename, caption str
 	}
 	_, err = b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
 	return err
+}
+
+// safeGo runs fn in a goroutine with panic recovery.
+// Use instead of bare `go func()` to prevent daemon crashes.
+func safeGo(label string, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("goroutine panic recovered", "label", label, "panic", r)
+				db.RecordCrash(version.Short(), label, fmt.Sprintf("%v", r))
+			}
+		}()
+		fn()
+	}()
 }

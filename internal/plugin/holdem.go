@@ -3,6 +3,7 @@ package plugin
 import (
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,7 +59,8 @@ func NewHoldemPlugin(client *mautrix.Client, euro *EuroPlugin) *HoldemPlugin {
 	}
 }
 
-func (p *HoldemPlugin) Name() string { return "holdem" }
+func (p *HoldemPlugin) Name() string    { return "holdem" }
+func (p *HoldemPlugin) Version() string { return "2.1.0" }
 
 func (p *HoldemPlugin) Commands() []CommandDef {
 	return []CommandDef{
@@ -97,12 +99,16 @@ func (p *HoldemPlugin) OnMessage(ctx MessageContext) error {
 	}
 
 	// If this is a DM, resolve the player's game room so actions route correctly.
+	// Save the original DM room into OriginRoomID so sender-private replies (errors,
+	// help, status) route back via DM rather than broadcasting to the games room.
 	if isDM {
 		p.mu.Lock()
 		gameRoom := p.findGameRoom(ctx.Sender)
 		p.mu.Unlock()
 		if gameRoom != "" {
+			ctx.OriginRoomID = ctx.RoomID
 			ctx.RoomID = gameRoom
+			ctx.EventID = ""
 		}
 	}
 
@@ -110,7 +116,7 @@ func (p *HoldemPlugin) OnMessage(ctx MessageContext) error {
 	if !isDM && !isGamesRoom(ctx.RoomID) {
 		gr := gamesRoom()
 		if gr != "" {
-			return p.SendReply(ctx.RoomID, ctx.EventID, "Games are only available in the games channel!")
+			return p.reply(ctx, "Games are only available in the games channel!")
 		}
 	}
 
@@ -136,12 +142,21 @@ func (p *HoldemPlugin) OnMessage(ctx MessageContext) error {
 	case args == "status":
 		return p.handleStatus(ctx)
 	case args == "help":
-		return p.SendReply(ctx.RoomID, ctx.EventID, renderHelpMessage())
+		return p.reply(ctx, renderHelpMessage())
 	case args == "addbot":
 		return p.handleAddBot(ctx)
 	default:
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Unknown command. Try `!holdem help`.")
+		return p.reply(ctx, "Unknown command. Try `!holdem help`.")
 	}
+}
+
+// reply routes sender-private responses to the originating DM when the command
+// came from a DM (ctx.OriginRoomID set), otherwise replies in-thread.
+func (p *HoldemPlugin) reply(ctx MessageContext, msg string) error {
+	if ctx.OriginRoomID != "" {
+		return p.SendMessage(ctx.OriginRoomID, msg)
+	}
+	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
 func (p *HoldemPlugin) isDMRoom(roomID id.RoomID) bool {
@@ -163,11 +178,11 @@ func (p *HoldemPlugin) findGameRoom(userID id.UserID) id.RoomID {
 
 func (p *HoldemPlugin) handleTipsToggle(ctx MessageContext, args string, isDM bool) error {
 	if !isDM {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Tips can only be toggled in DM. Send `!holdem tips on/off` directly to me.")
+		return p.reply(ctx, "Tips can only be toggled in DM. Send `!holdem tips on/off` directly to me.")
 	}
 
 	if p.IsAdmin(ctx.Sender) {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Tips are always on for admins. 🐝")
+		return p.reply(ctx, "Tips are always on for admins. 🐝")
 	}
 
 	parts := strings.Fields(args)
@@ -177,18 +192,18 @@ func (p *HoldemPlugin) handleTipsToggle(ctx MessageContext, args string, isDM bo
 		if !pref {
 			status = "off"
 		}
-		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Tips are currently **%s**. Use `!holdem tips on/off` to change.", status))
+		return p.reply(ctx, fmt.Sprintf("Tips are currently **%s**. Use `!holdem tips on/off` to change.", status))
 	}
 
 	switch parts[1] {
 	case "on":
 		saveTipsPref(ctx.Sender, true)
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Tips enabled. You'll receive coaching on your turn.")
+		return p.reply(ctx, "Tips enabled. You'll receive coaching on your turn.")
 	case "off":
 		saveTipsPref(ctx.Sender, false)
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Tips disabled.")
+		return p.reply(ctx, "Tips disabled.")
 	default:
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Use `!holdem tips on` or `!holdem tips off`.")
+		return p.reply(ctx, "Use `!holdem tips on` or `!holdem tips off`.")
 	}
 }
 
@@ -246,25 +261,25 @@ func (p *HoldemPlugin) handleJoin(ctx MessageContext, amountStr string) error {
 
 	// Check if already seated.
 	if game.playerByUserID(ctx.Sender) != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "You're already at the table.")
+		return p.reply(ctx, "You're already at the table.")
 	}
 
 	// Max 9 players.
 	if len(game.Players) >= 9 {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Table is full (9 players max).")
+		return p.reply(ctx, "Table is full (9 players max).")
 	}
 
 	// Check balance.
 	balance := p.euro.GetBalance(ctx.Sender)
 	if balance < float64(p.cfg.MinBuyin) {
-		return p.SendReply(ctx.RoomID, ctx.EventID,
+		return p.reply(ctx,
 			fmt.Sprintf("Minimum buy-in is €%d. Your balance: €%.0f.", p.cfg.MinBuyin, balance))
 	}
 
 	// Resolve DM room.
 	dmRoom, err := p.GetDMRoom(ctx.Sender)
 	if err != nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Couldn't open a DM with you. Check your privacy settings.")
+		return p.reply(ctx, "Couldn't open a DM with you. Check your privacy settings.")
 	}
 
 	// Get display name.
@@ -277,19 +292,19 @@ func (p *HoldemPlugin) handleJoin(ctx MessageContext, amountStr string) error {
 		amountStr = strings.TrimPrefix(amountStr, "€")
 		requested, err := strconv.ParseInt(amountStr, 10, 64)
 		if err != nil || requested <= 0 {
-			return p.SendReply(ctx.RoomID, ctx.EventID,
+			return p.reply(ctx,
 				fmt.Sprintf("Usage: `!holdem join [amount]` — amount between €%d and €%d.", p.cfg.MinBuyin, p.cfg.MaxBuyin))
 		}
 		if requested < p.cfg.MinBuyin {
-			return p.SendReply(ctx.RoomID, ctx.EventID,
+			return p.reply(ctx,
 				fmt.Sprintf("Minimum buy-in is €%d.", p.cfg.MinBuyin))
 		}
 		if requested > p.cfg.MaxBuyin {
-			return p.SendReply(ctx.RoomID, ctx.EventID,
+			return p.reply(ctx,
 				fmt.Sprintf("Maximum buy-in is €%d.", p.cfg.MaxBuyin))
 		}
 		if requested > int64(balance) {
-			return p.SendReply(ctx.RoomID, ctx.EventID,
+			return p.reply(ctx,
 				fmt.Sprintf("You only have €%.0f.", balance))
 		}
 		buyin = requested
@@ -302,7 +317,7 @@ func (p *HoldemPlugin) handleJoin(ctx MessageContext, amountStr string) error {
 
 	// Debit buy-in immediately to prevent double-spending across tables.
 	if !p.euro.Debit(ctx.Sender, float64(buyin), "holdem_buyin") {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to reserve buy-in.")
+		return p.reply(ctx, "Failed to reserve buy-in.")
 	}
 
 	state := PlayerActive
@@ -340,19 +355,20 @@ func (p *HoldemPlugin) handleLeave(ctx MessageContext) error {
 
 	game := p.games[ctx.RoomID]
 	if game == nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "No active game here.")
+		return p.reply(ctx, "No active game here.")
 	}
 
 	player := game.playerByUserID(ctx.Sender)
 	if player == nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "You're not at the table.")
+		return p.reply(ctx, "You're not at the table.")
 	}
 
 	if !game.HandInProgress || player.SittingOut {
 		// Credit remaining stack back (buy-in was debited at join).
 		cashout := player.Stack
 		if !player.IsNPC && cashout > 0 {
-			p.euro.Credit(player.UserID, float64(cashout), "holdem_cashout")
+			net, _ := communityTax(player.UserID, float64(cashout), 0.05)
+			p.euro.Credit(player.UserID, net, "holdem_cashout")
 		}
 		// Remove immediately.
 		p.removePlayer(game, ctx.Sender)
@@ -373,7 +389,8 @@ func (p *HoldemPlugin) handleLeave(ctx MessageContext) error {
 
 		// Credit remaining stack back (buy-in was debited at join).
 		if player.Stack > 0 {
-			p.euro.Credit(player.UserID, float64(player.Stack), "holdem_cashout")
+			net, _ := communityTax(player.UserID, float64(player.Stack), 0.05)
+			p.euro.Credit(player.UserID, net, "holdem_cashout")
 		}
 		p.removePlayer(game, ctx.Sender)
 
@@ -396,11 +413,11 @@ func (p *HoldemPlugin) handleStart(ctx MessageContext) error {
 
 	game := p.games[ctx.RoomID]
 	if game == nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "No players seated. Use `!holdem join` first.")
+		return p.reply(ctx, "No players seated. Use `!holdem join` first.")
 	}
 
 	if game.HandInProgress {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "A hand is already in progress.")
+		return p.reply(ctx, "A hand is already in progress.")
 	}
 
 	// Count non-sitting-out players.
@@ -416,7 +433,7 @@ func (p *HoldemPlugin) handleStart(ctx MessageContext) error {
 		if ready == 1 {
 			hint = " Use `!holdem addbot` to add an AI opponent."
 		}
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Need at least 2 players to start."+hint)
+		return p.reply(ctx, "Need at least 2 players to start."+hint)
 	}
 
 	p.startHand(game)
@@ -426,13 +443,13 @@ func (p *HoldemPlugin) handleStart(ctx MessageContext) error {
 func (p *HoldemPlugin) handleRaise(ctx MessageContext, args string) error {
 	parts := strings.Fields(args)
 	if len(parts) < 2 {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: `!holdem raise <amount>`")
+		return p.reply(ctx, "Usage: `!holdem raise <amount>`")
 	}
 
 	amtStr := strings.TrimPrefix(parts[1], "€")
 	amount, err := strconv.ParseInt(amtStr, 10, 64)
 	if err != nil || amount <= 0 {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Invalid amount. Usage: `!holdem raise <amount>`")
+		return p.reply(ctx, "Invalid amount. Usage: `!holdem raise <amount>`")
 	}
 
 	return p.handleAction(ctx, "raise", amount)
@@ -444,21 +461,21 @@ func (p *HoldemPlugin) handleAction(ctx MessageContext, action string, amount in
 
 	game := p.games[ctx.RoomID]
 	if game == nil || !game.HandInProgress {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "No hand in progress.")
+		return p.reply(ctx, "No hand in progress.")
 	}
 
 	seatIdx := game.playerIdx(ctx.Sender)
 	if seatIdx < 0 {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "You're not at this table.")
+		return p.reply(ctx, "You're not at this table.")
 	}
 
 	if seatIdx != game.ActionIdx {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "It's not your turn.")
+		return p.reply(ctx, "It's not your turn.")
 	}
 
 	player := game.Players[seatIdx]
 	if player.State != PlayerActive {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "You can't act right now.")
+		return p.reply(ctx, "You can't act right now.")
 	}
 
 	var result ActionResult
@@ -478,7 +495,7 @@ func (p *HoldemPlugin) handleAction(ctx MessageContext, action string, amount in
 	}
 
 	if errMsg != "" {
-		return p.SendReply(ctx.RoomID, ctx.EventID, errMsg)
+		return p.reply(ctx, errMsg)
 	}
 
 	// Reset action timer.
@@ -515,12 +532,12 @@ func (p *HoldemPlugin) handleStatus(ctx MessageContext) error {
 
 	game := p.games[ctx.RoomID]
 	if game == nil {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "No active game here.")
+		return p.reply(ctx, "No active game here.")
 	}
 
 	seatIdx := game.playerIdx(ctx.Sender)
 	if seatIdx < 0 {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "You're not at this table.")
+		return p.reply(ctx, "You're not at this table.")
 	}
 
 	player := game.Players[seatIdx]
@@ -551,12 +568,12 @@ func (p *HoldemPlugin) handleAddBot(ctx MessageContext) error {
 	// Check if NPC already exists.
 	for _, pl := range game.Players {
 		if pl.IsNPC {
-			return p.SendReply(ctx.RoomID, ctx.EventID, "An AI opponent is already at the table.")
+			return p.reply(ctx, "An AI opponent is already at the table.")
 		}
 	}
 
 	if len(game.Players) >= 9 {
-		return p.SendReply(ctx.RoomID, ctx.EventID, "Table is full.")
+		return p.reply(ctx, "Table is full.")
 	}
 
 	// Get NPC house balance.
@@ -822,9 +839,10 @@ func (p *HoldemPlugin) doShowdown(game *HoldemGame) {
 		}
 	}
 
-	// Post end announcement to room.
+	// Post end announcement to room and DM each player.
 	endAnn := renderEndAnnouncement(results, game)
 	p.SendMessage(game.RoomID, endAnn)
+	p.broadcastDM(game, endAnn)
 
 	// Settle balances.
 	settleNetDeltas(game, p.euro)
@@ -857,6 +875,7 @@ func (p *HoldemPlugin) finishHand(game *HoldemGame) {
 	ann, winnerID := awardPotToLastPlayer(game)
 	if ann != "" {
 		p.SendMessage(game.RoomID, ann)
+		p.broadcastDM(game, ann)
 	}
 
 	// Track bot defeats (if NPC won by everyone folding).
@@ -900,7 +919,8 @@ func (p *HoldemPlugin) endHand(game *HoldemGame) {
 		if pl.WantsLeave || pl.Stack <= 0 {
 			if !pl.IsNPC {
 				if pl.Stack > 0 {
-					p.euro.Credit(pl.UserID, float64(pl.Stack), "holdem_cashout")
+					net, _ := communityTax(pl.UserID, float64(pl.Stack), 0.05)
+					p.euro.Credit(pl.UserID, net, "holdem_cashout")
 				}
 				p.SendMessage(game.RoomID, fmt.Sprintf("**%s** has left the table.", pl.DisplayName))
 			}
@@ -917,7 +937,8 @@ func (p *HoldemPlugin) endHand(game *HoldemGame) {
 		// Cash out remaining players.
 		for _, pl := range game.Players {
 			if !pl.IsNPC && pl.Stack > 0 {
-				p.euro.Credit(pl.UserID, float64(pl.Stack), "holdem_cashout")
+				net, _ := communityTax(pl.UserID, float64(pl.Stack), 0.05)
+				p.euro.Credit(pl.UserID, net, "holdem_cashout")
 			}
 		}
 		p.SendMessage(game.RoomID, "Not enough players for another hand. Game over.")
@@ -949,19 +970,33 @@ func (p *HoldemPlugin) sendTurnNotifications(game *HoldemGame) {
 	if actionPlayer.TipsEnabled {
 		snap := snapshotForTip(game, game.ActionIdx)
 		dmRoom := actionPlayer.DMRoomID
-		go func() {
+		playerID := string(actionPlayer.UserID)
+		safeGo("holdem-tip", func() {
 			tipCtx := buildTipContext(snap)
 			tip := generateTip(tipCtx)
 			p.SendMessage(dmRoom, tip)
-		}()
+			logTipAudit(playerID, tipCtx, tip)
+		})
 	}
 }
 
 func (p *HoldemPlugin) broadcastDM(game *HoldemGame, msg string) {
+	first := true
 	for _, pl := range game.Players {
 		if pl.IsNPC || pl.State == PlayerSatOut {
 			continue
 		}
+		// Skip players whose DM room IS the game room — they already saw
+		// the message via the public-room post (solo-vs-bot case, where
+		// game.RoomID == player's DM).
+		if pl.DMRoomID == game.RoomID {
+			continue
+		}
+		if !first {
+			// Jitter 150–400ms between sends to avoid bursts on the Matrix server.
+			time.Sleep(150*time.Millisecond + time.Duration(rand.IntN(250))*time.Millisecond)
+		}
+		first = false
 		p.SendMessage(pl.DMRoomID, msg)
 	}
 }
@@ -1214,6 +1249,14 @@ func (p *HoldemPlugin) updateNPCBalance(delta int64) {
 	db.Exec("holdem: update npc balance",
 		`UPDATE holdem_npc_balance SET balance = balance + ?, hands_played = hands_played + 1 WHERE npc_name = ?`,
 		delta, p.cfg.NPCName)
+}
+
+// resetNPCHouseBalance resets all NPC balances to the configured house balance.
+// Called daily at midnight.
+func resetNPCHouseBalance() {
+	balance := int64(envInt("HOLDEM_NPC_HOUSE_BALANCE", 10000))
+	db.Exec("holdem: reset npc balance",
+		`UPDATE holdem_npc_balance SET balance = ?`, balance)
 }
 
 func (p *HoldemPlugin) recordScores(game *HoldemGame, winnings map[id.UserID]int64) {

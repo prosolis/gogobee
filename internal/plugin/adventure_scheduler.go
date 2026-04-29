@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"os"
+	"strings"
 	"time"
 
 	"gogobee/internal/db"
@@ -96,9 +98,23 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			continue
 		}
 
-		// If already acted today, skip
-		if char.ActionTakenToday {
+		// If all actions used today, skip
+		isHol, _ := isHolidayToday()
+		if char.AllActionsUsed(isHol) {
 			continue
+		}
+
+		// Pet arrival check (fires before normal morning DM)
+		if petShouldArrive(&char) {
+			p.petArrivalDM(char.UserID)
+			continue
+		}
+
+		// Morning pet event
+		petEvent := petMorningEvent(&char)
+		if petEvent != "" {
+			char.PetMorningDefense = true
+			_ = saveAdvCharacter(&char)
 		}
 
 		// Send morning DM with choices
@@ -118,6 +134,9 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			holidayLabel = holName
 		}
 		text := renderAdvMorningDM(&char, equip, balance, bonuses, holidayLabel)
+		if petEvent != "" {
+			text = fmt.Sprintf("🐾 *%s*\n\n%s", petEvent, text)
+		}
 		p.advMarkMenuSent(char.UserID)
 		if err := p.SendDM(char.UserID, text); err != nil {
 			slog.Error("adventure: failed to send morning DM", "user", char.UserID, "err", err)
@@ -170,7 +189,11 @@ func (p *AdventurePlugin) postDailySummary() {
 		return
 	}
 
-	todayLogs, _ := loadAdvTodayLogs()
+	// Load logs for today and yesterday — players may act across the UTC boundary
+	now := time.Now().UTC()
+	todayLogs, _ := loadAdvLogsForDate(now.Format("2006-01-02"))
+	yesterdayLogs, _ := loadAdvLogsForDate(now.AddDate(0, 0, -1).Format("2006-01-02"))
+	todayLogs = append(todayLogs, yesterdayLogs...)
 	// Group logs per user — holiday days may produce 2 entries per user
 	logsPerUser := make(map[id.UserID][]*AdvDayLog)
 	for i := range todayLogs {
@@ -225,7 +248,7 @@ func (p *AdventurePlugin) postDailySummary() {
 			continue
 		}
 
-		if !c.ActionTakenToday {
+		if !c.HasActedToday() {
 			ps.IsResting = true
 			if len(SummaryResting) > 0 {
 				ps.SummaryLine = SummaryResting[time.Now().Nanosecond()%len(SummaryResting)]
@@ -276,15 +299,18 @@ func (p *AdventurePlugin) midnightTicker() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
+	lastRanDate := ""
+
 	for range ticker.C {
-		now := time.Now().UTC()
-		if now.Hour() != 0 || now.Minute() != 0 {
+		dateKey := time.Now().UTC().Format("2006-01-02")
+		if dateKey == lastRanDate {
 			continue
 		}
 
-		dateKey := now.Format("2006-01-02")
+		// New UTC day — check DB in case we already ran (e.g. bot restart).
 		jobName := "adventure_midnight"
 		if db.JobCompleted(jobName, dateKey) {
+			lastRanDate = dateKey
 			continue
 		}
 
@@ -294,6 +320,7 @@ func (p *AdventurePlugin) midnightTicker() {
 			continue
 		}
 		db.MarkJobCompleted(jobName, dateKey)
+		lastRanDate = dateKey
 	}
 }
 
@@ -308,17 +335,44 @@ func (p *AdventurePlugin) midnightReset() error {
 
 	dmsSent := 0
 	for _, char := range chars {
-		// Dead players freeze their streak — death is involuntary, don't punish it.
-		if !char.Alive {
-			continue
-		}
-
-		if !char.ActionTakenToday {
-			// If the player died today (or yesterday — covering late-night deaths
-			// that span midnight), grant a grace period: no shame, no streak reset.
+		if !char.HasActedToday() {
+			// If the player died today or yesterday, they couldn't act — no shame,
+			// no streak reset. This covers both currently-dead players and players
+			// who were just revived at midnight (Alive already flipped to true by
+			// the reminder loop before midnightReset runs).
 			if char.LastDeathDate == today ||
 				char.LastDeathDate == time.Now().UTC().Add(-24*time.Hour).Format("2006-01-02") {
 				continue
+			}
+
+			// Auto-babysit: if enabled, alive, and affordable, run a single babysit day instead of losing streak
+			if char.AutoBabysit && char.Alive && !char.BabysitActive {
+				daily := babysitDailyCost(char.CombatLevel)
+				if p.euro.GetBalance(char.UserID) >= float64(daily) {
+					if p.euro.Debit(char.UserID, float64(daily), "auto_babysit") {
+						p.runAutoBabysitDay(&char)
+						if char.CurrentStreak > 0 {
+							char.CurrentStreak++
+							if char.CurrentStreak > char.BestStreak {
+								char.BestStreak = char.CurrentStreak
+							}
+						} else {
+							char.CurrentStreak = 1
+						}
+						_ = saveAdvCharacter(&char)
+
+						if p.achievements != nil {
+							p.achievements.GrantAchievement(char.UserID, "adv_auto_babysit")
+						}
+
+						if dmsSent > 0 {
+							time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
+						}
+						dmsSent++
+						p.SendDM(char.UserID, fmt.Sprintf("🍼 **Auto-babysit activated** — €%d deducted. Your streak is safe at %d days.", daily, char.CurrentStreak))
+						continue
+					}
+				}
 			}
 
 			// Jitter between DMs to avoid Matrix rate limits
@@ -329,14 +383,18 @@ func (p *AdventurePlugin) midnightReset() error {
 
 			// Idle shame DM
 			text := renderAdvIdleShameDM(&char)
+			if char.CurrentStreak > 0 {
+				oldStreak := char.CurrentStreak
+				char.CurrentStreak /= 2
+				char.StreakDecayed = true
+				text += fmt.Sprintf("\n\n🔥 Streak: %d → %d days", oldStreak, char.CurrentStreak)
+				if char.CurrentStreak > 0 {
+					text += " — not all is lost."
+				}
+				_ = saveAdvCharacter(&char)
+			}
 			if err := p.SendDM(char.UserID, text); err != nil {
 				slog.Error("adventure: failed to send idle shame DM", "user", char.UserID, "err", err)
-			}
-
-			// Reset streak
-			if char.CurrentStreak > 0 {
-				char.CurrentStreak = 0
-				_ = saveAdvCharacter(&char)
 			}
 		} else {
 			// Update streak — LastActionDate was set at action time
@@ -364,6 +422,13 @@ func (p *AdventurePlugin) midnightReset() error {
 		slog.Warn("adventure: daily action reset failed, retrying", "attempt", attempt+1, "err", resetErr)
 		time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
 	}
+	if resetErr == nil {
+		// Re-lock combat for active co-op participants after the universal
+		// reset would otherwise have given them a fresh combat action.
+		if err := lockCoopCombatActions(); err != nil {
+			slog.Error("adventure: post-reset coop combat lock failed", "err", err)
+		}
+	}
 	if resetErr != nil {
 		return fmt.Errorf("reset daily actions after 3 attempts: %w", resetErr)
 	}
@@ -372,6 +437,9 @@ func (p *AdventurePlugin) midnightReset() error {
 	if err := pruneAdvExpiredBuffs(); err != nil {
 		slog.Error("adventure: failed to prune expired buffs", "err", err)
 	}
+
+	// Reset NPC message counts and regenerate roll targets
+	npcMidnightReset()
 
 	// Clear flavor history to prevent unbounded memory growth.
 	// Entries are only used for dedup within a day, so clearing at midnight is fine.
@@ -389,7 +457,37 @@ func (p *AdventurePlugin) midnightReset() error {
 	// Check babysitting service expirations
 	p.checkBabysitExpiry(chars)
 
+	// Pet supply shop unlock check
+	p.petMidnightCheck()
+
+	// Reset holdem NPC house balance
+	resetNPCHouseBalance()
+
+	// Daily database backup (async to avoid blocking reset if DM sends are slow)
+	go func() {
+		if err := db.Backup(); err != nil {
+			slog.Error("adventure: daily backup failed", "err", err)
+			p.notifyAdmins(fmt.Sprintf("⚠️ **Daily backup failed:** %v", err))
+		}
+	}()
+
 	return nil
+}
+
+func (p *AdventurePlugin) notifyAdmins(msg string) {
+	admins := os.Getenv("ADMIN_USERS")
+	if admins == "" {
+		return
+	}
+	for _, a := range strings.Split(admins, ",") {
+		uid := id.UserID(strings.TrimSpace(a))
+		if uid == "" {
+			continue
+		}
+		if err := p.SendDM(uid, msg); err != nil {
+			slog.Error("adventure: failed to notify admin", "user", uid, "err", err)
+		}
+	}
 }
 
 // ── Helper ───────────────────────────────────────────────────────────────────

@@ -256,31 +256,6 @@ func TestFixedHolidays_NoDuplicateMonthDay(t *testing.T) {
 	}
 }
 
-func TestHolidaySecondPromptRender(t *testing.T) {
-	char := &AdventureCharacter{
-		DisplayName:   "TestPlayer",
-		CombatLevel:   5,
-		MiningSkill:   3,
-		ForagingSkill: 2,
-	}
-	equip := map[EquipmentSlot]*AdvEquipment{
-		SlotWeapon: {Tier: 1, Condition: 100, Name: "Iron Sword"},
-	}
-	bonuses := &AdvBonusSummary{}
-
-	text := renderAdvHolidaySecondPrompt(char, equip, bonuses)
-
-	if !strings.Contains(text, "Action 1 complete") {
-		t.Error("second prompt should mention action 1 complete")
-	}
-	if !strings.Contains(text, "second action") {
-		t.Error("second prompt should mention second action")
-	}
-	if !strings.Contains(text, "Dungeon") {
-		t.Error("second prompt should list Dungeon option")
-	}
-}
-
 func TestDailySummary_HolidayBlock(t *testing.T) {
 	players := []AdvPlayerDaySummary{
 		{DisplayName: "Alice", Activity: "dungeon", Location: "Cellar", Outcome: "success", LootValue: 500, HolidayActions: 2},

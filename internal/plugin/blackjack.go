@@ -179,7 +179,8 @@ func NewBlackjackPlugin(client *mautrix.Client, euro *EuroPlugin) *BlackjackPlug
 	}
 }
 
-func (p *BlackjackPlugin) Name() string { return "blackjack" }
+func (p *BlackjackPlugin) Name() string    { return "blackjack" }
+func (p *BlackjackPlugin) Version() string { return "1.1.0" }
 
 func (p *BlackjackPlugin) Commands() []CommandDef {
 	return []CommandDef{
@@ -727,8 +728,10 @@ func (p *BlackjackPlugin) collectResolveRound(roomID id.RoomID, table *bjTable) 
 
 		case playerBJ:
 			result = "Blackjack!"
-			payout = pl.Bet + math.Floor(pl.Bet*1.5) // Return bet + 1.5x (rounded down)
-			p.euro.Credit(pl.UserID, payout, "blackjack_win")
+			payout = pl.Bet + math.Floor(pl.Bet*1.5)
+			net, _ := communityTax(pl.UserID, payout, 0.05)
+			p.euro.Credit(pl.UserID, net, "blackjack_win")
+			payout = net
 
 		case dealerBJ:
 			result = "Dealer Blackjack"
@@ -737,12 +740,16 @@ func (p *BlackjackPlugin) collectResolveRound(roomID id.RoomID, table *bjTable) 
 		case dealerBust:
 			result = "Win (dealer bust)!"
 			payout = pl.Bet * 2
-			p.euro.Credit(pl.UserID, payout, "blackjack_win")
+			net, _ := communityTax(pl.UserID, payout, 0.05)
+			p.euro.Credit(pl.UserID, net, "blackjack_win")
+			payout = net
 
 		case playerValue > dealerValue:
 			result = fmt.Sprintf("Win! %d vs %d", playerValue, dealerValue)
 			payout = pl.Bet * 2
-			p.euro.Credit(pl.UserID, payout, "blackjack_win")
+			net, _ := communityTax(pl.UserID, payout, 0.05)
+			p.euro.Credit(pl.UserID, net, "blackjack_win")
+			payout = net
 
 		case playerValue == dealerValue:
 			result = "Push"

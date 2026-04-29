@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -11,8 +12,29 @@ import (
 	"gogobee/internal/db"
 
 	"maunium.net/go/mautrix"
+	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
+
+// fmtEuro formats a currency value with thousand separators, e.g. "€12,500".
+func fmtEuro[T int | int64 | float64](v T) string {
+	n := int64(v)
+	if n < 0 {
+		return "-" + fmtEuro(-n)
+	}
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return "€" + s
+	}
+	var out []byte
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, byte(c))
+	}
+	return "€" + string(out)
+}
 
 // gamesRoom returns the configured GAMES_ROOM, or empty if unset.
 func gamesRoom() id.RoomID {
@@ -45,6 +67,34 @@ func loadEuroConfig() euroConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Combo system — activity streaks that multiply passive euro earning.
+//
+// Three independent combo categories: messages, links, images.
+// Each combo increments with qualifying activity and resets after 10 min idle.
+// Multiplier: 1 + (combo_step * 2.0) — so step 1 = 3x, step 5 = 11x, etc.
+// Daily cap per category prevents unbounded farming.
+// ---------------------------------------------------------------------------
+
+const (
+	comboTimeout     = 10 * time.Minute
+	comboMsgCap      = 50
+	comboLinkCap     = 10
+	comboImageCap    = 15
+	comboMultPerStep = 2.0 // +200% per step
+	comboLinkBase    = 5.0
+	comboImageBase   = 3.0
+)
+
+type comboState struct {
+	Step    int
+	LastAt  time.Time
+	Today   string
+	DayHits int
+}
+
+var urlPattern = regexp.MustCompile(`https?://\S+`)
+
+// ---------------------------------------------------------------------------
 // Euro Plugin
 // ---------------------------------------------------------------------------
 
@@ -52,6 +102,7 @@ type EuroPlugin struct {
 	Base
 	cfg       euroConfig
 	cooldowns map[id.UserID]time.Time
+	combos    map[id.UserID]map[string]*comboState // category → state
 	mu        sync.Mutex
 }
 
@@ -60,16 +111,19 @@ func NewEuroPlugin(client *mautrix.Client) *EuroPlugin {
 		Base:      NewBase(client),
 		cfg:       loadEuroConfig(),
 		cooldowns: make(map[id.UserID]time.Time),
+		combos:    make(map[id.UserID]map[string]*comboState),
 	}
 }
 
-func (p *EuroPlugin) Name() string { return "euro" }
+func (p *EuroPlugin) Name() string    { return "euro" }
+func (p *EuroPlugin) Version() string { return "1.1.0" }
 
 func (p *EuroPlugin) Commands() []CommandDef {
 	return []CommandDef{
 		{Name: "balance", Description: "Check your euro balance", Usage: "!balance", Category: "Economy"},
 		{Name: "baltop", Description: "Euro leaderboard", Usage: "!baltop", Category: "Economy"},
 		{Name: "baltransfer", Description: "Send euros to another player", Usage: "!baltransfer @user €amount", Category: "Economy"},
+		{Name: "combo", Description: "View your current activity combo streaks", Usage: "!combo", Category: "Economy"},
 	}
 }
 
@@ -90,6 +144,8 @@ func (p *EuroPlugin) OnMessage(ctx MessageContext) error {
 		return p.handleBaltop(ctx)
 	case p.IsCommand(ctx.Body, "baltransfer"):
 		return p.handleTransfer(ctx)
+	case p.IsCommand(ctx.Body, "combo"):
+		return p.handleCombo(ctx)
 	}
 	return nil
 }
@@ -107,7 +163,6 @@ func (p *EuroPlugin) awardPassiveEuros(ctx MessageContext) {
 		return
 	}
 	p.cooldowns[ctx.Sender] = now
-	// Periodic cleanup
 	if len(p.cooldowns) > 1000 {
 		for uid, t := range p.cooldowns {
 			if now.Sub(t) > time.Duration(p.cfg.CooldownSeconds)*time.Second {
@@ -117,23 +172,138 @@ func (p *EuroPlugin) awardPassiveEuros(ctx MessageContext) {
 	}
 	p.mu.Unlock()
 
+	p.ensureBalance(ctx.Sender)
+
+	// Message combo — base amount from word count, multiplied by combo.
 	words := len(strings.Fields(ctx.Body))
-	var amount float64
+	var baseMsg float64
 	switch {
 	case words >= 51:
-		amount = 20.00
+		baseMsg = 20.00
 	case words >= 26:
-		amount = 10.00
+		baseMsg = 10.00
 	case words >= 11:
-		amount = 5.00
+		baseMsg = 5.00
 	case words >= 4:
-		amount = 2.50
+		baseMsg = 2.50
 	default:
-		amount = 1.00
+		baseMsg = 1.00
+	}
+	msgMult := p.advanceCombo(ctx.Sender, "message", comboMsgCap)
+	p.credit(ctx.Sender, baseMsg*msgMult, "message")
+
+	// Link combo — bonus per URL in the message.
+	if urls := urlPattern.FindAllString(ctx.Body, -1); len(urls) > 0 {
+		linkMult := p.advanceCombo(ctx.Sender, "link", comboLinkCap)
+		p.credit(ctx.Sender, comboLinkBase*linkMult*float64(len(urls)), "link_combo")
 	}
 
-	p.ensureBalance(ctx.Sender)
-	p.credit(ctx.Sender, amount, "message")
+	// Image combo — bonus for image/video/file attachments.
+	if mc := ctx.Event.Content.AsMessage(); mc != nil {
+		if mc.MsgType == event.MsgImage || mc.MsgType == event.MsgVideo || mc.MsgType == event.MsgFile {
+			imgMult := p.advanceCombo(ctx.Sender, "image", comboImageCap)
+			p.credit(ctx.Sender, comboImageBase*imgMult, "image_combo")
+		}
+	}
+}
+
+// advanceCombo increments a user's combo for a category, resets if timed out
+// or daily cap reached, and returns the current multiplier.
+func (p *EuroPlugin) advanceCombo(userID id.UserID, category string, dailyCap int) float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := time.Now()
+	today := now.UTC().Format("2006-01-02")
+
+	userCombos, ok := p.combos[userID]
+	if !ok {
+		userCombos = make(map[string]*comboState)
+		p.combos[userID] = userCombos
+	}
+
+	cs, ok := userCombos[category]
+	if !ok {
+		cs = &comboState{}
+		userCombos[category] = cs
+	}
+
+	// Reset on new day.
+	if cs.Today != today {
+		cs.Step = 0
+		cs.DayHits = 0
+		cs.Today = today
+	}
+
+	// Reset if combo timed out.
+	if !cs.LastAt.IsZero() && now.Sub(cs.LastAt) > comboTimeout {
+		cs.Step = 0
+	}
+
+	// At daily cap, return base multiplier (no combo bonus).
+	if cs.DayHits >= dailyCap {
+		return 1.0
+	}
+
+	cs.DayHits++
+	cs.Step++
+	cs.LastAt = now
+
+	return 1.0 + float64(cs.Step)*comboMultPerStep
+}
+
+// ---------------------------------------------------------------------------
+// !combo command
+// ---------------------------------------------------------------------------
+
+func (p *EuroPlugin) handleCombo(ctx MessageContext) error {
+	p.mu.Lock()
+	userCombos := p.combos[ctx.Sender]
+	now := time.Now()
+	today := now.UTC().Format("2006-01-02")
+
+	type info struct {
+		name    string
+		step    int
+		dayHits int
+		cap     int
+		active  bool
+	}
+	cats := []info{
+		{"Messages", 0, 0, comboMsgCap, false},
+		{"Links", 0, 0, comboLinkCap, false},
+		{"Images", 0, 0, comboImageCap, false},
+	}
+	keys := []string{"message", "link", "image"}
+
+	if userCombos != nil {
+		for i, k := range keys {
+			if cs, ok := userCombos[k]; ok && cs.Today == today {
+				cats[i].step = cs.Step
+				cats[i].dayHits = cs.DayHits
+				cats[i].active = !cs.LastAt.IsZero() && now.Sub(cs.LastAt) < comboTimeout
+			}
+		}
+	}
+	p.mu.Unlock()
+
+	var sb strings.Builder
+	sb.WriteString("🔥 **Activity Combo**\n\n")
+
+	for _, c := range cats {
+		mult := 1.0 + float64(c.step)*comboMultPerStep
+		status := "💤 inactive"
+		if c.active {
+			status = fmt.Sprintf("⚡ **%.0fx** multiplier", mult)
+		} else if c.step > 0 {
+			status = "⏳ expired (resets on next activity)"
+		}
+		sb.WriteString(fmt.Sprintf("**%s**: step %d/%d — %s\n", c.name, c.dayHits, c.cap, status))
+	}
+
+	sb.WriteString(fmt.Sprintf("\nCombo grows +%.0f%% per step. Resets after %d min idle.", comboMultPerStep*100, int(comboTimeout.Minutes())))
+
+	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +359,10 @@ func (p *EuroPlugin) credit(userID id.UserID, amount float64, reason string) {
 // Debit subtracts euros atomically. Returns false if this would exceed debt limit.
 // Uses a conditional UPDATE to prevent race conditions (check-and-act in one statement).
 func (p *EuroPlugin) Debit(userID id.UserID, amount float64, reason string) bool {
+	if amount <= 0 {
+		slog.Warn("euro: Debit called with non-positive amount", "user", userID, "amount", amount)
+		return false
+	}
 	p.ensureBalance(userID)
 	d := db.Get()
 
@@ -216,6 +390,10 @@ func (p *EuroPlugin) Debit(userID id.UserID, amount float64, reason string) bool
 
 // Credit adds euros (exported for other plugins).
 func (p *EuroPlugin) Credit(userID id.UserID, amount float64, reason string) {
+	if amount <= 0 {
+		slog.Warn("euro: Credit called with non-positive amount", "user", userID, "amount", amount)
+		return
+	}
 	p.ensureBalance(userID)
 	p.credit(userID, amount, reason)
 }
