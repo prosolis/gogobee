@@ -24,26 +24,16 @@ type advActiveEvent struct {
 }
 
 // ── In-memory schedule ───────────────────────────────────────────────────────
-// Each day, every eligible player is assigned a random minute between 10:00
-// and 16:00 UTC at which the 0.5% trigger roll happens.
+// When a player acts on a given day, the next ticker iteration assigns them
+// a one-shot roll-minute 60–180 minutes in the future. At that minute, the
+// 0.5% trigger roll fires. Each player rolls at most once per UTC day.
 
 var (
-	advEventScheduleMu sync.Mutex
-	advEventSchedule   map[string]int // userID string -> minute-of-day (600..959)
-	advEventScheduleDay string        // "2006-01-02" the schedule was built for
+	advEventScheduleMu  sync.Mutex
+	advEventSchedule    map[string]int  // userID -> minute-of-day for the deferred roll
+	advEventRolled      map[string]bool // userID -> already rolled today
+	advEventScheduleDay string          // "2006-01-02" the maps belong to
 )
-
-func advBuildEventSchedule(chars []AdventureCharacter) {
-	advEventSchedule = make(map[string]int, len(chars))
-	for _, c := range chars {
-		if !c.Alive {
-			continue
-		}
-		// Random minute between 600 (10:00) and 959 (15:59)
-		advEventSchedule[string(c.UserID)] = 600 + rand.IntN(360)
-	}
-	advEventScheduleDay = time.Now().UTC().Format("2006-01-02")
-}
 
 // ── Event Ticker ─────────────────────────────────────────────────────────────
 
@@ -54,34 +44,51 @@ func (p *AdventurePlugin) eventTicker() {
 	for range ticker.C {
 		now := time.Now().UTC()
 		dateKey := now.Format("2006-01-02")
+		currentMinute := now.Hour()*60 + now.Minute()
 
 		// Expire stale pending events every tick
 		expireAdvPendingEvents()
 
-		// Outside the trigger window — nothing to do
-		if now.Hour() < 10 || now.Hour() >= 16 {
-			continue
-		}
-
-		// Rebuild schedule if it's a new day or uninitialised
 		advEventScheduleMu.Lock()
 		if advEventScheduleDay != dateKey {
-			chars, err := loadAllAdvCharacters()
-			if err != nil {
-				slog.Error("adventure: events: failed to load chars for schedule", "err", err)
-				advEventScheduleMu.Unlock()
-				continue
-			}
-			advBuildEventSchedule(chars)
-			slog.Info("adventure: event schedule built", "players", len(advEventSchedule))
+			advEventSchedule = make(map[string]int)
+			advEventRolled = make(map[string]bool)
+			advEventScheduleDay = dateKey
 		}
 
-		// Find players whose roll minute is now
-		currentMinute := now.Hour()*60 + now.Minute()
+		// Schedule deferred rolls for any newly-acted players
+		chars, err := loadAllAdvCharacters()
+		if err != nil {
+			slog.Error("adventure: events: failed to load chars", "err", err)
+			advEventScheduleMu.Unlock()
+			continue
+		}
+		for _, c := range chars {
+			uid := string(c.UserID)
+			if !c.Alive || advEventRolled[uid] {
+				continue
+			}
+			if _, scheduled := advEventSchedule[uid]; scheduled {
+				continue
+			}
+			if !c.HasActedToday() {
+				continue
+			}
+			// Assign a one-shot roll 60–180 minutes from now, capped to 23:50 UTC.
+			rollMinute := currentMinute + 60 + rand.IntN(121)
+			if rollMinute > 23*60+50 {
+				rollMinute = 23*60 + 50
+			}
+			advEventSchedule[uid] = rollMinute
+			slog.Info("adventure: event roll scheduled", "user", uid, "minute", rollMinute)
+		}
+
+		// Find players whose roll-minute has arrived
 		var toRoll []id.UserID
 		for uid, minute := range advEventSchedule {
-			if minute == currentMinute {
+			if minute <= currentMinute && !advEventRolled[uid] {
 				toRoll = append(toRoll, id.UserID(uid))
+				advEventRolled[uid] = true
 			}
 		}
 		advEventScheduleMu.Unlock()
