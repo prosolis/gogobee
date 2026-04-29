@@ -528,6 +528,20 @@ Four activity types across 5 tiers of locations. Higher tiers require higher cha
 - **Mid-day events** — random events can trigger between actions, delivering bonus loot, buffs, or narrative encounters.
 - **Chat level perks** — active chat participation boosts your adventurer. +5% XP per 10 chat levels (capped at +25% at level 50+), plus +0.5% rare drop chance per 10 levels.
 
+#### Crafting
+
+Auto-crafting kicks in at Foraging Lv.10. Before each combat action, the system scans your inventory for matching ingredients and assembles the highest-tier recipe you qualify for. 12 recipes spanning T1–T5, gated at Foraging 10/15/20/25/30. Per-recipe success rate is 50% at the unlock level, +3% per 5 levels above (capped 95%). Failed crafts destroy the ingredients — you tried.
+
+Per attempt:
+- **Successful crafts** grant Foraging XP (T1: +12, T2: +25, T3: +40, T4: +60, T5: +90) and bump a lifetime `CraftsSucceeded` counter shown on `!adventure status`.
+- **Failed crafts** grant a token Foraging XP (1/4 of success).
+
+Max auto-crafts per combat scales with level: 1 at Foraging 10, 2 at 20, 3 at 30+.
+
+`!adventure recipes` lists every recipe unlocked at your current Foraging level with ingredients and per-recipe success rate, plus a teaser for the next unlock threshold.
+
+**Consumable protection:** crafted/dropped consumables (Type `consumable`) are excluded from `!adventure sell all` and Robbie the Friendly Bandit's pickup filter. Selling consumables requires explicit `!adventure sell <name>` — no accidental mass-sells, no surprise donations to the community pot.
+
 #### Blacksmith & Repair
 
 Equipment accumulates damage on bad outcomes and breaks at 0 condition. The blacksmith repairs gear for a per-point fee that scales with tier (base rates T0→T5: €1, €2, €5, €12, €30, €80; masterwork and arena gear use the next tier up). The cost has a mild convexity (`baseRate × damage × (1 + damage/200)`), so repairing earlier is slightly cheaper per point than letting gear sit at low condition — but not punitively so. `!adventure blacksmith` previews quotes; `!adventure repair all` or `!adventure repair <slot>` commits. Visiting the blacksmith counts as your daily action.
