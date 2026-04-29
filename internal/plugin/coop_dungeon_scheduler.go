@@ -30,6 +30,11 @@ func (p *AdventurePlugin) coopTicker() {
 		// Locks: every minute.
 		p.coopProcessLocks()
 
+		// Gift expiries: every minute. Resolves any gift whose individual
+		// 6h voting window has elapsed. Modifier sits on the run until the
+		// next floor resolution merges it.
+		p.coopProcessGiftExpiries()
+
 		// Resolutions: once per day at morningHour:00 UTC.
 		now := time.Now().UTC()
 		if now.Hour() != p.morningHour || now.Minute() != 0 {

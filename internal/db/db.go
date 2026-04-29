@@ -138,6 +138,8 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE coop_dungeon_runs ADD COLUMN last_resolved_day INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE coop_dungeon_members ADD COLUMN member_payout INTEGER`,
 		`ALTER TABLE coop_dungeon_runs ADD COLUMN invite_post_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE coop_dungeon_gifts ADD COLUMN expires_at DATETIME`,
+		`ALTER TABLE coop_dungeon_gifts ADD COLUMN applied_at DATETIME`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1445,7 +1447,9 @@ CREATE TABLE IF NOT EXISTS coop_dungeon_gifts (
     modifier      INTEGER NOT NULL DEFAULT 0,
     post_event_id TEXT,
     sent_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    resolved_at   DATETIME
+    expires_at    DATETIME,                      -- voting closes; tally fires when reached
+    resolved_at   DATETIME,                      -- vote tallied (vote_result/modifier set)
+    applied_at    DATETIME                       -- modifier merged into a floor success roll
 );
 CREATE INDEX IF NOT EXISTS idx_coop_gifts_run_day ON coop_dungeon_gifts(run_id, day, vote_result);
 `

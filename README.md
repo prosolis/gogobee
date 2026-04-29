@@ -627,7 +627,7 @@ Multi-day party runs separate from solo. 2–4 players, 2–7 days depending on 
 
 **Spectator betting.** Parimutuel pool, 10% rake. Bets can be placed or increased any time during the run; positions are locked in (success or failure can't be switched). Party members can bet on their own run — sandbagging while heavily bet against is exploitative and visible. Odds line shows estimated success% based on party levels, pets, neutral funding assumption, and a hidden TwinBee Helpfulness Rating (rolling last 30 floor events: how often his recommendation was right). Helpfulness shifts the line ±20% but is never shown directly — players notice the line moves after events resolve.
 
-**Gifts.** Anyone *not* in the run can spend one harvest action to send a Care Basket or a Mimic. The party never sees which type. Vote `open` or `leave`. Magnitudes are equalized across all four outcomes — both "always open" and "always leave" yield EV=0 with σ=6, so neither is risk-averse-dominant. The choice is purely about reading sender intent.
+**Gifts.** Anyone *not* in the run can spend one harvest action to send a Care Basket or a Mimic. The party never sees which type. Vote `open` or `leave`. **Each gift has its own 6-hour voting window** — voting closes when the window elapses, the gift is tallied, and the sender gets a DM with the result. The modifier sits on the run until the next floor resolution merges it in. Gifts therefore "fire" throughout the day rather than all at once at the daily tick. Magnitudes are equalized across all four outcomes — both "always open" and "always leave" yield EV=0 with σ=6, so neither is risk-averse-dominant. The choice is purely about reading sender intent.
 
 |             | Open | Leave |
 |-------------|------|-------|

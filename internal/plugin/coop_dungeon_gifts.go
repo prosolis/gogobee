@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"strings"
+	"time"
 
 	"gogobee/internal/db"
 
@@ -36,19 +37,26 @@ const (
 const (
 	coopGiftBasket = "basket"
 	coopGiftMimic  = "mimic"
+
+	// Per-gift voting window. After this elapses, the gift's votes are
+	// tallied independently of the daily floor tick. Senders get DM feedback
+	// at expiry; the modifier sits on the run until the next floor resolves.
+	coopGiftWindow = 6 * time.Hour
 )
 
 type CoopGift struct {
-	ID            int
-	RunID         int
-	SenderID      id.UserID
-	Day           int
-	GiftType      string
-	Votes         map[id.UserID]string // "open" or "leave"
-	VoteResult    string               // "opened" / "left" / ""
-	Outcome       string               // "boost" / "reduction" / ""
-	Modifier      int
-	PostEventID   id.EventID
+	ID          int
+	RunID       int
+	SenderID    id.UserID
+	Day         int
+	GiftType    string
+	Votes       map[id.UserID]string // "open" or "leave"
+	VoteResult  string               // "opened" / "left" / ""
+	Outcome     string               // "boost" / "reduction" / ""
+	Modifier    int
+	PostEventID id.EventID
+	ExpiresAt   *time.Time // voting closes
+	AppliedAt   *time.Time // modifier merged into a floor roll
 }
 
 // ── Command: send a gift ────────────────────────────────────────────────────
@@ -181,71 +189,128 @@ func (p *AdventurePlugin) handleCoopGiftVote(ctx MessageContext, args string) er
 
 // ── Resolution ──────────────────────────────────────────────────────────────
 
-// coopResolveGifts is called inside coopResolveFloor to tally and apply each
-// unresolved gift for the current day. Returns the total modifier and a brief
-// summary line.
-func (p *AdventurePlugin) coopResolveGifts(run *CoopRun, leader id.UserID, day int) (int, string) {
-	gifts, err := loadDayCoopGifts(run.ID, day)
-	if err != nil || len(gifts) == 0 {
-		return 0, ""
+// resolveSingleGift tallies a single gift's votes, persists the outcome, and
+// DMs the sender. Used by both the per-minute expiry ticker and the
+// floor-resolution catchall (for any gift that somehow missed its expiry).
+//
+// Idempotent: returns early if vote_result is already set.
+func (p *AdventurePlugin) resolveSingleGift(g *CoopGift, leader id.UserID) {
+	if g.VoteResult != "" {
+		return
 	}
-	totalMod := 0
-	var lines []string
-	for _, g := range gifts {
-		if g.VoteResult != "" {
+	opens, leaves := 0, 0
+	var leaderVote string
+	for u, v := range g.Votes {
+		if v == "open" {
+			opens++
+		} else if v == "leave" {
+			leaves++
+		}
+		if u == leader {
+			leaderVote = v
+		}
+	}
+	var voteResult string
+	switch {
+	case opens > leaves:
+		voteResult = "opened"
+	case leaves > opens:
+		voteResult = "left"
+	case leaderVote == "open":
+		voteResult = "opened"
+	case leaderVote == "leave":
+		voteResult = "left"
+	default:
+		voteResult = "left" // default for full abstention
+	}
+
+	var mod int
+	var outcome string
+	switch g.GiftType {
+	case coopGiftBasket:
+		if voteResult == "opened" {
+			mod = coopGiftBasketOpened
+			outcome = "boost"
+		} else {
+			mod = coopGiftBasketUnopened
+			outcome = "reduction"
+		}
+	case coopGiftMimic:
+		if voteResult == "opened" {
+			mod = coopGiftMimicOpened
+			outcome = "reduction"
+		} else {
+			mod = coopGiftMimicUnopened
+			outcome = "boost"
+		}
+	}
+	g.VoteResult = voteResult
+	g.Outcome = outcome
+	g.Modifier = mod
+	_ = resolveCoopGift(g.ID, voteResult, outcome, mod)
+	_ = p.SendDM(g.SenderID, renderCoopGiftSenderDM(g, voteResult, mod))
+
+	// Edit the live game-room post to show the resolved state.
+	gr := gamesRoom()
+	if gr != "" && g.PostEventID != "" {
+		_ = p.EditMessage(gr, g.PostEventID, renderCoopGiftResolvedPost(g))
+	}
+}
+
+// coopProcessGiftExpiries runs each ticker minute, resolving any gifts whose
+// voting window has elapsed. Modifiers are recorded but not yet applied to a
+// floor — they wait for the next floor resolution.
+func (p *AdventurePlugin) coopProcessGiftExpiries() {
+	gifts, err := loadExpiredUnresolvedGifts()
+	if err != nil {
+		slog.Error("coop: load expired gifts", "err", err)
+		return
+	}
+	for i := range gifts {
+		g := &gifts[i]
+		run, _ := loadCoopRun(g.RunID)
+		if run == nil || run.Status != "active" {
+			// Run gone or already terminal — still mark the gift resolved so
+			// it stops cluttering the expiry query.
+			_ = resolveCoopGift(g.ID, "left", "reduction", 0)
 			continue
 		}
-		opens, leaves := 0, 0
-		var leaderVote string
-		for u, v := range g.Votes {
-			if v == "open" {
-				opens++
-			} else if v == "leave" {
-				leaves++
-			}
-			if u == leader {
-				leaderVote = v
-			}
-		}
-		var voteResult string
-		switch {
-		case opens > leaves:
-			voteResult = "opened"
-		case leaves > opens:
-			voteResult = "left"
-		case leaderVote == "open":
-			voteResult = "opened"
-		case leaderVote == "leave":
-			voteResult = "left"
-		default:
-			voteResult = "left" // default for full abstention
-		}
+		p.resolveSingleGift(g, run.LeaderID)
+	}
+}
 
-		var mod int
-		var outcome string
-		switch g.GiftType {
-		case coopGiftBasket:
-			if voteResult == "opened" {
-				mod = coopGiftBasketOpened
-				outcome = "boost"
-			} else {
-				mod = coopGiftBasketUnopened
-				outcome = "reduction"
-			}
-		case coopGiftMimic:
-			if voteResult == "opened" {
-				mod = coopGiftMimicOpened
-				outcome = "reduction"
-			} else {
-				mod = coopGiftMimicUnopened
-				outcome = "boost"
-			}
+// coopResolveGifts is called inside coopResolveFloor. Two responsibilities:
+//
+//  1. Catchall: force-resolve any gifts on this day that still have no
+//     vote_result (the timer ticker should normally have caught them, but
+//     this is the defensive backstop, e.g., bot was down).
+//  2. Apply: sum modifiers from any resolved-but-not-yet-applied gifts on
+//     this run and atomically claim them via markCoopGiftApplied so the
+//     same modifier is never double-applied across retries.
+//
+// Returns total modifier and a summary line for the daily-result post.
+func (p *AdventurePlugin) coopResolveGifts(run *CoopRun, leader id.UserID, day int) (int, string) {
+	// Catchall: any unresolved gifts for this day get force-resolved now.
+	dayGifts, _ := loadDayCoopGifts(run.ID, day)
+	for i := range dayGifts {
+		if dayGifts[i].VoteResult == "" {
+			p.resolveSingleGift(&dayGifts[i], leader)
 		}
-		totalMod += mod
-		_ = resolveCoopGift(g.ID, voteResult, outcome, mod)
+	}
+
+	// Apply: pending resolved gifts (any day, this run) get their modifier
+	// merged into the floor roll.
+	pending, _ := loadResolvedUnappliedGifts(run.ID)
+	totalMod := 0
+	var lines []string
+	for _, g := range pending {
+		claimed, err := markCoopGiftApplied(g.ID)
+		if err != nil || !claimed {
+			continue
+		}
+		totalMod += g.Modifier
 		lines = append(lines, fmt.Sprintf("  %s gift from %s — %s → %+d%%",
-			titleCaseWord(g.GiftType), coopDisplayName(p, g.SenderID), voteResult, mod))
-		_ = p.SendDM(g.SenderID, renderCoopGiftSenderDM(&g, voteResult, mod))
+			titleCaseWord(g.GiftType), coopDisplayName(p, g.SenderID), g.VoteResult, g.Modifier))
 	}
 	if len(lines) == 0 {
 		return 0, ""
@@ -257,8 +322,9 @@ func (p *AdventurePlugin) coopResolveGifts(run *CoopRun, leader id.UserID, day i
 
 func createCoopGift(runID int, sender id.UserID, day int, giftType string) (int, error) {
 	d := db.Get()
-	res, err := d.Exec(`INSERT INTO coop_dungeon_gifts (run_id, sender_id, day, gift_type)
-		VALUES (?, ?, ?, ?)`, runID, string(sender), day, giftType)
+	expires := time.Now().UTC().Add(coopGiftWindow)
+	res, err := d.Exec(`INSERT INTO coop_dungeon_gifts (run_id, sender_id, day, gift_type, expires_at)
+		VALUES (?, ?, ?, ?, ?)`, runID, string(sender), day, giftType, expires)
 	if err != nil {
 		return 0, err
 	}
@@ -271,11 +337,12 @@ func loadCoopGift(giftID int) (*CoopGift, error) {
 	g := &CoopGift{}
 	var sender, votesJSON string
 	var voteResult, outcome, postID sql.NullString
+	var expiresAt, appliedAt sql.NullTime
 	err := d.QueryRow(`SELECT id, run_id, sender_id, day, gift_type,
-		votes, vote_result, outcome, modifier, post_event_id
+		votes, vote_result, outcome, modifier, post_event_id, expires_at, applied_at
 		FROM coop_dungeon_gifts WHERE id = ?`, giftID).Scan(
 		&g.ID, &g.RunID, &sender, &g.Day, &g.GiftType,
-		&votesJSON, &voteResult, &outcome, &g.Modifier, &postID)
+		&votesJSON, &voteResult, &outcome, &g.Modifier, &postID, &expiresAt, &appliedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -293,13 +360,21 @@ func loadCoopGift(giftID int) (*CoopGift, error) {
 	if postID.Valid {
 		g.PostEventID = id.EventID(postID.String)
 	}
+	if expiresAt.Valid {
+		t := expiresAt.Time
+		g.ExpiresAt = &t
+	}
+	if appliedAt.Valid {
+		t := appliedAt.Time
+		g.AppliedAt = &t
+	}
 	return g, nil
 }
 
 func loadDayCoopGifts(runID, day int) ([]CoopGift, error) {
 	d := db.Get()
 	rows, err := d.Query(`SELECT id, run_id, sender_id, day, gift_type,
-		votes, vote_result, outcome, modifier, post_event_id
+		votes, vote_result, outcome, modifier, post_event_id, expires_at, applied_at
 		FROM coop_dungeon_gifts WHERE run_id = ? AND day = ? ORDER BY id`, runID, day)
 	if err != nil {
 		return nil, err
@@ -310,8 +385,9 @@ func loadDayCoopGifts(runID, day int) ([]CoopGift, error) {
 		g := CoopGift{}
 		var sender, votesJSON string
 		var voteResult, outcome, postID sql.NullString
+		var expiresAt, appliedAt sql.NullTime
 		if err := rows.Scan(&g.ID, &g.RunID, &sender, &g.Day, &g.GiftType,
-			&votesJSON, &voteResult, &outcome, &g.Modifier, &postID); err != nil {
+			&votesJSON, &voteResult, &outcome, &g.Modifier, &postID, &expiresAt, &appliedAt); err != nil {
 			return nil, err
 		}
 		g.SenderID = id.UserID(sender)
@@ -325,6 +401,14 @@ func loadDayCoopGifts(runID, day int) ([]CoopGift, error) {
 		if postID.Valid {
 			g.PostEventID = id.EventID(postID.String)
 		}
+		if expiresAt.Valid {
+			t := expiresAt.Time
+			g.ExpiresAt = &t
+		}
+		if appliedAt.Valid {
+			t := appliedAt.Time
+			g.AppliedAt = &t
+		}
 		out = append(out, g)
 	}
 	return out, rows.Err()
@@ -333,7 +417,7 @@ func loadDayCoopGifts(runID, day int) ([]CoopGift, error) {
 func loadAllCoopGifts(runID int) ([]CoopGift, error) {
 	d := db.Get()
 	rows, err := d.Query(`SELECT id, run_id, sender_id, day, gift_type,
-		votes, vote_result, outcome, modifier, post_event_id
+		votes, vote_result, outcome, modifier, post_event_id, expires_at, applied_at
 		FROM coop_dungeon_gifts WHERE run_id = ? ORDER BY id`, runID)
 	if err != nil {
 		return nil, err
@@ -344,8 +428,9 @@ func loadAllCoopGifts(runID int) ([]CoopGift, error) {
 		g := CoopGift{}
 		var sender, votesJSON string
 		var voteResult, outcome, postID sql.NullString
+		var expiresAt, appliedAt sql.NullTime
 		if err := rows.Scan(&g.ID, &g.RunID, &sender, &g.Day, &g.GiftType,
-			&votesJSON, &voteResult, &outcome, &g.Modifier, &postID); err != nil {
+			&votesJSON, &voteResult, &outcome, &g.Modifier, &postID, &expiresAt, &appliedAt); err != nil {
 			return nil, err
 		}
 		g.SenderID = id.UserID(sender)
@@ -355,6 +440,17 @@ func loadAllCoopGifts(runID int) ([]CoopGift, error) {
 		}
 		if outcome.Valid {
 			g.Outcome = outcome.String
+		}
+		if postID.Valid {
+			g.PostEventID = id.EventID(postID.String)
+		}
+		if expiresAt.Valid {
+			t := expiresAt.Time
+			g.ExpiresAt = &t
+		}
+		if appliedAt.Valid {
+			t := appliedAt.Time
+			g.AppliedAt = &t
 		}
 		out = append(out, g)
 	}
@@ -401,6 +497,95 @@ func resolveCoopGift(giftID int, voteResult, outcome string, modifier int) error
 	return err
 }
 
+// loadExpiredUnresolvedGifts returns gifts whose voting window has elapsed
+// but whose votes haven't yet been tallied. Driven by the per-minute
+// expiry ticker.
+func loadExpiredUnresolvedGifts() ([]CoopGift, error) {
+	d := db.Get()
+	rows, err := d.Query(`SELECT id, run_id, sender_id, day, gift_type,
+		votes, vote_result, outcome, modifier, post_event_id, expires_at, applied_at
+		FROM coop_dungeon_gifts
+		WHERE vote_result IS NULL AND expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP
+		ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CoopGift
+	for rows.Next() {
+		g := CoopGift{}
+		var sender, votesJSON string
+		var voteResult, outcome, postID sql.NullString
+		var expiresAt, appliedAt sql.NullTime
+		if err := rows.Scan(&g.ID, &g.RunID, &sender, &g.Day, &g.GiftType,
+			&votesJSON, &voteResult, &outcome, &g.Modifier, &postID, &expiresAt, &appliedAt); err != nil {
+			return nil, err
+		}
+		g.SenderID = id.UserID(sender)
+		g.Votes = parseCoopVotes(votesJSON)
+		if postID.Valid {
+			g.PostEventID = id.EventID(postID.String)
+		}
+		if expiresAt.Valid {
+			t := expiresAt.Time
+			g.ExpiresAt = &t
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// loadResolvedUnappliedGifts returns gifts that have been tallied but whose
+// modifiers have not yet been merged into a floor success roll. Used by
+// floor resolution to sum and apply pending gift modifiers.
+func loadResolvedUnappliedGifts(runID int) ([]CoopGift, error) {
+	d := db.Get()
+	rows, err := d.Query(`SELECT id, run_id, sender_id, day, gift_type,
+		votes, vote_result, outcome, modifier, post_event_id, expires_at, applied_at
+		FROM coop_dungeon_gifts
+		WHERE run_id = ? AND vote_result IS NOT NULL AND applied_at IS NULL
+		ORDER BY id`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CoopGift
+	for rows.Next() {
+		g := CoopGift{}
+		var sender, votesJSON string
+		var voteResult, outcome, postID sql.NullString
+		var expiresAt, appliedAt sql.NullTime
+		if err := rows.Scan(&g.ID, &g.RunID, &sender, &g.Day, &g.GiftType,
+			&votesJSON, &voteResult, &outcome, &g.Modifier, &postID, &expiresAt, &appliedAt); err != nil {
+			return nil, err
+		}
+		g.SenderID = id.UserID(sender)
+		g.Votes = parseCoopVotes(votesJSON)
+		if voteResult.Valid {
+			g.VoteResult = voteResult.String
+		}
+		if outcome.Valid {
+			g.Outcome = outcome.String
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// markCoopGiftApplied claims a gift's modifier as merged into a floor roll.
+// Idempotent — only the first call sets applied_at; subsequent calls return
+// false (claimed=false) so the same modifier is never double-applied.
+func markCoopGiftApplied(giftID int) (bool, error) {
+	d := db.Get()
+	res, err := d.Exec(`UPDATE coop_dungeon_gifts SET applied_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND applied_at IS NULL`, giftID)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // ── Render ──────────────────────────────────────────────────────────────────
 
 func renderCoopGiftPost(run *CoopRun, gift *CoopGift, members []CoopMember) string {
@@ -414,7 +599,16 @@ func renderCoopGiftPost(run *CoopRun, gift *CoopGift, members []CoopMember) stri
 		sb.WriteString(flavor)
 		sb.WriteString("\n\n")
 	}
-	sb.WriteString("Vote with `!coop giftvote " + strconv.Itoa(gift.ID) + " open|leave`. Resolved at next daily tick.\n\n")
+	closesIn := ""
+	if gift.ExpiresAt != nil {
+		remaining := time.Until(*gift.ExpiresAt).Truncate(time.Minute)
+		if remaining > 0 {
+			closesIn = fmt.Sprintf(" · voting closes in %s", remaining)
+		} else {
+			closesIn = " · voting closing"
+		}
+	}
+	sb.WriteString("Vote with `!coop giftvote " + strconv.Itoa(gift.ID) + " open|leave`" + closesIn + ".\n\n")
 	opens, leaves := 0, 0
 	for _, v := range gift.Votes {
 		if v == "open" {
@@ -434,6 +628,19 @@ func renderCoopGiftPost(run *CoopRun, gift *CoopGift, members []CoopMember) stri
 		sb.WriteString(fmt.Sprintf("\nAwaiting: %d of %d", awaiting, len(members)))
 	}
 	return sb.String()
+}
+
+// renderCoopGiftResolvedPost replaces the live vote post when a gift's
+// voting window closes. Reveals the type and resolved modifier — the type
+// stays hidden during voting but is visible after.
+func renderCoopGiftResolvedPost(g *CoopGift) string {
+	icon := "📦"
+	verb := "left"
+	if g.VoteResult == "opened" {
+		verb = "opened"
+	}
+	return fmt.Sprintf("%s **Gift #%d resolved** — %s, %s → **%+d%%** to next floor.",
+		icon, g.ID, titleCaseWord(g.GiftType), verb, g.Modifier)
 }
 
 func renderCoopGiftSenderDM(g *CoopGift, voteResult string, mod int) string {
