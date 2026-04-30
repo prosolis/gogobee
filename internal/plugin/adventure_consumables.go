@@ -1,8 +1,10 @@
 package plugin
 
 import (
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 
 	"maunium.net/go/mautrix/id"
 )
@@ -339,9 +341,74 @@ type CraftResult struct {
 	Success bool
 }
 
+// renderRecipesKnown returns a player-facing list of recipes available at
+// their current foraging level, plus a teaser line for the next unlock
+// threshold. Hides exact ingredient lists for recipes the player hasn't
+// unlocked — only the count of locked recipes is shown.
+func renderRecipesKnown(foragingLevel int) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🧪 **Crafting Recipes** — Foraging Lv.%d\n\n", foragingLevel))
+
+	if foragingLevel < 10 {
+		sb.WriteString("_Auto-crafting unlocks at Foraging Lv.10. Keep gathering._")
+		return sb.String()
+	}
+
+	// Group recipes by tier, list those known.
+	known := map[int][]CraftingRecipe{}
+	totalKnown := 0
+	totalLocked := 0
+	nextUnlock := 0
+	for _, r := range craftingRecipes {
+		if r.MinForaging <= foragingLevel {
+			known[r.Tier] = append(known[r.Tier], r)
+			totalKnown++
+		} else {
+			totalLocked++
+			if nextUnlock == 0 || r.MinForaging < nextUnlock {
+				nextUnlock = r.MinForaging
+			}
+		}
+	}
+
+	for tier := 1; tier <= 5; tier++ {
+		recipes := known[tier]
+		if len(recipes) == 0 {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("**Tier %d** (Foraging %d+)\n", tier, recipes[0].MinForaging))
+		for _, r := range recipes {
+			rate := craftingSuccessRate(foragingLevel, r.MinForaging) * 100
+			sb.WriteString(fmt.Sprintf("  • %s — %s (%.0f%% success)\n",
+				r.Result, strings.Join(r.Ingredients, " + "), rate))
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("\nKnown: %d · ", totalKnown))
+	if totalLocked == 0 {
+		sb.WriteString("All recipes unlocked. ⭐")
+	} else {
+		sb.WriteString(fmt.Sprintf("Locked: %d (next unlock at Foraging Lv.%d)", totalLocked, nextUnlock))
+	}
+
+	maxCrafts := 1 + (foragingLevel-10)/10
+	sb.WriteString(fmt.Sprintf("\nMax auto-crafts per combat: %d.", maxCrafts))
+	return sb.String()
+}
+
+// craftXPRewards: per-tier foraging XP granted on successful (and tiny on
+// failed) auto-crafts. Successful T1 ≈ 30% of a Foraging Success haul, scaling
+// up so T5 grants are meaningful. Failures get a token consolation grant —
+// you tried.
+var craftXPSuccess = map[int]int{1: 12, 2: 25, 3: 40, 4: 60, 5: 90}
+var craftXPFailure = map[int]int{1: 3, 2: 5, 3: 8, 4: 12, 5: 18}
+
 // autoCraftConsumables scans the player's inventory for craftable recipes and
 // attempts to craft the highest-tier recipe available. Consumes ingredients on
 // attempt; on failure one ingredient is lost. Returns crafted items and results.
+//
+// Side effects: grants foraging XP per attempt (success > failure) and bumps
+// the player's CraftsSucceeded counter on each success.
 func autoCraftConsumables(userID id.UserID, items []AdvItem, foragingLevel int) ([]CraftResult, []AdvItem) {
 	if foragingLevel < 10 {
 		return nil, items
@@ -393,6 +460,13 @@ func autoCraftConsumables(userID id.UserID, items []AdvItem, foragingLevel int) 
 			}
 			results = append(results, CraftResult{Recipe: bestRecipe, Success: true})
 			crafted++
+			// Foraging XP + lifetime counter bump.
+			if char, err := loadAdvCharacter(userID); err == nil {
+				char.ForagingXP += craftXPSuccess[bestRecipe.Tier]
+				char.CraftsSucceeded++
+				checkAdvLevelUp(char, "foraging")
+				_ = saveAdvCharacter(char)
+			}
 		} else {
 			// Failure: all ingredients destroyed
 			for _, id := range ingredientIDs {
@@ -400,6 +474,12 @@ func autoCraftConsumables(userID id.UserID, items []AdvItem, foragingLevel int) 
 			}
 			remaining = removeItemsByIDs(remaining, ingredientIDs)
 			results = append(results, CraftResult{Recipe: bestRecipe, Success: false})
+			// Token foraging XP for the attempt.
+			if char, err := loadAdvCharacter(userID); err == nil {
+				char.ForagingXP += craftXPFailure[bestRecipe.Tier]
+				checkAdvLevelUp(char, "foraging")
+				_ = saveAdvCharacter(char)
+			}
 		}
 	}
 

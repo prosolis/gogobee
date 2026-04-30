@@ -120,6 +120,12 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 		sb.WriteString(fmt.Sprintf(" (best: %d)\n", char.BestStreak))
 	}
 
+	// Crafting (only show once they've actually crafted something)
+	if char.CraftsSucceeded > 0 {
+		sb.WriteString(fmt.Sprintf("🧪 Crafts: %d successful (Foraging Lv.%d — `!adventure recipes`)\n",
+			char.CraftsSucceeded, char.ForagingSkill))
+	}
+
 	// Equipment
 	sb.WriteString("\n🛡️ Equipment:\n")
 	eqScore := advEquipmentScore(equip)

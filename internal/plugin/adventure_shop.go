@@ -778,9 +778,14 @@ func (p *AdventurePlugin) advSellAll(userID id.UserID) string {
 	var total float64
 	var sold int
 	var keptSpecial int
+	var keptConsumable int
 	for _, item := range items {
 		if item.Type == "MasterworkGear" || item.Type == "ArenaGear" || item.Type == "card" {
 			keptSpecial++
+			continue
+		}
+		if item.Type == "consumable" {
+			keptConsumable++
 			continue
 		}
 		if err := removeAdvInventoryItem(item.ID); err != nil {
@@ -791,8 +796,13 @@ func (p *AdventurePlugin) advSellAll(userID id.UserID) string {
 	}
 
 	if sold == 0 {
-		if keptSpecial > 0 {
+		switch {
+		case keptSpecial > 0 && keptConsumable > 0:
+			return "Your inventory only contains special gear and consumables. The merchant won't touch any of it. Use `!adventure equip` for gear or `!adventure sell <name>` for individual consumables."
+		case keptSpecial > 0:
 			return "Your inventory only contains Masterwork and Arena gear. The merchant doesn't deal in that. Use `!adventure equip` instead."
+		case keptConsumable > 0:
+			return "Your inventory only contains consumables. `sell all` won't touch them — use `!adventure sell <name>` to sell a specific consumable."
 		}
 		return "Your inventory is empty. There is nothing to sell. This is a metaphor for something but now is not the time."
 	}
@@ -810,6 +820,9 @@ func (p *AdventurePlugin) advSellAll(userID id.UserID) string {
 		sold, fmtEuro(total), fmtEuro(payout))
 	if keptSpecial > 0 {
 		msg += fmt.Sprintf("\n\n(%d special gear items kept — the merchant knows better than to touch those.)", keptSpecial)
+	}
+	if keptConsumable > 0 {
+		msg += fmt.Sprintf("\n(%d consumable(s) kept — `sell all` doesn't touch them. Sell explicitly with `!adventure sell <name>`.)", keptConsumable)
 	}
 	return msg
 }
