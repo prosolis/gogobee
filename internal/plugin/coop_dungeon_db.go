@@ -177,6 +177,21 @@ func completeCoopRun(runID int, status string, reward int) error {
 // reset (which would otherwise zero them) and at bot startup. Combat stays
 // locked for the full duration of the run — players in a co-op cannot also
 // solo-grind dungeons or arena.
+// unlockCoopCombatActionsForRun clears the 99-sentinel lock on the given run's
+// members and pins combat_actions_used to the daily cap (= maxCombatActions),
+// so they can't squeeze in extra combat today but are not blocked into
+// tomorrow if the midnight reset is delayed. Called when a run ends (wipe or
+// complete). Idempotent.
+func unlockCoopCombatActionsForRun(runID int) error {
+	d := db.Get()
+	_, err := d.Exec(`UPDATE adventure_characters
+		SET combat_actions_used = ?
+		WHERE combat_actions_used > ?
+		  AND user_id IN (SELECT user_id FROM coop_dungeon_members WHERE run_id = ?)`,
+		maxCombatActions, maxCombatActions, runID)
+	return err
+}
+
 func lockCoopCombatActions() error {
 	d := db.Get()
 	_, err := d.Exec(`UPDATE adventure_characters

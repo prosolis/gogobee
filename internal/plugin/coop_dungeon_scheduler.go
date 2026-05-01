@@ -341,6 +341,7 @@ func (p *AdventurePlugin) coopResolveFloor(run *CoopRun) error {
 			_ = p.SendMessage(gr, strings.Join(parts, "\n\n"))
 		}
 		_ = completeCoopRun(run.ID, "wiped", 0)
+		_ = unlockCoopCombatActionsForRun(run.ID)
 		_ = setCoopRunLastResolvedDay(run.ID, day)
 		return nil
 	}
@@ -350,6 +351,7 @@ func (p *AdventurePlugin) coopResolveFloor(run *CoopRun) error {
 		reward := def.rewardBase
 		p.coopDistributeReward(run, reward, members)
 		_ = completeCoopRun(run.ID, "complete", reward)
+		_ = unlockCoopCombatActionsForRun(run.ID)
 		_ = setCoopRunLastResolvedDay(run.ID, day)
 		return nil
 	}

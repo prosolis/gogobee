@@ -33,7 +33,7 @@ func (p *ForexPlugin) Name() string { return "forex" }
 
 func (p *ForexPlugin) Commands() []CommandDef {
 	return []CommandDef{
-		{Name: "fx", Description: "Forex rates and analysis", Usage: "!fx rate [EUR|JPY] · !fx report [EUR|JPY] · !fx setalert <cur> <rate> · !fx alerts · !fx delalert <cur> <rate>", Category: "Entertainment"},
+		{Name: "fx", Description: "Forex rates, conversion, and analysis", Usage: "!fx rate [EUR|JPY] · !fx 1500 USD to EUR · !fx report [EUR|JPY] · !fx setalert <cur> <rate> · !fx alerts · !fx delalert <cur> <rate>", Category: "Entertainment"},
 	}
 }
 
@@ -52,11 +52,22 @@ func (p *ForexPlugin) OnMessage(ctx MessageContext) error {
 	args := strings.TrimSpace(p.GetArgs(ctx.Body, "fx"))
 	if args == "" {
 		return p.SendReply(ctx.RoomID, ctx.EventID,
-			"Usage: `!fx rate [EUR|JPY]` · `!fx report [EUR|JPY]` · `!fx setalert <currency> <rate>` · `!fx alerts` · `!fx delalert <currency> <rate>`")
+			"Usage: `!fx rate [EUR|JPY]` · `!fx 1500 USD to EUR` · `!fx report [EUR|JPY]` · `!fx setalert <currency> <rate>` · `!fx alerts` · `!fx delalert <currency> <rate>`")
 	}
 
 	parts := strings.Fields(args)
 	sub := strings.ToLower(parts[0])
+
+	// Auto-detect conversion: if the first token parses as a number,
+	// treat the whole arg list as a convert request (e.g. `!fx 1500 USD EUR`).
+	if _, err := fxParseAmount(parts[0]); err == nil {
+		safeGo("forex-handler", func() {
+			if err := p.cmdConvert(ctx, parts); err != nil {
+				slog.Error("forex: handler error", "err", err)
+			}
+		})
+		return nil
+	}
 
 	// DB-only and instant subcommands
 	switch sub {
@@ -85,6 +96,13 @@ func (p *ForexPlugin) OnMessage(ctx MessageContext) error {
 			}
 		})
 		return nil
+	case "convert":
+		safeGo("forex-handler", func() {
+			if err := p.cmdConvert(ctx, parts[1:]); err != nil {
+				slog.Error("forex: handler error", "err", err)
+			}
+		})
+		return nil
 	default:
 		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("Unknown subcommand `%s`. Try `!fx help`.", parts[0]))
 	}
@@ -94,6 +112,7 @@ const fxHelpText = "**Forex Commands**\n\n" +
 	"`!fx rate [EUR|JPY|CAD]` — current rate + quick signal\n" +
 	"`!fx rate EUR/USD` — cross-pair rate from first currency's perspective\n" +
 	"`!fx report [EUR|JPY|CAD]` — full analysis (averages, 52w range, buy score)\n" +
+	"`!fx 1500 USD to EUR` — convert an amount (also: `!fx convert 1500 USD EUR`)\n" +
 	"`!fx setalert <currency> <rate>` — alert when USD/currency reaches threshold\n" +
 	"`!fx alerts` — list active alerts in this room\n" +
 	"`!fx delalert <currency> <rate>` — remove an alert\n" +

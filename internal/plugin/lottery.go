@@ -201,7 +201,6 @@ func (p *LotteryPlugin) handleLotteryOdds(ctx MessageContext) error {
 | 5 of 5 | Jackpot (split among winners) | 1 in 142,506 |
 | 4 of 5 | €5,000 (fixed) | 1 in 3,062 |
 | 3 of 5 | €500 (fixed) | 1 in 141 |
-| 2 of 5 | €25 (fixed) | 1 in 16 |
 
 Tickets: €1 each. Max 100 per week. 5 numbers from 1–30.
 Minimum €500 pot required for jackpot payout.`
@@ -227,8 +226,8 @@ func (p *LotteryPlugin) handleLotteryHistory(ctx MessageContext) error {
 		if h.RolledOver > 0 {
 			sb.WriteString(fmt.Sprintf("  |  Rolled over: €%d", h.RolledOver))
 		}
-		sb.WriteString(fmt.Sprintf("\n  4-match: %d  |  3-match: %d  |  2-match: %d\n\n",
-			h.Match4Winners, h.Match3Winners, h.Match2Winners))
+		sb.WriteString(fmt.Sprintf("\n  4-match: %d  |  3-match: %d\n\n",
+			h.Match4Winners, h.Match3Winners))
 	}
 
 	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())

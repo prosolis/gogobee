@@ -16,7 +16,6 @@ import (
 var lotteryFixedPrizes = map[int]int{
 	4: 5000,
 	3: 500,
-	2: 25,
 }
 
 // ── Draw Ticker ─────────────────────────────────────────────────────────────
@@ -100,7 +99,7 @@ func (p *LotteryPlugin) executeDraw(weekStart string) {
 		tickets[i].MatchCount = &mc
 
 		prize := 0
-		if mc >= 2 && mc <= 4 {
+		if mc >= 3 && mc <= 4 {
 			prize = lotteryFixedPrizes[mc]
 		}
 		tickets[i].Prize = &prize
@@ -114,7 +113,7 @@ func (p *LotteryPlugin) executeDraw(weekStart string) {
 
 	// Calculate fixed tier payouts.
 	fixedTotal := 0
-	for tier := 4; tier >= 1; tier-- {
+	for tier := 4; tier >= 3; tier-- {
 		count := len(matchBuckets[tier])
 		fixedTotal += count * lotteryFixedPrizes[tier]
 	}
@@ -141,7 +140,7 @@ func (p *LotteryPlugin) executeDraw(weekStart string) {
 	}
 
 	if actualFixed > 0 {
-		for tier := 4; tier >= 1; tier-- {
+		for tier := 4; tier >= 3; tier-- {
 			for _, t := range matchBuckets[tier] {
 				amount := int(float64(lotteryFixedPrizes[tier]) * prorateRatio)
 				if amount > 0 {
@@ -190,7 +189,7 @@ func (p *LotteryPlugin) executeDraw(weekStart string) {
 		JackpotAmount:  jackpotAmount,
 		Match4Winners:  len(matchBuckets[4]),
 		Match3Winners:  len(matchBuckets[3]),
-		Match2Winners:  len(matchBuckets[2]),
+		Match2Winners:  0,
 		Match1Winners:  0,
 		PotTotal:       initialPot,
 		RolledOver:     rolledOver,
@@ -221,7 +220,7 @@ func (p *LotteryPlugin) dmWinners(winning []int, tickets []lotteryTicket) {
 	// Group winning tickets by user.
 	byUser := make(map[id.UserID][]lotteryTicket)
 	for _, t := range tickets {
-		if t.MatchCount == nil || *t.MatchCount < 2 {
+		if t.MatchCount == nil || *t.MatchCount < 3 {
 			continue
 		}
 		byUser[t.UserID] = append(byUser[t.UserID], t)
@@ -295,7 +294,6 @@ func (p *LotteryPlugin) buildDrawAnnouncement(winning []int, h *lotteryHistoryRo
 	// Fixed tiers.
 	sb.WriteString(fmt.Sprintf("4 match: %d winner(s) — €5,000 each\n", h.Match4Winners))
 	sb.WriteString(fmt.Sprintf("3 match: %d winner(s) — €500 each\n", h.Match3Winners))
-	sb.WriteString(fmt.Sprintf("2 match: %d winner(s) — €25 each\n", h.Match2Winners))
 
 	distributed := h.PotTotal - h.RolledOver
 	sb.WriteString(fmt.Sprintf("\nPot distributed: %s. Next draw: Friday. Tickets on sale now.", fmtEuro(distributed)))

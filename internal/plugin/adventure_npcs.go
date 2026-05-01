@@ -268,7 +268,9 @@ func (p *AdventurePlugin) resolveArina(ctx MessageContext, char *AdventureCharac
 		if err := saveAdvCharacter(char); err != nil {
 			slog.Error("npc: failed to save arina buff", "user", ctx.Sender, "err", err)
 		}
-		return p.SendDM(ctx.Sender, fmt.Sprintf("_%s_", arinaAcceptLine))
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"_She snatches the money from you, almost rudely, then looks at you expectantly._\n\n\"%s\"\n\n_She walks away just as quickly as she came._",
+			arinaAcceptLine))
 	}
 
 	// Declined — no mechanical effect, just insults

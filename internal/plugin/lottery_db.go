@@ -37,14 +37,22 @@ type lotteryHistoryRow struct {
 
 // ── Week Helpers ────────────────────────────────────────────────────────────
 
-// lotteryCurrentWeekStart returns Monday of the current week as "2006-01-02".
+// lotteryCurrentWeekStart returns the Monday of the lottery week currently
+// accepting tickets. Mon–Fri returns this week's Monday; Sat–Sun returns
+// next week's Monday — the Friday 23:59 UTC draw resets the week boundary,
+// so Saturday onward, ticket purchases count toward the next draw.
 func lotteryCurrentWeekStart() string {
 	now := time.Now().UTC()
-	weekday := int(now.Weekday())
-	if weekday == 0 {
-		weekday = 7 // Sunday = 7
+	wd := now.Weekday() // Sunday=0, Monday=1, ..., Saturday=6
+	var monday time.Time
+	switch wd {
+	case time.Sunday:
+		monday = now.AddDate(0, 0, 1)
+	case time.Saturday:
+		monday = now.AddDate(0, 0, 2)
+	default:
+		monday = now.AddDate(0, 0, -(int(wd) - 1))
 	}
-	monday := now.AddDate(0, 0, -(weekday - 1))
 	return monday.Format("2006-01-02")
 }
 

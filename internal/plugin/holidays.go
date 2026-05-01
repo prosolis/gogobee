@@ -239,7 +239,7 @@ func (p *HolidaysPlugin) PostHolidays(roomID id.RoomID) error {
 		return nil
 	}
 
-	msg := p.formatHolidays(today, data.Holidays)
+	msg := p.formatHolidays(today, data.Holidays, false)
 	if err := p.SendMessage(roomID, msg); err != nil {
 		return fmt.Errorf("holidays: send: %w", err)
 	}
@@ -291,7 +291,7 @@ func (p *HolidaysPlugin) handleHolidaysToday(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "No holidays today.")
 	}
 
-	msg := p.formatHolidays(today, data.Holidays)
+	msg := p.formatHolidays(today, data.Holidays, true)
 	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
@@ -340,13 +340,16 @@ func (p *HolidaysPlugin) handleHolidaysRange(ctx MessageContext, days int) error
 	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
 }
 
-func (p *HolidaysPlugin) formatHolidays(date string, holidays []Holiday) string {
+func (p *HolidaysPlugin) formatHolidays(date string, holidays []Holiday, full bool) string {
 	var sb strings.Builder
 	t, _ := time.Parse("2006-01-02", date)
 	sb.WriteString(fmt.Sprintf("Today's Holidays — %s\n", t.Format("Monday, January 2, 2006")))
 
-	featured := p.selectFeatured(holidays)
-	for _, h := range featured {
+	shown := holidays
+	if !full {
+		shown = p.selectFeatured(holidays)
+	}
+	for _, h := range shown {
 		sb.WriteString(fmt.Sprintf("\n- %s", h.Name))
 		if h.Country != "" && h.Country != "International" {
 			sb.WriteString(fmt.Sprintf(" [%s]", h.Country))
@@ -356,9 +359,11 @@ func (p *HolidaysPlugin) formatHolidays(date string, holidays []Holiday) string 
 		}
 	}
 
-	remaining := len(holidays) - len(featured)
-	if remaining > 0 {
-		sb.WriteString(fmt.Sprintf("\n\n...and %d more. Use !holidays for the full list.", remaining))
+	if !full {
+		remaining := len(holidays) - len(shown)
+		if remaining > 0 {
+			sb.WriteString(fmt.Sprintf("\n\n...and %d more. Use !holidays for the full list.", remaining))
+		}
 	}
 
 	return sb.String()
