@@ -96,6 +96,8 @@ type AdventureCharacter struct {
 	AutoBabysit         bool
 	StreakDecayed        bool
 	CraftsSucceeded     int
+	DeathSource         string // "adventure" | "arena" | "" (legacy/unknown — treated as adventure)
+	DeathLocation       string // human-readable location of last death; cleared on revive is not required
 }
 
 type AdvEquipment struct {
@@ -249,12 +251,16 @@ func (c *AdventureCharacter) PardonAvailable() bool {
 	return time.Since(*c.LastPardonUsed) >= 168*time.Hour
 }
 
-// Kill marks the character as dead with a 6-hour respawn timer.
-func (c *AdventureCharacter) Kill() {
+// Kill marks the character as dead with a 6-hour respawn timer. source is
+// "adventure" or "arena"; location is a human-readable place name used by the
+// daily report and standout-loss flavor.
+func (c *AdventureCharacter) Kill(source, location string) {
 	c.Alive = false
 	deadUntil := time.Now().UTC().Add(6 * time.Hour)
 	c.DeadUntil = &deadUntil
 	c.LastDeathDate = time.Now().UTC().Format("2006-01-02")
+	c.DeathSource = source
+	c.DeathLocation = location
 }
 
 // HasPet returns true if the player has an active pet (not chased away).
@@ -446,7 +452,8 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		       pet_chased_away, pet_reactivated, pet_arrived,
 		       misty_encounter_count, misty_donated_count,
 		       thom_animal_line_fired, pet_supply_shop_unlocked, pet_level10_date,
-		       pet_morning_defense, auto_babysit, streak_decayed, crafts_succeeded
+		       pet_morning_defense, auto_babysit, streak_decayed, crafts_succeeded,
+		       death_source, death_location
 		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -472,6 +479,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&c.MistyEncounterCount, &c.MistyDonatedCount,
 		&thomAnimalLine, &petSupplyUnlocked, &c.PetLevel10Date,
 		&petMorningDef, &autoBabysit, &streakDecayed, &c.CraftsSucceeded,
+		&c.DeathSource, &c.DeathLocation,
 	)
 	if err != nil {
 		return nil, err
@@ -640,7 +648,9 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 			pet_morning_defense = ?,
 			auto_babysit = ?,
 			streak_decayed = ?,
-			crafts_succeeded = ?
+			crafts_succeeded = ?,
+			death_source = ?,
+			death_location = ?
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
@@ -667,6 +677,7 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 		autoBabysit,
 		streakDecayed,
 		char.CraftsSucceeded,
+		char.DeathSource, char.DeathLocation,
 		string(char.UserID),
 	)
 	return err
@@ -797,7 +808,8 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		       pet_chased_away, pet_reactivated, pet_arrived,
 		       misty_encounter_count, misty_donated_count,
 		       thom_animal_line_fired, pet_supply_shop_unlocked, pet_level10_date,
-		       pet_morning_defense, auto_babysit, streak_decayed, crafts_succeeded
+		       pet_morning_defense, auto_babysit, streak_decayed, crafts_succeeded,
+		       death_source, death_location
 		FROM adventure_characters`)
 	if err != nil {
 		return nil, err
@@ -838,6 +850,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 			&c.MistyEncounterCount, &c.MistyDonatedCount,
 			&thomAnimalLine, &petSupplyUnlocked, &c.PetLevel10Date,
 			&petMorningDef, &autoBabysit, &streakDecayed, &c.CraftsSucceeded,
+			&c.DeathSource, &c.DeathLocation,
 		); err != nil {
 			return nil, err
 		}

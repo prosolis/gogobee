@@ -142,6 +142,8 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE coop_dungeon_gifts ADD COLUMN applied_at DATETIME`,
 		`ALTER TABLE coop_dungeon_gifts ADD COLUMN stack_lead_id INTEGER`,
 		`ALTER TABLE adventure_characters ADD COLUMN crafts_succeeded INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_characters ADD COLUMN death_source TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN death_location TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

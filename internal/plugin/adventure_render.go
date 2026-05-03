@@ -540,6 +540,8 @@ type AdvPlayerDaySummary struct {
 	IsResting      bool
 	SummaryLine    string
 	HolidayActions int // 0 = not holiday or no action; 1 = took one; 2 = took both
+	DeathSource    string
+	DeathLocation  string
 }
 
 func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewardSummary, players []AdvPlayerDaySummary, holidayName string) string {
@@ -611,12 +613,29 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 		p := &players[i]
 		if p.IsDead {
 			dead = append(dead, *p)
-			// Dead players who acted today still show in the main section
+			// Dead players who acted today still show in the main section.
+			// If they died OUTSIDE the adventure (e.g. Arena), the adventure
+			// itself was successful — show the alive icon for that block and
+			// append a "later fell" note. Empty DeathSource is legacy and
+			// treated as adventure-death (current behavior).
 			if p.Location != "" {
-				sb.WriteString(fmt.Sprintf("💀 **%s** — Combat Lv.%d | Mining Lv.%d | Forage Lv.%d | Fishing Lv.%d\n",
-					p.DisplayName, p.CombatLevel, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
+				diedOnAdventure := p.DeathSource == "" || p.DeathSource == "adventure"
+				icon := "💀"
+				if !diedOnAdventure {
+					icon = "⚔️"
+				}
+				sb.WriteString(fmt.Sprintf("%s **%s** — Combat Lv.%d | Mining Lv.%d | Forage Lv.%d | Fishing Lv.%d\n",
+					icon, p.DisplayName, p.CombatLevel, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
 				sb.WriteString(fmt.Sprintf("   Went to: %s\n", p.Location))
-				sb.WriteString(fmt.Sprintf("   Outcome: %s\n\n", p.SummaryLine))
+				sb.WriteString(fmt.Sprintf("   Outcome: %s\n", p.SummaryLine))
+				if !diedOnAdventure {
+					where := p.DeathLocation
+					if where == "" {
+						where = "elsewhere"
+					}
+					sb.WriteString(fmt.Sprintf("   💀 Later fell in %s.\n", where))
+				}
+				sb.WriteString("\n")
 				if worstPlayer == nil {
 					worstPlayer = p
 				}
@@ -725,9 +744,13 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 		pool := SummaryStandoutDeath
 		if len(pool) > 0 {
 			line := pool[rand.IntN(len(pool))]
+			lossLoc := worstPlayer.DeathLocation
+			if lossLoc == "" {
+				lossLoc = worstPlayer.Location
+			}
 			line = advSubstituteFlavor(line, map[string]string{
 				"{name}":     worstPlayer.DisplayName,
-				"{location}": worstPlayer.Location,
+				"{location}": lossLoc,
 			})
 			sb.WriteString(fmt.Sprintf("🏆 **Today's standout:** %s\n", line))
 		}

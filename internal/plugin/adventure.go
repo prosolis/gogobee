@@ -875,6 +875,8 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 			Equip:          equip,
 			ChatLevel:      p.chatLevel(char.UserID),
 			Location:       loc.Name,
+			Source:         "adventure",
+			DeathLocation:  loc.Name,
 			AllowPardon:    true,
 			AllowSovereign: true,
 			EngineSaved:    engineDeathSaved,

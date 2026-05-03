@@ -414,7 +414,11 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 
 	phaseMessages := RenderCombatLogArena(result, char.DisplayName, monster.Name)
 
-	dt := transitionDeath(DeathTransitionParams{Char: char})
+	dt := transitionDeath(DeathTransitionParams{
+		Char:          char,
+		Source:        "arena",
+		DeathLocation: "the Arena",
+	})
 
 	char.ArenaLosses++
 	char.CombatXP += arenaParticipationXP

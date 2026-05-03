@@ -233,6 +233,8 @@ func (p *AdventurePlugin) postDailySummary() {
 
 		if !c.Alive {
 			ps.IsDead = true
+			ps.DeathSource = c.DeathSource
+			ps.DeathLocation = c.DeathLocation
 			if c.DeadUntil != nil {
 				ps.DeadUntil = c.DeadUntil.Format("15:04") + " UTC"
 			}

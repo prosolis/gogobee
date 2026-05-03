@@ -644,12 +644,17 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 // reduction rather than flat subtraction, so damage is never fully negated.
 // Formula: rawAtk * reduction where reduction = K / (K + effectiveDef).
 // K=40 means 40 defense halves incoming damage; 80 defense reduces by 67%.
+//
+// A ±15% per-hit jitter is applied so successive hits in the same phase don't
+// produce identical numbers — the previous flat-damage output read as scripted.
 func calcDamage(attack int, atkWeight, dmgBonus float64, defense int, defWeight, dmgReduct float64) int {
 	const K = 40.0
 	rawAtk := float64(attack) * atkWeight * (1 + dmgBonus)
 	effectiveDef := float64(defense) * defWeight * dmgReduct
 	reduction := K / (K + effectiveDef)
 	dmg := rawAtk * reduction
+	jitter := 0.85 + rand.Float64()*0.30 // 0.85 .. 1.15
+	dmg *= jitter
 	if dmg < 1 {
 		return 1
 	}

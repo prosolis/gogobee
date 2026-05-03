@@ -86,17 +86,31 @@ const (
 	threatDangerous                      // > 1.0
 )
 
+// assessThreat estimates rounds-to-kill in both directions using the same
+// penetration model as the combat engine, then bands the threat by the ratio
+// of player-RTK to enemy-RTK. Old additive HP+Attack model ignored Defense and
+// rated even fights as "trivial" — players died after consumables were skipped.
 func assessThreat(player, enemy CombatStats) threatLevel {
-	playerPower := float64(player.MaxHP + player.Attack*3)
-	enemyPower := float64(enemy.MaxHP + enemy.Attack*3)
-	if playerPower == 0 {
+	const K = 40.0
+	dprPlayer := float64(player.Attack) * (K / (K + float64(enemy.Defense)))
+	dprEnemy := float64(enemy.Attack) * (K / (K + float64(player.Defense)))
+	if dprPlayer < 1 {
+		dprPlayer = 1
+	}
+	if dprEnemy < 1 {
+		dprEnemy = 1
+	}
+	rtkEnemy := float64(enemy.MaxHP) / dprPlayer  // rounds for player to kill enemy
+	rtkPlayer := float64(player.MaxHP) / dprEnemy // rounds for enemy to kill player
+	if rtkPlayer <= 0 {
 		return threatDangerous
 	}
-	ratio := enemyPower / playerPower
+	// ratio < 1: player wins the race (lower = more dominant). >1: enemy wins.
+	ratio := rtkEnemy / rtkPlayer
 	switch {
-	case ratio < 0.4:
+	case ratio < 0.35:
 		return threatTrivial
-	case ratio < 0.7:
+	case ratio < 0.65:
 		return threatEasy
 	case ratio < 1.0:
 		return threatCompetitive
@@ -111,7 +125,10 @@ func assessThreat(player, enemy CombatStats) threatLevel {
 // contentTier caps consumable tier to the content being fought (0 = no cap).
 func SelectConsumables(inventory []ConsumableItem, playerStats, enemyStats CombatStats, arenaRound int, contentTier int) []ConsumableItem {
 	threat := assessThreat(playerStats, enemyStats)
-	if threat == threatTrivial {
+	// Arena losses cost real money + equipment durability — never skip there,
+	// even if the threat looks trivial. Adventure-side fights still skip
+	// trivial threats to avoid wasting items on chump enemies.
+	if threat == threatTrivial && arenaRound == 0 {
 		return nil
 	}
 

@@ -323,6 +323,8 @@ type DeathTransitionParams struct {
 	Equip          map[EquipmentSlot]*AdvEquipment
 	ChatLevel      int
 	Location       string // set as GrudgeLocation; empty = don't set
+	Source         string // death source: "adventure" | "arena" — recorded on Kill()
+	DeathLocation  string // human-readable death location for the daily report; falls back to Location
 	AllowPardon    bool   // chat level pardon (adventure only)
 	AllowSovereign bool   // probability-band Sovereign reprieve (non-engine path)
 	EngineSaved    bool   // combat engine used Sovereign death save
@@ -371,7 +373,11 @@ func transitionDeath(p DeathTransitionParams) DeathTransitionResult {
 		return r
 	}
 
-	p.Char.Kill()
+	deathLoc := p.DeathLocation
+	if deathLoc == "" {
+		deathLoc = p.Location
+	}
+	p.Char.Kill(p.Source, deathLoc)
 	if p.Location != "" {
 		p.Char.GrudgeLocation = p.Location
 	}
