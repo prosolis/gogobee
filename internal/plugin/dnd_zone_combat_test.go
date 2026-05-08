@@ -278,6 +278,69 @@ func TestPickZoneTrap_DeterministicAndTier1Only(t *testing.T) {
 	}
 }
 
+func TestPickZoneTrap_Tier2UsesTier2Catalog(t *testing.T) {
+	zone, ok := getZone(ZoneForestShadows)
+	if !ok {
+		t.Fatal("forest_shadows zone missing")
+	}
+	if zone.Tier != ZoneTierApprentice {
+		t.Fatalf("forest_shadows expected tier 2, got %d", zone.Tier)
+	}
+	seen := map[ZoneTrapKind]bool{}
+	for room := 0; room < 64; room++ {
+		tr, ok := pickZoneTrap(zone, "t2-run", room)
+		if !ok {
+			t.Fatalf("pickZoneTrap !ok at room %d", room)
+		}
+		if tr.Tier != ZoneTierApprentice {
+			t.Errorf("tier 2 zone picked tier %d trap (%s)", tr.Tier, tr.Kind)
+		}
+		seen[tr.Kind] = true
+	}
+	if len(seen) < 2 {
+		t.Errorf("expected variety across 64 rooms in tier 2, only saw %d kinds: %v", len(seen), seen)
+	}
+}
+
+func TestRollTrapDamage_GlyphOfWardingIn5d8Range(t *testing.T) {
+	var glyph zoneTrapDef
+	for _, tr := range tier2TrapCatalog {
+		if tr.Kind == TrapGlyphOfWarding {
+			glyph = tr
+			break
+		}
+	}
+	if glyph.Kind != TrapGlyphOfWarding {
+		t.Fatal("glyph of warding not in tier 2 catalog")
+	}
+	for room := 0; room < 64; room++ {
+		dmg := rollTrapDamage(glyph, "glyph-run", room)
+		if dmg < 5 || dmg > 40 {
+			t.Errorf("glyph damage out of 5..40 range at room %d: %d", room, dmg)
+		}
+	}
+}
+
+func TestTier2TrapCatalog_AllValid(t *testing.T) {
+	if len(tier2TrapCatalog) < 3 {
+		t.Fatalf("tier 2 catalog should have at least 3 traps, got %d", len(tier2TrapCatalog))
+	}
+	for _, tr := range tier2TrapCatalog {
+		if tr.Tier != ZoneTierApprentice {
+			t.Errorf("trap %s tagged tier %d, expected 2", tr.Kind, tr.Tier)
+		}
+		if tr.Display == "" || tr.Trigger == "" {
+			t.Errorf("trap %s missing display/trigger text", tr.Kind)
+		}
+		if !tr.AlertsEnemies && (tr.DamageDiceN == 0 || tr.DamageDiceD == 0) {
+			t.Errorf("trap %s deals no damage and is not an alarm", tr.Kind)
+		}
+		if tr.DetectDC <= 12 {
+			t.Errorf("trap %s detect DC %d looks tier 1; tier 2 should be 13+", tr.Kind, tr.DetectDC)
+		}
+	}
+}
+
 func TestPickZoneTrap_VariesAcrossRooms(t *testing.T) {
 	zone, _ := getZone(ZoneGoblinWarrens)
 	seen := map[ZoneTrapKind]bool{}

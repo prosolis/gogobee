@@ -24,6 +24,9 @@ const (
 	TrapPit            ZoneTrapKind = "pit"
 	TrapTripwireAlarm  ZoneTrapKind = "tripwire_alarm"
 	TrapPoisonDart     ZoneTrapKind = "poison_dart"
+	TrapFlameJet       ZoneTrapKind = "flame_jet"
+	TrapCollapsingCeil ZoneTrapKind = "collapsing_ceiling"
+	TrapGlyphOfWarding ZoneTrapKind = "glyph_of_warding"
 )
 
 // zoneTrapDef — static definition of a zone trap. Damage dice are in
@@ -81,12 +84,56 @@ var tier1TrapCatalog = []zoneTrapDef{
 	},
 }
 
-// trapsByTier returns all traps registered at the given tier. Currently
-// only Tier 1 ships; higher tiers append to this switch in later phases.
+// tier2TrapCatalog — design doc §6 Tier 2 table. Save mechanics ("DEX DC X
+// half") are not modeled at this layer; full dice resolve on a failed
+// detect, matching the Tier 1 convention.
+var tier2TrapCatalog = []zoneTrapDef{
+	{
+		Kind:        TrapFlameJet,
+		Display:     "Flame Jet",
+		Trigger:     "a pressure plate sinks under your boot and gouts of flame roar up",
+		DetectSkill: SkillPerception,
+		DetectDC:    14,
+		DamageDiceN: 3,
+		DamageDiceD: 6,
+		DamageType:  "fire",
+		Tier:        ZoneTierApprentice,
+		Weight:      5,
+	},
+	{
+		Kind:        TrapCollapsingCeil,
+		Display:     "Collapsing Ceiling",
+		Trigger:     "a rigged support snaps and a slab of ceiling crashes down",
+		DetectSkill: SkillInvestigation,
+		DetectDC:    14,
+		DamageDiceN: 4,
+		DamageDiceD: 6,
+		DamageType:  "bludgeoning",
+		Tier:        ZoneTierApprentice,
+		Weight:      4,
+	},
+	{
+		Kind:        TrapGlyphOfWarding,
+		Display:     "Glyph of Warding",
+		Trigger:     "a sigil flares on the doorframe and arcs of lightning lash out",
+		DetectSkill: SkillArcana,
+		DetectDC:    14,
+		DamageDiceN: 5,
+		DamageDiceD: 8,
+		DamageType:  "lightning",
+		Tier:        ZoneTierApprentice,
+		Weight:      3,
+	},
+}
+
+// trapsByTier returns all traps registered at the given tier. Tier 3+
+// catalogs append to this switch in later sub-phases (D4a).
 func trapsByTier(t ZoneTier) []zoneTrapDef {
 	switch t {
 	case ZoneTierBeginner:
 		return tier1TrapCatalog
+	case ZoneTierApprentice:
+		return tier2TrapCatalog
 	}
 	return nil
 }
