@@ -138,9 +138,17 @@ func applyZoneTemporalPostRollover(e *Expedition) []string {
 		return underforgeTemporalPostRollover(e)
 	case ZoneFeywildCrossing:
 		return feywildTemporalPostRollover(e)
+	case ZoneDragonsLair:
+		return dragonsLairTemporalPostRollover(e)
 	}
 	return nil
 }
+
+// DragonsLairAwarenessCycleDays — §7.5 awareness pulse cadence.
+const DragonsLairAwarenessCycleDays = 3
+
+// DragonsLairAwakenDay — §7.5 Infernax wakes if not yet at the boss.
+const DragonsLairAwakenDay = 14
 
 // UnderforgeMaxHeat is the §7.3 cap.
 const UnderforgeMaxHeat = 10
@@ -358,6 +366,65 @@ func feywildTemporalPostRollover(e *Expedition) []string {
 		return []string{line}
 	}
 	return nil
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// §7.5 — Dragon's Lair, Awareness Pulses + Infernax Awakening
+// ─────────────────────────────────────────────────────────────────────
+
+// dragonsLairTemporalPostRollover fires an awareness pulse every 3
+// days (threat +10, narration) and the Day-14 awakening event if the
+// boss hasn't been killed yet.
+func dragonsLairTemporalPostRollover(e *Expedition) []string {
+	if e.BossDefeated {
+		return nil
+	}
+	day := e.CurrentDay
+	var lines []string
+
+	// Day 14 awakening: one-time. Mark on RegionState; downstream
+	// combat-link reads "infernax_awake" to switch wandering cadence
+	// to every 6 hours and add the dragon encounter weighting.
+	if day >= DragonsLairAwakenDay {
+		if awake, _ := e.RegionState["infernax_awake"].(bool); !awake {
+			e.RegionState["infernax_awake"] = true
+			_ = persistRegionState(e)
+			line := flavor.Pick(flavor.DragonsLairAwakenWarning)
+			_ = appendExpeditionLog(e.ID, day, "temporal",
+				"infernax awakens — active hunting begins, 6h wandering checks",
+				line)
+			lines = append(lines, line)
+		}
+	}
+
+	// Awareness pulse every 3 days (3, 6, 9, 12, ...). On Day 14, the
+	// awakening narration takes precedence — we still apply the +10
+	// since the cadence math says it's a pulse day too.
+	if day >= DragonsLairAwarenessCycleDays && day%DragonsLairAwarenessCycleDays == 0 {
+		_ = applyThreatDelta(e.ID, 10, fmt.Sprintf("dragon awareness pulse (day %d)", day))
+		// Refresh in-memory threat after the bump.
+		e.ThreatLevel += 10
+		if e.ThreatLevel > 100 {
+			e.ThreatLevel = 100
+		}
+		// Skip the pulse narration if the awaken line already fired
+		// today — they say largely the same thing in different keys.
+		alreadyAwoke := false
+		for _, l := range lines {
+			if l != "" {
+				alreadyAwoke = true
+				break
+			}
+		}
+		if !alreadyAwoke {
+			line := flavor.Pick(flavor.DragonsLairAwarenessPulse)
+			_ = appendExpeditionLog(e.ID, day, "temporal",
+				fmt.Sprintf("awareness pulse — threat +10 (day %d)", day),
+				line)
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }
 
 // reduceUnderforgeHeat is called by processOvernightCamp when the

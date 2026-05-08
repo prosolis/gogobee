@@ -527,6 +527,148 @@ func TestFeywild_NormalDay_NoTemporalLog(t *testing.T) {
 	}
 }
 
+func TestDragonsLair_AwarenessPulseFiresEveryThreeDays(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-dragon-pulse:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneDragonsLair, "",
+		ExpeditionSupplies{Current: 60, Max: 60, DailyBurn: 4, HarshMod: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &AdventurePlugin{}
+
+	// Roll forward to Day 3 — first awareness pulse.
+	setExpDay(t, exp.ID, 2)
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET last_briefing_at = NULL, supplies_json = ? WHERE expedition_id = ?`,
+		`{"current":99,"max":99,"daily_burn":4,"harsh_mod":3,"foraged_today":false,"packs_standard":3,"packs_deluxe":0}`,
+		exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := getExpedition(exp.ID)
+	prevThreat := fresh.ThreatLevel
+	if err := p.deliverBriefing(fresh, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getExpedition(exp.ID)
+	// +10 awareness pulse + ~3 daily threat drift = 13 (mod GMMood 50 = neutral).
+	if got.ThreatLevel < prevThreat+10 {
+		t.Errorf("threat = %d, want ≥ %d (awareness pulse +10)", got.ThreatLevel, prevThreat+10)
+	}
+
+	// Verify pulse log entry.
+	rows, _ := db.Get().Query(
+		`SELECT summary FROM dnd_expedition_log WHERE expedition_id = ? AND entry_type = 'temporal' ORDER BY entry_id`,
+		exp.ID)
+	defer rows.Close()
+	foundPulse := false
+	for rows.Next() {
+		var s string
+		_ = rows.Scan(&s)
+		if strings.Contains(s, "awareness pulse") {
+			foundPulse = true
+		}
+	}
+	if !foundPulse {
+		t.Error("expected an 'awareness pulse' temporal log entry")
+	}
+}
+
+func TestDragonsLair_NonPulseDay_NoThreatJump(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-dragon-nonpulse:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneDragonsLair, "",
+		ExpeditionSupplies{Current: 60, Max: 60, DailyBurn: 4, HarshMod: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	setExpDay(t, exp.ID, 1) // → Day 2; not a pulse day.
+	fresh, _ := getExpedition(exp.ID)
+	prev := fresh.ThreatLevel
+	if err := (&AdventurePlugin{}).deliverBriefing(fresh, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getExpedition(exp.ID)
+	// Only the +3 daily drift should apply.
+	if got.ThreatLevel-prev > 5 {
+		t.Errorf("non-pulse day threat jump = %d, want ≤ 5", got.ThreatLevel-prev)
+	}
+}
+
+func TestDragonsLair_Day14_Awakens(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-dragon-wake:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneDragonsLair, "",
+		ExpeditionSupplies{Current: 60, Max: 60, DailyBurn: 4, HarshMod: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	setExpDay(t, exp.ID, 13) // → Day 14
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET supplies_json = ? WHERE expedition_id = ?`,
+		`{"current":99,"max":99,"daily_burn":4,"harsh_mod":3,"foraged_today":false,"packs_standard":3,"packs_deluxe":0}`,
+		exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := getExpedition(exp.ID)
+	if err := (&AdventurePlugin{}).deliverBriefing(fresh, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getExpedition(exp.ID)
+	if awake, _ := got.RegionState["infernax_awake"].(bool); !awake {
+		t.Error("infernax_awake should be true on Day 14")
+	}
+
+	// Verify both Awaken (and possibly pulse) log entries fired.
+	rows, _ := db.Get().Query(
+		`SELECT summary FROM dnd_expedition_log WHERE expedition_id = ? AND entry_type = 'temporal'`,
+		exp.ID)
+	defer rows.Close()
+	foundAwaken := false
+	for rows.Next() {
+		var s string
+		_ = rows.Scan(&s)
+		if strings.Contains(s, "infernax awakens") {
+			foundAwaken = true
+		}
+	}
+	if !foundAwaken {
+		t.Error("expected 'infernax awakens' temporal entry")
+	}
+}
+
+func TestDragonsLair_BossDefeatedSilencesPulses(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-dragon-boss:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneDragonsLair, "",
+		ExpeditionSupplies{Current: 60, Max: 60, DailyBurn: 4, HarshMod: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET boss_defeated = 1, current_day = 5 WHERE expedition_id = ?`,
+		exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := getExpedition(exp.ID)
+	prev := fresh.ThreatLevel
+	if err := (&AdventurePlugin{}).deliverBriefing(fresh, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getExpedition(exp.ID)
+	if got.ThreatLevel != prev {
+		t.Errorf("post-boss threat changed: %d → %d", prev, got.ThreatLevel)
+	}
+}
+
 func TestSunkenTemple_NoTidalOnNonZone(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@exp-tidal-other:example")
