@@ -227,6 +227,22 @@ var AbyssPortalCollapse = []string{
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// REGION TRANSITION (multi-region zones; §11.3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var RegionTransitDeparture = []string{
+	"TwinBee marks the boundary on the internal map and crosses it. 'New region,' TwinBee says, with the careful attention of someone who knows boundaries in dungeons aren't always the same kind of boundaries you'd find on the surface. The route is set. The day is committed. We move.",
+	"Crossing into [REGION_NEXT]. TwinBee folds the previous region's notes into the satchel and unfolds new ones. The light changes. The air changes. The rules of how to be careful change a little. TwinBee adjusts.",
+	"The transit between regions is its own kind of room. TwinBee narrates it that way — sightlines, footing, what's behind, what's ahead — because the only way the in-between part stops feeling exposed is to treat it like the rest of the dungeon. Treated. Moving.",
+}
+
+var RegionTransitArrival = []string{
+	"You arrive in [REGION_NEXT]. TwinBee surveys, takes in the new geometry, and updates the working assumptions. 'Different shape,' TwinBee says. 'Same general principle. We learn what wants to kill us here, and we get there first.'",
+	"[REGION_NEXT] receives you. TwinBee notes the temperature, the sound, the things-not-said-by-the-room-but-implied. A region is not just a place. It's a posture. TwinBee adopts the new one and suggests you do as well.",
+	"Boundary crossed. TwinBee stamps the day in the log — one full day spent in transit, supplies adjusted, the wandering that happened on the way handled and filed. We are here now. The next stretch is what it is.",
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // VOLUNTARY EXTRACTION
 // ─────────────────────────────────────────────────────────────────────────────
 
