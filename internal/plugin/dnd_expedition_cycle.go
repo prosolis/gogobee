@@ -151,8 +151,8 @@ func scanExpeditionRows(rows *sql.Rows) ([]*Expedition, error) {
 // morning briefing DM, appends a log entry, and stamps last_briefing_at.
 func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	// Advance day + supply burn happen together at the morning rollover.
-	harsh := e.ThreatLevel > 60 || e.SiegeMode || e.TemporalStack > 0
-	newSupplies, burn := applyDailyBurn(e.Supplies, harsh)
+	harsh := e.ThreatLevel > 60 || e.TemporalStack > 0
+	newSupplies, burn := applyDailyBurn(e.Supplies, harsh, e.SiegeMode)
 	if err := updateSupplies(e.ID, newSupplies); err != nil {
 		return err
 	}

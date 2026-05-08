@@ -135,7 +135,7 @@ func TestMakeSupplies_FillsFromTier(t *testing.T) {
 
 func TestApplyDailyBurn_DrainsAndClamps(t *testing.T) {
 	s := ExpeditionSupplies{Current: 5, Max: 10, DailyBurn: 2, HarshMod: 1.5, ForagedToday: true}
-	s, burn := applyDailyBurn(s, false)
+	s, burn := applyDailyBurn(s, false, false)
 	if burn != 2 {
 		t.Errorf("burn = %v, want 2", burn)
 	}
@@ -146,13 +146,25 @@ func TestApplyDailyBurn_DrainsAndClamps(t *testing.T) {
 		t.Error("forage flag should reset on day rollover")
 	}
 	// Harsh active doubles via mult.
-	s, burn = applyDailyBurn(s, true)
+	s, burn = applyDailyBurn(s, true, false)
 	if burn != 3 { // 2 × 1.5
 		t.Errorf("harsh burn = %v, want 3", burn)
 	}
+	// Siege forces a 2× floor even when HarshMod is below 2 (tier 1).
+	t1 := ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1}
+	_, sb := applyDailyBurn(t1, false, true)
+	if sb != 2 {
+		t.Errorf("siege tier1 burn = %v, want 2 (forced floor)", sb)
+	}
+	// Siege at higher tier still uses HarshMod when it exceeds 2.
+	t5 := ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 3}
+	_, sb5 := applyDailyBurn(t5, false, true)
+	if sb5 != 3 {
+		t.Errorf("siege tier5 burn = %v, want 3 (HarshMod)", sb5)
+	}
 	// Drain to floor.
 	for i := 0; i < 5; i++ {
-		s, _ = applyDailyBurn(s, false)
+		s, _ = applyDailyBurn(s, false, false)
 	}
 	if s.Current != 0 {
 		t.Errorf("expected current clamped to 0, got %v", s.Current)

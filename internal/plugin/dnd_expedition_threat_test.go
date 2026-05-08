@@ -155,6 +155,52 @@ func TestDeliverBriefing_AppliesThreatDrift(t *testing.T) {
 	}
 }
 
+func TestApplyDailyThreatDrift_LogsApproachingSiegeOnceAt70(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-threat-70warn:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, "",
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Seed to 68 — a +3 drift crosses 70.
+	if err := applyThreatDelta(exp.ID, 68, "seed"); err != nil {
+		t.Fatal(err)
+	}
+	exp, _ = getExpedition(exp.ID)
+	if _, _, err := applyDailyThreatDrift(exp); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := recentExpeditionLog(exp.ID, 20)
+	count := 0
+	for _, e := range entries {
+		if e.Type == "threat" && strings.Contains(e.Summary, "past 70") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly one approaching-siege log, got %d", count)
+	}
+
+	// A subsequent drift past 70 should not re-emit the warning.
+	exp, _ = getExpedition(exp.ID)
+	if _, _, err := applyDailyThreatDrift(exp); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ = recentExpeditionLog(exp.ID, 20)
+	count = 0
+	for _, e := range entries {
+		if e.Type == "threat" && strings.Contains(e.Summary, "past 70") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected approaching-siege log still 1 after second drift, got %d", count)
+	}
+}
+
 func TestApplyBossDefeatThreat_DropsLevel(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@exp-boss-threat:example")

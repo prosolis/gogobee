@@ -155,6 +155,16 @@ var ThreatClockSiege = []string{
 	"Siege Mode. TwinBee delivers this without decoration because decoration would be dishonest. The dungeon is fully active, fully aware, and fully committed to ending this expedition. So is TwinBee — to ending it on your terms, not theirs. What happens next is a race. TwinBee is already running.",
 }
 
+// ThreatClockApproachingSiege fires once when the threat clock crosses 70 —
+// the spec's "begin warning" line (§8.3). Distinct from the Hostile-band
+// flavor because this is the dungeon-design moment of telling the player
+// they're past the point where stealth is recoverable.
+var ThreatClockApproachingSiege = []string{
+	"They know you're here. Not a suspicion anymore. A certainty. The question now is whether you finish before they organize. TwinBee says this clearly so it doesn't have to be said again.",
+	"Threat at seventy. TwinBee marks this on the internal ledger and underlines it. The window for quiet operations has closed. The window for finishing is still open — narrower, but open. TwinBee suggests using it.",
+	"The dungeon's posture has shifted from 'searching' to 'hunting.' TwinBee tracks the difference precisely: before, they were looking for evidence; now they are looking for you. The plan, accordingly, simplifies. Finish or extract. Middle paths have closed.",
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ZONE TEMPORAL EVENTS
 // ─────────────────────────────────────────────────────────────────────────────

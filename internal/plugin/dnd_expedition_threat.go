@@ -113,6 +113,7 @@ func applyDailyThreatDrift(e *Expedition) (int, string, error) {
 	if delta == 0 {
 		return 0, reason, nil
 	}
+	prevLevel := e.ThreatLevel
 	prevBand := threatBandFor(e.ThreatLevel, e.SiegeMode)
 	if err := applyThreatDelta(e.ID, delta, reason); err != nil {
 		return 0, reason, err
@@ -132,7 +133,20 @@ func applyDailyThreatDrift(e *Expedition) (int, string, error) {
 	if newBand != prevBand && newBand > prevBand {
 		_ = appendThreatTransitionLog(e, newBand)
 	}
+	// E2c: §8.3 — one-time warning when crossing 70.
+	if prevLevel < 70 && e.ThreatLevel >= 70 {
+		_ = appendApproachingSiegeLog(e)
+	}
 	return delta, reason, nil
+}
+
+// appendApproachingSiegeLog records the §8.3 "begin warning at 70" beat
+// once per expedition. Caller is responsible for only firing it on the
+// crossing edge (see applyDailyThreatDrift).
+func appendApproachingSiegeLog(e *Expedition) error {
+	line := flavor.Pick(flavor.ThreatClockApproachingSiege)
+	return appendExpeditionLog(e.ID, e.CurrentDay, "threat",
+		"threat clock past 70 — siege approaches", line)
 }
 
 // appendThreatTransitionLog records a band-crossing in the expedition log

@@ -257,8 +257,17 @@ func (p *AdventurePlugin) expeditionCmdStatus(ctx MessageContext) error {
 
 func currentBurn(exp *Expedition) float32 {
 	burn := exp.Supplies.DailyBurn
-	if exp.ThreatLevel > 60 || exp.SiegeMode {
-		// Harsh conditions: §4.1 / §8.3.
+	if exp.SiegeMode {
+		// §8.3: siege doubles supply burn outright, overriding HarshMod
+		// (which can be < 2 at low tiers).
+		mult := exp.Supplies.HarshMod
+		if mult < 2 {
+			mult = 2
+		}
+		return burn * mult
+	}
+	if exp.ThreatLevel > 60 {
+		// Harsh conditions: §4.1.
 		mult := exp.Supplies.HarshMod
 		if mult <= 0 {
 			mult = 1

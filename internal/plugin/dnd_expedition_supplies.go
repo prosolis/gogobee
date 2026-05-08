@@ -158,13 +158,26 @@ func makeSupplies(tier ZoneTier, p SupplyPurchase) ExpeditionSupplies {
 
 // applyDailyBurn deducts one day's supplies from the snapshot (caller
 // persists). Returns the new snapshot and the SU consumed.
-func applyDailyBurn(s ExpeditionSupplies, harshActive bool) (ExpeditionSupplies, float32) {
+//
+// Multiplier precedence (§4.1, §8.3):
+//   - siege overrides everything with a hard 2× floor (even for tier 1
+//     where HarshMod is 1×) — the dungeon is actively starving you out.
+//   - otherwise, harshActive applies HarshMod (zone-tier scaled).
+func applyDailyBurn(s ExpeditionSupplies, harshActive, siege bool) (ExpeditionSupplies, float32) {
 	burn := s.DailyBurn
-	if harshActive {
-		burn *= s.HarshMod
-		if burn == s.DailyBurn { // HarshMod was 0 / unset
-			burn = s.DailyBurn
+	switch {
+	case siege:
+		mult := s.HarshMod
+		if mult < 2 {
+			mult = 2
 		}
+		burn *= mult
+	case harshActive:
+		mult := s.HarshMod
+		if mult <= 0 {
+			mult = 1
+		}
+		burn *= mult
 	}
 	s.Current -= burn
 	if s.Current < 0 {
