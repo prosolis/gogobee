@@ -445,3 +445,58 @@ func TestRoomEntryPool_Tier4And5PrependsZoneSpecific(t *testing.T) {
 		}
 	}
 }
+
+// ── Phase 11 D6 — boss phase-two narration ──────────────────────────────────
+
+func TestBossPhaseTwoPool_RoutesEightZones(t *testing.T) {
+	cases := map[ZoneID]int{
+		ZoneCryptValdris:    len(flavor.ValdrisPhaseTwoLines),
+		ZoneForestShadows:   len(flavor.HollowKingPhaseTwoLines),
+		ZoneManorBlackspire: len(flavor.AldricPhaseTwoLines),
+		ZoneUnderforge:      len(flavor.ThyrakPhaseTwoLines),
+		ZoneUnderdark:       len(flavor.IlvarasPhaseTwoLines),
+		ZoneFeywildCrossing: len(flavor.ThornmotherPhaseTwoLines),
+		ZoneDragonsLair:     len(flavor.InfernaxPhaseTwoLines),
+		ZoneAbyssPortal:     len(flavor.BelaxathPhaseTwoLines),
+	}
+	for z, want := range cases {
+		got := bossPhaseTwoPool(z)
+		if len(got) == 0 || len(got) != want {
+			t.Errorf("%s phase-two pool len mismatch: got %d, want %d", z, len(got), want)
+		}
+	}
+	// Bosses without a phase-two transition return nil.
+	for _, z := range []ZoneID{ZoneGoblinWarrens, ZoneSunkenTemple} {
+		if got := bossPhaseTwoPool(z); got != nil {
+			t.Errorf("%s should not have a phase-two pool (no PhaseTwoAt)", z)
+		}
+	}
+}
+
+func TestBossPhaseTwoLine_PrependsTwinBee(t *testing.T) {
+	line := bossPhaseTwoLine(ZoneCryptValdris, "run-d6", 4)
+	if !strings.HasPrefix(line, "🎭 **TwinBee:**") {
+		t.Errorf("phase-two line missing TwinBee prefix: %q", line)
+	}
+	if bossPhaseTwoLine(ZoneGoblinWarrens, "run-d6", 4) != "" {
+		t.Errorf("Grol has no phase-two pool — expected empty string")
+	}
+}
+
+func TestPhaseTwoCrossedInEvents(t *testing.T) {
+	startHP := 100
+	threshold := 0.5
+	events := []CombatEvent{{EnemyHP: 80}, {EnemyHP: 60}, {EnemyHP: 40}}
+	if !phaseTwoCrossedInEvents(events, startHP, threshold) {
+		t.Errorf("expected crossing at EnemyHP=40 (cutoff=50)")
+	}
+	if phaseTwoCrossedInEvents(events[:2], startHP, threshold) {
+		t.Errorf("did not cross 50%% by event 2 (EnemyHP=60); should be false")
+	}
+	if phaseTwoCrossedInEvents(events, startHP, 0) {
+		t.Errorf("threshold 0 means no phase 2 — should be false")
+	}
+	if phaseTwoCrossedInEvents(events, 0, threshold) {
+		t.Errorf("startHP 0 — should be false (degenerate)")
+	}
+}

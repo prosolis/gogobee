@@ -214,6 +214,61 @@ func bossSignaturePool(zoneID ZoneID) []string {
 	return nil
 }
 
+// bossPhaseTwoPool returns the zone-boss phase-two callout pool — the
+// line surfaced when the boss crosses its PhaseTwoAt HP threshold mid-fight.
+// Returns nil for bosses with no phase-two transition (Grol, Aboleth).
+func bossPhaseTwoPool(zoneID ZoneID) []string {
+	switch zoneID {
+	case ZoneCryptValdris:
+		return flavor.ValdrisPhaseTwoLines
+	case ZoneForestShadows:
+		return flavor.HollowKingPhaseTwoLines
+	case ZoneManorBlackspire:
+		return flavor.AldricPhaseTwoLines
+	case ZoneUnderforge:
+		return flavor.ThyrakPhaseTwoLines
+	case ZoneUnderdark:
+		return flavor.IlvarasPhaseTwoLines
+	case ZoneFeywildCrossing:
+		return flavor.ThornmotherPhaseTwoLines
+	case ZoneDragonsLair:
+		return flavor.InfernaxPhaseTwoLines
+	case ZoneAbyssPortal:
+		return flavor.BelaxathPhaseTwoLines
+	}
+	return nil
+}
+
+// bossPhaseTwoLine renders the zone-specific phase-two transition line.
+// Empty string when the zone has no phase-two pool.
+func bossPhaseTwoLine(zoneID ZoneID, runID string, roomIdx int) string {
+	pool := bossPhaseTwoPool(zoneID)
+	if len(pool) == 0 {
+		return ""
+	}
+	line := pickLineDeterministic(pool, runID, roomIdx^0x71F4A2D3)
+	if line == "" {
+		return ""
+	}
+	return "🎭 **TwinBee:** " + line
+}
+
+// phaseTwoCrossedInEvents reports whether enemy HP crossed the
+// PhaseTwoAt fraction of startHP at any point in the events log. Returns
+// false when threshold <= 0 (no phase 2) or startHP <= 0.
+func phaseTwoCrossedInEvents(events []CombatEvent, startHP int, threshold float64) bool {
+	if threshold <= 0 || startHP <= 0 {
+		return false
+	}
+	cutoff := int(float64(startHP) * threshold)
+	for _, ev := range events {
+		if ev.EnemyHP <= cutoff {
+			return true
+		}
+	}
+	return false
+}
+
 // eliteRoomEntryPool returns the zone-specific elite-room atmospheric
 // pool. Returns nil when the zone has no dedicated elite prose.
 func eliteRoomEntryPool(zoneID ZoneID) []string {

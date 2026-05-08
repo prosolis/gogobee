@@ -448,6 +448,12 @@ func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zon
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("👑 **Boss — %s** (HP %d, AC %d)\n", monster.Name, monster.HP, monster.AC))
+	if phaseTwoCrossedInEvents(result.Events, result.EnemyStartHP, zone.Boss.PhaseTwoAt) {
+		if line := bossPhaseTwoLine(zone.ID, run.RunID, run.CurrentRoom); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
 	if !result.PlayerWon {
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
