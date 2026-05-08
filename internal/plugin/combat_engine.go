@@ -82,6 +82,13 @@ type CombatModifiers struct {
 	AssassinateAdvantage bool
 	AssassinateBonusDmg  int
 
+	// Phase 10 SUB3c — Cleric Divine Strike. Flat bonus damage on every
+	// weapon hit (5e: "once per turn", which lands ~per round in our model).
+	// Damage type (radiant/weapon/poison) varies by Cleric subclass but is
+	// not tracked in our engine. Only fires on the weapon-dice damage path —
+	// no Weapon → no Divine Strike.
+	DivineStrikePerHit int
+
 	// Phase 10 SUB2b — Mage subclasses.
 	// ArcaneWardHP: flat HP buffer absorbed before player HP. Refilled at the
 	// start of each combat by Abjuration L5+ (2× Mage level, +prof at L7).
@@ -619,6 +626,13 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		if player.Mods.FrenzyDmgBonus > 0 {
 			dmg = int(float64(dmg) * (1 + player.Mods.FrenzyDmgBonus))
 		}
+	}
+	// Phase 10 SUB3c — Divine Strike. Flat per-hit bonus on weapon hits only
+	// (5e specs "weapon hit"; no Weapon means we're on the legacy/non-weapon
+	// damage path and Divine Strike doesn't apply). Lands every hit because
+	// our 1v1 model has no concept of "once per turn" turn boundaries.
+	if player.Mods.DivineStrikePerHit > 0 && player.Stats.Weapon != nil {
+		dmg += player.Mods.DivineStrikePerHit
 	}
 	// Phase 10 SUB2a-ii — Assassin Death Strike proxy: bonus damage on the
 	// first hit only. Stacks on top of the Rogue's Sneak Attack auto-crit

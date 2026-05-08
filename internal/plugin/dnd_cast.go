@@ -231,8 +231,13 @@ func (p *AdventurePlugin) resolveHealOutOfCombat(ctx MessageContext, c *DnDChara
 	}
 	totalDice := dice + extra
 	heal := 0
+	supreme := lifeDomainSupremeHealing(c)
 	for i := 0; i < totalDice; i++ {
-		heal += 1 + rand.IntN(faces)
+		if supreme {
+			heal += faces
+		} else {
+			heal += 1 + rand.IntN(faces)
+		}
 	}
 	heal += abilityModifier(c.WIS)
 	heal += lifeDomainHealBonus(c, spell, slotLevel)

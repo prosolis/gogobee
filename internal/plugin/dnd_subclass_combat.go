@@ -155,6 +155,19 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 			}
 			mods.AssassinateBonusDmg = bonus
 		}
+	case SubclassLifeDomain:
+		// Phase 10 SUB3c — Life Domain L10 Divine Strike. 5e: +1d8 radiant
+		// damage on a weapon hit, once per turn (+2d8 at L14). We collapse
+		// the once-per-turn cadence to "every weapon hit" since our 1v1 model
+		// has no turn-boundary primitive; avg 1d8 = 4, 2d8 = 9 at L14+.
+		// L5 Disciple of Life rides lifeDomainHealBonus and L15 Supreme
+		// Healing rides lifeDomainSupremeHealing — both out-of-combat heal
+		// hooks, so they don't surface here.
+		if c.Level >= 14 {
+			mods.DivineStrikePerHit += 9
+		} else if c.Level >= 10 {
+			mods.DivineStrikePerHit += 4
+		}
 	case SubclassWarDomain:
 		// L5 War Priest: bonus-action weapon attack, usable WIS-mod times per
 		// long rest. One-shot combat can't model an extra discrete attack, so
@@ -165,6 +178,23 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 			stats.AttackBonus++
 			mods.DamageBonus += 0.15
 		}
+		// Phase 10 SUB3c — War Domain L10 Divine Strike: +1d8 weapon-type
+		// damage on every weapon hit (+2d8 at L14). Same channel as Life
+		// Domain's radiant version — engine doesn't track damage types.
+		if c.Level >= 14 {
+			mods.DivineStrikePerHit += 9
+		} else if c.Level >= 10 {
+			mods.DivineStrikePerHit += 4
+		}
+		// Phase 10 SUB3c — L15 Avatar of Battle: 5e gives resistance to
+		// bludgeoning/piercing/slashing from non-magical weapons. Most enemy
+		// damage in our model is non-magical physical, so resistance lands
+		// on the bulk of incoming damage. We collapse to a flat 20% incoming
+		// reduction — softer than full 50% physical resistance to account
+		// for magical/elemental hits the resistance wouldn't catch.
+		if c.Level >= 15 {
+			mods.DamageReduct *= 0.80
+		}
 	case SubclassTrickeryDomain:
 		// L7 Cloak of Shadows: turn invisible until you attack/cast/end of
 		// next turn. We proxy the brief defensive window as 2 rounds of 15%
@@ -173,6 +203,23 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 		// advantage on an ally) is non-combat flavor — skipped.
 		if c.Level >= 7 {
 			mods.SporeCloud += 2
+		}
+		// Phase 10 SUB3c — Trickery Domain L10 Divine Strike: +1d8 poison
+		// (+2d8 at L14). Same engine channel as the other two domains.
+		if c.Level >= 14 {
+			mods.DivineStrikePerHit += 9
+		} else if c.Level >= 10 {
+			mods.DivineStrikePerHit += 4
+		}
+		// Phase 10 SUB3c — L15 Improved Duplicity: 5e spawns up to 4
+		// duplicates and grants advantage to allies adjacent to one. No
+		// allies in 1v1, so the literal effect is inert. We proxy the
+		// permanent-illusion fantasy passively: +1 round of SporeCloud
+		// (duplicates flicker around the foe creating extra confusion on
+		// top of Cloak of Shadows) and a small flanking damage bump.
+		if c.Level >= 15 {
+			mods.SporeCloud++
+			mods.DamageBonus += 0.05
 		}
 	case SubclassHunter:
 		// L5 Hunter's Prey: 5e gives a one-of-three pick (Colossus Slayer:
@@ -415,6 +462,15 @@ func lifeDomainHealBonus(c *DnDCharacter, spell SpellDefinition, slotLevel int) 
 		lvl = 1
 	}
 	return 2 + lvl
+}
+
+// lifeDomainSupremeHealing reports whether a Life Domain Cleric has reached
+// L15 Supreme Healing — when true, healing-spell dice should resolve at max
+// face value instead of being rolled. resolveHealOutOfCombat consults this to
+// decide whether to roll or take max for each die.
+func lifeDomainSupremeHealing(c *DnDCharacter) bool {
+	return c != nil && c.Class == ClassCleric &&
+		c.Subclass == SubclassLifeDomain && c.Level >= 15
 }
 
 // grimHarvestHeal returns the HP to restore when a Necromancy Mage's queued
