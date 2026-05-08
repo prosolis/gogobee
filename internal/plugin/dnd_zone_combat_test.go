@@ -127,9 +127,20 @@ func TestTitleCaseUnderscored(t *testing.T) {
 	}
 }
 
-func TestZoneTrapRoom_DamagesAndPersists(t *testing.T) {
+// failedDetect — fabricated SkillCheckResult that always reads as a
+// missed detection. Used by trap-room tests to avoid d20 flake.
+func failedDetect(skill DnDSkill, dc int) SkillCheckResult {
+	return SkillCheckResult{Skill: skill, DC: dc, Roll: 5, Mod: 0, Total: 5, Success: false}
+}
+
+// passedDetect — fabricated successful detection.
+func passedDetect(skill DnDSkill, dc int) SkillCheckResult {
+	return SkillCheckResult{Skill: skill, DC: dc, Roll: 18, Mod: 0, Total: 18, Success: true}
+}
+
+func TestZoneTrapRoom_PitDamagesAndPersists(t *testing.T) {
 	setupAuditTestDB(t)
-	uid := id.UserID("@zone-trap:example")
+	uid := id.UserID("@zone-trap-pit:example")
 	zoneCmdTestCharacter(t, uid, 1)
 	defer cleanupZoneRuns(uid)
 
@@ -138,11 +149,21 @@ func TestZoneTrapRoom_DamagesAndPersists(t *testing.T) {
 		t.Fatal(err)
 	}
 	zone, _ := getZone(ZoneGoblinWarrens)
+	dndChar, _ := LoadDnDCharacter(uid)
+
+	pit := tier1TrapCatalog[0]
+	if pit.Kind != TrapPit {
+		t.Fatalf("expected pit at index 0, got %s", pit.Kind)
+	}
 
 	p := &AdventurePlugin{}
-	dmg, narration := p.resolveTrapRoom(uid, run, zone)
+	dmg, narration := p.applyTrapEffectWithDetect(uid, run, zone, dndChar, pit,
+		failedDetect(pit.DetectSkill, pit.DetectDC))
 	if dmg <= 0 {
-		t.Errorf("trap dealt no damage: %d", dmg)
+		t.Errorf("pit trap dealt no damage on failed detect: %d", dmg)
+	}
+	if dmg > 12 {
+		t.Errorf("pit trap exceeded 2d6 max: %d", dmg)
 	}
 	if !strings.Contains(narration, "HP") {
 		t.Errorf("trap narration missing HP line: %q", narration)
@@ -150,6 +171,70 @@ func TestZoneTrapRoom_DamagesAndPersists(t *testing.T) {
 	c, _ := LoadDnDCharacter(uid)
 	if c.HPCurrent >= c.HPMax {
 		t.Errorf("trap did not persist HP loss: cur=%d max=%d", c.HPCurrent, c.HPMax)
+	}
+}
+
+func TestZoneTrapRoom_DetectedSpotsHarmless(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@zone-trap-spot:example")
+	zoneCmdTestCharacter(t, uid, 1)
+	defer cleanupZoneRuns(uid)
+
+	run, _ := startZoneRun(uid, ZoneGoblinWarrens, 1, nil)
+	zone, _ := getZone(ZoneGoblinWarrens)
+	dndChar, _ := LoadDnDCharacter(uid)
+	startHP := dndChar.HPCurrent
+
+	pit := tier1TrapCatalog[0]
+	p := &AdventurePlugin{}
+	dmg, narration := p.applyTrapEffectWithDetect(uid, run, zone, dndChar, pit,
+		passedDetect(pit.DetectSkill, pit.DetectDC))
+	if dmg != 0 {
+		t.Errorf("detected trap should deal 0 damage, got %d", dmg)
+	}
+	if !strings.Contains(narration, "spotted") {
+		t.Errorf("detected trap narration missing 'spotted': %q", narration)
+	}
+	c, _ := LoadDnDCharacter(uid)
+	if c.HPCurrent != startHP {
+		t.Errorf("detected trap should not persist HP change: cur=%d, want=%d", c.HPCurrent, startHP)
+	}
+}
+
+func TestZoneTrapRoom_TripwireZeroDamageButAlerts(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@zone-trap-tripwire:example")
+	zoneCmdTestCharacter(t, uid, 1)
+	defer cleanupZoneRuns(uid)
+
+	run, _ := startZoneRun(uid, ZoneGoblinWarrens, 1, nil)
+	zone, _ := getZone(ZoneGoblinWarrens)
+	dndChar, _ := LoadDnDCharacter(uid)
+	startHP := dndChar.HPCurrent
+
+	var tripwire zoneTrapDef
+	for _, tr := range tier1TrapCatalog {
+		if tr.Kind == TrapTripwireAlarm {
+			tripwire = tr
+			break
+		}
+	}
+	if tripwire.Kind != TrapTripwireAlarm {
+		t.Fatal("tripwire not present in catalog")
+	}
+
+	p := &AdventurePlugin{}
+	dmg, narration := p.applyTrapEffectWithDetect(uid, run, zone, dndChar, tripwire,
+		failedDetect(tripwire.DetectSkill, tripwire.DetectDC))
+	if dmg != 0 {
+		t.Errorf("tripwire should deal 0 damage even on fail, got %d", dmg)
+	}
+	if !strings.Contains(narration, "Tripwire") {
+		t.Errorf("tripwire narration missing trap name: %q", narration)
+	}
+	c, _ := LoadDnDCharacter(uid)
+	if c.HPCurrent != startHP {
+		t.Errorf("tripwire should not change HP: cur=%d, want=%d", c.HPCurrent, startHP)
 	}
 }
 
@@ -166,12 +251,77 @@ func TestZoneTrapRoom_DoesNotKO(t *testing.T) {
 	}
 	run, _ := startZoneRun(uid, ZoneCryptValdris, 1, nil)
 	zone, _ := getZone(ZoneCryptValdris)
+	dndChar, _ := LoadDnDCharacter(uid)
 
+	pit := tier1TrapCatalog[0]
 	p := &AdventurePlugin{}
-	_, _ = p.resolveTrapRoom(uid, run, zone)
+	_, _ = p.applyTrapEffectWithDetect(uid, run, zone, dndChar, pit,
+		failedDetect(pit.DetectSkill, pit.DetectDC))
 	c, _ = LoadDnDCharacter(uid)
 	if c.HPCurrent < 1 {
 		t.Errorf("trap KO'd a player below 1 HP: %d", c.HPCurrent)
+	}
+}
+
+func TestPickZoneTrap_DeterministicAndTier1Only(t *testing.T) {
+	zone, _ := getZone(ZoneGoblinWarrens)
+	a, ok := pickZoneTrap(zone, "fixed-run", 3)
+	if !ok {
+		t.Fatal("pickZoneTrap returned !ok for tier 1 zone")
+	}
+	b, _ := pickZoneTrap(zone, "fixed-run", 3)
+	if a.Kind != b.Kind {
+		t.Errorf("pickZoneTrap not deterministic: %s vs %s", a.Kind, b.Kind)
+	}
+	if a.Tier != ZoneTierBeginner {
+		t.Errorf("tier 1 zone picked tier %d trap", a.Tier)
+	}
+}
+
+func TestPickZoneTrap_VariesAcrossRooms(t *testing.T) {
+	zone, _ := getZone(ZoneGoblinWarrens)
+	seen := map[ZoneTrapKind]bool{}
+	for room := 0; room < 64; room++ {
+		tr, ok := pickZoneTrap(zone, "varied-run", room)
+		if !ok {
+			t.Fatalf("pickZoneTrap !ok at room %d", room)
+		}
+		seen[tr.Kind] = true
+	}
+	if len(seen) < 2 {
+		t.Errorf("expected variety across 64 rooms, only saw %d kinds: %v", len(seen), seen)
+	}
+}
+
+func TestRollTrapDamage_PoisonDartIn2d4Range(t *testing.T) {
+	var dart zoneTrapDef
+	for _, tr := range tier1TrapCatalog {
+		if tr.Kind == TrapPoisonDart {
+			dart = tr
+			break
+		}
+	}
+	if dart.Kind != TrapPoisonDart {
+		t.Fatal("poison dart not in catalog")
+	}
+	for room := 0; room < 64; room++ {
+		dmg := rollTrapDamage(dart, "dart-run", room)
+		if dmg < 2 || dmg > 8 { // 2d4 range
+			t.Errorf("poison dart damage out of 2..8 range at room %d: %d", room, dmg)
+		}
+	}
+}
+
+func TestRollTrapDamage_TripwireZero(t *testing.T) {
+	var tripwire zoneTrapDef
+	for _, tr := range tier1TrapCatalog {
+		if tr.Kind == TrapTripwireAlarm {
+			tripwire = tr
+			break
+		}
+	}
+	if dmg := rollTrapDamage(tripwire, "any-run", 0); dmg != 0 {
+		t.Errorf("tripwire damage should be 0, got %d", dmg)
 	}
 }
 

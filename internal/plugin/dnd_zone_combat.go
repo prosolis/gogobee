@@ -246,24 +246,86 @@ func scanMoodEventsFromCombat(runID string, result CombatResult) (nat20s, nat1s 
 
 // ── Trap rooms ──────────────────────────────────────────────────────────────
 
-// resolveTrapRoom applies a small flat HP nick scaled by zone tier and
-// returns a narration block. D1e ships the simple version: no DEX save,
-// no detection roll. Tier 1 traps shave ~10% of MaxHP; higher tiers
-// proportionally more. Damage is capped so a trap can't itself kill —
-// players still need to make it to the trap with low HP for that to
-// matter, in which case the game design intentionally lets it bite.
+// resolveTrapRoom picks a trap from the zone's tier catalog (D2a),
+// rolls a detection skill check (Perception/Investigation, per trap),
+// and either narrates a clean spot or applies the trap's damage dice.
+// Damage is capped so a single trap can't outright KO the player.
+//
+// Higher-tier zones currently fall through to the pre-D2a flat-percent
+// nick — D3a/D4a will add Tier 2+ trap catalogs.
 func (p *AdventurePlugin) resolveTrapRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition) (damage int, narration string) {
 	dndChar, _ := LoadDnDCharacter(userID)
 	if dndChar == nil {
 		return 0, ""
 	}
+	trap, ok := pickZoneTrap(zone, run.RunID, run.CurrentRoom)
+	if !ok {
+		return p.resolveTrapRoomLegacy(userID, run, zone, dndChar)
+	}
+	return p.applyTrapEffect(userID, run, zone, dndChar, trap)
+}
+
+// applyTrapEffect runs the detect roll and damage application for a
+// chosen trap. Split out from resolveTrapRoom so tests can target a
+// specific trap kind without depending on the room-seed selector.
+func (p *AdventurePlugin) applyTrapEffect(userID id.UserID, run *DungeonRun, zone ZoneDefinition, dndChar *DnDCharacter, trap zoneTrapDef) (int, string) {
+	detect := performSkillCheck(dndChar, trap.DetectSkill, trap.DetectDC)
+	return p.applyTrapEffectWithDetect(userID, run, zone, dndChar, trap, detect)
+}
+
+// applyTrapEffectWithDetect is the deterministic core of trap resolution:
+// given a precomputed detection check result, it produces the narration
+// and persists HP loss on a failed detect. Used by applyTrapEffect (which
+// rolls the d20) and by tests (which inject a fixed result).
+func (p *AdventurePlugin) applyTrapEffectWithDetect(
+	userID id.UserID,
+	run *DungeonRun,
+	zone ZoneDefinition,
+	dndChar *DnDCharacter,
+	trap zoneTrapDef,
+	detect SkillCheckResult,
+) (int, string) {
+	var b strings.Builder
+	if line := twinBeeLine(zone.ID, GMTrapDetected, run.RunID, run.CurrentRoom); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	if detect.Success {
+		b.WriteString(trapSpottedHeader(trap, detect))
+		return 0, b.String()
+	}
+
+	dmg := rollTrapDamage(trap, run.RunID, run.CurrentRoom)
+	if dmg >= dndChar.HPCurrent {
+		dmg = dndChar.HPCurrent - 1
+		if dmg < 0 {
+			dmg = 0
+		}
+	}
+	if dmg > 0 {
+		dndChar.HPCurrent -= dmg
+		if err := SaveDnDCharacter(dndChar); err != nil {
+			slog.Error("zone: trap HP persist", "user", userID, "err", err)
+		}
+	}
+	if line := twinBeeLine(zone.ID, GMTrapTripped, run.RunID, run.CurrentRoom); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString(trapDamageHeader(trap, dmg, dndChar.HPCurrent, dndChar.HPMax))
+	return dmg, b.String()
+}
+
+// resolveTrapRoomLegacy is the pre-D2a flat-percent fallback used when a
+// zone tier has no entries in the trap catalog yet (Tier 2+). Removed
+// once D3a/D4a fill in the higher-tier catalogs.
+func (p *AdventurePlugin) resolveTrapRoomLegacy(userID id.UserID, run *DungeonRun, zone ZoneDefinition, dndChar *DnDCharacter) (int, string) {
 	tier := int(zone.Tier)
-	pct := 0.08 + 0.03*float64(tier-1) // T1=8%, T5=20%
+	pct := 0.08 + 0.03*float64(tier-1)
 	dmg := int(float64(dndChar.HPMax) * pct)
 	if dmg < 1 {
 		dmg = 1
 	}
-	// Don't outright KO a player from a single trap.
 	if dmg >= dndChar.HPCurrent {
 		dmg = dndChar.HPCurrent - 1
 		if dmg < 0 {
@@ -272,23 +334,18 @@ func (p *AdventurePlugin) resolveTrapRoom(userID id.UserID, run *DungeonRun, zon
 	}
 	dndChar.HPCurrent -= dmg
 	if err := SaveDnDCharacter(dndChar); err != nil {
-		slog.Error("zone: trap HP persist", "user", userID, "err", err)
+		slog.Error("zone: trap HP persist (legacy)", "user", userID, "err", err)
 	}
-
 	var b strings.Builder
 	if line := twinBeeLine(zone.ID, GMTrapDetected, run.RunID, run.CurrentRoom); line != "" {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
-	if dmg > 0 {
-		if line := twinBeeLine(zone.ID, GMTrapTripped, run.RunID, run.CurrentRoom); line != "" {
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
-		b.WriteString(fmt.Sprintf("💢 The trap takes **%d HP** (%d/%d remaining).", dmg, dndChar.HPCurrent, dndChar.HPMax))
-	} else {
-		b.WriteString("You spot it in time. The trap clatters harmlessly.")
+	if line := twinBeeLine(zone.ID, GMTrapTripped, run.RunID, run.CurrentRoom); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
+	b.WriteString(fmt.Sprintf("💢 The trap takes **%d HP** (%d/%d remaining).", dmg, dndChar.HPCurrent, dndChar.HPMax))
 	return dmg, b.String()
 }
 
