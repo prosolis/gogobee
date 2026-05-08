@@ -191,12 +191,36 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 // deliverRecap posts the evening recap DM, appends a log entry, and stamps
 // last_recap_at. No supply burn here — that's the briefing's job.
 func (p *AdventurePlugin) deliverRecap(e *Expedition, now time.Time) error {
+	// E2b: night phase wandering check fires before the recap so its
+	// outcome is part of today's log when the recap renders.
+	var night *NightCheck
+	if e.Camp != nil && e.Camp.Active {
+		c, _ := LoadDnDCharacter(id.UserID(e.UserID))
+		var charClass DnDClass
+		if c != nil {
+			charClass = c.Class
+		}
+		nc := resolveWanderingCheck(e, charClass, nil)
+		if err := processNightCheck(e, nc); err != nil {
+			slog.Warn("expedition: night check", "expedition", e.ID, "err", err)
+		}
+		night = &nc
+		// Refresh in-memory threat after possible signs-of-passage bump.
+		if fresh, err := getExpedition(e.ID); err == nil && fresh != nil {
+			e.ThreatLevel = fresh.ThreatLevel
+			e.SiegeMode = fresh.SiegeMode
+		}
+	}
+
 	dayEntries, err := dayLogEntries(e.ID, e.CurrentDay)
 	if err != nil {
 		return err
 	}
 	line := pickEveningRecap(e, dayEntries)
 	body := renderEveningRecap(e, line, dayEntries)
+	if night != nil {
+		body += "\n" + renderNightCheck(*night)
+	}
 
 	if uid := id.UserID(e.UserID); uid != "" {
 		if err := p.SendDM(uid, body); err != nil {
