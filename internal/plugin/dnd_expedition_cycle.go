@@ -162,6 +162,19 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	e.Supplies = newSupplies
 	e.CurrentDay++
 
+	// E2d: overnight camp rest effects (HP/spells/threat). Auto-breaks
+	// the camp after applying. Run before threat drift so a fortified
+	// camp's −5 lands first and a same-day +3 drift can't push back over
+	// a threshold the rest just dropped.
+	restSummary := processOvernightCamp(e)
+	if restSummary != "" {
+		if fresh, err := getExpedition(e.ID); err == nil && fresh != nil {
+			e.ThreatLevel = fresh.ThreatLevel
+			e.SiegeMode = fresh.SiegeMode
+			e.Camp = fresh.Camp
+		}
+	}
+
 	// E2a: daily threat drift (+3 base, GM-mood modifier). No-op after
 	// boss kill. May cross a threshold and append a flavor-bearing log.
 	if _, _, err := applyDailyThreatDrift(e); err != nil {
@@ -170,6 +183,9 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)
+	if restSummary != "" {
+		body += "\n💤 _" + restSummary + "_\n"
+	}
 
 	if uid := id.UserID(e.UserID); uid != "" {
 		if err := p.SendDM(uid, body); err != nil {

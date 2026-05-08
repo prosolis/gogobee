@@ -2,10 +2,12 @@ package plugin
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"time"
 
 	"gogobee/internal/flavor"
+	"maunium.net/go/mautrix/id"
 )
 
 // Phase 12 E1e — basic camp system (rough + standard).
@@ -77,8 +79,13 @@ func (p *AdventurePlugin) handleCampCmd(ctx MessageContext, args string) error {
 	case "rough", "standard":
 		// allowed in E1e
 	case "fortified":
-		return p.SendDM(ctx.Sender,
-			"Fortified camps require a boss-cleared room or cache site. (Wires up in a later phase — for now, `rough` or `standard`.)")
+		// E2d: §5.1 — boss-cleared room or cache site. Cache sites
+		// are zone-specific waypoints (E3+), so for now we require the
+		// expedition's boss to have been defeated.
+		if !exp.BossDefeated {
+			return p.SendDM(ctx.Sender,
+				"Fortified camps require a boss-cleared room or cache site. Defeat the zone boss (or find a cache) first.")
+		}
 	case "base":
 		return p.SendDM(ctx.Sender,
 			"Base camps unlock in Tier 4–5 zones from Day 3+. (Wires up in a later phase.)")
@@ -96,6 +103,7 @@ func campHelpText(exp *Expedition) string {
 	b.WriteString("**!camp <type>** — establish camp during an expedition.\n\n")
 	b.WriteString("`!camp rough` — partial rest (any location, +0.5 SU, high night risk)\n")
 	b.WriteString("`!camp standard` — full long rest (cleared room, +1 SU, medium risk)\n")
+	b.WriteString("`!camp fortified` — long rest + bonus (boss-cleared room, +2 SU, low risk)\n")
 	b.WriteString("`!camp break` — break camp\n\n")
 	if exp.Camp != nil && exp.Camp.Active {
 		b.WriteString(fmt.Sprintf("_Currently camped: **%s** (room %d)._",
@@ -160,12 +168,97 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 	if line != "" {
 		b.WriteString("\n" + line + "\n")
 	}
-	if kind == CampTypeRough {
+	switch kind {
+	case CampTypeRough:
 		b.WriteString("\n_Rough camp — partial rest. HP recovers to 50%, no spell slots restored._")
-	} else {
+	case CampTypeFortified:
+		b.WriteString("\n_Fortified camp — long rest + 1d6 HP bonus on wake; threat clock −5; wandering rolls −4._")
+	default:
 		b.WriteString("\n_Standard camp — full long rest at the next morning briefing._")
 	}
 	return p.SendDM(ctx.Sender, b.String())
+}
+
+// processOvernightCamp applies the overnight long-rest effects of an
+// active camp at briefing time (§3, §5.1, §8.1). Auto-breaks the camp
+// after the rest. Returns a one-line summary for the briefing body.
+//
+// Effects:
+//   - rough: HP recovered to at least 50% of max.
+//   - standard: HP fully restored, spell slots refreshed, exhaustion -1.
+//   - fortified: standard + 1d6 HP bonus on top, threat -5.
+//   - base: same as fortified for the rest itself; persistent waypoint
+//     mechanics land in E4.
+//
+// Returns "" if the expedition wasn't camped overnight.
+func processOvernightCamp(e *Expedition) string {
+	if e.Camp == nil || !e.Camp.Active {
+		return ""
+	}
+	uid := id.UserID(e.UserID)
+	c, _ := LoadDnDCharacter(uid)
+	if c == nil {
+		// No character to apply HP/spells to; just break the camp.
+		_ = updateCamp(e.ID, nil)
+		return ""
+	}
+	kind := e.Camp.Type
+	prevHP := c.HPCurrent
+	bonusHP := 0
+
+	switch kind {
+	case CampTypeRough:
+		half := c.HPMax / 2
+		if c.HPCurrent < half {
+			c.HPCurrent = half
+		}
+	case CampTypeStandard:
+		c.HPCurrent = c.HPMax
+		c.TempHP = 0
+		if c.Exhaustion > 0 {
+			c.Exhaustion--
+		}
+	case CampTypeFortified, CampTypeBase:
+		c.HPCurrent = c.HPMax
+		c.TempHP = 0
+		if c.Exhaustion > 0 {
+			c.Exhaustion--
+		}
+		bonusHP = 1 + rand.IntN(6)
+		c.HPCurrent += bonusHP
+		if c.HPCurrent > c.HPMax {
+			c.HPCurrent = c.HPMax
+		}
+	}
+	_ = SaveDnDCharacter(c)
+	if kind == CampTypeStandard || kind == CampTypeFortified || kind == CampTypeBase {
+		_ = refreshAllResources(uid)
+		_ = refreshSpellSlots(uid)
+	}
+
+	// Threat reduction (§8.1: -5 for fortified long rest).
+	if kind == CampTypeFortified || kind == CampTypeBase {
+		_ = applyThreatDelta(e.ID, -5, "long rest in fortified camp")
+	}
+
+	// Auto-break the camp now that the rest has been applied.
+	_ = updateCamp(e.ID, nil)
+	e.Camp = nil
+
+	// Pretty summary for the briefing body.
+	switch kind {
+	case CampTypeRough:
+		if c.HPCurrent > prevHP {
+			return fmt.Sprintf("Rough rest: HP %d → %d.", prevHP, c.HPCurrent)
+		}
+		return "Rough rest: no HP gain (already above the half-HP floor)."
+	case CampTypeStandard:
+		return fmt.Sprintf("Long rest: HP %d → %d, spell slots & resources refreshed.", prevHP, c.HPCurrent)
+	case CampTypeFortified, CampTypeBase:
+		return fmt.Sprintf("Fortified rest: HP %d → %d (+1d6 = %d bonus); threat clock −5; resources refreshed.",
+			prevHP, c.HPCurrent, bonusHP)
+	}
+	return ""
 }
 
 func (p *AdventurePlugin) campBreak(ctx MessageContext, exp *Expedition) error {
