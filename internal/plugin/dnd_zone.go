@@ -113,6 +113,8 @@ func init() {
 	registerZone(zoneCryptValdris())
 	registerZone(zoneForestShadows())
 	registerZone(zoneSunkenTemple())
+	registerZone(zoneManorBlackspire())
+	registerZone(zoneUnderforge())
 }
 
 // getZone returns the definition by ID and ok=false if unknown.
@@ -344,5 +346,100 @@ func zoneSunkenTemple() ZoneDefinition {
 			{ItemID: "coins_5d10x8", DropChance: 1.0, Note: "5d10 × 8 coins"},
 		},
 		FlavorFile: "zone_sunken_temple_flavor.go",
+	}
+}
+
+// ---- Tier 3 zone factories (Phase 11 D4a) -----------------------------------
+
+func zoneManorBlackspire() ZoneDefinition {
+	return ZoneDefinition{
+		ID:         ZoneManorBlackspire,
+		Display:    "Haunted Manor of Blackspire",
+		Tier:       ZoneTierJourneyman,
+		LevelMin:   5,
+		LevelMax:   8,
+		Faction:    "Undead, Shadows, Vampiric",
+		Atmosphere: "Victorian decay, impossible architecture, portraits whose eyes follow movement, cold spots, locked rooms that weren't locked before.",
+		Hook:       "The manor has been for sale for eleven years. Every buyer has either left immediately or not left at all. The real estate listing describes it as 'full of character.' TwinBee finds this accurate.",
+		MinRooms:   7,
+		MaxRooms:   9,
+		Enemies: []ZoneEnemy{
+			{BestiaryID: "shadow", SpawnWeight: 6},
+			{BestiaryID: "poltergeist", SpawnWeight: 5},
+			{BestiaryID: "banshee", SpawnWeight: 3},
+			{BestiaryID: "wraith", SpawnWeight: 3},
+			{BestiaryID: "vampire_spawn", SpawnWeight: 3},
+			{BestiaryID: "revenant", SpawnWeight: 1, IsElite: true},
+		},
+		Boss: ZoneBoss{
+			BestiaryID:  "boss_aldric_blackspire",
+			Name:        "Lord Aldric Blackspire",
+			CR:          13,
+			HP:          144,
+			AC:          16,
+			PhaseTwoAt:  0,
+			Description: "He has watched seven generations of his bloodline die in this house. He considers himself the only survivor. He may be right.",
+			Abilities: []string{
+				"Multiattack: Unarmed Strike + Bite (life drain) every turn",
+				"Charm: WIS DC 17 or Charmed for 24h (broken by damage)",
+				"Children of the Night (1/combat): summons 2d6 Bat Swarms or 3d6 Rats",
+				"Mist Form: at 0 HP retreats to coffin; must destroy coffin in 30 turns or fully regenerates",
+				"Legendary Resistance (3/combat); Phase 2 (Mist destroyed): all attacks have advantage; AoE Charm",
+			},
+		},
+		Loot: []ZoneLootEntry{
+			{ItemID: "blackspire_signet_ring", DropChance: 0.06, Note: "+2 CHA; undead NPCs treat you as neutral unless attacked"},
+			{ItemID: "wpn_sword_of_wounding", DropChance: 0.10},
+			{ItemID: "arm_armor_of_resistance_necrotic", DropChance: 0.08},
+			{ItemID: "blackspire_deed", UniqueAlways: true, Note: "story/quest item"},
+			{ItemID: "coins_8d10x10", DropChance: 1.0, Note: "8d10 × 10 coins"},
+		},
+		FlavorFile: "zone_manor_blackspire_flavor.go",
+	}
+}
+
+func zoneUnderforge() ZoneDefinition {
+	return ZoneDefinition{
+		ID:         ZoneUnderforge,
+		Display:    "The Underforge",
+		Tier:       ZoneTierJourneyman,
+		LevelMin:   5,
+		LevelMax:   8,
+		Faction:    "Fire Elementals, Constructs, Salamanders, Azers",
+		Atmosphere: "Volcanic caverns, rivers of cooling lava, ancient dwarven stonework, the constant bass note of something very large moving below.",
+		Hook:       "The dwarven forge-city of Kharak Dûn was not abandoned. It was sealed from the outside. TwinBee does not have information on what they were sealing in.",
+		MinRooms:   7,
+		MaxRooms:   9,
+		Enemies: []ZoneEnemy{
+			{BestiaryID: "magmin", SpawnWeight: 6},
+			{BestiaryID: "azer", SpawnWeight: 5},
+			{BestiaryID: "flameskull", SpawnWeight: 4},
+			{BestiaryID: "salamander", SpawnWeight: 3},
+			{BestiaryID: "fire_elemental", SpawnWeight: 3},
+			{BestiaryID: "helmed_horror", SpawnWeight: 1, IsElite: true},
+		},
+		Boss: ZoneBoss{
+			BestiaryID:  "boss_emberlord_thyrak",
+			Name:        "Emberlord Thyrak",
+			CR:          9,
+			HP:          178,
+			AC:          18,
+			PhaseTwoAt:  0.50,
+			Description: "The forge-golem that ran Kharak Dûn's furnaces for three centuries. When the dwarves left, it kept working. It has been improving the designs.",
+			Abilities: []string{
+				"Molten Strike: +4d6 fire on hit; target armor -1 AC until repaired (long rest)",
+				"Forge Breath (recharge 5–6): 30-ft cone, 10d6 fire, DEX DC 16 half",
+				"Living Forge: heals 15 HP/turn while standing on lava/forge tiles",
+				"Construct Resilience: immune poison/psychic/charm/exhaustion; resist non-magical physical",
+				"Phase 2 (<50% HP): Forge Breath recharge 4–6; spawns 2 Fire Elementals",
+			},
+		},
+		Loot: []ZoneLootEntry{
+			{ItemID: "thyraks_core", UniqueAlways: true, Note: "crafting material for legendary weapons"},
+			{ItemID: "arm_adamantine_armor", DropChance: 0.12},
+			{ItemID: "wpn_flame_tongue", DropChance: 0.10},
+			{ItemID: "azer_ingots", UniqueAlways: true, Note: "1d6 ingots; high-value Thom Krooke sale"},
+		},
+		FlavorFile: "zone_underforge_flavor.go",
 	}
 }

@@ -318,6 +318,118 @@ var _ = func() bool {
 	return true
 }()
 
+// ---- Tier 3 zone roster (Phase 11 D4a) ---------------------------------------
+//
+// Haunted Manor of Blackspire + The Underforge enemy entries. Stat blocks
+// per gogobee_dungeon_zones.md §5. Same Attack-as-average-damage convention
+// as prior tiers; AttackBonus = d20 to-hit modifier; elites flagged via
+// the zone roster, not here. Shadow + Flameskull reuse Tier 1 entries.
+
+var _ = func() bool {
+	tier3 := map[string]DnDMonsterTemplate{
+		"poltergeist": {
+			ID: "poltergeist", Name: "Poltergeist",
+			CR: 2, HP: 22, AC: 12, Attack: 10, AttackBonus: 4, Speed: 12,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Telekinetic Thrust", Phase: "any", ProcChance: 0.40, Effect: "stun"},
+			XPValue:   450,
+			Notes:     "Invisible: melee attackers have disadvantage. Forceful Slam (bludgeoning).",
+		},
+		"banshee": {
+			ID: "banshee", Name: "Banshee",
+			CR: 4, HP: 58, AC: 12, Attack: 14, AttackBonus: 4, Speed: 12,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Wail", Phase: "decisive", ProcChance: 0.20, Effect: "execute"},
+			XPValue:   1100,
+			Notes:     "Wail (1/combat): WIS DC 13 or drop to 0 HP. Corrupting Touch; undead nature.",
+		},
+		"wraith": {
+			ID: "wraith", Name: "Wraith",
+			CR: 5, HP: 67, AC: 13, Attack: 21, AttackBonus: 6, Speed: 16,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Life Drain", Phase: "any", ProcChance: 0.40, Effect: "max_hp_drain"},
+			XPValue:   1800,
+			Notes:     "Incorporeal movement; sunlight sensitivity; resist non-magical physical.",
+		},
+		"vampire_spawn": {
+			ID: "vampire_spawn", Name: "Vampire Spawn",
+			CR: 5, HP: 82, AC: 15, Attack: 16, AttackBonus: 6, Speed: 12,
+			BlockRate: 0.15,
+			Ability:   &MonsterAbility{Name: "Bite (Life Drain)", Phase: "any", ProcChance: 0.40, Effect: "self_heal"},
+			XPValue:   1800,
+			Notes:     "Misty Step; Charm Gaze (WIS DC 13). Bite heals vampire for damage dealt.",
+		},
+		"revenant": {
+			ID: "revenant", Name: "Revenant",
+			CR: 5, HP: 136, AC: 13, Attack: 25, AttackBonus: 7, Speed: 12,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Vengeful Regeneration", Phase: "any", ProcChance: 0.50, Effect: "regenerate"},
+			XPValue:   1800,
+			Notes:     "Elite. +10 HP/turn regen; cannot die permanently until goal fulfilled; STR DC 20 grapple.",
+		},
+		"boss_aldric_blackspire": {
+			ID: "boss_aldric_blackspire", Name: "Lord Aldric Blackspire",
+			CR: 13, HP: 144, AC: 16, Attack: 38, AttackBonus: 9, Speed: 14,
+			BlockRate: 0.20,
+			Ability:   &MonsterAbility{Name: "Charm", Phase: "any", ProcChance: 0.40, Effect: "stun"},
+			XPValue:   10000,
+			Notes:     "Manor Blackspire boss. Mist Form retreat; Children of the Night summon; Legendary Resistance 3/combat.",
+		},
+		"magmin": {
+			ID: "magmin", Name: "Magmin",
+			CR: 0.5, HP: 9, AC: 14, Attack: 7, AttackBonus: 3, Speed: 10,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Death Burst", Phase: "decisive", ProcChance: 1.00, Effect: "death_aoe"},
+			XPValue:   100,
+			Notes:     "Death Burst: 2d6 fire in 10 ft on death. Ignite flammable objects on touch.",
+		},
+		"azer": {
+			ID: "azer", Name: "Azer",
+			CR: 2, HP: 39, AC: 17, Attack: 11, AttackBonus: 5, Speed: 12,
+			BlockRate: 0.20,
+			Ability:   &MonsterAbility{Name: "Fire Aura", Phase: "any", ProcChance: 0.50, Effect: "retaliate"},
+			XPValue:   450,
+			Notes:     "1d10 fire to melee attackers; immune to fire; weapons deal heated bonus damage.",
+		},
+		"salamander": {
+			ID: "salamander", Name: "Salamander",
+			CR: 5, HP: 90, AC: 15, Attack: 22, AttackBonus: 7, Speed: 12,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Constrict", Phase: "any", ProcChance: 0.40, Effect: "stun"},
+			XPValue:   1800,
+			Notes:     "Constrict grapple + 2d6 fire/turn; spear multiattack; fire aura.",
+		},
+		"fire_elemental": {
+			ID: "fire_elemental", Name: "Fire Elemental",
+			CR: 5, HP: 102, AC: 13, Attack: 20, AttackBonus: 6, Speed: 14,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Fire Form", Phase: "any", ProcChance: 0.50, Effect: "retaliate"},
+			XPValue:   1800,
+			Notes:     "1d10 contact fire damage; immune to fire; vulnerable to water/cold.",
+		},
+		"helmed_horror": {
+			ID: "helmed_horror", Name: "Helmed Horror",
+			CR: 4, HP: 60, AC: 20, Attack: 16, AttackBonus: 6, Speed: 12,
+			BlockRate: 0.25,
+			Ability:   &MonsterAbility{Name: "Spell Immunity", Phase: "any", ProcChance: 1.00, Effect: "spell_resist"},
+			XPValue:   1100,
+			Notes:     "Elite. Immune to 3 specific spells (rolled per instance); multiattack; magic resistance.",
+		},
+		"boss_emberlord_thyrak": {
+			ID: "boss_emberlord_thyrak", Name: "Emberlord Thyrak",
+			CR: 9, HP: 178, AC: 18, Attack: 34, AttackBonus: 8, Speed: 11,
+			BlockRate: 0.20,
+			Ability:   &MonsterAbility{Name: "Forge Breath", Phase: "any", ProcChance: 0.30, Effect: "aoe"},
+			XPValue:   5000,
+			Notes:     "Underforge boss. Phase 2 below 50% HP — spawns 2 Fire Elementals; breath recharge 4–6.",
+		},
+	}
+	for id, m := range tier3 {
+		dndBestiary[id] = m
+	}
+	return true
+}()
+
 // dndBestiaryByCR returns templates whose CR is at or below the given cap.
 // Useful for procedurally selecting a monster appropriate to player level.
 func dndBestiaryByCR(maxCR float32) []DnDMonsterTemplate {
