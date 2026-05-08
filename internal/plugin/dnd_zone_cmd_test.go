@@ -318,6 +318,47 @@ func TestZoneCmd_TauntWithoutRunNoCrash(t *testing.T) {
 	}
 }
 
+// Phase 11 D9 — !zone lore.
+
+func TestZoneCmd_LoreWithoutRunNoCrash(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@zone-cmd-lore-norun:example")
+	zoneCmdTestCharacter(t, uid, 1)
+	defer cleanupZoneRuns(uid)
+	p := &AdventurePlugin{}
+	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "lore"); err != nil {
+		t.Fatalf("lore no-run: %v", err)
+	}
+}
+
+func TestZoneCmd_LoreWithActiveRunNoSideEffects(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@zone-cmd-lore-run:example")
+	zoneCmdTestCharacter(t, uid, 1)
+	defer cleanupZoneRuns(uid)
+	p := &AdventurePlugin{}
+	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "enter goblin_warrens"); err != nil {
+		t.Fatalf("enter: %v", err)
+	}
+	before, err := getActiveZoneRun(uid)
+	if err != nil || before == nil {
+		t.Fatalf("active run after enter: %v", err)
+	}
+	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "lore"); err != nil {
+		t.Fatalf("lore: %v", err)
+	}
+	after, err := getActiveZoneRun(uid)
+	if err != nil || after == nil {
+		t.Fatalf("active run after lore: %v", err)
+	}
+	if after.GMMood != before.GMMood {
+		t.Errorf("lore should not move mood: before %d, after %d", before.GMMood, after.GMMood)
+	}
+	if after.CurrentRoom != before.CurrentRoom {
+		t.Errorf("lore should not advance room: before %d, after %d", before.CurrentRoom, after.CurrentRoom)
+	}
+}
+
 func TestTauntComplimentResponseLines_Deterministic(t *testing.T) {
 	const runID = "run-d7-test"
 	t1 := tauntResponseLine(runID, 0)

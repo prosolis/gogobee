@@ -60,6 +60,8 @@ func (p *AdventurePlugin) handleDnDZoneCmd(ctx MessageContext, args string) erro
 		return p.zoneCmdTaunt(ctx)
 	case "compliment":
 		return p.zoneCmdCompliment(ctx)
+	case "lore", "history":
+		return p.zoneCmdLore(ctx)
 	default:
 		return p.SendDM(ctx.Sender, zoneHelpText())
 	}
@@ -75,7 +77,8 @@ func zoneHelpText() string {
 	b.WriteString("`!zone advance` — resolve the current room and move on\n")
 	b.WriteString("`!zone abandon` — end the active run (no rewards)\n")
 	b.WriteString("`!zone taunt` — poke TwinBee (mood −10)\n")
-	b.WriteString("`!zone compliment` — flatter TwinBee (mood +5)")
+	b.WriteString("`!zone compliment` — flatter TwinBee (mood +5)\n")
+	b.WriteString("`!zone lore` — TwinBee shares zone history")
 	return b.String()
 }
 
@@ -539,6 +542,30 @@ func (p *AdventurePlugin) zoneMoodInteraction(
 	b.WriteString(fmt.Sprintf("%s GM mood: %d/100 (%s) _(%s%d)_",
 		icon, newMood, gmMoodLabel(newMood), sign, delta))
 	return p.SendDM(ctx.Sender, b.String())
+}
+
+// ── lore ────────────────────────────────────────────────────────────────────
+
+// zoneCmdLore renders a deterministic TwinBee lore line for the active
+// run's current room. Pulls from the zone-specific LoreLines* pool when
+// one exists (Tier 1–5 ship dedicated lore), falls back to the generic
+// LoreLines pool otherwise. roomIdx is folded into the selector so
+// repeated `!zone lore` in the same room returns the same prose, but
+// cross-room calls vary.
+func (p *AdventurePlugin) zoneCmdLore(ctx MessageContext) error {
+	run, err := getActiveZoneRun(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't read run state: "+err.Error())
+	}
+	if run == nil {
+		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
+	}
+	zone, _ := getZone(run.ZoneID)
+	line := twinBeeLine(zone.ID, GMLore, run.RunID, run.CurrentRoom)
+	if line == "" {
+		return p.SendDM(ctx.Sender, "TwinBee has nothing to say about this place.")
+	}
+	return p.SendDM(ctx.Sender, fmt.Sprintf("📖 **%s — Lore**\n\n%s", zone.Display, line))
 }
 
 // ── abandon ─────────────────────────────────────────────────────────────────
