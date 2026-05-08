@@ -360,6 +360,27 @@ func twinBeeLine(zoneID ZoneID, kind GMNarrationType, runID string, roomIdx int)
 	return "🎭 **TwinBee:** " + line
 }
 
+// tauntResponseLine renders a deterministic TwinBee reply to !zone taunt
+// from the prewritten flavor.TauntResponses pool. roomIdx is folded so
+// repeated taunts in the same room are stable but cross-room taunts vary.
+func tauntResponseLine(runID string, roomIdx int) string {
+	line := pickLineDeterministic(flavor.TauntResponses, runID, roomIdx^0x4A8D9F25)
+	if line == "" {
+		return ""
+	}
+	return "🎭 **TwinBee:** " + line
+}
+
+// complimentResponseLine renders a deterministic TwinBee reply to
+// !zone compliment from the prewritten flavor.ComplimentResponses pool.
+func complimentResponseLine(runID string, roomIdx int) string {
+	line := pickLineDeterministic(flavor.ComplimentResponses, runID, roomIdx^0x3E172B6C)
+	if line == "" {
+		return ""
+	}
+	return "🎭 **TwinBee:** " + line
+}
+
 // ── Mood event table & application ───────────────────────────────────────────
 
 // GMMoodEvent enumerates the mood-modifier triggers from design doc §3.2.

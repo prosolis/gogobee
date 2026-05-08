@@ -244,3 +244,93 @@ func TestGMMoodLabel_Bands(t *testing.T) {
 		}
 	}
 }
+
+// Phase 11 D7 — !zone taunt / !zone compliment.
+
+func TestZoneCmd_TauntAppliesMoodPenalty(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@zone-cmd-taunt:example")
+	zoneCmdTestCharacter(t, uid, 1)
+	defer cleanupZoneRuns(uid)
+	p := &AdventurePlugin{}
+	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "enter goblin_warrens"); err != nil {
+		t.Fatalf("enter: %v", err)
+	}
+	before, err := getActiveZoneRun(uid)
+	if err != nil || before == nil {
+		t.Fatalf("active run after enter: %v", err)
+	}
+	startMood := before.GMMood
+	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "taunt"); err != nil {
+		t.Fatalf("taunt: %v", err)
+	}
+	after, err := getActiveZoneRun(uid)
+	if err != nil || after == nil {
+		t.Fatalf("active run after taunt: %v", err)
+	}
+	want := clampMood(startMood + MoodEventDelta(MoodEventTaunt))
+	if after.GMMood != want {
+		t.Errorf("mood after taunt = %d, want %d (start %d, delta %d)",
+			after.GMMood, want, startMood, MoodEventDelta(MoodEventTaunt))
+	}
+}
+
+func TestZoneCmd_ComplimentAppliesMoodBonus(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@zone-cmd-compliment:example")
+	zoneCmdTestCharacter(t, uid, 1)
+	defer cleanupZoneRuns(uid)
+	p := &AdventurePlugin{}
+	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "enter goblin_warrens"); err != nil {
+		t.Fatalf("enter: %v", err)
+	}
+	before, err := getActiveZoneRun(uid)
+	if err != nil || before == nil {
+		t.Fatalf("active run after enter: %v", err)
+	}
+	startMood := before.GMMood
+	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "compliment"); err != nil {
+		t.Fatalf("compliment: %v", err)
+	}
+	after, err := getActiveZoneRun(uid)
+	if err != nil || after == nil {
+		t.Fatalf("active run after compliment: %v", err)
+	}
+	want := clampMood(startMood + MoodEventDelta(MoodEventCompliment))
+	if after.GMMood != want {
+		t.Errorf("mood after compliment = %d, want %d (start %d, delta %d)",
+			after.GMMood, want, startMood, MoodEventDelta(MoodEventCompliment))
+	}
+}
+
+func TestZoneCmd_TauntWithoutRunNoCrash(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@zone-cmd-taunt-norun:example")
+	zoneCmdTestCharacter(t, uid, 1)
+	defer cleanupZoneRuns(uid)
+	p := &AdventurePlugin{}
+	// No active run — should return cleanly with the no-run nudge.
+	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "taunt"); err != nil {
+		t.Fatalf("taunt no-run: %v", err)
+	}
+	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "compliment"); err != nil {
+		t.Fatalf("compliment no-run: %v", err)
+	}
+}
+
+func TestTauntComplimentResponseLines_Deterministic(t *testing.T) {
+	const runID = "run-d7-test"
+	t1 := tauntResponseLine(runID, 0)
+	t2 := tauntResponseLine(runID, 0)
+	if t1 == "" || t1 != t2 {
+		t.Errorf("taunt lines not deterministic: %q vs %q", t1, t2)
+	}
+	c1 := complimentResponseLine(runID, 0)
+	c2 := complimentResponseLine(runID, 0)
+	if c1 == "" || c1 != c2 {
+		t.Errorf("compliment lines not deterministic: %q vs %q", c1, c2)
+	}
+	if t1 == c1 {
+		t.Errorf("taunt and compliment shouldn't collide on same key: %q", t1)
+	}
+}

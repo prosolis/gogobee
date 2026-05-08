@@ -21,6 +21,8 @@ import (
 //	!zone map                     → ASCII layout of the run with current marker
 //	!zone advance                 → resolve the current room and move on
 //	!zone abandon                 → end the active run (no rewards)
+//	!zone taunt                   → poke TwinBee (mood −10, snarky reply)
+//	!zone compliment              → flatter TwinBee (mood +5, fond reply)
 //
 // TwinBee narration / mood triggers arrive in D1d. Combat / trap / boss
 // resolution per room is wired in D1e via dnd_zone_combat.go.
@@ -54,6 +56,10 @@ func (p *AdventurePlugin) handleDnDZoneCmd(ctx MessageContext, args string) erro
 		return p.zoneCmdAdvance(ctx)
 	case "abandon", "leave", "quit":
 		return p.zoneCmdAbandon(ctx)
+	case "taunt":
+		return p.zoneCmdTaunt(ctx)
+	case "compliment":
+		return p.zoneCmdCompliment(ctx)
 	default:
 		return p.SendDM(ctx.Sender, zoneHelpText())
 	}
@@ -67,7 +73,9 @@ func zoneHelpText() string {
 	b.WriteString("`!zone status` — show your current run\n")
 	b.WriteString("`!zone map` — show the room layout\n")
 	b.WriteString("`!zone advance` — resolve the current room and move on\n")
-	b.WriteString("`!zone abandon` — end the active run (no rewards)")
+	b.WriteString("`!zone abandon` — end the active run (no rewards)\n")
+	b.WriteString("`!zone taunt` — poke TwinBee (mood −10)\n")
+	b.WriteString("`!zone compliment` — flatter TwinBee (mood +5)")
 	return b.String()
 }
 
@@ -470,6 +478,53 @@ func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zon
 	}
 	b.WriteString(fmt.Sprintf("🏆 **%s** falls (HP %d→%d).", monster.Name, result.PlayerStartHP, result.PlayerEndHP))
 	return b.String(), false, nil
+}
+
+// ── taunt / compliment ──────────────────────────────────────────────────────
+
+func (p *AdventurePlugin) zoneCmdTaunt(ctx MessageContext) error {
+	return p.zoneMoodInteraction(ctx, MoodEventTaunt, tauntResponseLine, "💢")
+}
+
+func (p *AdventurePlugin) zoneCmdCompliment(ctx MessageContext) error {
+	return p.zoneMoodInteraction(ctx, MoodEventCompliment, complimentResponseLine, "💐")
+}
+
+// zoneMoodInteraction is the shared wiring for !zone taunt / !zone compliment:
+// require an active run, apply the mood event, render a deterministic line
+// from the prewritten pool, and report the new mood band.
+func (p *AdventurePlugin) zoneMoodInteraction(
+	ctx MessageContext,
+	ev GMMoodEvent,
+	render func(runID string, roomIdx int) string,
+	icon string,
+) error {
+	run, err := getActiveZoneRun(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't read run state: "+err.Error())
+	}
+	if run == nil {
+		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
+	}
+	_ = applyMoodDecayIfStale(run)
+	newMood, err := applyMoodEvent(run.RunID, ev)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't apply mood event: "+err.Error())
+	}
+	var b strings.Builder
+	if line := render(run.RunID, run.CurrentRoom); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n\n")
+	}
+	delta := MoodEventDelta(ev)
+	sign := "+"
+	if delta < 0 {
+		sign = "−"
+		delta = -delta
+	}
+	b.WriteString(fmt.Sprintf("%s GM mood: %d/100 (%s) _(%s%d)_",
+		icon, newMood, gmMoodLabel(newMood), sign, delta))
+	return p.SendDM(ctx.Sender, b.String())
 }
 
 // ── abandon ─────────────────────────────────────────────────────────────────
