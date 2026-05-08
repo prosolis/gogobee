@@ -213,6 +213,12 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 		}
 	}
 
+	// E6b: sample today's threat into RegionState["max_threat_seen"] before
+	// any milestone check reads it; then award daily milestones reached by
+	// the new day count (First Night day 2, Week One day 8, Two Weeks day 15).
+	_ = recordMaxThreat(e)
+	milestoneLines := p.checkDailyMilestones(e)
+
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)
 	if restSummary != "" {
@@ -220,6 +226,9 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	}
 	for _, tl := range temporalLines {
 		body += "\n🌀 " + tl + "\n"
+	}
+	for _, ml := range milestoneLines {
+		body += "\n" + ml
 	}
 
 	if uid := id.UserID(e.UserID); uid != "" {
