@@ -221,9 +221,15 @@ func init() {
 		Class:       ClassFighter,
 		Subclass:    SubclassBattleMaster,
 		Resource:    "superiority",
-		Description: "Add +d8 (≈+4) to your first attack roll this combat (consumes 1 superiority die).",
+		Description: "Add +d8 (≈+4, +5 at L10) to your first attack roll this combat (consumes 1 superiority die).",
 		Apply: func(c *DnDCharacter, mods *CombatModifiers) {
-			mods.FirstAttackBonus += 4
+			// Phase 10 SUB3a-ii — L10 Improved Combat Superiority bumps the
+			// die from d8 (avg 4.5) to d10 (avg 5.5).
+			bonus := 4
+			if c != nil && c.Level >= 10 {
+				bonus = 5
+			}
+			mods.FirstAttackBonus += bonus
 		},
 	}
 	dndActiveAbilities["trip_attack"] = DnDAbility{
@@ -243,9 +249,14 @@ func init() {
 		Class:       ClassFighter,
 		Subclass:    SubclassBattleMaster,
 		Resource:    "superiority",
-		Description: "Steel yourself for the fight: heal at low HP for d8 + CHA mod (consumes 1 superiority die).",
+		Description: "Steel yourself for the fight: heal at low HP for d8 + CHA mod (d10 at L10) (consumes 1 superiority die).",
 		Apply: func(c *DnDCharacter, mods *CombatModifiers) {
-			mods.HealItem += 4 + abilityModifier(c.CHA)
+			// Phase 10 SUB3a-ii — L10 Improved Combat Superiority: d8 → d10.
+			base := 4
+			if c != nil && c.Level >= 10 {
+				base = 5
+			}
+			mods.HealItem += base + abilityModifier(c.CHA)
 		},
 	}
 

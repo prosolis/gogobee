@@ -155,12 +155,19 @@ func initResources(userID id.UserID, class DnDClass) error {
 // subclassResourceMax — resources granted by a subclass on top of the class
 // pool. Phase 10 SUB2a-ii: Battle Master gets 4 superiority dice (5e
 // long-rest refresh in our model; spec says short-rest, but we keep parity
-// with the existing class pools' refresh cadence). Returns ("", 0) if the
-// subclass has no extra pool.
-func subclassResourceMax(sub DnDSubclass) (string, int) {
+// with the existing class pools' refresh cadence). Phase 10 SUB3a-ii: at
+// L15 Relentless gives "regen 1 die when initiative rolled with empty pool" —
+// proxied here as a +1 max (5 dice total) so the player always has at least
+// one extra encounter's worth across the long-rest cycle. Returns ("", 0) if
+// the subclass has no extra pool.
+func subclassResourceMax(sub DnDSubclass, level int) (string, int) {
 	switch sub {
 	case SubclassBattleMaster:
-		return "superiority", 4
+		max := 4
+		if level >= 15 {
+			max = 5
+		}
+		return "superiority", max
 	case SubclassLifeDomain, SubclassWarDomain, SubclassTrickeryDomain:
 		// Phase 10 SUB2c — shared Channel Divinity pool for Cleric domains.
 		// 5e is 1/short-rest at L2 and 2/short-rest at L6; long-rest refresh
@@ -170,19 +177,32 @@ func subclassResourceMax(sub DnDSubclass) (string, int) {
 	return "", 0
 }
 
-// initSubclassResources adds the subclass-specific resource pool. Called
-// from applySubclassChoice; idempotent. If a player switches subclasses,
-// the prior pool's row is left in place — refreshAllResources still touches
-// it but no ability references it once the subclass changes, so it's inert.
-func initSubclassResources(userID id.UserID, sub DnDSubclass) error {
-	resType, max := subclassResourceMax(sub)
+// initSubclassResources adds the subclass-specific resource pool, or grows
+// the existing pool's max if the level-gated cap increased (e.g. Battle
+// Master L15 Relentless bumps the cap from 4 → 5). Called from
+// applySubclassChoice and the level-up loop; idempotent. If a player
+// switches subclasses, the prior pool's row is left in place —
+// refreshAllResources still touches it but no ability references it once the
+// subclass changes, so it's inert.
+func initSubclassResources(userID id.UserID, sub DnDSubclass, level int) error {
+	resType, max := subclassResourceMax(sub, level)
 	if resType == "" {
 		return nil
 	}
-	_, err := db.Get().Exec(`
+	if _, err := db.Get().Exec(`
 		INSERT OR IGNORE INTO dnd_resources (user_id, resource_type, current_value, max_value)
 		VALUES (?, ?, ?, ?)`,
-		string(userID), resType, max, max)
+		string(userID), resType, max, max); err != nil {
+		return err
+	}
+	// Grow max (and current) if the cap rose since the row was first written.
+	// Don't shrink — players who somehow have a higher cap stored should keep it.
+	_, err := db.Get().Exec(`
+		UPDATE dnd_resources
+		   SET current_value = current_value + (? - max_value),
+		       max_value     = ?
+		 WHERE user_id = ? AND resource_type = ? AND max_value < ?`,
+		max, max, string(userID), resType, max)
 	return err
 }
 

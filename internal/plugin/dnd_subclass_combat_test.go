@@ -472,7 +472,7 @@ func TestInitSubclassResources_BattleMasterGetsSuperiority(t *testing.T) {
 	if err := SaveDnDCharacter(c); err != nil {
 		t.Fatal(err)
 	}
-	if err := initSubclassResources(uid, SubclassBattleMaster); err != nil {
+	if err := initSubclassResources(uid, SubclassBattleMaster, 5); err != nil {
 		t.Fatal(err)
 	}
 	cur, max, err := getResource(uid, "superiority")
@@ -490,7 +490,7 @@ func TestInitSubclassResources_NonBattleMasterIsNoop(t *testing.T) {
 	if err := createAdvCharacter(uid, "bm_noop"); err != nil {
 		t.Fatal(err)
 	}
-	if err := initSubclassResources(uid, SubclassChampion); err != nil {
+	if err := initSubclassResources(uid, SubclassChampion, 5); err != nil {
 		t.Fatal(err)
 	}
 	cur, max, err := getResource(uid, "superiority")
@@ -546,7 +546,7 @@ func TestArmPrecisionAttack_AllowedForBattleMaster(t *testing.T) {
 	if err := SaveDnDCharacter(c); err != nil {
 		t.Fatal(err)
 	}
-	if err := initSubclassResources(uid, SubclassBattleMaster); err != nil {
+	if err := initSubclassResources(uid, SubclassBattleMaster, 5); err != nil {
 		t.Fatal(err)
 	}
 
@@ -939,5 +939,107 @@ func TestApplySubclassPassives_BerserkerL15Retaliation(t *testing.T) {
 	}
 	if mods.SporeCloud != 2 {
 		t.Errorf("L15 Berserker SporeCloud = %d, want 2 (L10 still active)", mods.SporeCloud)
+	}
+}
+
+// ── SUB3a-ii — Battle Master L10/L15 ────────────────────────────────────
+
+func TestPrecisionAttack_L10ImprovedSuperiority(t *testing.T) {
+	// L9: d8 → +4. L10: d10 → +5.
+	ab := dndActiveAbilities["precision_attack"]
+
+	c9 := &DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 9}
+	mods9 := &CombatModifiers{}
+	ab.Apply(c9, mods9)
+	if mods9.FirstAttackBonus != 4 {
+		t.Errorf("L9 Precision Attack FirstAttackBonus = %d, want 4 (d8)", mods9.FirstAttackBonus)
+	}
+
+	c10 := &DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 10}
+	mods10 := &CombatModifiers{}
+	ab.Apply(c10, mods10)
+	if mods10.FirstAttackBonus != 5 {
+		t.Errorf("L10 Precision Attack FirstAttackBonus = %d, want 5 (d10)", mods10.FirstAttackBonus)
+	}
+}
+
+func TestRally_L10ImprovedSuperiority(t *testing.T) {
+	// CHA 14 → mod +2. L9: 4 + 2 = 6; L10: 5 + 2 = 7.
+	ab := dndActiveAbilities["rally"]
+
+	c9 := &DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 9, CHA: 14}
+	mods9 := &CombatModifiers{}
+	ab.Apply(c9, mods9)
+	if mods9.HealItem != 6 {
+		t.Errorf("L9 Rally HealItem = %d, want 6 (d8 + CHA)", mods9.HealItem)
+	}
+
+	c10 := &DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 10, CHA: 14}
+	mods10 := &CombatModifiers{}
+	ab.Apply(c10, mods10)
+	if mods10.HealItem != 7 {
+		t.Errorf("L10 Rally HealItem = %d, want 7 (d10 + CHA)", mods10.HealItem)
+	}
+}
+
+func TestSubclassResourceMax_BattleMasterL15Relentless(t *testing.T) {
+	// Pre-L15: 4 dice. L15+: 5 dice (Relentless approximation).
+	if _, max := subclassResourceMax(SubclassBattleMaster, 14); max != 4 {
+		t.Errorf("L14 Battle Master max = %d, want 4", max)
+	}
+	if _, max := subclassResourceMax(SubclassBattleMaster, 15); max != 5 {
+		t.Errorf("L15 Battle Master max = %d, want 5", max)
+	}
+	if _, max := subclassResourceMax(SubclassBattleMaster, 20); max != 5 {
+		t.Errorf("L20 Battle Master max = %d, want 5", max)
+	}
+}
+
+func TestInitSubclassResources_BattleMasterL15GrowsPool(t *testing.T) {
+	// Seed at L5 (max=4), then re-init at L15 — pool max should grow to 5,
+	// and current should bump by the same delta so a freshly-rested player
+	// gets the new die immediately rather than after a long rest.
+	setupAuditTestDB(t)
+	uid := id.UserID("@bm_relentless:example")
+	if err := createAdvCharacter(uid, "bm_relentless"); err != nil {
+		t.Fatal(err)
+	}
+	if err := initSubclassResources(uid, SubclassBattleMaster, 5); err != nil {
+		t.Fatal(err)
+	}
+	cur, max, _ := getResource(uid, "superiority")
+	if cur != 4 || max != 4 {
+		t.Fatalf("L5 pool = %d/%d, want 4/4", cur, max)
+	}
+	if err := initSubclassResources(uid, SubclassBattleMaster, 15); err != nil {
+		t.Fatal(err)
+	}
+	cur, max, _ = getResource(uid, "superiority")
+	if cur != 5 || max != 5 {
+		t.Errorf("L15 pool after reconcile = %d/%d, want 5/5", cur, max)
+	}
+}
+
+func TestInitSubclassResources_BattleMasterL15PreservesSpentDice(t *testing.T) {
+	// Player burned through 3 dice (current=1, max=4), then levels up to 15.
+	// The growth delta (+1) should be added to current → cur=2, max=5. We
+	// don't refill to max; that's the long-rest's job.
+	setupAuditTestDB(t)
+	uid := id.UserID("@bm_partial:example")
+	if err := createAdvCharacter(uid, "bm_partial"); err != nil {
+		t.Fatal(err)
+	}
+	if err := initSubclassResources(uid, SubclassBattleMaster, 5); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := spendResource(uid, "superiority", 3); err != nil || !ok {
+		t.Fatalf("spendResource: ok=%v err=%v", ok, err)
+	}
+	if err := initSubclassResources(uid, SubclassBattleMaster, 15); err != nil {
+		t.Fatal(err)
+	}
+	cur, max, _ := getResource(uid, "superiority")
+	if cur != 2 || max != 5 {
+		t.Errorf("partially spent + L15 grow = %d/%d, want 2/5", cur, max)
 	}
 }

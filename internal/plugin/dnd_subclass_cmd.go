@@ -123,7 +123,7 @@ func (p *AdventurePlugin) applySubclassChoice(
 	// Battle Master superiority dice). Idempotent. Failure is non-fatal —
 	// the player still gets the subclass; resources can be re-initialized
 	// next long rest.
-	_ = initSubclassResources(ctx.Sender, chosen)
+	_ = initSubclassResources(ctx.Sender, chosen, c.Level)
 	// Phase 10 SUB2-AT — Arcane Trickster bootstraps a Mage-list spellbook
 	// + third-caster slot pool on selection. Idempotent and non-fatal: the
 	// next `!cast`/`!spells` call also runs ensureSpellsForCharacter.

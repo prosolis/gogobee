@@ -132,6 +132,13 @@ func (p *AdventurePlugin) grantDnDXP(userID id.UserID, amount int) ([]LevelUpEve
 	}
 
 	if len(events) > 0 {
+		// Phase 10 SUB3a-ii — Battle Master Relentless (L15) raises the
+		// superiority cap from 4 → 5; reconcile any level-gated subclass pool
+		// growth here. Idempotent and non-fatal: a stale pool just means the
+		// player reaches their full cap on the next long rest at the latest.
+		if c.Subclass != "" {
+			_ = initSubclassResources(userID, c.Subclass, c.Level)
+		}
 		p.sendLevelUpDM(userID, c, events, amount)
 	}
 

@@ -173,7 +173,7 @@ func TestChannelDivinity_ResourceMaxForAllClericSubs(t *testing.T) {
 	for _, sub := range []DnDSubclass{
 		SubclassLifeDomain, SubclassWarDomain, SubclassTrickeryDomain,
 	} {
-		res, max := subclassResourceMax(sub)
+		res, max := subclassResourceMax(sub, 5)
 		if res != "channel_divinity" {
 			t.Errorf("%s resource = %q, want channel_divinity", sub, res)
 		}
@@ -189,7 +189,7 @@ func TestChannelDivinity_InitAndSpend(t *testing.T) {
 	if err := createAdvCharacter(uid, "cd_pool"); err != nil {
 		t.Fatal(err)
 	}
-	if err := initSubclassResources(uid, SubclassLifeDomain); err != nil {
+	if err := initSubclassResources(uid, SubclassLifeDomain, 5); err != nil {
 		t.Fatal(err)
 	}
 	cur, max, err := getResource(uid, "channel_divinity")
