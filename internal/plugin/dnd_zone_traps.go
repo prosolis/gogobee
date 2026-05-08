@@ -27,6 +27,10 @@ const (
 	TrapFlameJet       ZoneTrapKind = "flame_jet"
 	TrapCollapsingCeil ZoneTrapKind = "collapsing_ceiling"
 	TrapGlyphOfWarding ZoneTrapKind = "glyph_of_warding"
+	TrapAntimagicField ZoneTrapKind = "antimagic_field"
+	TrapNecroticMiasma ZoneTrapKind = "necrotic_miasma"
+	TrapSymbolOfDeath  ZoneTrapKind = "symbol_of_death"
+	TrapPlanarRift     ZoneTrapKind = "planar_rift"
 )
 
 // zoneTrapDef — static definition of a zone trap. Damage dice are in
@@ -40,10 +44,11 @@ type zoneTrapDef struct {
 	DetectDC      int
 	DamageDiceN   int     // 0 if no direct damage
 	DamageDiceD   int     // sides
-	DamageType    string  // "bludgeoning", "piercing", "poison", ...
-	AlertsEnemies bool    // tripwire-class: 0 damage, raises alarm
-	Tier          ZoneTier
-	Weight        int     // 1..10, default 5
+	DamageType      string // "bludgeoning", "piercing", "poison", ...
+	AlertsEnemies   bool   // tripwire-class: 0 damage, raises alarm
+	SuppressesMagic bool   // antimagic-class: 0 damage, narrative suppression
+	Tier            ZoneTier
+	Weight          int    // 1..10, default 5
 }
 
 // tier1TrapCatalog — design doc §6 Tier 1 table.
@@ -126,14 +131,83 @@ var tier2TrapCatalog = []zoneTrapDef{
 	},
 }
 
-// trapsByTier returns all traps registered at the given tier. Tier 3+
-// catalogs append to this switch in later sub-phases (D4a).
+// tier3TrapCatalog — design doc §6 Tier 3–5 table. The doc lumps all
+// high-tier traps into a single list, so tiers 3, 4, and 5 share this
+// pool. Two of the four entries (Antimagic Field, Symbol of Death) have
+// effects that don't fit the dice-only damage model:
+//
+//   - Antimagic Field: no damage; SuppressesMagic flag flips the
+//     narration to a non-damaging suppression beat. The actual
+//     spell-suppression mechanic is left to a later phase — for now
+//     the line tells the player magic is choked in this room.
+//   - Necrotic Miasma: design doc says "6d6 + max HP -10 until long
+//     rest". The max-HP debuff isn't modeled here; trap delivers the
+//     6d6 necrotic damage only.
+//   - Symbol of Death: doc reads "INT DC 20 or drop to 0 HP". We
+//     approximate with 8d10 psychic; the existing near-KO cap in
+//     applyTrapEffectWithDetect prevents an outright kill.
+//   - Planar Rift: 4d10 psychic. The teleport-to-random-room mechanic
+//     isn't modeled — trap just deals psychic damage for now.
+var tier3TrapCatalog = []zoneTrapDef{
+	{
+		Kind:            TrapAntimagicField,
+		Display:         "Antimagic Field",
+		Trigger:         "the air thickens and every charm at your belt goes cold",
+		DetectSkill:     SkillArcana,
+		DetectDC:        18,
+		SuppressesMagic: true,
+		Tier:            ZoneTierJourneyman,
+		Weight:          3,
+	},
+	{
+		Kind:        TrapNecroticMiasma,
+		Display:     "Necrotic Miasma",
+		Trigger:     "the sarcophagus lid shifts and a green-black fume pours out",
+		DetectSkill: SkillPerception,
+		DetectDC:    16,
+		DamageDiceN: 6,
+		DamageDiceD: 6,
+		DamageType:  "necrotic",
+		Tier:        ZoneTierJourneyman,
+		Weight:      5,
+	},
+	{
+		Kind:        TrapSymbolOfDeath,
+		Display:     "Symbol of Death",
+		Trigger:     "an inscribed sigil flares and your vision blanks to white",
+		DetectSkill: SkillInvestigation,
+		DetectDC:    20,
+		DamageDiceN: 8,
+		DamageDiceD: 10,
+		DamageType:  "psychic",
+		Tier:        ZoneTierJourneyman,
+		Weight:      2,
+	},
+	{
+		Kind:        TrapPlanarRift,
+		Display:     "Planar Rift",
+		Trigger:     "the floor folds wrong and a tear of starless dark grasps at you",
+		DetectSkill: SkillArcana,
+		DetectDC:    20,
+		DamageDiceN: 4,
+		DamageDiceD: 10,
+		DamageType:  "psychic",
+		Tier:        ZoneTierJourneyman,
+		Weight:      3,
+	},
+}
+
+// trapsByTier returns all traps registered at the given tier. Tiers 3,
+// 4, and 5 share the Tier 3 catalog per the design doc's combined
+// "Tier 3–5 Traps" table; later phases may split them.
 func trapsByTier(t ZoneTier) []zoneTrapDef {
 	switch t {
 	case ZoneTierBeginner:
 		return tier1TrapCatalog
 	case ZoneTierApprentice:
 		return tier2TrapCatalog
+	case ZoneTierJourneyman, ZoneTierVeteran, ZoneTierLegendary:
+		return tier3TrapCatalog
 	}
 	return nil
 }
@@ -190,7 +264,7 @@ func zoneTrapSelectorHash(runID string, roomIdx int) uint64 {
 // here; the design-doc CON DC 11 save is folded into the same dice pool
 // as a flattened average.
 func rollTrapDamage(tr zoneTrapDef, runID string, roomIdx int) int {
-	if tr.AlertsEnemies || tr.DamageDiceN == 0 || tr.DamageDiceD == 0 {
+	if tr.AlertsEnemies || tr.SuppressesMagic || tr.DamageDiceN == 0 || tr.DamageDiceD == 0 {
 		return 0
 	}
 	rng := rand.New(rand.NewPCG(zoneTrapSelectorHash(runID, roomIdx), 0x712D2A))
@@ -206,6 +280,9 @@ func rollTrapDamage(tr zoneTrapDef, runID string, roomIdx int) int {
 func trapDamageHeader(tr zoneTrapDef, dmg int, hpCur, hpMax int) string {
 	if tr.AlertsEnemies {
 		return fmt.Sprintf("🔔 **%s** — %s. The next room knows you're here.", tr.Display, tr.Trigger)
+	}
+	if tr.SuppressesMagic {
+		return fmt.Sprintf("🚫 **%s** — %s. Spells fizzle and enchanted gear sleeps until you leave the room.", tr.Display, tr.Trigger)
 	}
 	dice := fmt.Sprintf("%dd%d", tr.DamageDiceN, tr.DamageDiceD)
 	return fmt.Sprintf("💢 **%s** (%s %s) — **%d HP** (%d/%d remaining).",

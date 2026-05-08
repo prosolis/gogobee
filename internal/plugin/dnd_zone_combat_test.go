@@ -388,6 +388,125 @@ func TestRollTrapDamage_TripwireZero(t *testing.T) {
 	}
 }
 
+// ── Phase 11 D4b — Tier 3 trap catalog ──────────────────────────────────────
+
+func TestPickZoneTrap_Tier3UsesTier3Catalog(t *testing.T) {
+	zone, ok := getZone(ZoneManorBlackspire)
+	if !ok {
+		t.Fatal("manor_blackspire zone missing")
+	}
+	if zone.Tier != ZoneTierJourneyman {
+		t.Fatalf("manor_blackspire expected tier 3, got %d", zone.Tier)
+	}
+	seen := map[ZoneTrapKind]bool{}
+	for room := 0; room < 64; room++ {
+		tr, ok := pickZoneTrap(zone, "t3-run", room)
+		if !ok {
+			t.Fatalf("pickZoneTrap !ok at room %d", room)
+		}
+		if tr.Tier != ZoneTierJourneyman {
+			t.Errorf("tier 3 zone picked tier %d trap (%s)", tr.Tier, tr.Kind)
+		}
+		seen[tr.Kind] = true
+	}
+	if len(seen) < 2 {
+		t.Errorf("expected variety across 64 rooms in tier 3, only saw %d kinds: %v", len(seen), seen)
+	}
+}
+
+func TestTier3TrapCatalog_AllValid(t *testing.T) {
+	if len(tier3TrapCatalog) < 4 {
+		t.Fatalf("tier 3 catalog should have at least 4 traps, got %d", len(tier3TrapCatalog))
+	}
+	for _, tr := range tier3TrapCatalog {
+		if tr.Tier != ZoneTierJourneyman {
+			t.Errorf("trap %s tagged tier %d, expected 3", tr.Kind, tr.Tier)
+		}
+		if tr.Display == "" || tr.Trigger == "" {
+			t.Errorf("trap %s missing display/trigger text", tr.Kind)
+		}
+		nonDamaging := tr.AlertsEnemies || tr.SuppressesMagic
+		if !nonDamaging && (tr.DamageDiceN == 0 || tr.DamageDiceD == 0) {
+			t.Errorf("trap %s deals no damage and is not alarm/suppression", tr.Kind)
+		}
+		if tr.DetectDC < 16 {
+			t.Errorf("trap %s detect DC %d looks tier 2; tier 3 should be 16+", tr.Kind, tr.DetectDC)
+		}
+	}
+}
+
+func TestRollTrapDamage_NecroticMiasmaIn6d6Range(t *testing.T) {
+	var miasma zoneTrapDef
+	for _, tr := range tier3TrapCatalog {
+		if tr.Kind == TrapNecroticMiasma {
+			miasma = tr
+			break
+		}
+	}
+	if miasma.Kind != TrapNecroticMiasma {
+		t.Fatal("necrotic miasma not in tier 3 catalog")
+	}
+	for room := 0; room < 64; room++ {
+		dmg := rollTrapDamage(miasma, "miasma-run", room)
+		if dmg < 6 || dmg > 36 { // 6d6 range
+			t.Errorf("miasma damage out of 6..36 range at room %d: %d", room, dmg)
+		}
+	}
+}
+
+func TestRollTrapDamage_AntimagicFieldZero(t *testing.T) {
+	var anti zoneTrapDef
+	for _, tr := range tier3TrapCatalog {
+		if tr.Kind == TrapAntimagicField {
+			anti = tr
+			break
+		}
+	}
+	if anti.Kind != TrapAntimagicField {
+		t.Fatal("antimagic field not in tier 3 catalog")
+	}
+	if dmg := rollTrapDamage(anti, "any-run", 0); dmg != 0 {
+		t.Errorf("antimagic field should deal 0 damage, got %d", dmg)
+	}
+}
+
+func TestZoneTrapRoom_AntimagicFieldNoHPLoss(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@zone-trap-antimagic:example")
+	zoneCmdTestCharacter(t, uid, 5)
+	defer cleanupZoneRuns(uid)
+
+	run, err := startZoneRun(uid, ZoneManorBlackspire, 5, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zone, _ := getZone(ZoneManorBlackspire)
+	dndChar, _ := LoadDnDCharacter(uid)
+	startHP := dndChar.HPCurrent
+
+	var anti zoneTrapDef
+	for _, tr := range tier3TrapCatalog {
+		if tr.Kind == TrapAntimagicField {
+			anti = tr
+			break
+		}
+	}
+
+	p := &AdventurePlugin{}
+	dmg, narration := p.applyTrapEffectWithDetect(uid, run, zone, dndChar, anti,
+		failedDetect(anti.DetectSkill, anti.DetectDC))
+	if dmg != 0 {
+		t.Errorf("antimagic field should deal 0 damage even on fail, got %d", dmg)
+	}
+	if !strings.Contains(narration, "Antimagic") {
+		t.Errorf("antimagic narration missing trap name: %q", narration)
+	}
+	c, _ := LoadDnDCharacter(uid)
+	if c.HPCurrent != startHP {
+		t.Errorf("antimagic field should not change HP: cur=%d, want=%d", c.HPCurrent, startHP)
+	}
+}
+
 func TestRollZoneLoot_BossLootDrops(t *testing.T) {
 	setupAuditTestDB(t)
 	uid := id.UserID("@zone-loot:example")
