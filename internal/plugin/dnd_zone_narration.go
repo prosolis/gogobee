@@ -81,6 +81,8 @@ func zoneRoomEntryPool(zoneID ZoneID) []string {
 		return append(append([]string{}, flavor.RoomEntrySunkenTemple...), flavor.RoomEntryGeneric...)
 	case ZoneManorBlackspire:
 		return append(append([]string{}, flavor.RoomEntryHauntedManor...), flavor.RoomEntryGeneric...)
+	case ZoneUnderforge:
+		return append(append([]string{}, flavor.RoomEntryUnderforge...), flavor.RoomEntryGeneric...)
 	case ZoneUnderdark:
 		return append(append([]string{}, flavor.RoomEntryUnderdark...), flavor.RoomEntryGeneric...)
 	case ZoneDragonsLair:
@@ -101,6 +103,10 @@ func bossEntryPool(zoneID ZoneID) []string {
 		return flavor.BossEntryHollowKing
 	case ZoneSunkenTemple:
 		return flavor.BossEntryDreamingAboleth
+	case ZoneManorBlackspire:
+		return flavor.BossEntryAldricBlackspire
+	case ZoneUnderforge:
+		return flavor.BossEntryEmberlordThyrak
 	case ZoneDragonsLair:
 		return flavor.BossEntryInfernax
 	case ZoneAbyssPortal:
@@ -155,6 +161,10 @@ func zoneLorePool(zoneID ZoneID) []string {
 		return append(append([]string{}, flavor.LoreLinesForestShadows...), flavor.LoreLines...)
 	case ZoneSunkenTemple:
 		return append(append([]string{}, flavor.LoreLinesSunkenTemple...), flavor.LoreLines...)
+	case ZoneManorBlackspire:
+		return append(append([]string{}, flavor.LoreLinesManorBlackspire...), flavor.LoreLines...)
+	case ZoneUnderforge:
+		return append(append([]string{}, flavor.LoreLinesUnderforge...), flavor.LoreLines...)
 	}
 	return flavor.LoreLines
 }
@@ -172,6 +182,10 @@ func bossSignaturePool(zoneID ZoneID) []string {
 		return flavor.HollowKingSignatureCallouts
 	case ZoneSunkenTemple:
 		return flavor.AbolethSignatureCallouts
+	case ZoneManorBlackspire:
+		return flavor.AldricSignatureCallouts
+	case ZoneUnderforge:
+		return flavor.ThyrakSignatureCallouts
 	}
 	return nil
 }
@@ -188,6 +202,10 @@ func eliteRoomEntryPool(zoneID ZoneID) []string {
 		return flavor.EliteRoomEntryForestShadows
 	case ZoneSunkenTemple:
 		return flavor.EliteRoomEntrySunkenTemple
+	case ZoneManorBlackspire:
+		return flavor.EliteRoomEntryManorBlackspire
+	case ZoneUnderforge:
+		return flavor.EliteRoomEntryUnderforge
 	}
 	return nil
 }

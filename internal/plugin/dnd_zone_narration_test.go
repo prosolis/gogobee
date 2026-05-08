@@ -294,6 +294,64 @@ func TestRoomEntryPool_Tier2PrependsZoneSpecific(t *testing.T) {
 	}
 }
 
+// ── Phase 11 D4c — Tier 3 zone flavor file routing ──────────────────────────
+
+func TestComposeBossEntry_AppendsAbilityCalloutForTier3(t *testing.T) {
+	got := composeBossEntry(ZoneManorBlackspire, "run-d4c", 5)
+	if !strings.Contains(got, "Aldric") {
+		t.Errorf("Manor boss-entry should mention Aldric: %q", got)
+	}
+	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 2 {
+		t.Errorf("Manor boss-entry expected 2 TwinBee blocks (entry+callout), got %d:\n%s", n, got)
+	}
+
+	got = composeBossEntry(ZoneUnderforge, "run-d4c", 5)
+	if !strings.Contains(got, "Thyrak") {
+		t.Errorf("Underforge boss-entry should mention Thyrak: %q", got)
+	}
+	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 2 {
+		t.Errorf("Underforge boss-entry expected 2 TwinBee blocks (entry+callout), got %d:\n%s", n, got)
+	}
+}
+
+func TestEliteRoomEntryLine_Tier3Routes(t *testing.T) {
+	m := eliteRoomEntryLine(ZoneManorBlackspire, "run-elite-t3", 3)
+	if m == "" || !strings.HasPrefix(m, "🎭 **TwinBee:**") {
+		t.Errorf("Manor elite line missing/no prefix: %q", m)
+	}
+	u := eliteRoomEntryLine(ZoneUnderforge, "run-elite-t3", 3)
+	if u == "" || !strings.HasPrefix(u, "🎭 **TwinBee:**") {
+		t.Errorf("Underforge elite line missing/no prefix: %q", u)
+	}
+	if m == u {
+		t.Errorf("Manor and Underforge elite lines collided on same salt")
+	}
+}
+
+func TestZoneLorePool_Tier3PrependsZoneSpecific(t *testing.T) {
+	m := zoneLorePool(ZoneManorBlackspire)
+	if len(m) <= len(flavor.LoreLines) {
+		t.Errorf("Manor lore pool should be larger than generic; got %d vs generic %d",
+			len(m), len(flavor.LoreLines))
+	}
+	u := zoneLorePool(ZoneUnderforge)
+	if len(u) <= len(flavor.LoreLines) {
+		t.Errorf("Underforge lore pool should be larger than generic; got %d vs generic %d",
+			len(u), len(flavor.LoreLines))
+	}
+}
+
+func TestRoomEntryPool_Tier3PrependsZoneSpecific(t *testing.T) {
+	m := zoneRoomEntryPool(ZoneManorBlackspire)
+	if len(m) <= len(flavor.RoomEntryGeneric) {
+		t.Errorf("Manor room-entry pool should overlay zone-specific lines; got %d", len(m))
+	}
+	u := zoneRoomEntryPool(ZoneUnderforge)
+	if len(u) <= len(flavor.RoomEntryGeneric) {
+		t.Errorf("Underforge room-entry pool should overlay zone-specific lines; got %d", len(u))
+	}
+}
+
 func TestZoneCmd_AdvanceFinalRoomBumpsMood(t *testing.T) {
 	setupAuditTestDB(t)
 	uid := id.UserID("@zone-mood-complete:example")
