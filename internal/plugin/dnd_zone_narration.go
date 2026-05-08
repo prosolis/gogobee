@@ -381,6 +381,36 @@ func complimentResponseLine(runID string, roomIdx int) string {
 	return "🎭 **TwinBee:** " + line
 }
 
+// moodAsidePool returns the mood-banded aside pool when the mood sits at
+// an extreme band (hostile or effusive), else nil. Mid-bands (grumpy /
+// neutral / friendly) intentionally surface no aside — flavor stays
+// strictly extra, never replacing the core narration.
+func moodAsidePool(mood int) []string {
+	switch moodBand(mood) {
+	case MoodBandHostile:
+		return flavor.MoodAsidesHostile
+	case MoodBandEffusive:
+		return flavor.MoodAsidesEffusive
+	}
+	return nil
+}
+
+// moodAsideLine renders a deterministic TwinBee aside reflecting the
+// run's mood at the extreme bands. roomIdx is folded so the same room
+// in the same run is stable; cross-room asides vary. Returns "" for
+// mid-band moods.
+func moodAsideLine(mood int, runID string, roomIdx int) string {
+	pool := moodAsidePool(mood)
+	if len(pool) == 0 {
+		return ""
+	}
+	line := pickLineDeterministic(pool, runID, roomIdx^0x6F2D8B14)
+	if line == "" {
+		return ""
+	}
+	return "🎭 **TwinBee:** " + line
+}
+
 // ── Mood event table & application ───────────────────────────────────────────
 
 // GMMoodEvent enumerates the mood-modifier triggers from design doc §3.2.

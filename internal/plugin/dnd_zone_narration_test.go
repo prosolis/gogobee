@@ -500,3 +500,63 @@ func TestPhaseTwoCrossedInEvents(t *testing.T) {
 		t.Errorf("startHP 0 — should be false (degenerate)")
 	}
 }
+
+// ── Phase 11 D8 — mood-banded TwinBee aside ─────────────────────────────────
+
+func TestMoodAsideLine_OnlyAtExtremes(t *testing.T) {
+	// Mid-bands return empty — flavor stays strictly extra.
+	for _, mood := range []int{20, 39, 40, 50, 59, 60, 79} {
+		if got := moodAsideLine(mood, "run-aside", 3); got != "" {
+			t.Errorf("mood=%d (mid-band) should produce no aside; got %q", mood, got)
+		}
+	}
+	// Extremes always produce a line (pools are non-empty).
+	for _, mood := range []int{0, 19} {
+		got := moodAsideLine(mood, "run-aside", 3)
+		if got == "" || !strings.HasPrefix(got, "🎭 **TwinBee:**") {
+			t.Errorf("hostile mood=%d should produce aside; got %q", mood, got)
+		}
+	}
+	for _, mood := range []int{80, 100} {
+		got := moodAsideLine(mood, "run-aside", 3)
+		if got == "" || !strings.HasPrefix(got, "🎭 **TwinBee:**") {
+			t.Errorf("effusive mood=%d should produce aside; got %q", mood, got)
+		}
+	}
+}
+
+func TestMoodAsideLine_DrawsFromCorrectPool(t *testing.T) {
+	hostile := moodAsideLine(5, "run-aside", 1)
+	effusive := moodAsideLine(95, "run-aside", 1)
+	// Each line must come from its band's pool.
+	if !lineInPool(hostile, flavor.MoodAsidesHostile) {
+		t.Errorf("hostile aside %q not in MoodAsidesHostile", hostile)
+	}
+	if !lineInPool(effusive, flavor.MoodAsidesEffusive) {
+		t.Errorf("effusive aside %q not in MoodAsidesEffusive", effusive)
+	}
+}
+
+func TestMoodAsideLine_DeterministicPerRoom(t *testing.T) {
+	a := moodAsideLine(10, "run-D8", 5)
+	b := moodAsideLine(10, "run-D8", 5)
+	if a != b {
+		t.Errorf("same (mood, runID, roomIdx) should produce same aside: %q vs %q", a, b)
+	}
+}
+
+// lineInPool returns true if rendered (with TwinBee prefix) corresponds to
+// any line in pool.
+func lineInPool(rendered string, pool []string) bool {
+	const prefix = "🎭 **TwinBee:** "
+	if !strings.HasPrefix(rendered, prefix) {
+		return false
+	}
+	body := strings.TrimPrefix(rendered, prefix)
+	for _, line := range pool {
+		if line == body {
+			return true
+		}
+	}
+	return false
+}

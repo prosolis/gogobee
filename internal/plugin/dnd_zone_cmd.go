@@ -198,6 +198,10 @@ func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest
 		b.WriteString(line)
 		b.WriteString("\n\n")
 	}
+	if aside := moodAsideLine(run.GMMood, run.RunID, run.CurrentRoom); aside != "" {
+		b.WriteString(aside)
+		b.WriteString("\n\n")
+	}
 	b.WriteString(fmt.Sprintf("**Room 1/%d — %s.** Use `!zone advance` to proceed, `!zone map` for layout.",
 		run.TotalRooms, prettyRoomType(run.CurrentRoomType())))
 	return p.SendDM(ctx.Sender, b.String())
@@ -366,6 +370,16 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 			b.WriteString(line)
 			b.WriteString("\n\n")
 		}
+	}
+	// Reload mood — combat-event nat20/nat1 deltas have been persisted via
+	// scanMoodEventsFromCombat but not reflected on the in-memory run.
+	freshMood := run.GMMood
+	if fresh, _ := getZoneRun(run.RunID); fresh != nil {
+		freshMood = fresh.GMMood
+	}
+	if aside := moodAsideLine(freshMood, run.RunID, nextIdx); aside != "" {
+		b.WriteString(aside)
+		b.WriteString("\n\n")
 	}
 	b.WriteString(fmt.Sprintf("**Room %d/%d — %s.** ", nextIdx+1, run.TotalRooms, prettyRoomType(next)))
 	b.WriteString("`!zone advance` to continue.")

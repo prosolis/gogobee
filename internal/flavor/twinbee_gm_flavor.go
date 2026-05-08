@@ -489,3 +489,37 @@ var SaveFailed = []string{
 	"Like the NES game over screen — inevitable in this moment, fixable in the next. The save failed. The dungeon continues. So do you.",
 	"The effect takes hold and TwinBee is already calculating how you get out of it, because that's TwinBee's job: keep you oriented toward solutions even when the immediate situation is a problem.",
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MOOD ASIDES — Hostile band (mood 0–19, "Wrathful")
+// Short room-entry asides surfaced only when TwinBee's mood is at the
+// hostile extreme. Cryptic, withholding, no hints. Per design doc §3.2.
+// ─────────────────────────────────────────────────────────────────────────────
+
+var MoodAsidesHostile = []string{
+	"TwinBee is not narrating this one in detail. You can read the room. Read it.",
+	"The dungeon offers TwinBee something to mention. TwinBee declines. You're on your own for color commentary.",
+	"TwinBee is here. TwinBee is watching. TwinBee is not, currently, helping. There is a difference and you will feel it.",
+	"In the bad ending of every Castlevania, the protagonist gets less guidance than they did at the start. TwinBee has reached approximately that part of the playthrough.",
+	"TwinBee keeps several details to itself. The details would have been useful. TwinBee does not consider this its problem right now.",
+	"Whatever's in the next part of the room, TwinBee saw it and chose not to flag it. The mood is what it is.",
+	"TwinBee mutters something. You don't catch it. TwinBee does not repeat it.",
+	"The narration is sparse here. TwinBee is sparing it on purpose. Adjust accordingly.",
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MOOD ASIDES — Effusive band (mood 80–100, "Elated")
+// Generous, warm asides surfaced when TwinBee is delighted with the run.
+// Hint-friendly, fond. Per design doc §3.2.
+// ─────────────────────────────────────────────────────────────────────────────
+
+var MoodAsidesEffusive = []string{
+	"TwinBee is, not to put too fine a point on it, having a wonderful time. The next bit might come with bonus context.",
+	"TwinBee leans in. The mood is good. Good moods, in TwinBee's experience, lead to slightly more generous descriptions and slightly better odds of catching the small details.",
+	"This is the part of the run TwinBee will tell other GMs about later. TwinBee makes a small mental note and continues with visible enthusiasm.",
+	"TwinBee is delighted. You can hear it in the pacing. You can hear it in the choice of adjectives. The dungeon is, briefly, on your side.",
+	"In the good ending of every JRPG, the world feels slightly warmer in the late game. TwinBee is at that part of the playthrough and it shows.",
+	"TwinBee, not normally given to footnotes, is about to add a footnote. It will probably be useful. TwinBee is in that kind of mood.",
+	"The mood is high. TwinBee is, for the next stretch, more likely to mention the loose flagstone, the suspicious tapestry, the thing on the ceiling. Take advantage.",
+	"TwinBee hums a victory fanfare softly to itself. It is not earned yet. TwinBee is being optimistic on your behalf.",
+}
