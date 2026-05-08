@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"strings"
 
 	"gogobee/internal/flavor"
 )
@@ -169,6 +170,74 @@ func appendThreatTransitionLog(e *Expedition, band ThreatBand) error {
 	info := threatBandInfo(band)
 	summary := fmt.Sprintf("threat clock crossed into %s (%d/100)", info.Label, e.ThreatLevel)
 	return appendExpeditionLog(e.ID, e.CurrentDay, "threat", summary, line)
+}
+
+// handleThreatCmd surfaces the current threat clock state — level, band,
+// per-band combat effects, and the last few ThreatEvent log entries.
+func (p *AdventurePlugin) handleThreatCmd(ctx MessageContext) error {
+	exp, err := getActiveExpedition(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+	}
+	if exp == nil {
+		return p.SendDM(ctx.Sender,
+			"No active expedition. Threat clock only ticks during expeditions.")
+	}
+	band := threatBandFor(exp.ThreatLevel, exp.SiegeMode)
+	info := threatBandInfo(band)
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("⏰ **Threat Clock — %d / 100 — %s**\n\n", exp.ThreatLevel, info.Label))
+	b.WriteString(threatBandEffectsBlock(info))
+	if len(exp.ThreatEvents) > 0 {
+		b.WriteString("\n**Recent threat events:**\n")
+		// Show last 5 newest-last for chronological reading.
+		start := 0
+		if len(exp.ThreatEvents) > 5 {
+			start = len(exp.ThreatEvents) - 5
+		}
+		for _, ev := range exp.ThreatEvents[start:] {
+			sign := "+"
+			if ev.Delta < 0 {
+				sign = ""
+			}
+			b.WriteString(fmt.Sprintf("  • %s%d — %s _(at %s)_\n",
+				sign, ev.Delta, ev.Reason, ev.Timestamp.Format("2006-01-02 15:04")))
+		}
+	}
+	if exp.SiegeMode {
+		b.WriteString("\n_Siege Mode is active. The dungeon's final form. It cannot be reduced — only finished or escaped._\n")
+	} else if exp.ThreatLevel >= 70 {
+		b.WriteString("\n_Past 70: the window for stealth has closed. Finish or extract._\n")
+	}
+	return p.SendDM(ctx.Sender, b.String())
+}
+
+// threatBandEffectsBlock renders the band's combat/supply effects.
+func threatBandEffectsBlock(info ThreatBandInfo) string {
+	if info.Band == ThreatBandQuiet {
+		return "_The zone is unaware of you. No modifications in effect._\n"
+	}
+	var b strings.Builder
+	b.WriteString("**Effects:**\n")
+	if info.Perception > 0 {
+		b.WriteString(fmt.Sprintf("  • Enemy perception +%d\n", info.Perception))
+	}
+	if info.AC > 0 {
+		b.WriteString(fmt.Sprintf("  • Enemy AC +%d\n", info.AC))
+	}
+	if info.InitAdv {
+		b.WriteString("  • Enemies have initiative advantage\n")
+	}
+	if info.TrapsArm {
+		b.WriteString("  • Cleared traps re-arm overnight\n")
+	}
+	if info.SupplyMult > 1 {
+		b.WriteString(fmt.Sprintf("  • Supply burn ×%.1f\n", info.SupplyMult))
+	}
+	if info.NoShortRest {
+		b.WriteString("  • Short rests blocked (siege)\n")
+	}
+	return b.String()
 }
 
 // applyBossDefeatThreat records the -20 threat drop when a zone boss is

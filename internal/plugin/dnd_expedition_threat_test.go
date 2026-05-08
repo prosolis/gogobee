@@ -201,6 +201,49 @@ func TestApplyDailyThreatDrift_LogsApproachingSiegeOnceAt70(t *testing.T) {
 	}
 }
 
+func TestThreatBandEffectsBlock_Bands(t *testing.T) {
+	q := threatBandEffectsBlock(threatBandInfo(ThreatBandQuiet))
+	if !strings.Contains(strings.ToLower(q), "unaware") {
+		t.Errorf("Quiet block should mention unaware, got %q", q)
+	}
+	s := threatBandEffectsBlock(threatBandInfo(ThreatBandSiege))
+	if !strings.Contains(strings.ToLower(s), "short rests blocked") {
+		t.Errorf("Siege block should call out blocked short rests, got %q", s)
+	}
+	if !strings.Contains(s, "×2") {
+		t.Errorf("Siege block should show ×2 supply mult, got %q", s)
+	}
+}
+
+func TestHandleThreatCmd_NoExpeditionDoesNotPanic(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@threat-cmd-noexp:example")
+	defer cleanupExpeditions(uid)
+	p := &AdventurePlugin{}
+	if err := p.handleThreatCmd(MessageContext{Sender: uid}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHandleThreatCmd_ActiveExpeditionLogsEvents(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@threat-cmd-active:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, "",
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyThreatDelta(exp.ID, 45, "test seed"); err != nil {
+		t.Fatal(err)
+	}
+	p := &AdventurePlugin{}
+	if err := p.handleThreatCmd(MessageContext{Sender: uid}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestApplyBossDefeatThreat_DropsLevel(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@exp-boss-threat:example")
