@@ -150,9 +150,15 @@ func scanExpeditionRows(rows *sql.Rows) ([]*Expedition, error) {
 // deliverBriefing rolls a day forward, applies supply burn, posts the
 // morning briefing DM, appends a log entry, and stamps last_briefing_at.
 func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
+	// E3: zone-specific temporal events that affect this morning's burn
+	// fire BEFORE applyDailyBurn (e.g. Sunken Temple Day 6 tidal forces
+	// 2× burn even on tier-2 where HarshMod is 1.5×). Force-double piggy-
+	// backs on the siege param's "≥2× floor" branch in applyDailyBurn.
+	forceDouble := applyZoneTemporalPreBurn(e, e.CurrentDay+1)
+
 	// Advance day + supply burn happen together at the morning rollover.
 	harsh := e.ThreatLevel > 60 || e.TemporalStack > 0
-	newSupplies, burn := applyDailyBurn(e.Supplies, harsh, e.SiegeMode)
+	newSupplies, burn := applyDailyBurn(e.Supplies, harsh, e.SiegeMode || forceDouble)
 	if err := updateSupplies(e.ID, newSupplies); err != nil {
 		return err
 	}
@@ -181,10 +187,17 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 		slog.Warn("expedition: threat drift", "expedition", e.ID, "err", err)
 	}
 
+	// E3: zone temporal events post-rollover narration (after the day
+	// has advanced, so e.CurrentDay reflects the new day).
+	temporalLines := applyZoneTemporalPostRollover(e)
+
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)
 	if restSummary != "" {
 		body += "\n💤 _" + restSummary + "_\n"
+	}
+	for _, tl := range temporalLines {
+		body += "\n🌀 " + tl + "\n"
 	}
 
 	if uid := id.UserID(e.UserID); uid != "" {
