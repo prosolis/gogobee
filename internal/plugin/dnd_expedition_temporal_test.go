@@ -137,6 +137,116 @@ func TestSunkenTemple_BossDefeatedSilencesTidal(t *testing.T) {
 	}
 }
 
+func TestManor_NightlyReset_FiresEveryThreeDays(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-manor-reset:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneManorBlackspire, "",
+		ExpeditionSupplies{Current: 60, Max: 60, DailyBurn: 2, HarshMod: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &AdventurePlugin{}
+
+	cases := []struct {
+		fromDay   int
+		wantReset bool
+	}{
+		{1, false}, // → Day 2
+		{2, true},  // → Day 3
+		{3, false}, // → Day 4
+		{4, false}, // → Day 5
+		{5, true},  // → Day 6
+		{8, true},  // → Day 9
+	}
+	for _, c := range cases {
+		setExpDay(t, exp.ID, c.fromDay)
+		// Reset last_briefing_at so the next briefing actually fires.
+		if _, err := db.Get().Exec(
+			`UPDATE dnd_expedition SET last_briefing_at = NULL WHERE expedition_id = ?`, exp.ID); err != nil {
+			t.Fatal(err)
+		}
+		fresh, _ := getExpedition(exp.ID)
+		// Drain log entries from prior iterations so we count only today's.
+		preCount := manorResetLogCount(t, exp.ID)
+		if err := p.deliverBriefing(fresh, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+		got := manorResetLogCount(t, exp.ID)
+		gained := got - preCount
+		if c.wantReset && gained == 0 {
+			t.Errorf("from Day %d → expected a manor-reset entry; got none", c.fromDay)
+		}
+		if !c.wantReset && gained != 0 {
+			t.Errorf("from Day %d → expected no reset; got %d new entries", c.fromDay, gained)
+		}
+	}
+}
+
+func manorResetLogCount(t *testing.T, expID string) int {
+	t.Helper()
+	rows, err := db.Get().Query(`
+		SELECT COUNT(*) FROM dnd_expedition_log
+		 WHERE expedition_id = ? AND entry_type = 'temporal'
+		   AND summary LIKE 'manor reset%'`, expID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return 0
+	}
+	var n int
+	_ = rows.Scan(&n)
+	return n
+}
+
+func TestManor_BossDefeatedSilencesReset(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-manor-boss:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneManorBlackspire, "",
+		ExpeditionSupplies{Current: 60, Max: 60, DailyBurn: 2, HarshMod: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET boss_defeated = 1, current_day = 2 WHERE expedition_id = ?`,
+		exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	exp, _ = getExpedition(exp.ID)
+
+	p := &AdventurePlugin{}
+	if err := p.deliverBriefing(exp, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if got := manorResetLogCount(t, exp.ID); got != 0 {
+		t.Errorf("boss-defeated manor should not reset; got %d entries", got)
+	}
+}
+
+func TestManorReset_PredicateOnly(t *testing.T) {
+	e := &Expedition{ZoneID: ZoneManorBlackspire}
+	for _, d := range []int{0, 1, 2, 4, 5, 7, 8} {
+		if ManorReset(e, d) {
+			t.Errorf("ManorReset(day %d) = true; want false", d)
+		}
+	}
+	for _, d := range []int{3, 6, 9, 12, 30} {
+		if !ManorReset(e, d) {
+			t.Errorf("ManorReset(day %d) = false; want true", d)
+		}
+	}
+	// Wrong zone is always false.
+	other := &Expedition{ZoneID: ZoneGoblinWarrens}
+	if ManorReset(other, 3) {
+		t.Error("ManorReset on non-Manor zone should be false")
+	}
+}
+
 func TestSunkenTemple_NoTidalOnNonZone(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@exp-tidal-other:example")
