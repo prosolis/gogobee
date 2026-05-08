@@ -575,6 +575,35 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 	return nil
 }
 
+// mageKnownSpellsCap returns the maximum number of *leveled* spells a Mage
+// of the given level may have in their spellbook. 5e standard: 6 starting
+// spells + 2 per level after L1 (so 6 at L1, 8 at L2, …, 44 at L20).
+// Cantrips don't count against this cap.
+func mageKnownSpellsCap(level int) int {
+	if level < 1 {
+		level = 1
+	}
+	return 6 + 2*(level-1)
+}
+
+// mageLeveledKnownCount counts leveled (Level ≥ 1) spells in the player's
+// spellbook. Cantrips and unknown registry entries are skipped.
+func mageLeveledKnownCount(userID id.UserID) (int, error) {
+	rows, err := listKnownSpells(userID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range rows {
+		s, ok := lookupSpell(r.SpellID)
+		if !ok || s.Level == 0 {
+			continue
+		}
+		n++
+	}
+	return n, nil
+}
+
 func highestAvailableSlot(class DnDClass, level int) int {
 	pool := slotsForClassLevel(class, level)
 	high := 0

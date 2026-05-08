@@ -95,17 +95,20 @@ func applySpellDamageAttack(spell SpellDefinition, atk int, mods *CombatModifier
 
 // applySpellDamageSave — Burning Hands, Fireball, Sacred Flame, etc.
 // Enemy rolls a save (heuristic mod = enemy.AttackBonus / 2) vs spell DC.
-// Half damage on success, full on fail. AoE flag is moot — we have one enemy.
+// Half damage on success, full on fail.
+//
+// Single-target limitation: Phase 9 combat features one enemy, so AoE-flagged
+// spells (Fireball, Burning Hands, Cone of Cold, Flame Strike, etc.) collapse
+// to a single-target damage roll. The damage formula is the same as the
+// single-target case — the AoE flag is preserved on SpellDefinition for
+// future multi-enemy combat (Phase 11+) but is not consulted here.
 func applySpellDamageSave(spell SpellDefinition, dc int, c *DnDCharacter, mods *CombatModifiers, enemy *CombatStats, slot int) {
-	saveMod := enemy.AttackBonus / 2
+	saveMod := enemySpellSaveMod(enemy)
 	saveRoll := 1 + rand.IntN(20)
 	saved := saveRoll+saveMod >= dc
 	dmg := rollSpellDamageDice(spell, slot, c.Level)
 	if saved {
-		dmg /= 2
-		if dmg < 1 {
-			dmg = 1
-		}
+		dmg = halveSavedDamage(dmg)
 	}
 	mods.SpellPreDamage += dmg
 	if saved {
@@ -137,12 +140,35 @@ func applySpellDamageAuto(spell SpellDefinition, mods *CombatModifiers, slot, ch
 	mods.SpellPreDamageDesc = fmt.Sprintf("%s — %d dmg", spell.Name, dmg)
 }
 
+// halveSavedDamage applies the save-half rule. Integer division floors,
+// then a 1-damage floor ensures even a successful save against any spell
+// chips at least 1 HP. This matches the original applySpellDamageSave
+// inline branch behavior; pulled out so rounding is unit-testable.
+func halveSavedDamage(dmg int) int {
+	halved := dmg / 2
+	if halved < 1 {
+		return 1
+	}
+	return halved
+}
+
+// enemySpellSaveMod is the heuristic save modifier for an arena/dungeon
+// enemy. We don't track per-stat saves on monsters, so we approximate with
+// half their attack bonus — that scales linearly with threat tier (T1 ≈ +2,
+// T5 ≈ +5..7) and keeps the save vs. caster DC math meaningful at both ends.
+func enemySpellSaveMod(enemy *CombatStats) int {
+	if enemy == nil {
+		return 0
+	}
+	return enemy.AttackBonus / 2
+}
+
 // applySpellControl — Hold Person, Sleep, Command, Hypnotic Pattern.
 // Enemy save vs DC; failure → skip first attack. Hold-family also primes
 // the engine's auto-crit-on-first-hit path so melee strikes connect for
 // double damage (5e: paralyzed creatures auto-crit on melee hits).
 func applySpellControl(spell SpellDefinition, dc int, mods *CombatModifiers, enemy *CombatStats, slot int) {
-	saveMod := enemy.AttackBonus / 2
+	saveMod := enemySpellSaveMod(enemy)
 	saveRoll := 1 + rand.IntN(20)
 	if saveRoll+saveMod >= dc {
 		mods.SpellPreDamageDesc = spell.Name + " — resisted"

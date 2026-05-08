@@ -430,6 +430,16 @@ func renderSpellsList(c *DnDCharacter) string {
 	b.WriteString(fmt.Sprintf("**Spell DC:** %d   **Spell Atk:** +%d\n",
 		spellSaveDC(c), spellAttackBonus(c)))
 
+	if c.Class == ClassMage {
+		count, _ := mageLeveledKnownCount(c.UserID)
+		cap := mageKnownSpellsCap(c.Level)
+		b.WriteString(fmt.Sprintf("**Spellbook:** %d/%d leveled spells", count, cap))
+		if avail := cap - count; avail > 0 {
+			b.WriteString(fmt.Sprintf(" _(can learn %d more)_", avail))
+		}
+		b.WriteString("\n")
+	}
+
 	if pc, ok := decodePendingCast(c.PendingCast); ok {
 		b.WriteString(fmt.Sprintf("\n_Queued: **%s**", displaySpellName(pc.SpellID)))
 		if pc.SlotLevel > 0 {
@@ -474,6 +484,19 @@ func (p *AdventurePlugin) handleSpellsLearn(ctx MessageContext, c *DnDCharacter,
 	known, _, err := playerKnowsSpell(ctx.Sender, spell.ID)
 	if err == nil && known {
 		return p.SendDM(ctx.Sender, "You already know "+spell.Name+".")
+	}
+	// Cap applies to leveled spells only — cantrips are unbounded.
+	if spell.Level > 0 {
+		count, err := mageLeveledKnownCount(ctx.Sender)
+		if err != nil {
+			return p.SendDM(ctx.Sender, "Couldn't check your spellbook.")
+		}
+		cap := mageKnownSpellsCap(c.Level)
+		if count >= cap {
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"Spellbook is full (%d/%d). Level up to learn more leveled spells.",
+				count, cap))
+		}
 	}
 	if err := addKnownSpell(ctx.Sender, spell.ID, "class", true); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't learn: "+err.Error())

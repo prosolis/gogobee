@@ -142,12 +142,20 @@ func (p *AdventurePlugin) sendLevelUpDM(userID id.UserID, c *DnDCharacter, event
 	if p == nil || p.Client == nil {
 		return // tests construct AdventurePlugin{} without a Matrix client
 	}
+	if err := p.SendDM(userID, buildLevelUpMessage(c, events, dndLevelUpFlavorLine())); err != nil {
+		slog.Error("dnd: level-up DM failed", "user", userID, "err", err)
+	}
+}
+
+// buildLevelUpMessage formats the level-up DM. flavor is the optional flavor
+// line (pass "" to skip). Pure function — exposed for tests.
+func buildLevelUpMessage(c *DnDCharacter, events []LevelUpEvent, flavor string) string {
 	ri, _ := raceInfo(c.Race)
 	ci, _ := classInfo(c.Class)
 	var b strings.Builder
 	b.WriteString("✨ **LEVEL UP** ✨\n\n")
-	if line := dndLevelUpFlavorLine(); line != "" {
-		b.WriteString("_" + line + "_\n\n")
+	if flavor != "" {
+		b.WriteString("_" + flavor + "_\n\n")
 	}
 
 	if len(events) == 1 {
@@ -170,6 +178,17 @@ func (p *AdventurePlugin) sendLevelUpDM(userID id.UserID, c *DnDCharacter, event
 		b.WriteString(fmt.Sprintf("\nNext level: %d / %d XP.\n", c.XP, next))
 	}
 
+	// Mage spellbook budget: every level-up grants +2 leveled spells. Surface
+	// the headroom so the player knows to run `!spells learn`.
+	if c.Class == ClassMage {
+		count, _ := mageLeveledKnownCount(c.UserID)
+		cap := mageKnownSpellsCap(c.Level)
+		if avail := cap - count; avail > 0 {
+			b.WriteString(fmt.Sprintf("\n📖 _Spells available to learn: **%d** (run `!spells learn <name>`)._\n",
+				avail))
+		}
+	}
+
 	// Subclass selection cue: design doc specs a prompt at L5. Mechanics
 	// arrive in a future phase; for now the level-up DM mentions it so the
 	// player isn't surprised when it lands.
@@ -179,10 +198,7 @@ func (p *AdventurePlugin) sendLevelUpDM(userID id.UserID, c *DnDCharacter, event
 			break
 		}
 	}
-
-	if err := p.SendDM(userID, b.String()); err != nil {
-		slog.Error("dnd: level-up DM failed", "user", userID, "err", err)
-	}
+	return b.String()
 }
 
 // ── XP grant amounts ─────────────────────────────────────────────────────────
