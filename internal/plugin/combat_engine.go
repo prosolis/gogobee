@@ -68,6 +68,20 @@ type CombatModifiers struct {
 	PhysicalResistRage bool    // halve incoming physical damage while raging
 	FrenzyDmgBonus     float64 // multiplicative dmg bump while raging (Frenzy approximation)
 
+	// Phase 10 SUB2a-ii — Battle Master + Assassin.
+	// FirstAttackBonus: flat bonus added to the player's first d20 attack
+	// roll only (Battle Master Precision Attack ≈ +d8). Consumed on first
+	// roll regardless of hit/miss (5e: "before or after rolling").
+	// AssassinateAdvantage: re-roll the player's first miss (better of two
+	// d20s on the first attack) — proxy for "advantage vs. creatures that
+	// haven't acted yet".
+	// AssassinateBonusDmg: flat extra damage stacked on the first hit (rides
+	// the existing AutoCritFirst doubling — proxy for Death Strike's
+	// "crits vs. surprised").
+	FirstAttackBonus     int
+	AssassinateAdvantage bool
+	AssassinateBonusDmg  int
+
 	// Phase 9 — pending spell resolution. Set by applyPendingCast in
 	// dnd_spell_combat.go before SimulateCombat runs. SpellPreDamage is
 	// dealt as a pre-combat event with SpellPreDamageDesc as the narrative
@@ -184,6 +198,11 @@ type combatState struct {
 	// Phase 9 spell — enemy skip-first-attack (consumed on the first round
 	// the enemy would otherwise attack).
 	enemySkipFirst bool
+
+	// Phase 10 SUB2a-ii first-attack one-shots.
+	firstAttackBonusUsed  bool
+	assassinateRerollUsed bool
+	assassinateBonusUsed  bool
 
 	round  int
 	events []CombatEvent
@@ -483,6 +502,21 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		})
 		roll = newRoll
 	}
+	// Phase 10 SUB2a-ii — Assassin advantage: re-roll the first attack of
+	// the fight, take the better of two d20s. Models 5e's "advantage vs.
+	// creatures that haven't acted yet" applied to the opening strike only.
+	if player.Mods.AssassinateAdvantage && !st.assassinateRerollUsed {
+		st.assassinateRerollUsed = true
+		alt := 1 + rand.IntN(20)
+		if alt > roll {
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "player", Action: "assassinate_advantage",
+				PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+				Roll: alt, RollAgainst: enemy.Stats.AC, Desc: "Assassinate",
+			})
+			roll = alt
+		}
+	}
 	isFumble := roll == 1
 	// Phase 10 SUB2a — Champion Improved Critical lowers the crit floor.
 	// CritThreshold==0 means "use default" (nat 20). Champion sets 19.
@@ -495,6 +529,12 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	attackBonus := player.Stats.AttackBonus
 	if player.Stats.Weapon != nil && !player.Stats.WeaponProficient {
 		attackBonus -= 4
+	}
+	// Phase 10 SUB2a-ii — Battle Master Precision Attack: +d8 (modeled as
+	// flat +4) to the first attack roll only. Consumed even on miss.
+	if player.Mods.FirstAttackBonus > 0 && !st.firstAttackBonusUsed {
+		attackBonus += player.Mods.FirstAttackBonus
+		st.firstAttackBonusUsed = true
 	}
 	total := roll + attackBonus
 
@@ -564,6 +604,15 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		if player.Mods.FrenzyDmgBonus > 0 {
 			dmg = int(float64(dmg) * (1 + player.Mods.FrenzyDmgBonus))
 		}
+	}
+	// Phase 10 SUB2a-ii — Assassin Death Strike proxy: bonus damage on the
+	// first hit only. Stacks on top of the Rogue's Sneak Attack auto-crit
+	// (which already doubled the base damage above) — the bonus itself is
+	// applied AFTER the crit doubling so the math is "double base + flat
+	// surprise damage". Consumed on first hit regardless of crit status.
+	if player.Mods.AssassinateBonusDmg > 0 && !st.assassinateBonusUsed {
+		dmg += player.Mods.AssassinateBonusDmg
+		st.assassinateBonusUsed = true
 	}
 	dmg = max(1, dmg)
 

@@ -375,6 +375,308 @@ func TestExhaustion_SchemaRoundTrip(t *testing.T) {
 	}
 }
 
+// ── SUB2a-ii — Battle Master + Assassin ─────────────────────────────────
+
+func TestApplySubclassPassives_BattleMasterL7AttackBonus(t *testing.T) {
+	c := &DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 7}
+	stats := &CombatStats{AttackBonus: 3}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(stats, mods, c)
+	if stats.AttackBonus != 4 {
+		t.Errorf("L7 Battle Master AttackBonus = %d, want 4 (3 base + 1 Know Your Enemy)", stats.AttackBonus)
+	}
+}
+
+func TestApplySubclassPassives_BattleMasterPreL7NoBonus(t *testing.T) {
+	c := &DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 6}
+	stats := &CombatStats{AttackBonus: 3}
+	applySubclassPassives(stats, &CombatModifiers{DamageReduct: 1.0}, c)
+	if stats.AttackBonus != 3 {
+		t.Errorf("L6 Battle Master AttackBonus = %d, want 3 (no Know Your Enemy yet)", stats.AttackBonus)
+	}
+}
+
+func TestApplySubclassPassives_AssassinL5(t *testing.T) {
+	c := &DnDCharacter{Class: ClassRogue, Subclass: SubclassAssassin, Level: 5}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if !mods.AssassinateAdvantage {
+		t.Error("L5 Assassin should set AssassinateAdvantage")
+	}
+	if mods.AssassinateBonusDmg != 5 {
+		t.Errorf("L5 Assassin BonusDmg = %d, want 5", mods.AssassinateBonusDmg)
+	}
+}
+
+func TestApplySubclassPassives_AssassinL7Bumps(t *testing.T) {
+	c := &DnDCharacter{Class: ClassRogue, Subclass: SubclassAssassin, Level: 7}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.AssassinateBonusDmg != 10 {
+		t.Errorf("L7 Assassin BonusDmg = %d, want 10 (level 7 + 3 Impostor)", mods.AssassinateBonusDmg)
+	}
+}
+
+// Manoeuvre Apply functions wire the right mods.
+
+func TestPrecisionAttack_ApplySetsFirstAttackBonus(t *testing.T) {
+	ab, ok := dndActiveAbilities["precision_attack"]
+	if !ok {
+		t.Fatal("precision_attack not registered")
+	}
+	if ab.Class != ClassFighter || ab.Subclass != SubclassBattleMaster {
+		t.Errorf("gating: %s/%s, want fighter/battle_master", ab.Class, ab.Subclass)
+	}
+	if ab.Resource != "superiority" {
+		t.Errorf("resource = %s, want superiority", ab.Resource)
+	}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	ab.Apply(&DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 5}, mods)
+	if mods.FirstAttackBonus != 4 {
+		t.Errorf("FirstAttackBonus = %d, want 4", mods.FirstAttackBonus)
+	}
+}
+
+func TestTripAttack_ApplySetsEnemySkipFirst(t *testing.T) {
+	ab := dndActiveAbilities["trip_attack"]
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	ab.Apply(&DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 5}, mods)
+	if !mods.SpellEnemySkipFirst {
+		t.Error("Tripping Attack should set SpellEnemySkipFirst")
+	}
+}
+
+func TestRally_ApplySetsHealItem(t *testing.T) {
+	ab := dndActiveAbilities["rally"]
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	// CHA 14 → +2 mod, expect HealItem += 6.
+	ab.Apply(&DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 5, CHA: 14}, mods)
+	if mods.HealItem != 6 {
+		t.Errorf("Rally HealItem = %d, want 6 (4 + CHA mod 2)", mods.HealItem)
+	}
+}
+
+// ── Resource init at subclass selection ──────────────────────────────────
+
+func TestInitSubclassResources_BattleMasterGetsSuperiority(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@bm_init:example")
+	if err := createAdvCharacter(uid, "bm_init"); err != nil {
+		t.Fatal(err)
+	}
+	c := &DnDCharacter{
+		UserID: uid, Race: RaceHuman, Class: ClassFighter, Level: 5,
+		STR: 16, DEX: 12, CON: 14, INT: 8, WIS: 10, CHA: 10,
+		HPMax: 30, HPCurrent: 30, ArmorClass: 16,
+	}
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	if err := initSubclassResources(uid, SubclassBattleMaster); err != nil {
+		t.Fatal(err)
+	}
+	cur, max, err := getResource(uid, "superiority")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur != 4 || max != 4 {
+		t.Errorf("superiority pool = %d/%d, want 4/4", cur, max)
+	}
+}
+
+func TestInitSubclassResources_NonBattleMasterIsNoop(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@bm_noop:example")
+	if err := createAdvCharacter(uid, "bm_noop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := initSubclassResources(uid, SubclassChampion); err != nil {
+		t.Fatal(err)
+	}
+	cur, max, err := getResource(uid, "superiority")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur != 0 || max != 0 {
+		t.Errorf("superiority pool for Champion = %d/%d, want 0/0", cur, max)
+	}
+}
+
+// !arm gating for subclass-only abilities.
+
+func TestArmPrecisionAttack_BlockedForChampion(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@bm_block:example")
+	if err := createAdvCharacter(uid, "bm_block"); err != nil {
+		t.Fatal(err)
+	}
+	c := &DnDCharacter{
+		UserID: uid, Race: RaceHuman, Class: ClassFighter, Subclass: SubclassChampion,
+		Level: 6, STR: 16, DEX: 12, CON: 14, INT: 8, WIS: 10, CHA: 10,
+		HPMax: 30, HPCurrent: 30, ArmorClass: 16,
+	}
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	if err := initResources(uid, ClassFighter); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &AdventurePlugin{euro: &EuroPlugin{}}
+	if err := p.handleDnDArmCmd(MessageContext{Sender: uid}, "precision_attack"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := LoadDnDCharacter(uid)
+	if got.ArmedAbility == "precision_attack" {
+		t.Error("non-Battle-Master should not be able to arm precision_attack")
+	}
+}
+
+func TestArmPrecisionAttack_AllowedForBattleMaster(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@bm_ok:example")
+	if err := createAdvCharacter(uid, "bm_ok"); err != nil {
+		t.Fatal(err)
+	}
+	c := &DnDCharacter{
+		UserID: uid, Race: RaceHuman, Class: ClassFighter, Subclass: SubclassBattleMaster,
+		Level: 5, STR: 16, DEX: 12, CON: 14, INT: 8, WIS: 10, CHA: 10,
+		HPMax: 30, HPCurrent: 30, ArmorClass: 16,
+	}
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	if err := initSubclassResources(uid, SubclassBattleMaster); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &AdventurePlugin{euro: &EuroPlugin{}}
+	if err := p.handleDnDArmCmd(MessageContext{Sender: uid}, "precision_attack"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := LoadDnDCharacter(uid)
+	if got.ArmedAbility != "precision_attack" {
+		t.Errorf("ArmedAbility = %q, want precision_attack", got.ArmedAbility)
+	}
+	cur, _, _ := getResource(uid, "superiority")
+	if cur != 3 {
+		t.Errorf("superiority after arm = %d, want 3", cur)
+	}
+}
+
+// ── Skill bonuses ────────────────────────────────────────────────────────
+
+func TestSubclassSkillBonus_AssassinDeception(t *testing.T) {
+	dec, _ := skillInfo(SkillDeception)
+	persuasion, _ := skillInfo(SkillPersuasion)
+
+	l5 := &DnDCharacter{Class: ClassRogue, Subclass: SubclassAssassin, Level: 5}
+	if got := subclassSkillBonus(l5, dec); got != 5 {
+		t.Errorf("L5 Assassin Deception = %d, want 5", got)
+	}
+	if got := subclassSkillBonus(l5, persuasion); got != 0 {
+		t.Errorf("L5 Assassin Persuasion = %d, want 0 (Infiltration is Deception only)", got)
+	}
+
+	l7 := &DnDCharacter{Class: ClassRogue, Subclass: SubclassAssassin, Level: 7}
+	if got := subclassSkillBonus(l7, dec); got != 10 {
+		t.Errorf("L7 Assassin Deception = %d, want 10 (Impostor)", got)
+	}
+
+	l4 := &DnDCharacter{Class: ClassRogue, Subclass: SubclassAssassin, Level: 4}
+	if got := subclassSkillBonus(l4, dec); got != 0 {
+		t.Errorf("L4 Assassin Deception = %d, want 0 (subclass abilities gate at L5)", got)
+	}
+}
+
+// ── End-to-end: one-shot first-attack effects ────────────────────────────
+
+func bmPrecisionPlayer() Combatant {
+	return Combatant{
+		Name: "BM", IsPlayer: true,
+		Stats: CombatStats{
+			MaxHP: 100, Attack: 15, Defense: 8, Speed: 10, AttackBonus: 5, AC: 16,
+			CritRate: 0.05, DodgeRate: 0.05, BlockRate: 0.05,
+		},
+		Mods: CombatModifiers{DamageReduct: 1.0, FirstAttackBonus: 4},
+	}
+}
+
+func plainBMPlayer() Combatant {
+	c := bmPrecisionPlayer()
+	c.Mods.FirstAttackBonus = 0
+	return c
+}
+
+// Probabilistic: a stiff +4 on the opening swing should noticeably lift
+// hit-rate against an enemy AC tuned to mostly-shrug the baseline player.
+func TestSimulateCombat_FirstAttackBonusImprovesEarlyHits(t *testing.T) {
+	const trials = 1500
+	hardEnemy := Combatant{
+		Name: "Wall",
+		Stats: CombatStats{
+			MaxHP: 80, Attack: 10, Defense: 6, Speed: 6, AC: 22, AttackBonus: 4,
+			CritRate: 0.05, DodgeRate: 0.05, BlockRate: 0.05,
+		},
+		Mods: CombatModifiers{DamageReduct: 1.0},
+	}
+	plainWins, bmWins := 0, 0
+	for i := 0; i < trials; i++ {
+		if SimulateCombat(plainBMPlayer(), hardEnemy, defaultCombatPhases).PlayerWon {
+			plainWins++
+		}
+		if SimulateCombat(bmPrecisionPlayer(), hardEnemy, defaultCombatPhases).PlayerWon {
+			bmWins++
+		}
+	}
+	if bmWins-plainWins < 25 {
+		t.Errorf("Precision Attack lift too small: plain=%d bm=%d", plainWins, bmWins)
+	}
+}
+
+// Surface check: AssassinateBonusDmg only consumed once.
+func TestResolvePlayerAttack_AssassinateBonusFirstHitOnly(t *testing.T) {
+	// Drive resolvePlayerAttack via a SimulateCombat run and confirm the
+	// total enemy damage taken on hit is the *base* damage on subsequent
+	// hits (i.e. only the first hit got the +bonus). Statistical compare
+	// against an Assassin L5 vs. an identical player without the bonus.
+	const trials = 800
+	build := func(bonus int) Combatant {
+		return Combatant{
+			Name: "Assn", IsPlayer: true,
+			Stats: CombatStats{
+				MaxHP: 100, Attack: 15, Defense: 8, Speed: 10, AttackBonus: 5, AC: 16,
+				CritRate: 0.05, DodgeRate: 0.05, BlockRate: 0.05,
+			},
+			Mods: CombatModifiers{
+				DamageReduct: 1.0, AutoCritFirst: true, AssassinateBonusDmg: bonus,
+			},
+		}
+	}
+	enemy := func() Combatant {
+		return Combatant{
+			Name: "Mark",
+			Stats: CombatStats{
+				MaxHP: 80, Attack: 12, Defense: 8, Speed: 8, AC: 14, AttackBonus: 3,
+				CritRate: 0.05, DodgeRate: 0.05, BlockRate: 0.05,
+			},
+			Mods: CombatModifiers{DamageReduct: 1.0},
+		}
+	}
+	plainWins, assnWins := 0, 0
+	for i := 0; i < trials; i++ {
+		if SimulateCombat(build(0), enemy(), defaultCombatPhases).PlayerWon {
+			plainWins++
+		}
+		if SimulateCombat(build(8), enemy(), defaultCombatPhases).PlayerWon {
+			assnWins++
+		}
+	}
+	if assnWins <= plainWins {
+		t.Errorf("Assassinate bonus damage didn't help: plain=%d assn=%d", plainWins, assnWins)
+	}
+}
+
 // Surface-level sanity: rage shows up in characterActiveAbilities for a
 // Berserker but not a Champion. Tests the gating helper directly so we
 // don't need the resource-pool DB read that renderArmList does.

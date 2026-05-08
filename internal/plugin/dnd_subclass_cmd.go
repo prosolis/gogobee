@@ -119,6 +119,11 @@ func (p *AdventurePlugin) applySubclassChoice(
 	if err := SaveDnDCharacter(c); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't save subclass choice: "+err.Error())
 	}
+	// Phase 10 SUB2a-ii — provision subclass-specific resource pools (e.g.
+	// Battle Master superiority dice). Idempotent. Failure is non-fatal —
+	// the player still gets the subclass; resources can be re-initialized
+	// next long rest.
+	_ = initSubclassResources(ctx.Sender, chosen)
 	if charged {
 		// Debit last; race vs. balance change is rare and strictly safer
 		// to favor the player than risk taking euros without applying the

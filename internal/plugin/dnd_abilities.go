@@ -152,6 +152,35 @@ func initResources(userID id.UserID, class DnDClass) error {
 	return err
 }
 
+// subclassResourceMax — resources granted by a subclass on top of the class
+// pool. Phase 10 SUB2a-ii: Battle Master gets 4 superiority dice (5e
+// long-rest refresh in our model; spec says short-rest, but we keep parity
+// with the existing class pools' refresh cadence). Returns ("", 0) if the
+// subclass has no extra pool.
+func subclassResourceMax(sub DnDSubclass) (string, int) {
+	switch sub {
+	case SubclassBattleMaster:
+		return "superiority", 4
+	}
+	return "", 0
+}
+
+// initSubclassResources adds the subclass-specific resource pool. Called
+// from applySubclassChoice; idempotent. If a player switches subclasses,
+// the prior pool's row is left in place — refreshAllResources still touches
+// it but no ability references it once the subclass changes, so it's inert.
+func initSubclassResources(userID id.UserID, sub DnDSubclass) error {
+	resType, max := subclassResourceMax(sub)
+	if resType == "" {
+		return nil
+	}
+	_, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO dnd_resources (user_id, resource_type, current_value, max_value)
+		VALUES (?, ?, ?, ?)`,
+		string(userID), resType, max, max)
+	return err
+}
+
 // getResource returns (current, max). Returns (0, 0, true) if no row exists.
 func getResource(userID id.UserID, resType string) (int, int, error) {
 	var cur, max int

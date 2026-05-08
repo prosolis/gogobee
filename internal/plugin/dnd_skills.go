@@ -163,6 +163,18 @@ func subclassSkillBonus(c *DnDCharacter, info dndSkillInfo) int {
 		if c.Level >= 5 && info.Key == SkillSleightOfHand {
 			return 5
 		}
+	case SubclassAssassin:
+		// L5 Infiltration Expertise: crafting a false identity is a
+		// Deception skill workout. L7 Impostor — perfect mimicry of voice
+		// and manner — bumps the bonus further.
+		if info.Key == SkillDeception {
+			if c.Level >= 7 {
+				return 10
+			}
+			if c.Level >= 5 {
+				return 5
+			}
+		}
 	}
 	return 0
 }
