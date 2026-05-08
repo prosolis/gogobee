@@ -1604,6 +1604,32 @@ CREATE TABLE IF NOT EXISTS adventure_characters_pre_dnd (
     snapshot_json    TEXT NOT NULL,
     snapshotted_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ── D&D Layer (Phase 11 D1b — zone runs) ───────────────────────────────────
+-- A single in-progress or completed dungeon run. One row per run; players
+-- may have at most one row with completed_at IS NULL AND abandoned = 0
+-- (enforced in code, not via constraint, to keep migrations simple).
+-- room_seq_json is a JSON array of RoomType strings generated at run start;
+-- current_room indexes into that array. rooms_cleared is a JSON array of
+-- room indices the player has resolved (combat won / trap survived / etc.).
+CREATE TABLE IF NOT EXISTS dnd_zone_run (
+    run_id          TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL,
+    zone_id         TEXT NOT NULL,
+    current_room    INTEGER NOT NULL DEFAULT 0,
+    total_rooms     INTEGER NOT NULL,
+    room_seq_json   TEXT NOT NULL DEFAULT '[]',
+    rooms_cleared   TEXT NOT NULL DEFAULT '[]',
+    boss_defeated   INTEGER NOT NULL DEFAULT 0,
+    abandoned       INTEGER NOT NULL DEFAULT 0,
+    loot_collected  TEXT NOT NULL DEFAULT '[]',
+    gm_mood         INTEGER NOT NULL DEFAULT 50,
+    started_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_action_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at    DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_zone_run_active
+    ON dnd_zone_run(user_id, completed_at, abandoned);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.
