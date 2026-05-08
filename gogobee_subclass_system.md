@@ -249,10 +249,10 @@ Each subclass selection triggers a TwinBee narration line and a one-line flavor 
 - [x] Berserker Rage mechanic and Exhaustion tracking
 
 ### Phase SUB3 — Advanced Abilities
-- [ ] Level 10 and 15 abilities per subclass
-- [ ] Battle Master maneuver dice system
-- [ ] Arcane Trickster spellcasting integration
-- [ ] Beast Master full combat pet participation
+- [x] Level 10 and 15 abilities per subclass (all 15 subclasses)
+- [x] Battle Master maneuver dice system (SUB2a-ii)
+- [x] Arcane Trickster spellcasting integration (SUB2-AT)
+- [x] Beast Master full combat pet participation (SUB3d Superior Bond)
 
 ---
 *End of Subclass System.*

@@ -78,6 +78,126 @@ var dndBestiary = map[string]DnDMonsterTemplate{
 	},
 }
 
+// ---- Tier 1 zone roster (Phase 11 D1a) ---------------------------------------
+//
+// Goblin Warrens + Crypt of Valdris enemy entries. Stat blocks per
+// gogobee_dungeon_zones.md §5. AttackBonus and Attack are derived from
+// each creature's primary attack profile in 5e (rounded for the engine's
+// integer "Attack" stat — engine treats this as average damage).
+
+var _ = func() bool {
+	tier1 := map[string]DnDMonsterTemplate{
+		"goblin_sneak": {
+			ID: "goblin_sneak", Name: "Goblin Sneak",
+			CR: 0.25, HP: 7, AC: 13, Attack: 6, AttackBonus: 4, Speed: 14,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Pack Tactics", Phase: "any", ProcChance: 0.25, Effect: "advantage"},
+			XPValue:   30,
+			Notes:     "Nimble Escape; +1d4 if ally adjacent.",
+		},
+		"goblin_archer": {
+			ID: "goblin_archer", Name: "Goblin Archer",
+			CR: 0.25, HP: 7, AC: 13, Attack: 5, AttackBonus: 4, Speed: 14,
+			BlockRate: 0.0,
+			Ability:   &MonsterAbility{Name: "Scurry", Phase: "any", ProcChance: 0.30, Effect: "evade"},
+			XPValue:   30,
+			Notes:     "Ranged only. Disengages after attack.",
+		},
+		"hobgoblin_grunt": {
+			ID: "hobgoblin_grunt", Name: "Hobgoblin Grunt",
+			CR: 0.5, HP: 11, AC: 18, Attack: 9, AttackBonus: 3, Speed: 11,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Martial Advantage", Phase: "any", ProcChance: 0.30, Effect: "bonus_damage"},
+			XPValue:   100,
+			Notes:     "Pack-tactics variant. Formation bonus when grouped.",
+		},
+		"worg": {
+			ID: "worg", Name: "Worg",
+			CR: 0.5, HP: 26, AC: 13, Attack: 10, AttackBonus: 5, Speed: 17,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Knock Prone", Phase: "any", ProcChance: 0.25, Effect: "stun"},
+			XPValue:   100,
+			Notes:     "Carries goblin riders. STR DC 13 to avoid prone on hit.",
+		},
+		"goblin_shaman": {
+			ID: "goblin_shaman", Name: "Goblin Shaman",
+			CR: 1, HP: 22, AC: 11, Attack: 12, AttackBonus: 4, Speed: 12,
+			BlockRate: 0.0,
+			Ability:   &MonsterAbility{Name: "Burning Hands", Phase: "opening", ProcChance: 0.50, Effect: "aoe_fire"},
+			XPValue:   200,
+			Notes:     "Burning Hands 2d6 fire DEX DC 11; Healing Word on allies.",
+		},
+		"hobgoblin_warchief": {
+			ID: "hobgoblin_warchief", Name: "Hobgoblin Warchief",
+			CR: 2, HP: 52, AC: 18, Attack: 18, AttackBonus: 5, Speed: 11,
+			BlockRate: 0.15,
+			Ability:   &MonsterAbility{Name: "Leadership Aura", Phase: "any", ProcChance: 0.40, Effect: "ally_buff"},
+			XPValue:   450,
+			Notes:     "Elite. +1d4 to ally attacks; multiattack.",
+		},
+		"zombie": {
+			ID: "zombie", Name: "Zombie",
+			CR: 0.25, HP: 22, AC: 10, Attack: 5, AttackBonus: 3, Speed: 6,
+			BlockRate: 0.0,
+			Ability:   &MonsterAbility{Name: "Undead Fortitude", Phase: "decisive", ProcChance: 0.50, Effect: "survive_at_1"},
+			XPValue:   50,
+			Notes:     "CON DC 5 + damage dealt or survive at 1 HP. AC bumped 8→10 to satisfy engine min.",
+		},
+		"shadow": {
+			ID: "shadow", Name: "Shadow",
+			CR: 0.5, HP: 16, AC: 12, Attack: 9, AttackBonus: 4, Speed: 12,
+			BlockRate: 0.0,
+			Ability:   &MonsterAbility{Name: "Strength Drain", Phase: "any", ProcChance: 0.35, Effect: "stat_drain"},
+			XPValue:   100,
+			Notes:     "Hit reduces STR by 1d4 until long rest. Resist non-magical physical.",
+		},
+		"specter": {
+			ID: "specter", Name: "Specter",
+			CR: 1, HP: 22, AC: 12, Attack: 10, AttackBonus: 4, Speed: 14,
+			BlockRate: 0.0,
+			Ability:   &MonsterAbility{Name: "Life Drain", Phase: "any", ProcChance: 0.40, Effect: "lifesteal"},
+			XPValue:   200,
+			Notes:     "Incorporeal: non-magical weapons deal half damage.",
+		},
+		"wight": {
+			ID: "wight", Name: "Wight",
+			CR: 3, HP: 45, AC: 14, Attack: 14, AttackBonus: 4, Speed: 12,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Life Drain", Phase: "any", ProcChance: 0.45, Effect: "lifesteal"},
+			XPValue:   700,
+			Notes:     "Elite. Raises slain humanoids as zombies.",
+		},
+		"flameskull": {
+			ID: "flameskull", Name: "Flameskull",
+			CR: 4, HP: 40, AC: 13, Attack: 18, AttackBonus: 5, Speed: 15,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Fireball", Phase: "decisive", ProcChance: 0.55, Effect: "aoe_fire"},
+			XPValue:   1100,
+			Notes:     "Elite. Fireball 8d6 DEX DC 13. Rejuvenation in 1h unless holy water used.",
+		},
+		"boss_grol_unbroken": {
+			ID: "boss_grol_unbroken", Name: "Grol the Unbroken",
+			CR: 3, HP: 65, AC: 17, Attack: 22, AttackBonus: 5, Speed: 12,
+			BlockRate: 0.15,
+			Ability:   &MonsterAbility{Name: "Surprise Attack", Phase: "opening", ProcChance: 1.0, Effect: "bonus_damage"},
+			XPValue:   700,
+			Notes:     "Goblin Warrens boss. Bugbear war-chief.",
+		},
+		"boss_valdris_unburied": {
+			ID: "boss_valdris_unburied", Name: "Valdris the Unburied",
+			CR: 5, HP: 97, AC: 17, Attack: 28, AttackBonus: 7, Speed: 12,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Corrupting Touch", Phase: "any", ProcChance: 0.50, Effect: "max_hp_drain"},
+			XPValue:   1800,
+			Notes:     "Crypt of Valdris boss. Lich-aspirant; phase 2 below 50% HP.",
+		},
+	}
+	for id, m := range tier1 {
+		dndBestiary[id] = m
+	}
+	return true
+}()
+
 // dndBestiaryByCR returns templates whose CR is at or below the given cap.
 // Useful for procedurally selecting a monster appropriate to player level.
 func dndBestiaryByCR(maxCR float32) []DnDMonsterTemplate {
