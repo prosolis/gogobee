@@ -111,6 +111,8 @@ func registerZone(z ZoneDefinition) {
 func init() {
 	registerZone(zoneGoblinWarrens())
 	registerZone(zoneCryptValdris())
+	registerZone(zoneForestShadows())
+	registerZone(zoneSunkenTemple())
 }
 
 // getZone returns the definition by ID and ok=false if unknown.
@@ -251,5 +253,96 @@ func zoneCryptValdris() ZoneDefinition {
 			{ItemID: "coins_3d10x4", DropChance: 1.0, Note: "3d10 × 4 coins"},
 		},
 		FlavorFile: "zone_crypt_valdris_flavor.go",
+	}
+}
+
+// ---- Tier 2 zone factories (Phase 11 D3a) -----------------------------------
+
+func zoneForestShadows() ZoneDefinition {
+	return ZoneDefinition{
+		ID:         ZoneForestShadows,
+		Display:    "Forest of Shadows",
+		Tier:       ZoneTierApprentice,
+		LevelMin:   3,
+		LevelMax:   5,
+		Faction:    "Beasts, Fey-corrupted creatures, Bandits",
+		Atmosphere: "Ancient forest, twisted paths, eerie silence, bioluminescent fungi, things in the canopy.",
+		Hook:       "The forest was beautiful once. Travelers still say so, usually right before they stop saying anything at all. The trees lean in when you're not looking. TwinBee has noted this is not a metaphor.",
+		MinRooms:   6,
+		MaxRooms:   8,
+		Enemies: []ZoneEnemy{
+			{BestiaryID: "dire_wolf", SpawnWeight: 6},
+			{BestiaryID: "bandit_captain", SpawnWeight: 4},
+			{BestiaryID: "owlbear", SpawnWeight: 4},
+			{BestiaryID: "dryad_corrupted", SpawnWeight: 3},
+			{BestiaryID: "displacer_beast", SpawnWeight: 3},
+			{BestiaryID: "green_hag", SpawnWeight: 1, IsElite: true},
+		},
+		Boss: ZoneBoss{
+			BestiaryID:  "boss_hollow_king",
+			Name:        "The Hollow King",
+			CR:          6,
+			HP:          142,
+			AC:          15,
+			PhaseTwoAt:  0.40,
+			Description: "What was once a forest guardian, now a vessel for something older and angrier. The antlers are real. The eyes are not.",
+			Abilities: []string{
+				"Corrupting Aura: melee-range targets WIS DC 14 each turn or lose bonus action",
+				"Root Surge (recharge 5–6): Restrain (STR DC 15) + 2d8 bludgeoning",
+				"Devour Light: extinguishes magical light for 2 turns; player AC -2",
+				"Phase 2 (<40% HP): summons 2 Dire Wolves; gains Reckless Attack",
+			},
+		},
+		Loot: []ZoneLootEntry{
+			{ItemID: "the_hollow_crown", DropChance: 0.06, Note: "+2 WIS; Fey Sight (advantage on Perception in nature)"},
+			{ItemID: "arm_hide_+2", DropChance: 0.10},
+			{ItemID: "wpn_longbow_+1", DropChance: 0.12},
+			{ItemID: "forest_essence", UniqueAlways: true, Note: "crafting material x1–3"},
+		},
+		FlavorFile: "zone_forest_shadows_flavor.go",
+	}
+}
+
+func zoneSunkenTemple() ZoneDefinition {
+	return ZoneDefinition{
+		ID:         ZoneSunkenTemple,
+		Display:    "Sunken Temple of Dar'eth",
+		Tier:       ZoneTierApprentice,
+		LevelMin:   3,
+		LevelMax:   5,
+		Faction:    "Kuo-toa, Water Elementals, Aboleth-touched",
+		Atmosphere: "Flooded stone chambers, barnacled pillars, salt smell, alien glyphs, things that swim in the dark water.",
+		Hook:       "The tide went out thirty years ago and never fully came back. The temple stayed wet anyway. Something down there keeps it that way. TwinBee suggests waterproofing your spellbook.",
+		MinRooms:   6,
+		MaxRooms:   8,
+		Enemies: []ZoneEnemy{
+			{BestiaryID: "kuo_toa", SpawnWeight: 7},
+			{BestiaryID: "kuo_toa_whip", SpawnWeight: 4},
+			{BestiaryID: "merrow", SpawnWeight: 4},
+			{BestiaryID: "aboleth_thrall", SpawnWeight: 3},
+			{BestiaryID: "water_elemental", SpawnWeight: 1, IsElite: true},
+		},
+		Boss: ZoneBoss{
+			BestiaryID:  "boss_dreaming_aboleth",
+			Name:        "The Dreaming Aboleth",
+			CR:          10,
+			HP:          135,
+			AC:          17,
+			PhaseTwoAt:  0,
+			Description: "Ancient. Patient. It has been waiting in this temple since before the city above was built. It has had time to plan.",
+			Abilities: []string{
+				"Tentacle Multiattack: 3 hits; on-hit Diseased (no magical healing 24h until cured)",
+				"Enslave (recharge 6): WIS DC 14 or Charmed; player skips turn, drifts toward Aboleth",
+				"Mucus Cloud: melee attackers CON DC 14 or skin→membrane (6d6 acid if not submerged)",
+				"Legendary Actions (3/round): Detect / Tail Swipe (2 LA) / Psychic Drain (3 LA, max-HP cut)",
+			},
+		},
+		Loot: []ZoneLootEntry{
+			{ItemID: "aboleths_eye", DropChance: 0.05, Note: "+2 INT; Telepathy (passive lore checks auto-succeed)"},
+			{ItemID: "arm_breastplate_+1", DropChance: 0.10},
+			{ItemID: "refined_aboleth_mucus", UniqueAlways: true, Note: "rare crafting material x1"},
+			{ItemID: "coins_5d10x8", DropChance: 1.0, Note: "5d10 × 8 coins"},
+		},
+		FlavorFile: "zone_sunken_temple_flavor.go",
 	}
 }

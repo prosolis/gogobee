@@ -22,6 +22,19 @@ func TestZoneRegistry_Tier1Present(t *testing.T) {
 	}
 }
 
+func TestZoneRegistry_Tier2Present(t *testing.T) {
+	if _, ok := getZone(ZoneForestShadows); !ok {
+		t.Fatal("Forest of Shadows not registered")
+	}
+	if _, ok := getZone(ZoneSunkenTemple); !ok {
+		t.Fatal("Sunken Temple not registered")
+	}
+	t2 := zonesByTier(ZoneTierApprentice)
+	if len(t2) != 2 {
+		t.Fatalf("expected 2 Tier 2 zones, got %d", len(t2))
+	}
+}
+
 func TestZoneRegistry_BestiaryRefsResolve(t *testing.T) {
 	for _, z := range allZones() {
 		for _, e := range z.Enemies {
@@ -46,15 +59,15 @@ func TestZoneRegistry_BossCRMatchesZoneTier(t *testing.T) {
 }
 
 func TestZonesForLevel_TierGate(t *testing.T) {
-	// L1 player (tier 1): can reach tier 1+2=3. With only T1 zones
-	// registered in D1a, returns both.
+	// L1 player (tier 1): max tier visible = 1+2 = 3. With T1+T2 registered
+	// (D1a + D3a), L1 sees all four — Tier 3 zones aren't in the registry yet.
 	got := zonesForLevel(1)
-	if len(got) != 2 {
-		t.Fatalf("L1 should see 2 T1 zones, got %d", len(got))
+	if len(got) != 4 {
+		t.Fatalf("L1 should see 4 zones (2 T1 + 2 T2), got %d", len(got))
 	}
 	// L20 player should also see all zones (no upper cutoff).
 	got = zonesForLevel(20)
-	if len(got) < 2 {
+	if len(got) < 4 {
 		t.Fatalf("L20 should see all zones, got %d", len(got))
 	}
 }

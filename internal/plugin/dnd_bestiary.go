@@ -198,6 +198,126 @@ var _ = func() bool {
 	return true
 }()
 
+// ---- Tier 2 zone roster (Phase 11 D3a) ---------------------------------------
+//
+// Forest of Shadows + Sunken Temple of Dar'eth enemy entries. Stat blocks
+// per gogobee_dungeon_zones.md §5. Same Attack-as-average-damage convention
+// as Tier 1: Attack ≈ avg of primary attack profile, AttackBonus = d20
+// to-hit modifier. Elites flagged via the zone roster, not here.
+
+var _ = func() bool {
+	tier2 := map[string]DnDMonsterTemplate{
+		"dire_wolf": {
+			ID: "dire_wolf", Name: "Dire Wolf",
+			CR: 1, HP: 37, AC: 14, Attack: 10, AttackBonus: 5, Speed: 16,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Pack Tactics", Phase: "any", ProcChance: 0.30, Effect: "advantage"},
+			XPValue:   200,
+			Notes:     "Knock Prone on hit (STR DC 13); +1d6 if ally adjacent.",
+		},
+		"bandit_captain": {
+			ID: "bandit_captain", Name: "Bandit Captain",
+			CR: 2, HP: 65, AC: 15, Attack: 14, AttackBonus: 5, Speed: 12,
+			BlockRate: 0.20,
+			Ability:   &MonsterAbility{Name: "Parry", Phase: "any", ProcChance: 0.35, Effect: "block"},
+			XPValue:   450,
+			Notes:     "Multiattack 3x; reaction Parry adds +3 AC vs one attack.",
+		},
+		"owlbear": {
+			ID: "owlbear", Name: "Owlbear",
+			CR: 3, HP: 59, AC: 13, Attack: 16, AttackBonus: 7, Speed: 12,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Grapple", Phase: "any", ProcChance: 0.40, Effect: "stun"},
+			XPValue:   700,
+			Notes:     "Beak + Claw multiattack. Claw hit triggers grapple attempt.",
+		},
+		"dryad_corrupted": {
+			ID: "dryad_corrupted", Name: "Corrupted Dryad",
+			CR: 2, HP: 22, AC: 11, Attack: 11, AttackBonus: 4, Speed: 12,
+			BlockRate: 0.0,
+			Ability:   &MonsterAbility{Name: "Fey Charm", Phase: "any", ProcChance: 0.40, Effect: "stun"},
+			XPValue:   450,
+			Notes:     "Barkskin self-buff (+2 AC); WIS DC 14 vs charm or waste a turn.",
+		},
+		"displacer_beast": {
+			ID: "displacer_beast", Name: "Displacer Beast",
+			CR: 3, HP: 85, AC: 13, Attack: 14, AttackBonus: 6, Speed: 14,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Displacement", Phase: "opening", ProcChance: 0.50, Effect: "evade"},
+			XPValue:   700,
+			Notes:     "First hit on player each round has disadvantage; Avoidance trait.",
+		},
+		"green_hag": {
+			ID: "green_hag", Name: "Green Hag",
+			CR: 3, HP: 82, AC: 17, Attack: 15, AttackBonus: 5, Speed: 12,
+			BlockRate: 0.15,
+			Ability:   &MonsterAbility{Name: "Invisible Passage", Phase: "any", ProcChance: 0.35, Effect: "evade"},
+			XPValue:   700,
+			Notes:     "Elite. Illusory Appearance; Weakness curse on hit.",
+		},
+		"kuo_toa": {
+			ID: "kuo_toa", Name: "Kuo-toa",
+			CR: 0.25, HP: 18, AC: 13, Attack: 5, AttackBonus: 3, Speed: 10,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Sticky Shield", Phase: "any", ProcChance: 0.25, Effect: "block"},
+			XPValue:   30,
+			Notes:     "Amphibious. Slippery (auto-escape grapple).",
+		},
+		"kuo_toa_whip": {
+			ID: "kuo_toa_whip", Name: "Kuo-toa Whip",
+			CR: 1, HP: 65, AC: 11, Attack: 11, AttackBonus: 3, Speed: 10,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Divine Eminence", Phase: "decisive", ProcChance: 0.50, Effect: "bonus_damage"},
+			XPValue:   200,
+			Notes:     "Pincer Staff grapple on hit; +2d6 psychic on Eminence proc.",
+		},
+		"water_elemental": {
+			ID: "water_elemental", Name: "Water Elemental",
+			CR: 5, HP: 114, AC: 14, Attack: 26, AttackBonus: 7, Speed: 12,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Whelm", Phase: "any", ProcChance: 0.40, Effect: "stun"},
+			XPValue:   1800,
+			Notes:     "Elite. Whelm grapples + drowning (CON DC 13). Freeze reaction.",
+		},
+		"merrow": {
+			ID: "merrow", Name: "Merrow",
+			CR: 2, HP: 45, AC: 13, Attack: 13, AttackBonus: 5, Speed: 12,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Harpoon Pull", Phase: "opening", ProcChance: 0.40, Effect: "stun"},
+			XPValue:   450,
+			Notes:     "Amphibious. Harpoon yanks target 15 ft; multiattack.",
+		},
+		"aboleth_thrall": {
+			ID: "aboleth_thrall", Name: "Aboleth Thrall",
+			CR: 3, HP: 60, AC: 12, Attack: 14, AttackBonus: 5, Speed: 11,
+			BlockRate: 0.0,
+			Ability:   &MonsterAbility{Name: "Psychic Bond", Phase: "any", ProcChance: 0.35, Effect: "reveal_action"},
+			XPValue:   700,
+			Notes:     "WIS DC 14 or telegraph next action. Mucus Cloud aura.",
+		},
+		"boss_hollow_king": {
+			ID: "boss_hollow_king", Name: "The Hollow King",
+			CR: 6, HP: 142, AC: 15, Attack: 30, AttackBonus: 7, Speed: 13,
+			BlockRate: 0.15,
+			Ability:   &MonsterAbility{Name: "Root Surge", Phase: "any", ProcChance: 0.45, Effect: "stun"},
+			XPValue:   2300,
+			Notes:     "Forest of Shadows boss. Phase 2 below 40% HP — summons 2 Dire Wolves.",
+		},
+		"boss_dreaming_aboleth": {
+			ID: "boss_dreaming_aboleth", Name: "The Dreaming Aboleth",
+			CR: 10, HP: 135, AC: 17, Attack: 36, AttackBonus: 9, Speed: 10,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Enslave", Phase: "any", ProcChance: 0.40, Effect: "stun"},
+			XPValue:   5900,
+			Notes:     "Sunken Temple boss. Tentacle multiattack; legendary actions; psychic drain.",
+		},
+	}
+	for id, m := range tier2 {
+		dndBestiary[id] = m
+	}
+	return true
+}()
+
 // dndBestiaryByCR returns templates whose CR is at or below the given cap.
 // Useful for procedurally selecting a monster appropriate to player level.
 func dndBestiaryByCR(maxCR float32) []DnDMonsterTemplate {
