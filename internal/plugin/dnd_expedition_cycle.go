@@ -150,15 +150,26 @@ func scanExpeditionRows(rows *sql.Rows) ([]*Expedition, error) {
 // deliverBriefing rolls a day forward, applies supply burn, posts the
 // morning briefing DM, appends a log entry, and stamps last_briefing_at.
 func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
-	// E3: zone-specific temporal events that affect this morning's burn
-	// fire BEFORE applyDailyBurn (e.g. Sunken Temple Day 6 tidal forces
-	// 2× burn even on tier-2 where HarshMod is 1.5×). Force-double piggy-
-	// backs on the siege param's "≥2× floor" branch in applyDailyBurn.
-	forceDouble := applyZoneTemporalPreBurn(e, e.CurrentDay+1)
+	// E3: zone-specific temporal events fire BEFORE applyDailyBurn and
+	// can override the entire burn calculation with a fixed multiplier
+	// (Sunken Temple tidal 2.0×, Feywild half-day 0.5×, etc.).
+	burnOverride := applyZoneTemporalPreBurn(e, e.CurrentDay+1)
 
 	// Advance day + supply burn happen together at the morning rollover.
-	harsh := e.ThreatLevel > 60 || zoneTemporalHarsh(e)
-	newSupplies, burn := applyDailyBurn(e.Supplies, harsh, e.SiegeMode || forceDouble)
+	var newSupplies ExpeditionSupplies
+	var burn float32
+	if burnOverride.Multiplier > 0 {
+		burn = e.Supplies.DailyBurn * burnOverride.Multiplier
+		newSupplies = e.Supplies
+		newSupplies.Current -= burn
+		if newSupplies.Current < 0 {
+			newSupplies.Current = 0
+		}
+		newSupplies.ForagedToday = false
+	} else {
+		harsh := e.ThreatLevel > 60 || zoneTemporalHarsh(e)
+		newSupplies, burn = applyDailyBurn(e.Supplies, harsh, e.SiegeMode)
+	}
 	if err := updateSupplies(e.ID, newSupplies); err != nil {
 		return err
 	}
@@ -234,6 +245,15 @@ func (p *AdventurePlugin) deliverRecap(e *Expedition, now time.Time) error {
 			slog.Warn("expedition: night check", "expedition", e.ID, "err", err)
 		}
 		night = &nc
+		// §7.4: Feywild double-day fires an extra wandering check.
+		if e.ZoneID == ZoneFeywildCrossing {
+			if today, _ := e.RegionState["feywild_today"].(string); today == string(FeywildDistortionDouble) {
+				extra := resolveWanderingCheck(e, charClass, nil)
+				if err := processNightCheck(e, extra); err != nil {
+					slog.Warn("expedition: feywild extra night check", "expedition", e.ID, "err", err)
+				}
+			}
+		}
 		// Refresh in-memory threat after possible signs-of-passage bump.
 		if fresh, err := getExpedition(e.ID); err == nil && fresh != nil {
 			e.ThreatLevel = fresh.ThreatLevel

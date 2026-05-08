@@ -395,6 +395,138 @@ func TestUnderforge_FortifiedRestReducesHeat(t *testing.T) {
 	}
 }
 
+func TestFeywild_ResolveDistortion_Buckets(t *testing.T) {
+	cases := []struct {
+		d6   int
+		want FeywildDistortion
+	}{
+		{1, FeywildDistortionNormal},
+		{2, FeywildDistortionNormal},
+		{3, FeywildDistortionHalf},
+		{4, FeywildDistortionHalf},
+		{5, FeywildDistortionDouble},
+		{6, FeywildDistortionLoop},
+	}
+	for _, c := range cases {
+		if got := feywildResolveDistortion(c.d6); got != c.want {
+			t.Errorf("d6=%d → %q, want %q", c.d6, got, c.want)
+		}
+	}
+}
+
+func TestFeywild_HalfDay_HalvesBurn(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-fey-half:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneFeywildCrossing, "",
+		ExpeditionSupplies{Current: 30, Max: 30, DailyBurn: 3, HarshMod: 2.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevRoll := feywildRollFn
+	defer func() { feywildRollFn = prevRoll }()
+	feywildRollFn = func() int { return 3 } // half
+
+	startSU := exp.Supplies.Current
+	if err := (&AdventurePlugin{}).deliverBriefing(exp, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getExpedition(exp.ID)
+	wantBurn := float32(1.5) // 3 * 0.5
+	if startSU-got.Supplies.Current != wantBurn {
+		t.Errorf("burn = %v, want %v (half-day)", startSU-got.Supplies.Current, wantBurn)
+	}
+	if today, _ := got.RegionState["feywild_today"].(string); today != "half" {
+		t.Errorf("RegionState feywild_today = %q, want %q", today, "half")
+	}
+}
+
+func TestFeywild_DoubleDay_DoublesBurn(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-fey-double:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneFeywildCrossing, "",
+		ExpeditionSupplies{Current: 30, Max: 30, DailyBurn: 3, HarshMod: 2.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevRoll := feywildRollFn
+	defer func() { feywildRollFn = prevRoll }()
+	feywildRollFn = func() int { return 5 }
+
+	startSU := exp.Supplies.Current
+	if err := (&AdventurePlugin{}).deliverBriefing(exp, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getExpedition(exp.ID)
+	wantBurn := float32(6.0)
+	if startSU-got.Supplies.Current != wantBurn {
+		t.Errorf("burn = %v, want %v (double-day)", startSU-got.Supplies.Current, wantBurn)
+	}
+}
+
+func TestFeywild_TimeLoop_LogsAndDoesNotChangeBurn(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-fey-loop:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneFeywildCrossing, "",
+		ExpeditionSupplies{Current: 30, Max: 30, DailyBurn: 3, HarshMod: 2.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevRoll := feywildRollFn
+	defer func() { feywildRollFn = prevRoll }()
+	feywildRollFn = func() int { return 6 }
+
+	startSU := exp.Supplies.Current
+	if err := (&AdventurePlugin{}).deliverBriefing(exp, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getExpedition(exp.ID)
+	// Loop has no burn override → default pipeline (no harsh, no siege) = 3 SU.
+	if startSU-got.Supplies.Current != 3 {
+		t.Errorf("burn = %v, want 3 (loop default)", startSU-got.Supplies.Current)
+	}
+	entries, _ := recentExpeditionLog(exp.ID, 10)
+	found := false
+	for _, e := range entries {
+		if e.Type == "temporal" && strings.Contains(e.Summary, "time loop") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a 'time loop' temporal log entry")
+	}
+}
+
+func TestFeywild_NormalDay_NoTemporalLog(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-fey-norm:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneFeywildCrossing, "",
+		ExpeditionSupplies{Current: 30, Max: 30, DailyBurn: 3, HarshMod: 2.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevRoll := feywildRollFn
+	defer func() { feywildRollFn = prevRoll }()
+	feywildRollFn = func() int { return 1 }
+
+	if err := (&AdventurePlugin{}).deliverBriefing(exp, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := recentExpeditionLog(exp.ID, 10)
+	for _, e := range entries {
+		if e.Type == "temporal" {
+			t.Errorf("normal-day distortion should not log temporal; got %+v", e)
+		}
+	}
+}
+
 func TestSunkenTemple_NoTidalOnNonZone(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@exp-tidal-other:example")
