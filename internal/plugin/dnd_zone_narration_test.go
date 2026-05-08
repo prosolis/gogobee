@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"gogobee/internal/flavor"
+
 	"maunium.net/go/mautrix/id"
 )
 
@@ -159,6 +161,78 @@ func TestApplyMoodEvent_PersistsClampedDelta(t *testing.T) {
 func TestApplyMoodEvent_UnknownEventErrors(t *testing.T) {
 	if _, err := applyMoodEvent("fake-run", GMMoodEvent("ghosts")); err == nil {
 		t.Error("expected error on unknown mood event")
+	}
+}
+
+// ── Phase 11 D2b — Tier 1 zone flavor file routing ──────────────────────────
+
+func TestComposeBossEntry_AppendsAbilityCalloutForTier1(t *testing.T) {
+	got := composeBossEntry(ZoneGoblinWarrens, "run-d2b", 7)
+	if !strings.Contains(got, "Grol") {
+		t.Errorf("Warrens boss-entry should mention Grol: %q", got)
+	}
+	// Two TwinBee prefixes = entry + callout suffix.
+	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 2 {
+		t.Errorf("Warrens boss-entry expected 2 TwinBee blocks (entry+callout), got %d:\n%s", n, got)
+	}
+
+	got = composeBossEntry(ZoneCryptValdris, "run-d2b", 7)
+	if !strings.Contains(got, "Valdris") {
+		t.Errorf("Crypt boss-entry should mention Valdris: %q", got)
+	}
+	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 2 {
+		t.Errorf("Crypt boss-entry expected 2 TwinBee blocks (entry+callout), got %d:\n%s", n, got)
+	}
+}
+
+func TestComposeBossEntry_NoCalloutForUnflavoredZone(t *testing.T) {
+	// Forest of Shadows has a named boss-entry pool (Hollow King) but no
+	// signature-callout pool yet — composer should return the bare entry.
+	got := composeBossEntry(ZoneForestShadows, "run-d2b", 1)
+	if got == "" {
+		t.Fatal("forest boss-entry should still render")
+	}
+	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 1 {
+		t.Errorf("Forest boss-entry expected 1 TwinBee block (no callout pool), got %d:\n%s", n, got)
+	}
+}
+
+func TestComposeBossEntry_DeterministicAcrossCalls(t *testing.T) {
+	a := composeBossEntry(ZoneGoblinWarrens, "stable-run", 4)
+	b := composeBossEntry(ZoneGoblinWarrens, "stable-run", 4)
+	if a != b {
+		t.Errorf("compose not deterministic:\n  a=%q\n  b=%q", a, b)
+	}
+}
+
+func TestEliteRoomEntryLine_RoutesPerZone(t *testing.T) {
+	w := eliteRoomEntryLine(ZoneGoblinWarrens, "run-elite", 3)
+	if w == "" || !strings.HasPrefix(w, "🎭 **TwinBee:**") {
+		t.Errorf("Warrens elite line missing/no prefix: %q", w)
+	}
+	c := eliteRoomEntryLine(ZoneCryptValdris, "run-elite", 3)
+	if c == "" || !strings.HasPrefix(c, "🎭 **TwinBee:**") {
+		t.Errorf("Crypt elite line missing/no prefix: %q", c)
+	}
+	if w == c {
+		t.Errorf("Warrens and Crypt elite lines collided on same salt — pools shouldn't overlap")
+	}
+	// Unflavored zone returns empty so the caller skips the prefix.
+	if got := eliteRoomEntryLine(ZoneDragonsLair, "run-elite", 3); got != "" {
+		t.Errorf("unflavored zone should return empty, got %q", got)
+	}
+}
+
+func TestZoneLorePool_PrependsZoneSpecific(t *testing.T) {
+	w := zoneLorePool(ZoneGoblinWarrens)
+	if len(w) <= len(flavor.LoreLines) {
+		t.Errorf("Warrens lore pool should be larger than generic; got %d vs generic %d",
+			len(w), len(flavor.LoreLines))
+	}
+	// Tier 2+ zone with no dedicated lore must fall back to the generic pool.
+	if got := zoneLorePool(ZoneForestShadows); len(got) != len(flavor.LoreLines) {
+		t.Errorf("Forest lore pool should fall back to generic; got %d, want %d",
+			len(got), len(flavor.LoreLines))
 	}
 }
 

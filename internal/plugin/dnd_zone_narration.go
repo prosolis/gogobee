@@ -133,9 +133,79 @@ func pickPool(zoneID ZoneID, kind GMNarrationType) []string {
 	case GMTrapTripped:
 		return flavor.TrapTriggered
 	case GMLore:
-		return flavor.LoreLines
+		return zoneLorePool(zoneID)
 	}
 	return nil
+}
+
+// zoneLorePool returns the zone-specific lore pool prepended to the
+// generic LoreLines pool. Tier 1 zones ship dedicated lore (D2b); other
+// tiers fall back to the generic pool until their flavor files land.
+func zoneLorePool(zoneID ZoneID) []string {
+	switch zoneID {
+	case ZoneGoblinWarrens:
+		return append(append([]string{}, flavor.LoreLinesWarrens...), flavor.LoreLines...)
+	case ZoneCryptValdris:
+		return append(append([]string{}, flavor.LoreLinesCrypt...), flavor.LoreLines...)
+	}
+	return flavor.LoreLines
+}
+
+// bossSignaturePool returns the zone-boss ability-callout pool (one-line
+// cinematic suffix sampled at boss-entry render). Returns nil when the
+// zone has no signature pool yet — caller skips the suffix.
+func bossSignaturePool(zoneID ZoneID) []string {
+	switch zoneID {
+	case ZoneGoblinWarrens:
+		return flavor.GrolSignatureCallouts
+	case ZoneCryptValdris:
+		return flavor.ValdrisSignatureCallouts
+	}
+	return nil
+}
+
+// eliteRoomEntryPool returns the zone-specific elite-room atmospheric
+// pool. Returns nil when the zone has no dedicated elite prose.
+func eliteRoomEntryPool(zoneID ZoneID) []string {
+	switch zoneID {
+	case ZoneGoblinWarrens:
+		return flavor.EliteRoomEntryWarrens
+	case ZoneCryptValdris:
+		return flavor.EliteRoomEntryCrypt
+	}
+	return nil
+}
+
+// composeBossEntry renders the boss-entry narration plus, when the zone
+// has a signature pool, a single ability callout on the line below.
+// Falls back to the bare boss-entry line when no signature pool exists.
+func composeBossEntry(zoneID ZoneID, runID string, roomIdx int) string {
+	entry := twinBeeLine(zoneID, GMBossEntry, runID, roomIdx)
+	pool := bossSignaturePool(zoneID)
+	if entry == "" || len(pool) == 0 {
+		return entry
+	}
+	// Salt the suffix selector with a constant so the entry line and the
+	// callout line vary independently across rooms.
+	callout := pickLineDeterministic(pool, runID, roomIdx^0x5BD17EF1)
+	if callout == "" {
+		return entry
+	}
+	return entry + "\n🎭 **TwinBee:** " + callout
+}
+
+// eliteRoomEntryLine renders the zone-specific elite atmospheric line
+// for an elite room. Empty string when the zone has no elite pool yet.
+func eliteRoomEntryLine(zoneID ZoneID, runID string, roomIdx int) string {
+	pool := eliteRoomEntryPool(zoneID)
+	if len(pool) == 0 {
+		return ""
+	}
+	line := pickLineDeterministic(pool, runID, roomIdx^0x2C9E1A37)
+	if line == "" {
+		return ""
+	}
+	return "🎭 **TwinBee:** " + line
 }
 
 // pickLineDeterministic — stable selection across (runID, salt). Same

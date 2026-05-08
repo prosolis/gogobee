@@ -349,7 +349,7 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	}
 	b.WriteString(fmt.Sprintf("✓ Cleared room %d (%s).\n\n", prevIdx+1, prettyRoomType(prev)))
 	if next == RoomBoss {
-		if line := twinBeeLine(zone.ID, GMBossEntry, run.RunID, nextIdx); line != "" {
+		if line := composeBossEntry(zone.ID, run.RunID, nextIdx); line != "" {
 			b.WriteString(line)
 			b.WriteString("\n\n")
 		}
@@ -400,6 +400,12 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	scanMoodEventsFromCombat(run.RunID, result)
 
 	var b strings.Builder
+	if elite {
+		if line := eliteRoomEntryLine(zone.ID, run.RunID, run.CurrentRoom); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
 	if line := twinBeeLine(zone.ID, GMCombatStart, run.RunID, run.CurrentRoom); line != "" {
 		b.WriteString(line)
 		b.WriteString("\n")
