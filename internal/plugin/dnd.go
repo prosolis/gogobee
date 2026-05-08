@@ -182,6 +182,11 @@ type DnDCharacter struct {
 	// cooldown (LastSubclassRespecAt) and 500-coin cost.
 	Subclass                 DnDSubclass
 	LastSubclassRespecAt     *time.Time
+	// Phase 10 SUB2a — Berserker Frenzy increments after each rage'd
+	// combat; future class abilities will also tick this. Cleared on
+	// long rest. 5e caps at 6 (death); we let it grow and let consumers
+	// clamp where needed.
+	Exhaustion               int
 	LastRespecAt    *time.Time
 	LastShortRestAt *time.Time
 	LastLongRestAt  *time.Time
@@ -210,7 +215,7 @@ func LoadDnDCharacter(userID id.UserID) (*DnDCharacter, error) {
 		       hp_current, hp_max, temp_hp, armor_class,
 		       pending_setup, auto_migrated, onboarding_sent, armed_ability,
 		       pending_cast, concentration_spell, concentration_expires_at,
-		       subclass, last_subclass_respec_at,
+		       subclass, last_subclass_respec_at, exhaustion,
 		       last_respec_at, last_short_rest_at, last_long_rest_at,
 		       created_at, updated_at
 		FROM dnd_character WHERE user_id = ?`, string(userID))
@@ -223,7 +228,7 @@ func LoadDnDCharacter(userID id.UserID) (*DnDCharacter, error) {
 		&c.HPCurrent, &c.HPMax, &c.TempHP, &c.ArmorClass,
 		&pending, &autoMig, &onboard, &c.ArmedAbility,
 		&c.PendingCast, &c.ConcentrationSpell, &c.ConcentrationExpiresAt,
-		&subclassStr, &c.LastSubclassRespecAt,
+		&subclassStr, &c.LastSubclassRespecAt, &c.Exhaustion,
 		&c.LastRespecAt, &c.LastShortRestAt, &c.LastLongRestAt,
 		&c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -262,9 +267,9 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		    hp_current, hp_max, temp_hp, armor_class,
 		    pending_setup, auto_migrated, onboarding_sent, armed_ability,
 		    pending_cast, concentration_spell, concentration_expires_at,
-		    subclass, last_subclass_respec_at,
+		    subclass, last_subclass_respec_at, exhaustion,
 		    last_respec_at, last_short_rest_at, last_long_rest_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(user_id) DO UPDATE SET
 		    race=excluded.race, class=excluded.class,
 		    dnd_level=excluded.dnd_level, dnd_xp=excluded.dnd_xp,
@@ -282,6 +287,7 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		    concentration_expires_at=excluded.concentration_expires_at,
 		    subclass=excluded.subclass,
 		    last_subclass_respec_at=excluded.last_subclass_respec_at,
+		    exhaustion=excluded.exhaustion,
 		    last_respec_at=excluded.last_respec_at,
 		    last_short_rest_at=excluded.last_short_rest_at,
 		    last_long_rest_at=excluded.last_long_rest_at,
@@ -291,7 +297,7 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		c.HPCurrent, c.HPMax, c.TempHP, c.ArmorClass,
 		pending, autoMig, onboard, c.ArmedAbility,
 		c.PendingCast, c.ConcentrationSpell, c.ConcentrationExpiresAt,
-		string(c.Subclass), c.LastSubclassRespecAt,
+		string(c.Subclass), c.LastSubclassRespecAt, c.Exhaustion,
 		c.LastRespecAt, c.LastShortRestAt, c.LastLongRestAt)
 	if err != nil {
 		return fmt.Errorf("save dnd_character: %w", err)

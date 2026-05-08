@@ -178,6 +178,10 @@ func runMigrations(d *sql.DB) error {
 		// (separate from last_respec_at, which gates the full character wipe).
 		`ALTER TABLE dnd_character ADD COLUMN subclass TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE dnd_character ADD COLUMN last_subclass_respec_at DATETIME`,
+		// Phase 10 SUB2a — exhaustion levels. Berserker Frenzy increments
+		// this after each rage'd combat. Cleared on long rest. Reused by
+		// other classes once exhaustion-inducing mechanics arrive in SUB3+.
+		`ALTER TABLE dnd_character ADD COLUMN exhaustion INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

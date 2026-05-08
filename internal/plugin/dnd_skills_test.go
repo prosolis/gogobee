@@ -7,7 +7,8 @@ import (
 func TestSkillTableComplete(t *testing.T) {
 	expectedStats := map[DnDSkill]string{
 		SkillAthletics: "str", SkillAcrobatics: "dex", SkillStealth: "dex",
-		SkillArcana: "int", SkillInvestigation: "int",
+		SkillSleightOfHand: "dex",
+		SkillArcana:        "int", SkillInvestigation: "int",
 		SkillPerception: "wis", SkillInsight: "wis",
 		SkillPersuasion: "cha", SkillIntimidation: "cha", SkillDeception: "cha",
 	}

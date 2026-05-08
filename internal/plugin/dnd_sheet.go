@@ -23,8 +23,8 @@ func (p *AdventurePlugin) handleDnDAbilitiesCmd(ctx MessageContext) error {
 	b.WriteString(fmt.Sprintf("**Class passive — %s**\n  %s\n\n", ab.Name, ab.Description))
 	b.WriteString(fmt.Sprintf("**Race trait**\n  %s\n", ri.Passive))
 
-	// Active abilities (Phase 6)
-	actives := classActiveAbilities(c.Class)
+	// Active abilities (Phase 6 + Phase 10 subclass-gated)
+	actives := characterActiveAbilities(c)
 	if len(actives) > 0 {
 		resType, _ := classResourceMax(c.Class)
 		cur, max, _ := getResource(c.UserID, resType)

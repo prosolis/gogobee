@@ -27,6 +27,11 @@ type DnDAbility struct {
 	ID          string
 	Name        string
 	Class       DnDClass
+	// Subclass: if non-empty, ability is only available when the player's
+	// subclass matches. Phase 10 adds the first such ability (Berserker
+	// rage). Used by parseAbility/arm gating and by classActiveAbilities
+	// when listing for !arm / !abilities.
+	Subclass    DnDSubclass
 	Resource    string // "stamina", "spell_slot", "favor", etc.
 	Description string
 	// Effect — applied to mods at combat start when armed
@@ -83,13 +88,31 @@ func parseAbility(s string) (DnDAbility, bool) {
 	return DnDAbility{}, false
 }
 
-// classActiveAbilities returns the active abilities a class can know.
+// classActiveAbilities returns the active abilities a class can know,
+// excluding subclass-gated entries (those are listed by characterActiveAbilities).
 func classActiveAbilities(class DnDClass) []DnDAbility {
 	var out []DnDAbility
 	for _, a := range dndActiveAbilities {
-		if a.Class == class {
+		if a.Class == class && a.Subclass == "" {
 			out = append(out, a)
 		}
+	}
+	return out
+}
+
+// characterActiveAbilities returns abilities available to a given character,
+// including their subclass-gated abilities. Used for !arm listing so the
+// Berserker sees `rage` once they've chosen the subclass.
+func characterActiveAbilities(c *DnDCharacter) []DnDAbility {
+	var out []DnDAbility
+	for _, a := range dndActiveAbilities {
+		if a.Class != c.Class {
+			continue
+		}
+		if a.Subclass != "" && a.Subclass != c.Subclass {
+			continue
+		}
+		out = append(out, a)
 	}
 	return out
 }
@@ -201,6 +224,12 @@ func (p *AdventurePlugin) handleDnDArmCmd(ctx MessageContext, args string) error
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
 			"%s is a %s ability — your class is %s.", ab.Name, titleClass(ab.Class), titleClass(c.Class)))
 	}
+	if ab.Subclass != "" && ab.Subclass != c.Subclass {
+		needed, _ := subclassInfo(ab.Subclass)
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"%s is a %s subclass ability — choose that subclass via `!subclass`.",
+			ab.Name, needed.Display))
+	}
 
 	if c.ArmedAbility != "" {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
@@ -244,7 +273,7 @@ func (p *AdventurePlugin) handleDnDArmCmd(ctx MessageContext, args string) error
 }
 
 func renderArmList(c *DnDCharacter) string {
-	abilities := classActiveAbilities(c.Class)
+	abilities := characterActiveAbilities(c)
 	var b strings.Builder
 	b.WriteString("**Active Abilities** (pre-arm via `!arm <name>`)\n\n")
 

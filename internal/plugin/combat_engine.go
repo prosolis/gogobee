@@ -53,6 +53,21 @@ type CombatModifiers struct {
 	RageReady    bool // Orc: when HP first drops <50%, next attack deals +50% damage
 	PoisonResist bool // Dwarf: poison tick damage halved
 
+	// Phase 10 SUB2a — subclass combat hooks.
+	// CritThreshold: lowest d20 roll that crits. 0 = use default (20).
+	// Champion L5 Improved Critical sets this to 19; Champion L15
+	// Superior Critical (SUB3) will set 18.
+	CritThreshold int
+	// BerserkerRage: while true, +RageMeleeDmg flat damage per hit and
+	// incoming weapon damage halved (PhysicalResistRage). Frenzy also
+	// adds FrenzyDmgBonus on top to model the bonus-attack-per-turn that
+	// one-shot combat can't represent literally. Set by armed `rage`
+	// ability for Berserker subclass.
+	BerserkerRage      bool
+	RageMeleeDmg       int     // flat damage per hit while raging (5: +2)
+	PhysicalResistRage bool    // halve incoming physical damage while raging
+	FrenzyDmgBonus     float64 // multiplicative dmg bump while raging (Frenzy approximation)
+
 	// Phase 9 — pending spell resolution. Set by applyPendingCast in
 	// dnd_spell_combat.go before SimulateCombat runs. SpellPreDamage is
 	// dealt as a pre-combat event with SpellPreDamageDesc as the narrative
@@ -469,7 +484,13 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		roll = newRoll
 	}
 	isFumble := roll == 1
-	isNat20 := roll == 20
+	// Phase 10 SUB2a — Champion Improved Critical lowers the crit floor.
+	// CritThreshold==0 means "use default" (nat 20). Champion sets 19.
+	critFloor := 20
+	if player.Mods.CritThreshold > 0 && player.Mods.CritThreshold < 20 {
+		critFloor = player.Mods.CritThreshold
+	}
+	isCritRoll := roll >= critFloor
 	// Class proficiency penalty (appendix §8): -4 attack with a non-proficient weapon.
 	attackBonus := player.Stats.AttackBonus
 	if player.Stats.Weapon != nil && !player.Stats.WeaponProficient {
@@ -477,7 +498,7 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	}
 	total := roll + attackBonus
 
-	if isFumble || (!isNat20 && total < enemy.Stats.AC) {
+	if isFumble || (!isCritRoll && total < enemy.Stats.AC) {
 		desc := ""
 		if isFumble {
 			desc = "fumble"
@@ -518,7 +539,7 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		dmg = max(1, dmg/2)
 	}
 
-	isCrit := isNat20
+	isCrit := isCritRoll
 	if st.autoCrit {
 		isCrit = true
 		st.autoCrit = false
@@ -532,6 +553,17 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	if st.pendingRageAttack {
 		dmg = int(float64(dmg) * 1.5)
 		st.pendingRageAttack = false
+	}
+	// Phase 10 SUB2a — Berserker rage: +flat per hit, plus Frenzy
+	// multiplicative bump that approximates the bonus-attack-per-turn we
+	// can't model in one-shot combat.
+	if player.Mods.BerserkerRage {
+		if player.Mods.RageMeleeDmg > 0 {
+			dmg += player.Mods.RageMeleeDmg
+		}
+		if player.Mods.FrenzyDmgBonus > 0 {
+			dmg = int(float64(dmg) * (1 + player.Mods.FrenzyDmgBonus))
+		}
 	}
 	dmg = max(1, dmg)
 
@@ -619,6 +651,11 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	isCrit := isNat20
 	if isCrit {
 		dmg *= 2
+	}
+	// Phase 10 SUB2a — Berserker rage halves incoming weapon damage.
+	// Applied AFTER crit-doubling so the resistance survives crits.
+	if player.Mods.BerserkerRage && player.Mods.PhysicalResistRage {
+		dmg = max(1, dmg/2)
 	}
 	dmg = max(1, dmg)
 

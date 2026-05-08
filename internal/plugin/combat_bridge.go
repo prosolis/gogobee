@@ -45,6 +45,7 @@ func (p *AdventurePlugin) runArenaCombat(
 	applyDnDHPScaling(&playerStats, dndChar)
 	applyClassPassives(&playerStats, &playerMods, dndChar)
 	applyRacePassives(&playerStats, &playerMods, dndChar)
+	applySubclassPassives(&playerStats, &playerMods, dndChar)
 	if firedName, fired := applyArmedAbility(dndChar, &playerMods); fired {
 		slog.Info("dnd: armed ability fired", "user", userID, "ability", firedName)
 	}
@@ -89,6 +90,9 @@ func (p *AdventurePlugin) runArenaCombat(
 	p.grantCombatAchievements(userID, result)
 
 	persistDnDHPAfterCombat(userID, result.PlayerStartHP, result.PlayerEndHP)
+	if err := persistDnDPostCombatSubclass(dndChar, playerMods.BerserkerRage); err != nil {
+		slog.Error("dnd: post-combat subclass persist (arena)", "user", userID, "err", err)
+	}
 
 	if xp := arenaCombatXP(result, monster.ThreatLevel); xp > 0 {
 		if _, err := p.grantDnDXP(userID, xp); err != nil {
@@ -169,6 +173,7 @@ func (p *AdventurePlugin) runDungeonCombat(
 	applyDnDHPScaling(&playerStats, dndChar)
 	applyClassPassives(&playerStats, &playerMods, dndChar)
 	applyRacePassives(&playerStats, &playerMods, dndChar)
+	applySubclassPassives(&playerStats, &playerMods, dndChar)
 	if firedName, fired := applyArmedAbility(dndChar, &playerMods); fired {
 		slog.Info("dnd: armed ability fired", "user", userID, "ability", firedName)
 	}
@@ -215,6 +220,9 @@ func (p *AdventurePlugin) runDungeonCombat(
 	p.grantCombatAchievements(userID, result)
 
 	persistDnDHPAfterCombat(userID, result.PlayerStartHP, result.PlayerEndHP)
+	if err := persistDnDPostCombatSubclass(dndChar, playerMods.BerserkerRage); err != nil {
+		slog.Error("dnd: post-combat subclass persist (dungeon)", "user", userID, "err", err)
+	}
 
 	if xp := dungeonCombatXP(result, loc.Tier); xp > 0 {
 		if _, err := p.grantDnDXP(userID, xp); err != nil {

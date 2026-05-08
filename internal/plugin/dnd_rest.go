@@ -140,6 +140,12 @@ func (p *AdventurePlugin) handleDnDLongRest(ctx MessageContext) error {
 
 	c.HPCurrent = c.HPMax
 	c.TempHP = 0
+	// Phase 10 SUB2a — long rest clears one level of exhaustion (5e: a
+	// long rest clears one). For Berserker who racks up exhaustion via
+	// Frenzy, this is the recovery cadence.
+	if c.Exhaustion > 0 {
+		c.Exhaustion--
+	}
 	now := time.Now().UTC()
 	c.LastLongRestAt = &now
 

@@ -21,16 +21,17 @@ import (
 type DnDSkill string
 
 const (
-	SkillAthletics     DnDSkill = "athletics"
-	SkillAcrobatics    DnDSkill = "acrobatics"
-	SkillStealth       DnDSkill = "stealth"
-	SkillArcana        DnDSkill = "arcana"
-	SkillInvestigation DnDSkill = "investigation"
-	SkillPerception    DnDSkill = "perception"
-	SkillInsight       DnDSkill = "insight"
-	SkillPersuasion    DnDSkill = "persuasion"
-	SkillIntimidation  DnDSkill = "intimidation"
-	SkillDeception     DnDSkill = "deception"
+	SkillAthletics      DnDSkill = "athletics"
+	SkillAcrobatics     DnDSkill = "acrobatics"
+	SkillStealth        DnDSkill = "stealth"
+	SkillSleightOfHand  DnDSkill = "sleight_of_hand"
+	SkillArcana         DnDSkill = "arcana"
+	SkillInvestigation  DnDSkill = "investigation"
+	SkillPerception     DnDSkill = "perception"
+	SkillInsight        DnDSkill = "insight"
+	SkillPersuasion     DnDSkill = "persuasion"
+	SkillIntimidation   DnDSkill = "intimidation"
+	SkillDeception      DnDSkill = "deception"
 )
 
 type dndSkillInfo struct {
@@ -43,6 +44,7 @@ var dndSkillTable = []dndSkillInfo{
 	{SkillAthletics, "Athletics", "str"},
 	{SkillAcrobatics, "Acrobatics", "dex"},
 	{SkillStealth, "Stealth", "dex"},
+	{SkillSleightOfHand, "Sleight of Hand", "dex"},
 	{SkillArcana, "Arcana", "int"},
 	{SkillInvestigation, "Investigation", "int"},
 	{SkillPerception, "Perception", "wis"},
@@ -136,6 +138,54 @@ func statValue(c *DnDCharacter, stat string) int {
 	return 10
 }
 
+// subclassSkillBonus returns the additive bonus from a subclass ability
+// for a given skill. Phase 10 SUB2a:
+//
+//	Champion (L7+) Remarkable Athlete: +½ proficiency bonus (rounded down)
+//	  to STR/DEX/CON skill checks. Approximation of 5e's "+½ prof to
+//	  checks not already proficient"; we don't track per-skill prof yet.
+//	Thief (L5+) Fast Hands: +5 to Sleight of Hand. Stand-in for 5e's
+//	  "bonus action: SoH check" — out-of-combat utility flattened into a
+//	  raw skill bonus.
+func subclassSkillBonus(c *DnDCharacter, info dndSkillInfo) int {
+	if c == nil || c.Subclass == "" {
+		return 0
+	}
+	switch c.Subclass {
+	case SubclassChampion:
+		if c.Level >= 7 {
+			switch info.Stat {
+			case "str", "dex", "con":
+				return proficiencyBonus(c.Level) / 2
+			}
+		}
+	case SubclassThief:
+		if c.Level >= 5 && info.Key == SkillSleightOfHand {
+			return 5
+		}
+	}
+	return 0
+}
+
+// subclassSkillAdvantage reports whether the player rolls with advantage
+// (best of two d20s) on this skill check. Phase 10 SUB2a:
+//
+//	Thief (L7+) Supreme Sneak: advantage on Stealth (5e gates this on
+//	  half-speed movement; we don't track movement speed, so we apply
+//	  unconditionally — approachability cut).
+func subclassSkillAdvantage(c *DnDCharacter, info dndSkillInfo) bool {
+	if c == nil || c.Subclass == "" {
+		return false
+	}
+	switch c.Subclass {
+	case SubclassThief:
+		if c.Level >= 7 && info.Key == SkillStealth {
+			return true
+		}
+	}
+	return false
+}
+
 // raceSkillBonus returns the per-skill bonus from a player's race.
 // Half-Elf gets +1 to every skill (rough mapping of "two bonus skill profs").
 // Tiefling gets +2 to CHA-based skills (matches the doc's "+bonus on CHA checks").
@@ -151,11 +201,20 @@ func raceSkillBonus(c *DnDCharacter, info dndSkillInfo) int {
 	return 0
 }
 
-// performSkillCheck rolls the d20 and computes the result.
+// performSkillCheck rolls the d20 and computes the result. Subclass
+// effects (Phase 10 SUB2a) apply additive bonuses and may grant advantage
+// (best of two d20s).
 func performSkillCheck(c *DnDCharacter, skill DnDSkill, dc int) SkillCheckResult {
 	info, _ := skillInfo(skill)
-	mod := abilityModifier(statValue(c, info.Stat)) + raceSkillBonus(c, info)
+	mod := abilityModifier(statValue(c, info.Stat)) +
+		raceSkillBonus(c, info) +
+		subclassSkillBonus(c, info)
 	roll := 1 + rand.IntN(20)
+	if subclassSkillAdvantage(c, info) {
+		if alt := 1 + rand.IntN(20); alt > roll {
+			roll = alt
+		}
+	}
 	res := SkillCheckResult{Skill: skill, DC: dc, Roll: roll, Mod: mod}
 
 	switch roll {
