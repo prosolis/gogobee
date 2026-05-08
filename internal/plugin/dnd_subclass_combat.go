@@ -17,10 +17,43 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 	}
 	switch c.Subclass {
 	case SubclassChampion:
-		// L5 Improved Critical: crit on nat 19+. SUB3 Superior Critical
-		// (L15) will lower this to 18.
+		// L5 Improved Critical: crit on nat 19+. L15 Superior Critical
+		// lowers this further to 18.
 		if c.Level >= 5 {
 			mods.CritThreshold = 19
+		}
+		// Phase 10 SUB3a-i — L10 Additional Fighting Style. 5e lets the
+		// player pick a second style; in 1v1 we can't surface a UI for
+		// that, so we collapse to the two most generally useful
+		// approximations stacked: Defense (+1 AC) and Dueling (+10%
+		// damage when one-handed — we don't track grip state, so this is
+		// a flat damage bump regardless).
+		if c.Level >= 10 {
+			stats.AC++
+			mods.DamageBonus += 0.10
+		}
+		// Phase 10 SUB3a-i — L15 Superior Critical: crit floor drops to 18.
+		if c.Level >= 15 {
+			mods.CritThreshold = 18
+		}
+	case SubclassBerserker:
+		// L5/L7 Berserker is rage-driven (active ability — see init() below)
+		// plus L7 Mindless Rage which is condition immunity, irrelevant in
+		// our 1v1 model. Phase 10 SUB3a-i adds the always-on L10/L15 layer.
+		//
+		// L10 Intimidating Presence: 5e is an Action that frightens one
+		// target on a failed WIS save. One-shot combat has no action
+		// economy to spend on a non-damage Action, so we proxy as 2 rounds
+		// of 15% enemy miss chance via SporeCloud (the same channel
+		// fog-cloud / Cloak of Shadows uses).
+		// L15 Retaliation: 5e Reaction — when struck in melee, one melee
+		// attack back. We don't model reactions, so the average per-fight
+		// damage uplift is approximated as a +15% damage multiplier.
+		if c.Level >= 10 {
+			mods.SporeCloud += 2
+		}
+		if c.Level >= 15 {
+			mods.DamageBonus += 0.15
 		}
 	case SubclassBattleMaster:
 		// L7 Know Your Enemy: 5e gives factual info about the target after

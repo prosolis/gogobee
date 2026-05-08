@@ -868,3 +868,76 @@ func TestCharacterActiveAbilities_RageVisibility(t *testing.T) {
 	}
 }
 
+// ── SUB3a-i — Champion + Berserker L10/L15 ──────────────────────────────
+
+func TestApplySubclassPassives_ChampionL10AdditionalFightingStyle(t *testing.T) {
+	c := &DnDCharacter{Class: ClassFighter, Subclass: SubclassChampion, Level: 10}
+	stats := &CombatStats{AC: 16}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(stats, mods, c)
+	if stats.AC != 17 {
+		t.Errorf("L10 Champion AC = %d, want 17 (+1 Defense style)", stats.AC)
+	}
+	if mods.DamageBonus < 0.099 || mods.DamageBonus > 0.101 {
+		t.Errorf("L10 Champion DamageBonus = %v, want ~0.10 (Dueling style)", mods.DamageBonus)
+	}
+	// L5 Improved Critical still in effect; L15 hasn't yet kicked in.
+	if mods.CritThreshold != 19 {
+		t.Errorf("L10 Champion CritThreshold = %d, want 19 (L15 not yet)", mods.CritThreshold)
+	}
+}
+
+func TestApplySubclassPassives_ChampionL9NoFightingStyle(t *testing.T) {
+	c := &DnDCharacter{Class: ClassFighter, Subclass: SubclassChampion, Level: 9}
+	stats := &CombatStats{AC: 16}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(stats, mods, c)
+	if stats.AC != 16 {
+		t.Errorf("L9 Champion AC = %d, want 16 (Fighting Style gates at L10)", stats.AC)
+	}
+	if mods.DamageBonus != 0 {
+		t.Errorf("L9 Champion DamageBonus = %v, want 0", mods.DamageBonus)
+	}
+}
+
+func TestApplySubclassPassives_ChampionL15SuperiorCritical(t *testing.T) {
+	c := &DnDCharacter{Class: ClassFighter, Subclass: SubclassChampion, Level: 15}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{AC: 16}, mods, c)
+	if mods.CritThreshold != 18 {
+		t.Errorf("L15 Champion CritThreshold = %d, want 18 (Superior Critical)", mods.CritThreshold)
+	}
+}
+
+func TestApplySubclassPassives_BerserkerL10IntimidatingPresence(t *testing.T) {
+	c := &DnDCharacter{Class: ClassFighter, Subclass: SubclassBerserker, Level: 10}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.SporeCloud != 2 {
+		t.Errorf("L10 Berserker SporeCloud = %d, want 2 (Intimidating Presence)", mods.SporeCloud)
+	}
+	if mods.DamageBonus != 0 {
+		t.Errorf("L10 Berserker DamageBonus = %v, want 0 (Retaliation gates at L15)", mods.DamageBonus)
+	}
+}
+
+func TestApplySubclassPassives_BerserkerL9NoIntimidatingPresence(t *testing.T) {
+	c := &DnDCharacter{Class: ClassFighter, Subclass: SubclassBerserker, Level: 9}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.SporeCloud != 0 {
+		t.Errorf("L9 Berserker SporeCloud = %d, want 0", mods.SporeCloud)
+	}
+}
+
+func TestApplySubclassPassives_BerserkerL15Retaliation(t *testing.T) {
+	c := &DnDCharacter{Class: ClassFighter, Subclass: SubclassBerserker, Level: 15}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.DamageBonus < 0.149 || mods.DamageBonus > 0.151 {
+		t.Errorf("L15 Berserker DamageBonus = %v, want ~0.15 (Retaliation)", mods.DamageBonus)
+	}
+	if mods.SporeCloud != 2 {
+		t.Errorf("L15 Berserker SporeCloud = %d, want 2 (L10 still active)", mods.SporeCloud)
+	}
+}
