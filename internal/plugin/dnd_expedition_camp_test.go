@@ -156,6 +156,91 @@ func TestCampCmd_RejectsFortifiedAndBase(t *testing.T) {
 	}
 }
 
+func TestCampCmd_BaseRejectsNonBaseCampSiteRegion(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@camp-base-bad-site:example")
+	campTestCharacter(t, uid, 12)
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneUnderdark, "",
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Surface Tunnels has BaseCampSite=false. Even if we mark it
+	// cleared, !camp base should reject.
+	if _, err := MarkRegionBossDefeated(exp, "underdark_surface_tunnels"); err != nil {
+		t.Fatal(err)
+	}
+	p := &AdventurePlugin{}
+	if err := p.handleCampCmd(MessageContext{Sender: uid}, "base"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ := getActiveExpedition(uid)
+	if loaded.Camp != nil {
+		t.Error("base camp should not pitch in non-base-camp-site region")
+	}
+}
+
+func TestCampCmd_BaseRejectsUnclearedRegion(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@camp-base-uncleared:example")
+	campTestCharacter(t, uid, 12)
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneUnderdark, "",
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Move to Drow Outpost (BaseCampSite=true) but don't clear it.
+	if err := setCurrentRegion(exp, "underdark_drow_outpost"); err != nil {
+		t.Fatal(err)
+	}
+	p := &AdventurePlugin{}
+	if err := p.handleCampCmd(MessageContext{Sender: uid}, "base"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ := getActiveExpedition(uid)
+	if loaded.Camp != nil {
+		t.Error("base camp should not pitch before region boss is cleared")
+	}
+}
+
+func TestCampCmd_BasePitchPersistsWaypoint(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@camp-base-pitch:example")
+	campTestCharacter(t, uid, 12)
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneUnderdark, "",
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := setCurrentRegion(exp, "underdark_drow_outpost"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MarkRegionBossDefeated(exp, "underdark_drow_outpost"); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &AdventurePlugin{}
+	if err := p.handleCampCmd(MessageContext{Sender: uid}, "base"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ := getActiveExpedition(uid)
+	if loaded.Camp == nil || loaded.Camp.Type != CampTypeBase {
+		t.Fatalf("expected base camp pitched; got %+v", loaded.Camp)
+	}
+	if loaded.Supplies.Current != 7 { // 10 - 3 SU base cost
+		t.Errorf("supplies after base pitch = %v, want 7", loaded.Supplies.Current)
+	}
+	if !HasBaseCampAt(loaded, "underdark_drow_outpost") {
+		t.Error("base camp waypoint not persisted to RegionState")
+	}
+}
+
 func TestCampCmd_InsufficientSuppliesRejected(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@camp-broke:example")

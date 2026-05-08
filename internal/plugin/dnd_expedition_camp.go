@@ -87,8 +87,27 @@ func (p *AdventurePlugin) handleCampCmd(ctx MessageContext, args string) error {
 				"Fortified camps require a boss-cleared room or cache site. Defeat the zone boss (or find a cache) first.")
 		}
 	case "base":
-		return p.SendDM(ctx.Sender,
-			"Base camps unlock in Tier 4–5 zones from Day 3+. (Wires up in a later phase.)")
+		// E4d: §11.1 — base camps unlock per region after the region
+		// boss is defeated, and only at base-camp-eligible sites.
+		if !IsMultiRegionZone(exp.ZoneID) {
+			return p.SendDM(ctx.Sender,
+				"Base camps are a multi-region waypoint feature — only available in Tier 4–5 zones (Underdark / Dragon's Lair / Abyss Portal).")
+		}
+		region, ok := CurrentRegion(exp)
+		if !ok {
+			return p.SendDM(ctx.Sender,
+				"Couldn't resolve your current region — try `!region` first.")
+		}
+		if !region.BaseCampSite {
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"**%s** isn't a base-camp-eligible site. Look for a region whose boss has fallen and the geography is defensible.",
+				region.Name))
+		}
+		if !IsRegionCleared(exp, region.ID) {
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"You can pitch a base camp in **%s** only after defeating its region boss (%s).",
+				region.Name, region.RegionBoss))
+		}
 	default:
 		return p.SendDM(ctx.Sender,
 			"Unknown camp type. Try `rough` (any location) or `standard` (cleared rooms).")
@@ -104,6 +123,7 @@ func campHelpText(exp *Expedition) string {
 	b.WriteString("`!camp rough` — partial rest (any location, +0.5 SU, high night risk)\n")
 	b.WriteString("`!camp standard` — full long rest (cleared room, +1 SU, medium risk)\n")
 	b.WriteString("`!camp fortified` — long rest + bonus (boss-cleared room, +2 SU, low risk)\n")
+	b.WriteString("`!camp base` — persistent waypoint (region-boss-cleared base-camp site, +3 SU, very low risk)\n")
 	b.WriteString("`!camp break` — break camp\n\n")
 	if exp.Camp != nil && exp.Camp.Active {
 		b.WriteString(fmt.Sprintf("_Currently camped: **%s** (room %d)._",
@@ -157,9 +177,27 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 		return p.SendDM(ctx.Sender, "Couldn't pitch camp: "+err.Error())
 	}
 
-	line := flavor.Pick(flavor.CampEstablished)
+	// E4d: pick the BaseCampEstablished pool for base camps; otherwise
+	// the generic camp pool. Both already handle [N] day interpolation
+	// for the base-camp first-pitch message.
+	var line string
+	if kind == CampTypeBase {
+		line = flavor.Pick(flavor.BaseCampEstablished)
+		line = strings.ReplaceAll(line, "[N]", fmt.Sprintf("%d", exp.CurrentDay))
+	} else {
+		line = flavor.Pick(flavor.CampEstablished)
+	}
 	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "rest",
 		fmt.Sprintf("camp pitched (%s) — %.1f SU consumed", kind, cost), line)
+
+	// Mark the region as a persistent base-camp waypoint on first pitch.
+	if kind == CampTypeBase {
+		if region, ok := CurrentRegion(exp); ok {
+			if _, err := addRegionListEntry(exp, regionStateBaseCampKey, region.ID); err != nil {
+				return p.SendDM(ctx.Sender, "Couldn't record base camp waypoint: "+err.Error())
+			}
+		}
+	}
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("⛺ **Camp established — %s.**\n", kind))
@@ -173,6 +211,8 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 		b.WriteString("\n_Rough camp — partial rest. HP recovers to 50%, no spell slots restored._")
 	case CampTypeFortified:
 		b.WriteString("\n_Fortified camp — long rest + 1d6 HP bonus on wake; threat clock −5; wandering rolls −4._")
+	case CampTypeBase:
+		b.WriteString("\n_Base camp — long rest + 1d6 HP bonus; threat clock −5; wandering rolls −6. **Waypoint persisted** — camp here again at no eligibility cost on later returns._")
 	default:
 		b.WriteString("\n_Standard camp — full long rest at the next morning briefing._")
 	}
