@@ -230,6 +230,15 @@ func (p *AdventurePlugin) expeditionCmdStatus(ctx MessageContext) error {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🎭 **TwinBee — Status, Day %d**\n\n", exp.CurrentDay))
 	b.WriteString(fmt.Sprintf("📍 **Zone:** %s _(T%d)_\n", zone.Display, int(zone.Tier)))
+	if r, ok := CurrentRegion(exp); ok {
+		cleared := IsRegionCleared(exp, r.ID)
+		marker := ""
+		if cleared {
+			marker = " ✓"
+		}
+		b.WriteString(fmt.Sprintf("🗺 **Region:** %s (%d/%d)%s\n",
+			r.Name, r.Order, len(regionsForZone(exp.ZoneID)), marker))
+	}
 	if c != nil {
 		b.WriteString(fmt.Sprintf("❤️  **HP:** %d / %d\n", c.HPCurrent, c.HPMax))
 	}

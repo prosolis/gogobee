@@ -132,19 +132,30 @@ func startExpedition(userID id.UserID, zoneID ZoneID, runID string, supplies Exp
 	}
 
 	now := time.Now().UTC()
+	// Multi-region zones (§11) start the player in the first region;
+	// single-region zones leave CurrentRegion empty.
+	currentRegion := ""
+	if first, ok := firstRegion(zoneID); ok {
+		currentRegion = first.ID
+	}
+	regionState := map[string]any{}
+	if currentRegion != "" {
+		regionState[regionStateVisitedKey] = []string{currentRegion}
+	}
 	exp := &Expedition{
-		ID:           newExpeditionID(),
-		UserID:       string(userID),
-		ZoneID:       zoneID,
-		RunID:        runID,
-		Status:       ExpeditionStatusActive,
-		StartDate:    now,
-		CurrentDay:   1,
-		Supplies:     supplies,
-		ThreatEvents: []ThreatEvent{},
-		RegionState:  map[string]any{},
-		GMMood:       50,
-		LastActivity: now,
+		ID:            newExpeditionID(),
+		UserID:        string(userID),
+		ZoneID:        zoneID,
+		RunID:         runID,
+		Status:        ExpeditionStatusActive,
+		StartDate:     now,
+		CurrentDay:    1,
+		CurrentRegion: currentRegion,
+		Supplies:      supplies,
+		ThreatEvents:  []ThreatEvent{},
+		RegionState:   regionState,
+		GMMood:        50,
+		LastActivity:  now,
 	}
 	supJSON, _ := json.Marshal(supplies)
 	regJSON, _ := json.Marshal(exp.RegionState)
@@ -153,11 +164,11 @@ func startExpedition(userID id.UserID, zoneID ZoneID, runID string, supplies Exp
 	if _, err := db.Get().Exec(`
 		INSERT INTO dnd_expedition
 			(expedition_id, user_id, zone_id, run_id, status,
-			 start_date, current_day, supplies_json,
+			 start_date, current_day, current_region, supplies_json,
 			 threat_events, region_state, gm_mood, last_activity)
-		VALUES (?, ?, ?, ?, 'active', ?, 1, ?, ?, ?, 50, ?)`,
+		VALUES (?, ?, ?, ?, 'active', ?, 1, ?, ?, ?, ?, 50, ?)`,
 		exp.ID, exp.UserID, string(zoneID), nullableString(runID),
-		now, string(supJSON), string(threatJSON), string(regJSON), now,
+		now, currentRegion, string(supJSON), string(threatJSON), string(regJSON), now,
 	); err != nil {
 		return nil, fmt.Errorf("insert expedition: %w", err)
 	}

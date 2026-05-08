@@ -1,5 +1,7 @@
 package plugin
 
+import "gogobee/internal/db"
+
 // Phase 12 E4a — Multi-Region Zone data model and registry.
 // Spec: gogobee_expedition_system.md §11.
 //
@@ -266,4 +268,57 @@ func IsRegionVisited(e *Expedition, regionID string) bool {
 // region (§11.1: unlocked only after region boss is cleared).
 func HasBaseCampAt(e *Expedition, regionID string) bool {
 	return regionListContains(regionListFromState(e, regionStateBaseCampKey), regionID)
+}
+
+// MarkRegionVisited records that the player has set foot in `regionID`.
+// Idempotent. Returns true if state changed.
+func MarkRegionVisited(e *Expedition, regionID string) (bool, error) {
+	if e == nil || regionID == "" {
+		return false, nil
+	}
+	return addRegionListEntry(e, regionStateVisitedKey, regionID)
+}
+
+// MarkRegionBossDefeated records that the region boss for `regionID`
+// has been killed. If the region's IsZoneBoss flag is set, the
+// expedition's BossDefeated zone-level flag is also flipped (§7
+// suppression hooks read it). Idempotent. Returns true if state
+// changed.
+//
+// Combat-link phase calls this from the per-region boss-kill resolver.
+func MarkRegionBossDefeated(e *Expedition, regionID string) (bool, error) {
+	if e == nil || regionID == "" {
+		return false, nil
+	}
+	region, ok := findRegion(e.ZoneID, regionID)
+	if !ok {
+		return false, nil
+	}
+	changed, err := addRegionListEntry(e, regionStateClearedKey, regionID)
+	if err != nil {
+		return changed, err
+	}
+	if region.IsZoneBoss && !e.BossDefeated {
+		e.BossDefeated = true
+		if _, err := db.Get().Exec(`
+			UPDATE dnd_expedition
+			   SET boss_defeated = 1,
+			       last_activity = CURRENT_TIMESTAMP
+			 WHERE expedition_id = ?`, e.ID); err != nil {
+			return changed, err
+		}
+		changed = true
+	}
+	return changed, nil
+}
+
+// setCurrentRegion writes a new CurrentRegion. Used by E4c travel.
+func setCurrentRegion(e *Expedition, regionID string) error {
+	e.CurrentRegion = regionID
+	_, err := db.Get().Exec(`
+		UPDATE dnd_expedition
+		   SET current_region = ?,
+		       last_activity = CURRENT_TIMESTAMP
+		 WHERE expedition_id = ?`, regionID, e.ID)
+	return err
 }

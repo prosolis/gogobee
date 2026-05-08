@@ -84,6 +84,69 @@ func TestCurrentRegion_DefaultsToFirst(t *testing.T) {
 	}
 }
 
+func TestMarkRegionBossDefeated_FlipsZoneBoss(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@region-boss:example.org")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneUnderdark, "", ExpeditionSupplies{Max: 10, Current: 10, DailyBurn: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Non-zone-boss region: clears region, leaves zone BossDefeated.
+	if changed, err := MarkRegionBossDefeated(exp, "underdark_drow_outpost"); err != nil || !changed {
+		t.Fatalf("first mark: changed=%v err=%v", changed, err)
+	}
+	if !IsRegionCleared(exp, "underdark_drow_outpost") {
+		t.Error("region not cleared after Mark")
+	}
+	if exp.BossDefeated {
+		t.Error("BossDefeated flipped on non-zone-boss region")
+	}
+
+	// Idempotent.
+	if changed, _ := MarkRegionBossDefeated(exp, "underdark_drow_outpost"); changed {
+		t.Error("idempotent mark reported change")
+	}
+
+	// Zone-boss region: flips BossDefeated and persists.
+	if changed, err := MarkRegionBossDefeated(exp, "underdark_deep_throne"); err != nil || !changed {
+		t.Fatalf("zone-boss mark: changed=%v err=%v", changed, err)
+	}
+	if !exp.BossDefeated {
+		t.Error("BossDefeated not set after zone-boss kill")
+	}
+	loaded, _ := getActiveExpedition(uid)
+	if !loaded.BossDefeated {
+		t.Error("BossDefeated did not persist")
+	}
+	if !IsRegionCleared(loaded, "underdark_deep_throne") {
+		t.Error("zone-boss region not in cleared list after reload")
+	}
+}
+
+func TestStartExpedition_DefaultsCurrentRegionForMultiRegionZone(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@region-default:example.org")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneAbyssPortal, "", ExpeditionSupplies{Max: 10, Current: 10, DailyBurn: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exp.CurrentRegion != "abyss_outer_rift" {
+		t.Errorf("CurrentRegion = %q, want abyss_outer_rift", exp.CurrentRegion)
+	}
+	if !IsRegionVisited(exp, "abyss_outer_rift") {
+		t.Error("entry region not in visited list")
+	}
+	loaded, _ := getActiveExpedition(uid)
+	if loaded.CurrentRegion != "abyss_outer_rift" {
+		t.Errorf("reload CurrentRegion = %q", loaded.CurrentRegion)
+	}
+}
+
 func TestRegionStateLists_PersistAndRoundTrip(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@region-state:example.org")
