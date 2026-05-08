@@ -1020,6 +1020,55 @@ func TestInitSubclassResources_BattleMasterL15GrowsPool(t *testing.T) {
 	}
 }
 
+// ── SUB3a-iii — Thief L10/L15 ───────────────────────────────────────────
+
+func TestApplySubclassPassives_ThiefL10UseMagicDevice(t *testing.T) {
+	c := &DnDCharacter{Class: ClassRogue, Subclass: SubclassThief, Level: 10}
+	stats := &CombatStats{}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(stats, mods, c)
+	if mods.FlatDmgStart != 6 {
+		t.Errorf("L10 Thief FlatDmgStart = %d, want 6 (UMD wand zap)", mods.FlatDmgStart)
+	}
+	if mods.DamageBonus < 0.049 || mods.DamageBonus > 0.051 {
+		t.Errorf("L10 Thief DamageBonus = %v, want ~0.05 (UMD)", mods.DamageBonus)
+	}
+	if mods.AssassinateAdvantage {
+		t.Error("L10 Thief should not have AssassinateAdvantage (L15 only)")
+	}
+	if mods.AssassinateBonusDmg != 0 {
+		t.Errorf("L10 Thief AssassinateBonusDmg = %d, want 0 (L15 only)", mods.AssassinateBonusDmg)
+	}
+}
+
+func TestApplySubclassPassives_ThiefL9NoUseMagicDevice(t *testing.T) {
+	c := &DnDCharacter{Class: ClassRogue, Subclass: SubclassThief, Level: 9}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.FlatDmgStart != 0 {
+		t.Errorf("L9 Thief FlatDmgStart = %d, want 0 (UMD gates at L10)", mods.FlatDmgStart)
+	}
+	if mods.DamageBonus != 0 {
+		t.Errorf("L9 Thief DamageBonus = %v, want 0", mods.DamageBonus)
+	}
+}
+
+func TestApplySubclassPassives_ThiefL15ThiefsReflexes(t *testing.T) {
+	c := &DnDCharacter{Class: ClassRogue, Subclass: SubclassThief, Level: 15}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if !mods.AssassinateAdvantage {
+		t.Error("L15 Thief should have AssassinateAdvantage (Thief's Reflexes)")
+	}
+	if mods.AssassinateBonusDmg != 8 {
+		t.Errorf("L15 Thief AssassinateBonusDmg = %d, want 8 (extra turn proxy)", mods.AssassinateBonusDmg)
+	}
+	// L10 layer must still apply.
+	if mods.FlatDmgStart != 6 {
+		t.Errorf("L15 Thief FlatDmgStart = %d, want 6 (L10 UMD still active)", mods.FlatDmgStart)
+	}
+}
+
 func TestInitSubclassResources_BattleMasterL15PreservesSpentDice(t *testing.T) {
 	// Player burned through 3 dice (current=1, max=4), then levels up to 15.
 	// The growth delta (+1) should be added to current → cur=2, max=5. We

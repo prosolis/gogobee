@@ -62,6 +62,28 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 		if c.Level >= 7 {
 			stats.AttackBonus++
 		}
+	case SubclassThief:
+		// Phase 10 SUB3a-iii — Thief L10/L15.
+		//
+		// L10 Use Magic Device (5e L13: ignore class/race/level requirements
+		// on magic items, including spell scrolls and wands). We don't have a
+		// scroll/wand item system, so we proxy the fantasy as a small free
+		// "magical implement" effect every fight: a pre-combat wand-zap and a
+		// flat damage bump representing better tactical use of magic items
+		// the Thief is now allowed to wield.
+		// L15 Thief's Reflexes (5e L17: take two turns during the first round
+		// of combat). Engine has no "extra turn" primitive, so we ride the
+		// AssassinateBonusDmg + AssassinateAdvantage channel — the same one
+		// Gloom Stalker's Dread Ambusher uses for bonus-opener damage. The
+		// flat-damage proxy approximates the value of one extra turn's hit.
+		if c.Level >= 10 {
+			mods.FlatDmgStart += 6
+			mods.DamageBonus += 0.05
+		}
+		if c.Level >= 15 {
+			mods.AssassinateAdvantage = true
+			mods.AssassinateBonusDmg += 8
+		}
 	case SubclassAbjuration:
 		// L5 Arcane Ward: HP buffer = 2× Mage level. 5e fluffs this as
 		// recharged when casting an abjuration spell of L1+; we approximate
