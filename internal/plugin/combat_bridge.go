@@ -90,7 +90,7 @@ func (p *AdventurePlugin) runArenaCombat(
 	p.grantCombatAchievements(userID, result)
 
 	persistDnDHPAfterCombat(userID, result.PlayerStartHP, result.PlayerEndHP)
-	if err := persistDnDPostCombatSubclass(dndChar, playerMods.BerserkerRage); err != nil {
+	if err := persistDnDPostCombatSubclass(dndChar, playerMods.BerserkerRage, result, playerMods); err != nil {
 		slog.Error("dnd: post-combat subclass persist (arena)", "user", userID, "err", err)
 	}
 
@@ -220,7 +220,7 @@ func (p *AdventurePlugin) runDungeonCombat(
 	p.grantCombatAchievements(userID, result)
 
 	persistDnDHPAfterCombat(userID, result.PlayerStartHP, result.PlayerEndHP)
-	if err := persistDnDPostCombatSubclass(dndChar, playerMods.BerserkerRage); err != nil {
+	if err := persistDnDPostCombatSubclass(dndChar, playerMods.BerserkerRage, result, playerMods); err != nil {
 		slog.Error("dnd: post-combat subclass persist (dungeon)", "user", userID, "err", err)
 	}
 

@@ -52,6 +52,8 @@ func applyPendingCast(
 	dc := spellSaveDC(c)
 	atk := spellAttackBonus(c)
 
+	preDmgBefore := playerMods.SpellPreDamage
+
 	switch spell.Effect {
 	case EffectDamageAttack:
 		applySpellDamageAttack(spell, atk, playerMods, enemyStats, pc.SlotLevel, c.Level)
@@ -65,9 +67,48 @@ func applyPendingCast(
 		applySpellBuff(spell, c, playerStats, playerMods, pc.SlotLevel)
 	}
 
+	if playerMods.SpellPreDamage > preDmgBefore {
+		applyMageSubclassSpellHooks(c, spell, pc.SlotLevel, playerMods)
+	}
+
 	c.PendingCast = ""
 	if err := SaveDnDCharacter(c); err != nil {
 		slog.Error("dnd: clear pending_cast failed", "user", userID, "err", err)
+	}
+}
+
+// applyMageSubclassSpellHooks layers the Mage subclass damage/healing
+// adjustments on top of a freshly-resolved spell cast. Caller passes mods
+// only after the spell actually dealt damage so misses don't trigger
+// Empowered Evocation or Grim Harvest stash.
+func applyMageSubclassSpellHooks(c *DnDCharacter, spell SpellDefinition, slotLevel int, mods *CombatModifiers) {
+	if c == nil || c.Class != ClassMage {
+		return
+	}
+	switch c.Subclass {
+	case SubclassEvocation:
+		// L7 Empowered Evocation: +INT mod (min 1) to one Mage evocation
+		// spell's damage per turn. We're one-shot, so "per turn" collapses
+		// to "this cast".
+		if c.Level >= 7 && spell.School == "evocation" {
+			bonus := abilityModifier(c.INT)
+			if bonus < 1 {
+				bonus = 1
+			}
+			mods.SpellPreDamage += bonus
+		}
+	case SubclassNecromancy:
+		// L5 Grim Harvest stash — heal applied post-combat iff this spell
+		// landed the killing blow. Cantrip kills count as L1 for the heal
+		// formula; necrotic damage triples the multiplier (per design doc).
+		if c.Level >= 5 {
+			slot := slotLevel
+			if spell.Level == 0 {
+				slot = 1
+			}
+			mods.GrimHarvestSlot = slot
+			mods.GrimHarvestNecrotic = spell.DamageType == "necrotic"
+		}
 	}
 }
 

@@ -82,6 +82,17 @@ type CombatModifiers struct {
 	AssassinateAdvantage bool
 	AssassinateBonusDmg  int
 
+	// Phase 10 SUB2b — Mage subclasses.
+	// ArcaneWardHP: flat HP buffer absorbed before player HP. Refilled at the
+	// start of each combat by Abjuration L5+ (2× Mage level, +prof at L7).
+	// Persists across rounds within a single combat; not refunded between fights.
+	// GrimHarvestSlot/Necrotic: snapshot of the queued spell stashed by
+	// applyPendingCast for the post-combat Grim Harvest hook (Necromancy L5+).
+	// Heal fires only if the spell event is what dropped the enemy to 0.
+	ArcaneWardHP        int
+	GrimHarvestSlot     int
+	GrimHarvestNecrotic bool
+
 	// Phase 9 — pending spell resolution. Set by applyPendingCast in
 	// dnd_spell_combat.go before SimulateCombat runs. SpellPreDamage is
 	// dealt as a pre-combat event with SpellPreDamageDesc as the narrative
@@ -204,6 +215,9 @@ type combatState struct {
 	assassinateRerollUsed bool
 	assassinateBonusUsed  bool
 
+	// Phase 10 SUB2b — Abjuration Arcane Ward HP buffer.
+	arcaneWardHP int
+
 	round  int
 	events []CombatEvent
 }
@@ -217,6 +231,7 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 		reflectFrac:    player.Mods.ReflectNext,
 		autoCrit:       player.Mods.AutoCritFirst,
 		enemySkipFirst: player.Mods.SpellEnemySkipFirst,
+		arcaneWardHP:   player.Mods.ArcaneWardHP,
 	}
 
 	result := CombatResult{
@@ -721,6 +736,25 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 		action = "crit"
 	} else if blocked {
 		action = "block"
+	}
+
+	// Phase 10 SUB2b — Abjuration Arcane Ward absorbs incoming damage before
+	// it hits player HP. Only wired into the standard enemy attack path; tick
+	// effects (poison, environment, lifesteal, cleave) bypass the ward in this
+	// model — those represent damage-over-time / tactical hits where the
+	// abstraction "magical aegis" reads thinner narratively.
+	if st.arcaneWardHP > 0 && dmg > 0 {
+		absorbed := dmg
+		if absorbed > st.arcaneWardHP {
+			absorbed = st.arcaneWardHP
+		}
+		st.arcaneWardHP -= absorbed
+		dmg -= absorbed
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "player", Action: "arcane_ward",
+			Damage: absorbed, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			Desc: "Arcane Ward",
+		})
 	}
 
 	st.playerHP = max(0, st.playerHP-dmg)

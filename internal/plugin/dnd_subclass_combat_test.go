@@ -89,7 +89,7 @@ func TestPersistDnDPostCombatSubclass_RagedIncrementsExhaustion(t *testing.T) {
 	if err := SaveDnDCharacter(c); err != nil {
 		t.Fatal(err)
 	}
-	if err := persistDnDPostCombatSubclass(c, true); err != nil {
+	if err := persistDnDPostCombatSubclass(c, true, CombatResult{}, CombatModifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := LoadDnDCharacter(uid)
@@ -97,7 +97,7 @@ func TestPersistDnDPostCombatSubclass_RagedIncrementsExhaustion(t *testing.T) {
 		t.Errorf("Exhaustion after raged combat = %d, want 1", got.Exhaustion)
 	}
 	// Second raged combat → 2.
-	if err := persistDnDPostCombatSubclass(got, true); err != nil {
+	if err := persistDnDPostCombatSubclass(got, true, CombatResult{}, CombatModifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	got2, _ := LoadDnDCharacter(uid)
@@ -120,7 +120,7 @@ func TestPersistDnDPostCombatSubclass_NoRageNoIncrement(t *testing.T) {
 	if err := SaveDnDCharacter(c); err != nil {
 		t.Fatal(err)
 	}
-	if err := persistDnDPostCombatSubclass(c, false); err != nil {
+	if err := persistDnDPostCombatSubclass(c, false, CombatResult{}, CombatModifiers{}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := LoadDnDCharacter(uid)

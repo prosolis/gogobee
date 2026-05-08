@@ -29,6 +29,23 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 		if c.Level >= 7 {
 			stats.AttackBonus++
 		}
+	case SubclassAbjuration:
+		// L5 Arcane Ward: HP buffer = 2× Mage level. 5e fluffs this as
+		// recharged when casting an abjuration spell of L1+; we approximate
+		// "always-on" by refilling at the start of every combat — the player
+		// can refresh by simply casting any abjuration spell pre-combat
+		// (mage_armor, shield_of_faith, etc.), which our combat already
+		// handles via pending_cast. L7 Improved Abjuration: + proficiency
+		// bonus to ward HP (5e: + prof to Counterspell/Dispel checks; we
+		// fold the static piece into the durability buff since Counterspell
+		// is reaction-deferred to Phase 11).
+		if c.Level >= 5 {
+			ward := 2 * c.Level
+			if c.Level >= 7 {
+				ward += proficiencyBonus(c.Level)
+			}
+			mods.ArcaneWardHP = ward
+		}
 	case SubclassAssassin:
 		// L5 Assassinate: advantage on the opening strike + bonus damage
 		// stacked on top of the Rogue's existing Sneak Attack auto-crit
@@ -126,15 +143,56 @@ func init() {
 }
 
 // persistDnDPostCombatSubclass handles end-of-combat subclass bookkeeping.
-// Currently: increment Exhaustion if Berserker rage fired. Called from
-// combat_bridge after the combat result is computed.
+// Bumps Exhaustion if Berserker rage fired and applies Grim Harvest healing
+// if a Necromancy Mage's queued spell delivered the killing blow. Called
+// from combat_bridge after SimulateCombat returns.
 //
-// raged is computed as (mods.BerserkerRage at combat-start time) — pass it
-// through from the caller where the mods value is still in scope.
-func persistDnDPostCombatSubclass(c *DnDCharacter, raged bool) error {
-	if c == nil || !raged {
+// raged is captured before combat (mods.BerserkerRage at combat-start time);
+// result + mods are read here to detect the spell-kill and look up the
+// stashed slot level / damage type.
+func persistDnDPostCombatSubclass(c *DnDCharacter, raged bool, result CombatResult, mods CombatModifiers) error {
+	if c == nil {
 		return nil
 	}
-	c.Exhaustion++
+	dirty := false
+	if raged {
+		c.Exhaustion++
+		dirty = true
+	}
+	if heal := grimHarvestHeal(c, result, mods); heal > 0 {
+		c.HPCurrent = min(c.HPMax, c.HPCurrent+heal)
+		dirty = true
+	}
+	if !dirty {
+		return nil
+	}
 	return SaveDnDCharacter(c)
+}
+
+// grimHarvestHeal returns the HP to restore when a Necromancy Mage's queued
+// spell delivered the killing blow. 5e: heal 2× spell level on kill (3× if
+// the spell is necrotic). Slot=0 = nothing was stashed → no heal. Returns 0
+// if the player lost or the killing blow wasn't the pre-combat spell.
+func grimHarvestHeal(c *DnDCharacter, result CombatResult, mods CombatModifiers) int {
+	if c == nil || c.Class != ClassMage || c.Subclass != SubclassNecromancy || c.Level < 5 {
+		return 0
+	}
+	if !result.PlayerWon || mods.GrimHarvestSlot <= 0 {
+		return 0
+	}
+	// The pre-combat spell killed the enemy iff the spell_cast event itself
+	// dropped EnemyHP to 0. If a later round-event finished the kill, no heal.
+	for _, ev := range result.Events {
+		if ev.Action == "spell_cast" {
+			if ev.EnemyHP > 0 {
+				return 0
+			}
+			break
+		}
+	}
+	heal := 2 * mods.GrimHarvestSlot
+	if mods.GrimHarvestNecrotic {
+		heal = 3 * mods.GrimHarvestSlot
+	}
+	return heal
 }
