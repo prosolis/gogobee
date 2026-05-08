@@ -105,7 +105,7 @@ func loadExpeditionsNeedingBriefing(threshold time.Time) ([]*Expedition, error) 
 		       xp_earned, coins_earned, gm_mood,
 		       last_briefing_at, last_recap_at, last_activity, completed_at
 		  FROM dnd_expedition
-		 WHERE status IN ('active', 'extracting')
+		 WHERE status = 'active'
 		   AND start_date < ?
 		   AND (last_briefing_at IS NULL OR last_briefing_at < ?)`,
 		threshold, threshold)
@@ -126,7 +126,7 @@ func loadExpeditionsNeedingRecap(threshold time.Time) ([]*Expedition, error) {
 		       xp_earned, coins_earned, gm_mood,
 		       last_briefing_at, last_recap_at, last_activity, completed_at
 		  FROM dnd_expedition
-		 WHERE status IN ('active', 'extracting')
+		 WHERE status = 'active'
 		   AND (last_recap_at IS NULL OR last_recap_at < ?)`, threshold)
 	if err != nil {
 		return nil, err
@@ -201,6 +201,17 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	// E3: zone temporal events post-rollover narration (after the day
 	// has advanced, so e.CurrentDay reflects the new day).
 	temporalLines := applyZoneTemporalPostRollover(e)
+
+	// E5b: if a temporal event forced extraction (abyss collapse, etc.),
+	// apply the §10.2 coin tax. The temporal layer flips the row to
+	// 'abandoned'; the cycle holds the euro handle to do the debit.
+	if e.Status == ExpeditionStatusAbandoned && p.euro != nil {
+		tax := int(float64(e.CoinsEarned) * forcedExtractCoinTaxFrac)
+		if tax > 0 {
+			p.euro.Debit(id.UserID(e.UserID), float64(tax),
+				"forced extraction tax")
+		}
+	}
 
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)

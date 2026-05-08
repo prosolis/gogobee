@@ -520,11 +520,17 @@ func abyssPortalTemporalPostRollover(e *Expedition) []string {
 		return []string{line}
 	case "collapse":
 		line := flavor.Pick(flavor.AbyssPortalCollapse)
+		forced := flavor.Pick(flavor.ExtractionForced)
 		_ = appendExpeditionLog(e.ID, e.CurrentDay, "temporal",
 			"portal collapsed — expedition forcibly extracted", line)
-		// Forced extraction: spec §7.6 marks the run failed.
-		_ = completeExpedition(e.ID, ExpeditionStatusFailed)
-		return []string{line}
+		// §10.2: forced extraction → abandoned. Coin tax is applied by
+		// the cycle layer (which holds the euro handle) once it sees
+		// the row flipped to 'abandoned'.
+		_, _, _ = forcedExtractExpedition(e.ID, "abyss portal collapse")
+		e.Status = ExpeditionStatusAbandoned
+		_ = appendExpeditionLog(e.ID, e.CurrentDay, "narrative",
+			"forced extraction", forced)
+		return []string{line, forced}
 	}
 	return nil
 }

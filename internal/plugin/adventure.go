@@ -264,6 +264,12 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "region") {
 		return p.handleRegionCmd(ctx, p.GetArgs(ctx.Body, "region"))
 	}
+	if p.IsCommand(ctx.Body, "extract") {
+		return p.handleExtractCmd(ctx, p.GetArgs(ctx.Body, "extract"))
+	}
+	if p.IsCommand(ctx.Body, "resume") {
+		return p.handleResumeCmd(ctx, p.GetArgs(ctx.Body, "resume"))
+	}
 
 	// 1. Arena commands (work in rooms and DMs)
 	if p.IsCommand(ctx.Body, "bail") {

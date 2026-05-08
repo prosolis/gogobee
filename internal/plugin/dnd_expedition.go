@@ -176,6 +176,7 @@ func startExpedition(userID id.UserID, zoneID ZoneID, runID string, supplies Exp
 }
 
 // getActiveExpedition returns the player's in-flight expedition, or (nil, nil).
+// 'extracting' rows are post-extraction (resumable) — see getResumableExpedition.
 func getActiveExpedition(userID id.UserID) (*Expedition, error) {
 	row := db.Get().QueryRow(`
 		SELECT expedition_id, user_id, zone_id, run_id, status,
@@ -186,7 +187,7 @@ func getActiveExpedition(userID id.UserID) (*Expedition, error) {
 		       last_briefing_at, last_recap_at, last_activity, completed_at
 		  FROM dnd_expedition
 		 WHERE user_id = ?
-		   AND status IN ('active', 'extracting')
+		   AND status = 'active'
 		 ORDER BY start_date DESC
 		 LIMIT 1`, string(userID))
 	e, err := scanExpedition(row)

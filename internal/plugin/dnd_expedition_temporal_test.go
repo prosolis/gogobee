@@ -771,8 +771,9 @@ func TestAbyss_CollapseFailsExpedition(t *testing.T) {
 	if got.TemporalStack != 100 {
 		t.Errorf("instability = %d, want 100", got.TemporalStack)
 	}
-	if got.Status != ExpeditionStatusFailed {
-		t.Errorf("status = %q, want %q after collapse", got.Status, ExpeditionStatusFailed)
+	// E5b: collapse is a §10.2 forced extraction → 'abandoned' (not 'failed').
+	if got.Status != ExpeditionStatusAbandoned {
+		t.Errorf("status = %q, want %q after collapse", got.Status, ExpeditionStatusAbandoned)
 	}
 }
 
