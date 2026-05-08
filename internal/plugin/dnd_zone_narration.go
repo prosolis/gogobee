@@ -85,8 +85,12 @@ func zoneRoomEntryPool(zoneID ZoneID) []string {
 		return append(append([]string{}, flavor.RoomEntryUnderforge...), flavor.RoomEntryGeneric...)
 	case ZoneUnderdark:
 		return append(append([]string{}, flavor.RoomEntryUnderdark...), flavor.RoomEntryGeneric...)
+	case ZoneFeywildCrossing:
+		return append(append([]string{}, flavor.RoomEntryFeywildCrossing...), flavor.RoomEntryGeneric...)
 	case ZoneDragonsLair:
 		return append(append([]string{}, flavor.RoomEntryDragonsLair...), flavor.RoomEntryGeneric...)
+	case ZoneAbyssPortal:
+		return append(append([]string{}, flavor.RoomEntryAbyssPortal...), flavor.RoomEntryGeneric...)
 	}
 	return flavor.RoomEntryGeneric
 }
@@ -107,6 +111,10 @@ func bossEntryPool(zoneID ZoneID) []string {
 		return flavor.BossEntryAldricBlackspire
 	case ZoneUnderforge:
 		return flavor.BossEntryEmberlordThyrak
+	case ZoneUnderdark:
+		return flavor.BossEntryIlvaras
+	case ZoneFeywildCrossing:
+		return flavor.BossEntryThornmother
 	case ZoneDragonsLair:
 		return flavor.BossEntryInfernax
 	case ZoneAbyssPortal:
@@ -165,6 +173,14 @@ func zoneLorePool(zoneID ZoneID) []string {
 		return append(append([]string{}, flavor.LoreLinesManorBlackspire...), flavor.LoreLines...)
 	case ZoneUnderforge:
 		return append(append([]string{}, flavor.LoreLinesUnderforge...), flavor.LoreLines...)
+	case ZoneUnderdark:
+		return append(append([]string{}, flavor.LoreLinesUnderdark...), flavor.LoreLines...)
+	case ZoneFeywildCrossing:
+		return append(append([]string{}, flavor.LoreLinesFeywildCrossing...), flavor.LoreLines...)
+	case ZoneDragonsLair:
+		return append(append([]string{}, flavor.LoreLinesDragonsLair...), flavor.LoreLines...)
+	case ZoneAbyssPortal:
+		return append(append([]string{}, flavor.LoreLinesAbyssPortal...), flavor.LoreLines...)
 	}
 	return flavor.LoreLines
 }
@@ -186,6 +202,14 @@ func bossSignaturePool(zoneID ZoneID) []string {
 		return flavor.AldricSignatureCallouts
 	case ZoneUnderforge:
 		return flavor.ThyrakSignatureCallouts
+	case ZoneUnderdark:
+		return flavor.IlvarasSignatureCallouts
+	case ZoneFeywildCrossing:
+		return flavor.ThornmotherSignatureCallouts
+	case ZoneDragonsLair:
+		return flavor.InfernaxSignatureCallouts
+	case ZoneAbyssPortal:
+		return flavor.BelaxathSignatureCallouts
 	}
 	return nil
 }
@@ -206,6 +230,14 @@ func eliteRoomEntryPool(zoneID ZoneID) []string {
 		return flavor.EliteRoomEntryManorBlackspire
 	case ZoneUnderforge:
 		return flavor.EliteRoomEntryUnderforge
+	case ZoneUnderdark:
+		return flavor.EliteRoomEntryUnderdark
+	case ZoneFeywildCrossing:
+		return flavor.EliteRoomEntryFeywildCrossing
+	case ZoneDragonsLair:
+		return flavor.EliteRoomEntryDragonsLair
+	case ZoneAbyssPortal:
+		return flavor.EliteRoomEntryAbyssPortal
 	}
 	return nil
 }

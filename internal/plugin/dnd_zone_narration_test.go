@@ -185,17 +185,8 @@ func TestComposeBossEntry_AppendsAbilityCalloutForTier1(t *testing.T) {
 	}
 }
 
-func TestComposeBossEntry_NoCalloutForUnflavoredZone(t *testing.T) {
-	// Dragon's Lair has a named boss-entry pool (Infernax) but no
-	// signature-callout pool yet — composer should return the bare entry.
-	got := composeBossEntry(ZoneDragonsLair, "run-d2b", 1)
-	if got == "" {
-		t.Fatal("dragon's lair boss-entry should still render")
-	}
-	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 1 {
-		t.Errorf("Dragon's Lair boss-entry expected 1 TwinBee block (no callout pool), got %d:\n%s", n, got)
-	}
-}
+// (Dragon's Lair gained signature callouts and an elite pool in D5b; see
+// the Tier 4-5 routing tests below for its current behavior.)
 
 func TestComposeBossEntry_DeterministicAcrossCalls(t *testing.T) {
 	a := composeBossEntry(ZoneGoblinWarrens, "stable-run", 4)
@@ -217,10 +208,6 @@ func TestEliteRoomEntryLine_RoutesPerZone(t *testing.T) {
 	if w == c {
 		t.Errorf("Warrens and Crypt elite lines collided on same salt — pools shouldn't overlap")
 	}
-	// Unflavored zone returns empty so the caller skips the prefix.
-	if got := eliteRoomEntryLine(ZoneDragonsLair, "run-elite", 3); got != "" {
-		t.Errorf("unflavored zone should return empty, got %q", got)
-	}
 }
 
 func TestZoneLorePool_PrependsZoneSpecific(t *testing.T) {
@@ -228,11 +215,6 @@ func TestZoneLorePool_PrependsZoneSpecific(t *testing.T) {
 	if len(w) <= len(flavor.LoreLines) {
 		t.Errorf("Warrens lore pool should be larger than generic; got %d vs generic %d",
 			len(w), len(flavor.LoreLines))
-	}
-	// Tier 3+ zone with no dedicated lore must fall back to the generic pool.
-	if got := zoneLorePool(ZoneDragonsLair); len(got) != len(flavor.LoreLines) {
-		t.Errorf("Dragon's Lair lore pool should fall back to generic; got %d, want %d",
-			len(got), len(flavor.LoreLines))
 	}
 }
 
@@ -383,5 +365,83 @@ func TestZoneCmd_AdvanceFinalRoomBumpsMood(t *testing.T) {
 	}
 	if final.GMMood != 60 {
 		t.Errorf("post-completion mood = %d, want 60 (50 + zone_complete +10)", final.GMMood)
+	}
+}
+
+// ── Phase 11 D5b — Tier 4-5 zone flavor file routing ────────────────────────
+
+func TestComposeBossEntry_AppendsAbilityCalloutForTier4(t *testing.T) {
+	got := composeBossEntry(ZoneUnderdark, "run-d5b", 5)
+	if !strings.Contains(got, "Ilvaras") {
+		t.Errorf("Underdark boss-entry should mention Ilvaras: %q", got)
+	}
+	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 2 {
+		t.Errorf("Underdark boss-entry expected 2 TwinBee blocks (entry+callout), got %d:\n%s", n, got)
+	}
+
+	got = composeBossEntry(ZoneFeywildCrossing, "run-d5b", 5)
+	if !strings.Contains(got, "Thornmother") {
+		t.Errorf("Feywild boss-entry should mention Thornmother: %q", got)
+	}
+	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 2 {
+		t.Errorf("Feywild boss-entry expected 2 TwinBee blocks (entry+callout), got %d:\n%s", n, got)
+	}
+}
+
+func TestComposeBossEntry_AppendsAbilityCalloutForTier5(t *testing.T) {
+	got := composeBossEntry(ZoneDragonsLair, "run-d5b", 5)
+	if !strings.Contains(got, "Infernax") {
+		t.Errorf("Dragon's Lair boss-entry should mention Infernax: %q", got)
+	}
+	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 2 {
+		t.Errorf("Dragon's Lair boss-entry expected 2 TwinBee blocks (entry+callout), got %d:\n%s", n, got)
+	}
+
+	got = composeBossEntry(ZoneAbyssPortal, "run-d5b", 5)
+	if !strings.Contains(got, "Belaxath") {
+		t.Errorf("Abyss boss-entry should mention Belaxath: %q", got)
+	}
+	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 2 {
+		t.Errorf("Abyss boss-entry expected 2 TwinBee blocks (entry+callout), got %d:\n%s", n, got)
+	}
+}
+
+func TestEliteRoomEntryLine_Tier4And5Routes(t *testing.T) {
+	u := eliteRoomEntryLine(ZoneUnderdark, "run-elite-t45", 3)
+	if u == "" || !strings.HasPrefix(u, "🎭 **TwinBee:**") {
+		t.Errorf("Underdark elite line missing/no prefix: %q", u)
+	}
+	f := eliteRoomEntryLine(ZoneFeywildCrossing, "run-elite-t45", 3)
+	if f == "" || !strings.HasPrefix(f, "🎭 **TwinBee:**") {
+		t.Errorf("Feywild elite line missing/no prefix: %q", f)
+	}
+	d := eliteRoomEntryLine(ZoneDragonsLair, "run-elite-t45", 3)
+	if d == "" || !strings.HasPrefix(d, "🎭 **TwinBee:**") {
+		t.Errorf("Dragon's Lair elite line missing/no prefix: %q", d)
+	}
+	a := eliteRoomEntryLine(ZoneAbyssPortal, "run-elite-t45", 3)
+	if a == "" || !strings.HasPrefix(a, "🎭 **TwinBee:**") {
+		t.Errorf("Abyss elite line missing/no prefix: %q", a)
+	}
+	if u == f || u == d || u == a || f == d || f == a || d == a {
+		t.Errorf("Tier 4-5 elite lines collided on same salt — pools shouldn't overlap")
+	}
+}
+
+func TestZoneLorePool_Tier4And5PrependsZoneSpecific(t *testing.T) {
+	for _, z := range []ZoneID{ZoneUnderdark, ZoneFeywildCrossing, ZoneDragonsLair, ZoneAbyssPortal} {
+		if got := zoneLorePool(z); len(got) <= len(flavor.LoreLines) {
+			t.Errorf("%s lore pool should be larger than generic; got %d vs generic %d",
+				z, len(got), len(flavor.LoreLines))
+		}
+	}
+}
+
+func TestRoomEntryPool_Tier4And5PrependsZoneSpecific(t *testing.T) {
+	// All four T4-5 zones should now overlay zone-specific room entries.
+	for _, z := range []ZoneID{ZoneUnderdark, ZoneFeywildCrossing, ZoneDragonsLair, ZoneAbyssPortal} {
+		if got := zoneRoomEntryPool(z); len(got) <= len(flavor.RoomEntryGeneric) {
+			t.Errorf("%s room-entry pool should overlay zone-specific lines; got %d", z, len(got))
+		}
 	}
 }
