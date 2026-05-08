@@ -270,6 +270,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "resume") {
 		return p.handleResumeCmd(ctx, p.GetArgs(ctx.Body, "resume"))
 	}
+	if p.IsCommand(ctx.Body, "map") {
+		return p.handleExpeditionMapCmd(ctx, p.GetArgs(ctx.Body, "map"))
+	}
 
 	// 1. Arena commands (work in rooms and DMs)
 	if p.IsCommand(ctx.Body, "bail") {

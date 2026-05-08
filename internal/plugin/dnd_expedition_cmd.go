@@ -68,6 +68,8 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 		return p.handleExtractCmd(ctx, "")
 	case "resume":
 		return p.handleResumeCmd(ctx, rest)
+	case "map", "m":
+		return p.handleExpeditionMapCmd(ctx, "")
 	default:
 		return p.SendDM(ctx.Sender, expeditionHelpText())
 	}
@@ -85,7 +87,8 @@ func expeditionHelpText() string {
 	b.WriteString("`!expedition log` — last 5 log entries\n")
 	b.WriteString("`!expedition abandon` — end the expedition (no rewards)\n")
 	b.WriteString("`!extract` — voluntary extraction (1 day, resumable for 7 days)\n")
-	b.WriteString("`!resume [Ns] [Md]` — resume an extracted expedition")
+	b.WriteString("`!resume [Ns] [Md]` — resume an extracted expedition\n")
+	b.WriteString("`!map` — region/room ASCII map")
 	return b.String()
 }
 
