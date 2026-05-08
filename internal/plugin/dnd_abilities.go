@@ -161,6 +161,11 @@ func subclassResourceMax(sub DnDSubclass) (string, int) {
 	switch sub {
 	case SubclassBattleMaster:
 		return "superiority", 4
+	case SubclassLifeDomain, SubclassWarDomain, SubclassTrickeryDomain:
+		// Phase 10 SUB2c — shared Channel Divinity pool for Cleric domains.
+		// 5e is 1/short-rest at L2 and 2/short-rest at L6; long-rest refresh
+		// in our model.
+		return "channel_divinity", 2
 	}
 	return "", 0
 }

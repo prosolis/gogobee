@@ -235,6 +235,7 @@ func (p *AdventurePlugin) resolveHealOutOfCombat(ctx MessageContext, c *DnDChara
 		heal += 1 + rand.IntN(faces)
 	}
 	heal += abilityModifier(c.WIS)
+	heal += lifeDomainHealBonus(c, spell, slotLevel)
 
 	before := c.HPCurrent
 	c.HPCurrent = min(c.HPMax, c.HPCurrent+heal)

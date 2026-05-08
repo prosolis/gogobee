@@ -60,6 +60,25 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 			}
 			mods.AssassinateBonusDmg = bonus
 		}
+	case SubclassWarDomain:
+		// L5 War Priest: bonus-action weapon attack, usable WIS-mod times per
+		// long rest. One-shot combat can't model an extra discrete attack, so
+		// we proxy throughput with a flat +1 attack bonus and a small damage
+		// bump. L7 War God's Blessing is a reaction granting an ally +10 to
+		// attack — no allies in 1v1 combat, so it's a no-op.
+		if c.Level >= 5 {
+			stats.AttackBonus++
+			mods.DamageBonus += 0.15
+		}
+	case SubclassTrickeryDomain:
+		// L7 Cloak of Shadows: turn invisible until you attack/cast/end of
+		// next turn. We proxy the brief defensive window as 2 rounds of 15%
+		// enemy miss chance via SporeCloud (same channel a fog-cloud-style
+		// consumable would use). L5 Blessing of the Trickster (Stealth
+		// advantage on an ally) is non-combat flavor — skipped.
+		if c.Level >= 7 {
+			mods.SporeCloud += 2
+		}
 	}
 }
 
@@ -140,6 +159,53 @@ func init() {
 			mods.HealItem += 4 + abilityModifier(c.CHA)
 		},
 	}
+
+	// Phase 10 SUB2c — Cleric Channel Divinity. All three Cleric subclasses
+	// share the "channel_divinity" resource pool (2/long-rest in our model;
+	// 5e refreshes 1/short-rest at L2 and 2/short-rest at L6). One armed
+	// expression per fight, mirroring the Battle Master pattern.
+	dndActiveAbilities["preserve_life"] = DnDAbility{
+		ID:          "preserve_life",
+		Name:        "Preserve Life",
+		Class:       ClassCleric,
+		Subclass:    SubclassLifeDomain,
+		Resource:    "channel_divinity",
+		Description: "Channel Divinity: pour life force in at low HP — heals 5× Cleric level (consumes 1 channel divinity).",
+		Apply: func(c *DnDCharacter, mods *CombatModifiers) {
+			// 5e caps the heal at half max HP per target; in 1v1 the entire
+			// pool lands on the caster. HealItem fires once when player
+			// drops below 50%, which matches Preserve Life's "in trouble"
+			// fantasy.
+			heal := 5 * c.Level
+			if c.HPMax > 0 && heal > c.HPMax/2 {
+				heal = c.HPMax / 2
+			}
+			mods.HealItem += heal
+		},
+	}
+	dndActiveAbilities["guided_strike"] = DnDAbility{
+		ID:          "guided_strike",
+		Name:        "Guided Strike",
+		Class:       ClassCleric,
+		Subclass:    SubclassWarDomain,
+		Resource:    "channel_divinity",
+		Description: "Channel Divinity: +10 to your first attack roll this combat (consumes 1 channel divinity).",
+		Apply: func(c *DnDCharacter, mods *CombatModifiers) {
+			mods.FirstAttackBonus += 10
+		},
+	}
+	dndActiveAbilities["invoke_duplicity"] = DnDAbility{
+		ID:          "invoke_duplicity",
+		Name:        "Invoke Duplicity",
+		Class:       ClassCleric,
+		Subclass:    SubclassTrickeryDomain,
+		Resource:    "channel_divinity",
+		Description: "Channel Divinity: an illusory duplicate flanks the foe — advantage on your first attack and +10% damage (consumes 1 channel divinity).",
+		Apply: func(c *DnDCharacter, mods *CombatModifiers) {
+			mods.AssassinateAdvantage = true
+			mods.DamageBonus += 0.10
+		},
+	}
 }
 
 // persistDnDPostCombatSubclass handles end-of-combat subclass bookkeeping.
@@ -167,6 +233,26 @@ func persistDnDPostCombatSubclass(c *DnDCharacter, raged bool, result CombatResu
 		return nil
 	}
 	return SaveDnDCharacter(c)
+}
+
+// lifeDomainHealBonus returns the extra HP a Life Domain Cleric's healing
+// spell restores. Disciple of Life (L5): +(2 + spell level) HP, with cantrips
+// counting as level 1 for the formula. Blessed Healer (L7) — "when casting a
+// healing spell on an ally, you regain 2 + slot level HP" — has no ally in
+// 1v1 play and is intentionally skipped here. Returns 0 for non-Life-Domain
+// callers, non-heal spells, or pre-L5 levels.
+func lifeDomainHealBonus(c *DnDCharacter, spell SpellDefinition, slotLevel int) int {
+	if c == nil || c.Class != ClassCleric || c.Subclass != SubclassLifeDomain {
+		return 0
+	}
+	if c.Level < 5 || spell.Effect != EffectSpellHeal {
+		return 0
+	}
+	lvl := slotLevel
+	if lvl < 1 {
+		lvl = 1
+	}
+	return 2 + lvl
 }
 
 // grimHarvestHeal returns the HP to restore when a Necromancy Mage's queued
