@@ -391,3 +391,23 @@ func TestRenderZoneMap_Empty(t *testing.T) {
 		t.Errorf("empty seq: got %q", got)
 	}
 }
+
+// TestNarrationCoverage_AllZonesAllTypes — D6 polish guarantee. Locks in
+// that every GMNarrationType resolves to a non-empty pool for every
+// registered zone. Adding a new zone or new GMNarrationType without
+// wiring its pool will fail this test.
+func TestNarrationCoverage_AllZonesAllTypes(t *testing.T) {
+	types := []GMNarrationType{
+		GMRoomEntry, GMCombatStart, GMCombatEnd, GMNat20, GMNat1,
+		GMBossEntry, GMBossDeath, GMPlayerDeath, GMZoneComplete,
+		GMTrapDetected, GMTrapTripped, GMLore,
+	}
+	for _, z := range allZones() {
+		for _, k := range types {
+			pool := pickPool(z.ID, k)
+			if len(pool) == 0 {
+				t.Errorf("zone %s × %s: empty pool — every (zone, type) must route to prewritten flavor", z.ID, k)
+			}
+		}
+	}
+}
