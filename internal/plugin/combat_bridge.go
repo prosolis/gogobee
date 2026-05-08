@@ -49,6 +49,7 @@ func (p *AdventurePlugin) runArenaCombat(
 		slog.Info("dnd: armed ability fired", "user", userID, "ability", firedName)
 	}
 	applyDnDArenaMonsterLayer(&enemyStats, monster.ThreatLevel)
+	applyPendingCast(userID, dndChar, &playerStats, &playerMods, &enemyStats)
 
 	selected := SelectConsumables(consumables, playerStats, enemyStats, arenaRound, arenaTier)
 	ApplyConsumableMods(&playerStats, &playerMods, selected)
@@ -172,6 +173,7 @@ func (p *AdventurePlugin) runDungeonCombat(
 		slog.Info("dnd: armed ability fired", "user", userID, "ability", firedName)
 	}
 	applyDnDDungeonMonsterLayer(&enemyStats, loc.Tier)
+	applyPendingCast(userID, dndChar, &playerStats, &playerMods, &enemyStats)
 
 	selected := SelectConsumables(consumables, playerStats, enemyStats, 0, loc.Tier)
 	ApplyConsumableMods(&playerStats, &playerMods, selected)

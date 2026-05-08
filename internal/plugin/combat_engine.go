@@ -52,6 +52,17 @@ type CombatModifiers struct {
 	LuckyReroll  bool // Halfling: reroll the first nat 1 of the fight
 	RageReady    bool // Orc: when HP first drops <50%, next attack deals +50% damage
 	PoisonResist bool // Dwarf: poison tick damage halved
+
+	// Phase 9 — pending spell resolution. Set by applyPendingCast in
+	// dnd_spell_combat.go before SimulateCombat runs. SpellPreDamage is
+	// dealt as a pre-combat event with SpellPreDamageDesc as the narrative
+	// hook (spell name + flavor). SpellEnemySkipFirst causes the enemy to
+	// skip its attack on the first round (Hold Person, Sleep, etc.).
+	// Buffs (Bless, Mage Armor, Hunter's Mark) are folded into stats/mods
+	// directly and don't surface here.
+	SpellPreDamage      int
+	SpellPreDamageDesc  string
+	SpellEnemySkipFirst bool
 }
 
 type Combatant struct {
@@ -155,6 +166,10 @@ type combatState struct {
 	raged             bool // Orc Rage already triggered this fight
 	pendingRageAttack bool // next player attack gets +50% damage
 
+	// Phase 9 spell — enemy skip-first-attack (consumed on the first round
+	// the enemy would otherwise attack).
+	enemySkipFirst bool
+
 	round  int
 	events []CombatEvent
 }
@@ -163,10 +178,11 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 	st := &combatState{
 		playerHP:    player.Stats.MaxHP,
 		enemyHP:     enemy.Stats.MaxHP,
-		wardCharges: player.Mods.WardCharges,
-		sporeRounds: player.Mods.SporeCloud,
-		reflectFrac: player.Mods.ReflectNext,
-		autoCrit:    player.Mods.AutoCritFirst,
+		wardCharges:    player.Mods.WardCharges,
+		sporeRounds:    player.Mods.SporeCloud,
+		reflectFrac:    player.Mods.ReflectNext,
+		autoCrit:       player.Mods.AutoCritFirst,
+		enemySkipFirst: player.Mods.SpellEnemySkipFirst,
 	}
 
 	result := CombatResult{
@@ -193,6 +209,23 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 		st.events = append(st.events, CombatEvent{
 			Round: 0, Phase: "pre_combat", Actor: "consumable", Action: "flat_damage",
 			Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.enemyHP <= 0 {
+			return finalize(result, st, player, enemy)
+		}
+	}
+
+	// Pre-combat: queued spell. Resolved by applyPendingCast() before this
+	// runs — the modifiers carry the resolved damage and narrative hook.
+	if player.Mods.SpellPreDamageDesc != "" {
+		dmg := player.Mods.SpellPreDamage
+		if dmg > 0 {
+			st.enemyHP = max(0, st.enemyHP-dmg)
+		}
+		st.events = append(st.events, CombatEvent{
+			Round: 0, Phase: "pre_combat", Actor: "player", Action: "spell_cast",
+			Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			Desc: player.Mods.SpellPreDamageDesc,
 		})
 		if st.enemyHP <= 0 {
 			return finalize(result, st, player, enemy)
@@ -237,8 +270,21 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase, result *CombatResult) bool {
 	phaseName := phase.Name
 
+	// Phase 9 spell: control effect (Hold Person, Sleep, Command) skips the
+	// enemy's attack for one round. Logged as a dedicated event so narrative
+	// can read it as a held/stunned beat rather than a generic miss.
+	enemyHeldThisRound := false
+	if st.enemySkipFirst {
+		st.enemySkipFirst = false
+		enemyHeldThisRound = true
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "spell_held",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+	}
+
 	// Monster ability: check at round start
-	abilityDealtDamage := false
+	abilityDealtDamage := enemyHeldThisRound
 	if enemy.Ability != nil {
 		if abilityFires(enemy.Ability, phaseName, st) {
 			if applyAbility(st, player, enemy, phase, result) {
