@@ -187,9 +187,12 @@ func (p *AdventurePlugin) AwardCompletionMilestones(e *Expedition, forcedExtract
 			"+10% XP bonus on the run.")
 	}
 	if int(zone.Tier) >= 3 && !forcedExtractedEver {
-		award(MilestoneKeySurvivalist, "Survivalist", 0,
-			"Survivalist title earned — completed a Tier "+fmt.Sprint(int(zone.Tier))+
-				" expedition without a single forced extraction.",
+		line := flavor.Pick(flavor.MilestoneSurvivalist)
+		if line == "" {
+			line = "Survivalist title earned — completed a Tier " +
+				fmt.Sprint(int(zone.Tier)) + " expedition without a single forced extraction."
+		}
+		award(MilestoneKeySurvivalist, "Survivalist", 0, line,
 			"Title flag recorded; cosmetic item deferred to item-grant hookup.")
 	}
 	if int(zone.Tier) == 5 {
