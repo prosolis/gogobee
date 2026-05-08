@@ -97,6 +97,19 @@ func applyMageSubclassSpellHooks(c *DnDCharacter, spell SpellDefinition, slotLev
 			}
 			mods.SpellPreDamage += bonus
 		}
+		// Phase 10 SUB3b-i — L10 Overchannel: maximize damage dice on a
+		// 1st–5th-level spell. We don't track per-die rolls here (damage was
+		// rolled in the apply* path above), so we proxy max-vs-avg as +50%
+		// to SpellPreDamage on a leveled cast. 5e gates this to "1st–5th
+		// level" — slot 6+ wouldn't get max dice — and includes a 2d12
+		// necrotic self-damage drawback per cast above the first per long
+		// rest. Self-damage is omitted here: in our model the Mage queues
+		// at most one cast per fight, so the "first per rest" exemption
+		// almost always applies. L15 Sculptural Mastery is AoE-friendly-fire
+		// only — skipped (same reason SUB2b skipped Sculpt Spells).
+		if c.Level >= 10 && slotLevel >= 1 && slotLevel <= 5 {
+			mods.SpellPreDamage = (mods.SpellPreDamage * 3) / 2
+		}
 	case SubclassNecromancy:
 		// L5 Grim Harvest stash — heal applied post-combat iff this spell
 		// landed the killing blow. Cantrip kills count as L1 for the heal

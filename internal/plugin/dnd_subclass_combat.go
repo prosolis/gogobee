@@ -101,6 +101,46 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 			}
 			mods.ArcaneWardHP = ward
 		}
+		// Phase 10 SUB3b-i — L10 Spell Resistance: 5e gives advantage on
+		// saves vs. spells *and* resistance to spell damage. Our 1v1 enemies
+		// rarely force spell saves, so the "advantage" half is largely inert;
+		// we collapse the effect to a flat 8% incoming-damage reduction
+		// (DamageReduct is multiplicative, so 0.92 = ~8% off everything,
+		// which is close to "resistance against the spell-damage subset").
+		if c.Level >= 10 {
+			mods.DamageReduct *= 0.92
+		}
+		// Phase 10 SUB3b-i — L15 Spell Reflection: 5e lets a successful
+		// counterspell redirect the spell back at the caster. We don't model
+		// counterspell (reaction primitive deferred to Phase 11), so we ride
+		// the ReflectNext channel — the first incoming hit reflects 30% of
+		// its damage back. Closest in-engine analogue to "the magic hits the
+		// caster instead".
+		if c.Level >= 15 {
+			mods.ReflectNext += 0.30
+		}
+	case SubclassNecromancy:
+		// Phase 10 SUB3b-i — L15 Improved Undead Thralls. 5e: undead thralls
+		// gain +CON mod to HP and attack damage. We don't model an Animate
+		// Dead summoning system (SUB2b skipped Undead Thralls for the same
+		// reason), but the L15 capstone is too central to skip — proxy a
+		// permanent skeletal minion via the PetAttack channel. CON-mod scales
+		// dmg, mirroring the 5e formula. L10 Command Undead's combat surface
+		// is folded into grimHarvestHeal (deeper authority over death = more
+		// life harvested per spell-kill); see dnd_subclass_combat.go below.
+		if c.Level >= 15 {
+			conMod := abilityModifier(c.CON)
+			if conMod < 0 {
+				conMod = 0
+			}
+			thrallDmg := 6 + conMod
+			if mods.PetAttackProc < 0.30 {
+				mods.PetAttackProc = 0.30
+			}
+			if mods.PetAttackDmg < thrallDmg {
+				mods.PetAttackDmg = thrallDmg
+			}
+		}
 	case SubclassAssassin:
 		// L5 Assassinate: advantage on the opening strike + bonus damage
 		// stacked on top of the Rogue's existing Sneak Attack auto-crit
@@ -398,9 +438,17 @@ func grimHarvestHeal(c *DnDCharacter, result CombatResult, mods CombatModifiers)
 			break
 		}
 	}
-	heal := 2 * mods.GrimHarvestSlot
+	// Phase 10 SUB3b-i — L10 Command Undead. The 5e ability is "take control
+	// of any undead", which has no surface in our 1v1 combat (no allies to
+	// hand summons over to). We re-fluff it here as deeper authority over
+	// death amplifying the harvest itself: multipliers tick up by 1 at L10
+	// (2× → 3× non-necrotic, 3× → 4× necrotic).
+	mult := 2
 	if mods.GrimHarvestNecrotic {
-		heal = 3 * mods.GrimHarvestSlot
+		mult = 3
 	}
-	return heal
+	if c.Level >= 10 {
+		mult++
+	}
+	return mult * mods.GrimHarvestSlot
 }

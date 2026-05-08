@@ -238,3 +238,138 @@ func TestPersistDnDPostCombatSubclass_GrimHarvestApplies(t *testing.T) {
 		t.Errorf("HP after Grim Harvest = %d, want 16 (10 + 6)", got.HPCurrent)
 	}
 }
+
+// ── Phase 10 SUB3b-i — Mage L10/L15 ─────────────────────────────────────
+
+func TestEvocation_OverchannelL10MaximizesLeveledDamage(t *testing.T) {
+	spell, _ := lookupSpell("magic_missile") // school evocation, leveled
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassEvocation, Level: 10, INT: 18}
+	mods := &CombatModifiers{SpellPreDamage: 20}
+	applyMageSubclassSpellHooks(c, spell, 3, mods)
+	// magic_missile.school is "evocation", so Empowered Evocation also fires
+	// at L10 (gated >=L7): +INT mod 4 → SpellPreDamage = 24, then Overchannel
+	// ×1.5 → 36.
+	if mods.SpellPreDamage != 36 {
+		t.Errorf("Overchannel L10 leveled SpellPreDamage = %d, want 36 ((20+4)*3/2)", mods.SpellPreDamage)
+	}
+}
+
+func TestEvocation_OverchannelSkipsCantrip(t *testing.T) {
+	spell, _ := lookupSpell("fire_bolt") // school evocation, cantrip (Level 0)
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassEvocation, Level: 10, INT: 18}
+	mods := &CombatModifiers{SpellPreDamage: 20}
+	applyMageSubclassSpellHooks(c, spell, 0, mods)
+	// Empowered Evocation +4, Overchannel skipped (slot < 1).
+	if mods.SpellPreDamage != 24 {
+		t.Errorf("Overchannel should skip cantrip (slot 0): SpellPreDamage = %d, want 24", mods.SpellPreDamage)
+	}
+}
+
+func TestEvocation_OverchannelSkipsAboveSlot5(t *testing.T) {
+	spell, _ := lookupSpell("magic_missile")
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassEvocation, Level: 10, INT: 18}
+	mods := &CombatModifiers{SpellPreDamage: 20}
+	applyMageSubclassSpellHooks(c, spell, 6, mods)
+	// 5e Overchannel caps at slot 5; slot 6 just gets Empowered Evocation.
+	if mods.SpellPreDamage != 24 {
+		t.Errorf("Overchannel should not fire on slot 6: SpellPreDamage = %d, want 24", mods.SpellPreDamage)
+	}
+}
+
+func TestEvocation_OverchannelPreL10Skipped(t *testing.T) {
+	spell, _ := lookupSpell("magic_missile")
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassEvocation, Level: 9, INT: 18}
+	mods := &CombatModifiers{SpellPreDamage: 20}
+	applyMageSubclassSpellHooks(c, spell, 3, mods)
+	if mods.SpellPreDamage != 24 {
+		t.Errorf("Overchannel pre-L10 should not fire: SpellPreDamage = %d, want 24", mods.SpellPreDamage)
+	}
+}
+
+func TestAbjuration_SpellResistanceL10ReducesDamage(t *testing.T) {
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassAbjuration, Level: 10}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.DamageReduct >= 1.0 || mods.DamageReduct < 0.91 || mods.DamageReduct > 0.93 {
+		t.Errorf("Abjuration L10 DamageReduct = %f, want ~0.92", mods.DamageReduct)
+	}
+}
+
+func TestAbjuration_SpellResistancePreL10Skipped(t *testing.T) {
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassAbjuration, Level: 9}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.DamageReduct != 1.0 {
+		t.Errorf("Abjuration pre-L10 DamageReduct = %f, want 1.0", mods.DamageReduct)
+	}
+}
+
+func TestAbjuration_SpellReflectionL15(t *testing.T) {
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassAbjuration, Level: 15}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.ReflectNext < 0.29 || mods.ReflectNext > 0.31 {
+		t.Errorf("Abjuration L15 ReflectNext = %f, want ~0.30", mods.ReflectNext)
+	}
+}
+
+func TestAbjuration_SpellReflectionPreL15Skipped(t *testing.T) {
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassAbjuration, Level: 14}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.ReflectNext != 0 {
+		t.Errorf("Abjuration pre-L15 ReflectNext = %f, want 0", mods.ReflectNext)
+	}
+}
+
+func TestNecromancy_CommandUndeadL10AmplifiesHarvest(t *testing.T) {
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassNecromancy, Level: 10}
+	result := CombatResult{
+		PlayerWon: true,
+		Events:    []CombatEvent{{Action: "spell_cast", EnemyHP: 0}},
+	}
+	// Non-necrotic at L10: 3× slot (was 2×).
+	mods := CombatModifiers{GrimHarvestSlot: 3}
+	if got := grimHarvestHeal(c, result, mods); got != 9 {
+		t.Errorf("L10 non-necrotic Grim Harvest = %d, want 9 (3× slot)", got)
+	}
+	// Necrotic at L10: 4× slot (was 3×).
+	mods = CombatModifiers{GrimHarvestSlot: 2, GrimHarvestNecrotic: true}
+	if got := grimHarvestHeal(c, result, mods); got != 8 {
+		t.Errorf("L10 necrotic Grim Harvest = %d, want 8 (4× slot)", got)
+	}
+}
+
+func TestNecromancy_ImprovedUndeadThrallsL15SetsPetAttack(t *testing.T) {
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassNecromancy, Level: 15, CON: 14} // +2 mod
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.PetAttackProc < 0.29 || mods.PetAttackProc > 0.31 {
+		t.Errorf("Necromancer L15 PetAttackProc = %f, want ~0.30", mods.PetAttackProc)
+	}
+	if mods.PetAttackDmg != 8 { // 6 + CON mod 2
+		t.Errorf("Necromancer L15 CON 14 PetAttackDmg = %d, want 8 (6 + 2)", mods.PetAttackDmg)
+	}
+}
+
+func TestNecromancy_ImprovedUndeadThrallsPreL15Skipped(t *testing.T) {
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassNecromancy, Level: 14, CON: 14}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.PetAttackProc != 0 || mods.PetAttackDmg != 0 {
+		t.Errorf("Necromancer pre-L15 should not summon thrall: proc=%f dmg=%d", mods.PetAttackProc, mods.PetAttackDmg)
+	}
+}
+
+func TestNecromancy_ImprovedUndeadThrallsRespectsExistingHigherProc(t *testing.T) {
+	// If a stronger pet (e.g. an adventure pet) is already in slot, don't downgrade.
+	c := &DnDCharacter{Class: ClassMage, Subclass: SubclassNecromancy, Level: 15, CON: 14}
+	mods := &CombatModifiers{DamageReduct: 1.0, PetAttackProc: 0.5, PetAttackDmg: 12}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.PetAttackProc != 0.5 {
+		t.Errorf("thrall overwrote stronger PetAttackProc: got %f, want 0.5", mods.PetAttackProc)
+	}
+	if mods.PetAttackDmg != 12 {
+		t.Errorf("thrall overwrote stronger PetAttackDmg: got %d, want 12", mods.PetAttackDmg)
+	}
+}
