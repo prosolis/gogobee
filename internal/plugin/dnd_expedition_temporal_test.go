@@ -669,6 +669,139 @@ func TestDragonsLair_BossDefeatedSilencesPulses(t *testing.T) {
 	}
 }
 
+func TestAbyssInstabilityBandFor(t *testing.T) {
+	cases := []struct {
+		stack int
+		want  string
+	}{
+		{0, "normal"}, {20, "normal"},
+		{21, "mild"}, {40, "mild"},
+		{41, "warp"}, {60, "warp"},
+		{61, "surges"}, {80, "surges"},
+		{81, "unravel"}, {99, "unravel"},
+		{100, "collapse"},
+	}
+	for _, c := range cases {
+		if got := AbyssInstabilityBandFor(c.stack); got != c.want {
+			t.Errorf("Abyss band(%d) = %q, want %q", c.stack, got, c.want)
+		}
+	}
+}
+
+func TestAbyss_DailyInstabilityIncrements(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-abyss-tick:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneAbyssPortal, "",
+		ExpeditionSupplies{Current: 100, Max: 100, DailyBurn: 4, HarshMod: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &AdventurePlugin{}
+	// Three briefings → instability should hit 15.
+	for i := 0; i < 3; i++ {
+		fresh, _ := getExpedition(exp.ID)
+		if _, err := db.Get().Exec(
+			`UPDATE dnd_expedition SET last_briefing_at = NULL, supplies_json = ? WHERE expedition_id = ?`,
+			`{"current":99,"max":99,"daily_burn":4,"harsh_mod":3,"foraged_today":false,"packs_standard":3,"packs_deluxe":0}`,
+			exp.ID); err != nil {
+			t.Fatal(err)
+		}
+		fresh, _ = getExpedition(exp.ID)
+		if err := p.deliverBriefing(fresh, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := getExpedition(exp.ID)
+	if got.TemporalStack != 15 {
+		t.Errorf("instability = %d, want 15", got.TemporalStack)
+	}
+}
+
+func TestAbyss_UnravelingDoublesBurn(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-abyss-unravel:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneAbyssPortal, "",
+		ExpeditionSupplies{Current: 100, Max: 100, DailyBurn: 4, HarshMod: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Set instability to 85 (unravel band).
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET temporal_stack = 85 WHERE expedition_id = ?`,
+		exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := getExpedition(exp.ID)
+	startSU := fresh.Supplies.Current
+	if err := (&AdventurePlugin{}).deliverBriefing(fresh, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getExpedition(exp.ID)
+	wantBurn := float32(8.0) // 4 * 2 (unraveling override)
+	if startSU-got.Supplies.Current != wantBurn {
+		t.Errorf("burn = %v, want %v (unraveling 2×)", startSU-got.Supplies.Current, wantBurn)
+	}
+}
+
+func TestAbyss_CollapseFailsExpedition(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-abyss-collapse:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneAbyssPortal, "",
+		ExpeditionSupplies{Current: 100, Max: 100, DailyBurn: 4, HarshMod: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Set instability to 95 — next daily +5 lands on 100 (collapse).
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET temporal_stack = 95 WHERE expedition_id = ?`,
+		exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := getExpedition(exp.ID)
+	if err := (&AdventurePlugin{}).deliverBriefing(fresh, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getExpedition(exp.ID)
+	if got.TemporalStack != 100 {
+		t.Errorf("instability = %d, want 100", got.TemporalStack)
+	}
+	if got.Status != ExpeditionStatusFailed {
+		t.Errorf("status = %q, want %q after collapse", got.Status, ExpeditionStatusFailed)
+	}
+}
+
+func TestReduceAbyssInstability(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-abyss-reduce:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneAbyssPortal, "",
+		ExpeditionSupplies{Current: 100, Max: 100, DailyBurn: 4, HarshMod: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET temporal_stack = 25 WHERE expedition_id = ?`,
+		exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := getExpedition(exp.ID)
+	if got := ReduceAbyssInstability(fresh, 10); got != 15 {
+		t.Errorf("ReduceAbyssInstability(25, 10) = %d, want 15", got)
+	}
+	// Wrong zone — no-op.
+	other := &Expedition{ZoneID: ZoneGoblinWarrens, TemporalStack: 50}
+	if ReduceAbyssInstability(other, 10) != 50 {
+		t.Error("ReduceAbyssInstability on non-Abyss zone should be no-op")
+	}
+}
+
 func TestSunkenTemple_NoTidalOnNonZone(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@exp-tidal-other:example")

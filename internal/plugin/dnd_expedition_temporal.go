@@ -117,6 +117,13 @@ func applyZoneTemporalPreBurn(e *Expedition, nextDay int) TemporalBurnOverride {
 		}
 	case ZoneFeywildCrossing:
 		return feywildTemporalPreBurn(e, nextDay)
+	case ZoneAbyssPortal:
+		// §7.6 81–99: "Supply burn doubles." Hit unraveling band before
+		// today's burn fires so the multiplier applies on the same day
+		// the band activates.
+		if !e.BossDefeated && e.TemporalStack >= 81 && e.TemporalStack < 100 {
+			return TemporalBurnOverride{Multiplier: 2.0, Reason: "abyss_unraveling"}
+		}
 	}
 	return TemporalBurnOverride{}
 }
@@ -140,6 +147,8 @@ func applyZoneTemporalPostRollover(e *Expedition) []string {
 		return feywildTemporalPostRollover(e)
 	case ZoneDragonsLair:
 		return dragonsLairTemporalPostRollover(e)
+	case ZoneAbyssPortal:
+		return abyssPortalTemporalPostRollover(e)
 	}
 	return nil
 }
@@ -425,6 +434,119 @@ func dragonsLairTemporalPostRollover(e *Expedition) []string {
 		}
 	}
 	return lines
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// §7.6 — Abyss Portal, Destabilization
+// ─────────────────────────────────────────────────────────────────────
+
+// AbyssInstabilityPerDay is the §7.6 increment.
+const AbyssInstabilityPerDay = 5
+
+// AbyssMaxInstability — at 100 the portal collapses and forces
+// extraction.
+const AbyssMaxInstability = 100
+
+// AbyssInstabilityBandFor classifies the §7.6 instability tiers.
+//   normal:    0–20
+//   mild:      21–40 (-1 WIS)
+//   warp:      41–60 (rooms shift order)
+//   surges:    61–80 (12h wandering checks)
+//   unravel:   81–99 (supply ×2, -2 all rolls)
+//   collapse:  100
+func AbyssInstabilityBandFor(stack int) string {
+	switch {
+	case stack <= 20:
+		return "normal"
+	case stack <= 40:
+		return "mild"
+	case stack <= 60:
+		return "warp"
+	case stack <= 80:
+		return "surges"
+	case stack < 100:
+		return "unravel"
+	default:
+		return "collapse"
+	}
+}
+
+// abyssPortalTemporalPostRollover increments instability +5/day,
+// emits narration on band-crossing into "unravel" (81+) and on
+// collapse at 100, and triggers forced extraction at 100. Boss-
+// defeated suppresses further accumulation.
+func abyssPortalTemporalPostRollover(e *Expedition) []string {
+	if e.BossDefeated {
+		return nil
+	}
+	prev := e.TemporalStack
+	if prev >= AbyssMaxInstability {
+		return nil
+	}
+	next := prev + AbyssInstabilityPerDay
+	if next > AbyssMaxInstability {
+		next = AbyssMaxInstability
+	}
+	e.TemporalStack = next
+	if err := updateTemporalStack(e.ID, next); err != nil {
+		return nil
+	}
+	prevBand := AbyssInstabilityBandFor(prev)
+	newBand := AbyssInstabilityBandFor(next)
+	if prevBand == newBand {
+		return nil
+	}
+
+	switch newBand {
+	case "warp":
+		line := flavor.Pick(flavor.AbyssPortalDestabilizationMid)
+		line = strings.ReplaceAll(line, "[N]", fmt.Sprintf("%d", next))
+		_ = appendExpeditionLog(e.ID, e.CurrentDay, "temporal",
+			fmt.Sprintf("portal instability %d — reality warps (rooms shift)", next),
+			line)
+		return []string{line}
+	case "surges":
+		line := flavor.Pick(flavor.AbyssPortalDestabilizationMid)
+		line = strings.ReplaceAll(line, "[N]", fmt.Sprintf("%d", next))
+		_ = appendExpeditionLog(e.ID, e.CurrentDay, "temporal",
+			fmt.Sprintf("portal instability %d — demon surges (12h wandering)", next),
+			line)
+		return []string{line}
+	case "unravel":
+		line := flavor.Pick(flavor.AbyssPortalDestabilizationCritical)
+		_ = appendExpeditionLog(e.ID, e.CurrentDay, "temporal",
+			fmt.Sprintf("portal instability %d — unraveling: supply ×2, -2 all rolls", next),
+			line)
+		return []string{line}
+	case "collapse":
+		line := flavor.Pick(flavor.AbyssPortalCollapse)
+		_ = appendExpeditionLog(e.ID, e.CurrentDay, "temporal",
+			"portal collapsed — expedition forcibly extracted", line)
+		// Forced extraction: spec §7.6 marks the run failed.
+		_ = completeExpedition(e.ID, ExpeditionStatusFailed)
+		return []string{line}
+	}
+	return nil
+}
+
+// ReduceAbyssInstability drops instability by N for a major story
+// objective completion (§7.6: -10 per objective). Combat-link wires
+// this when objectives are recorded; exposed here for symmetry with
+// reduceUnderforgeHeat.
+func ReduceAbyssInstability(e *Expedition, amount int) int {
+	if e.ZoneID != ZoneAbyssPortal || amount <= 0 {
+		return e.TemporalStack
+	}
+	next := e.TemporalStack - amount
+	if next < 0 {
+		next = 0
+	}
+	if next == e.TemporalStack {
+		return next
+	}
+	e.TemporalStack = next
+	_ = updateTemporalStack(e.ID, next)
+	return next
 }
 
 // reduceUnderforgeHeat is called by processOvernightCamp when the
