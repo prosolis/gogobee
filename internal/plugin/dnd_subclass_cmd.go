@@ -124,6 +124,12 @@ func (p *AdventurePlugin) applySubclassChoice(
 	// the player still gets the subclass; resources can be re-initialized
 	// next long rest.
 	_ = initSubclassResources(ctx.Sender, chosen)
+	// Phase 10 SUB2-AT — Arcane Trickster bootstraps a Mage-list spellbook
+	// + third-caster slot pool on selection. Idempotent and non-fatal: the
+	// next `!cast`/`!spells` call also runs ensureSpellsForCharacter.
+	if chosen == SubclassArcaneTrickster {
+		_ = ensureSpellsForCharacter(c)
+	}
 	if charged {
 		// Debit last; race vs. balance change is rare and strictly safer
 		// to favor the player than risk taking euros without applying the

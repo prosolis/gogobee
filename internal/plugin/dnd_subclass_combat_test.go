@@ -677,6 +677,171 @@ func TestResolvePlayerAttack_AssassinateBonusFirstHitOnly(t *testing.T) {
 	}
 }
 
+// ── SUB2-AT — Arcane Trickster ──────────────────────────────────────────
+
+func TestArcaneTrickster_IsSpellcasterAtL5(t *testing.T) {
+	rogueL4 := &DnDCharacter{Class: ClassRogue, Subclass: SubclassArcaneTrickster, Level: 4}
+	if isSpellcaster(rogueL4) {
+		t.Error("AT Rogue should not be a spellcaster below L5")
+	}
+	rogueL5 := &DnDCharacter{Class: ClassRogue, Subclass: SubclassArcaneTrickster, Level: 5}
+	if !isSpellcaster(rogueL5) {
+		t.Error("AT Rogue should be a spellcaster at L5+")
+	}
+	plainRogue := &DnDCharacter{Class: ClassRogue, Subclass: SubclassThief, Level: 5}
+	if isSpellcaster(plainRogue) {
+		t.Error("Thief Rogue should not be a spellcaster")
+	}
+}
+
+func TestArcaneTrickster_SpellcastingModUsesINT(t *testing.T) {
+	c := &DnDCharacter{
+		Class: ClassRogue, Subclass: SubclassArcaneTrickster, Level: 5,
+		INT: 16, WIS: 10,
+	}
+	if got := spellcastingMod(c); got != abilityModifier(16) {
+		t.Errorf("AT spellcastingMod = %d, want INT mod (%d)", got, abilityModifier(16))
+	}
+	// A non-AT Rogue still returns 0.
+	plain := &DnDCharacter{Class: ClassRogue, Level: 5, INT: 16}
+	if got := spellcastingMod(plain); got != 0 {
+		t.Errorf("non-AT Rogue spellcastingMod = %d, want 0", got)
+	}
+}
+
+func TestArcaneTrickster_SubclassSlotPool(t *testing.T) {
+	// L5 → 3 L1 slots only.
+	pool := subclassSpellSlots(SubclassArcaneTrickster, 5)
+	if pool[1] != 3 || pool[2] != 0 {
+		t.Errorf("AT L5 slots = %v, want {1:3}", pool)
+	}
+	// L7 → adds L2 slots.
+	pool = subclassSpellSlots(SubclassArcaneTrickster, 7)
+	if pool[1] != 4 || pool[2] != 2 {
+		t.Errorf("AT L7 slots = %v, want {1:4, 2:2}", pool)
+	}
+	// Below the L5 gate.
+	if pool := subclassSpellSlots(SubclassArcaneTrickster, 4); len(pool) != 0 {
+		t.Errorf("AT L4 should grant no slots; got %v", pool)
+	}
+	// Other subclasses don't grant slots.
+	if pool := subclassSpellSlots(SubclassChampion, 10); len(pool) != 0 {
+		t.Errorf("Champion slots = %v, want empty", pool)
+	}
+}
+
+func TestArcaneTrickster_MagicalAmbushDCBumpAtL7(t *testing.T) {
+	c := &DnDCharacter{
+		Class: ClassRogue, Subclass: SubclassArcaneTrickster, Level: 7,
+		INT: 16,
+	}
+	plain := &DnDCharacter{
+		Class: ClassRogue, Subclass: SubclassArcaneTrickster, Level: 6,
+		INT: 16,
+	}
+	got := spellSaveDC(c)
+	base := spellSaveDC(plain)
+	// L7 base = 8 + prof(3) + INT mod(3) = 14, +2 ambush = 16.
+	// L6 base = 8 + prof(3) + INT mod(3) = 14.
+	if got-base != 2 {
+		t.Errorf("L7 AT spellSaveDC = %d (L6 baseline %d), want +2 from Magical Ambush", got, base)
+	}
+}
+
+func TestEnsureSpellsForCharacter_ArcaneTrickster(t *testing.T) {
+	setupAbilitiesTestDB(t)
+	uid := id.UserID("@at_spells:example")
+	c := &DnDCharacter{
+		UserID: uid, Race: RaceElf, Class: ClassRogue, Subclass: SubclassArcaneTrickster,
+		Level: 5, STR: 8, DEX: 16, CON: 12, INT: 16, WIS: 10, CHA: 12,
+		HPMax: 25, HPCurrent: 25, ArmorClass: 14,
+	}
+	if err := ensureSpellsForCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	known, _ := listKnownSpells(uid)
+	if len(known) == 0 {
+		t.Fatal("AT L5 should receive default spells; got none")
+	}
+	// All defaults must be on the Mage list — that's the slice we draw from.
+	for _, k := range known {
+		s, ok := lookupSpell(k.SpellID)
+		if !ok {
+			t.Errorf("unknown spell ID granted: %s", k.SpellID)
+			continue
+		}
+		isMage := false
+		for _, cl := range s.Classes {
+			if cl == ClassMage {
+				isMage = true
+			}
+		}
+		if !isMage {
+			t.Errorf("AT default %s isn't on the Mage list", k.SpellID)
+		}
+	}
+	// Slot pool must reflect the subclass grant.
+	slots, _ := getSpellSlots(uid)
+	if slots[1][0] != 3 {
+		t.Errorf("AT L5 L1 slots = %d, want 3", slots[1][0])
+	}
+}
+
+// !cast gate: an AT Rogue can cast a Mage spell off the registry's class list,
+// even though c.Class is Rogue.
+func TestCast_ArcaneTricksterAcceptsMageSpells(t *testing.T) {
+	setupAbilitiesTestDB(t)
+	uid := id.UserID("@at_cast:example")
+	if err := createAdvCharacter(uid, "at_cast"); err != nil {
+		t.Fatal(err)
+	}
+	c := &DnDCharacter{
+		UserID: uid, Race: RaceElf, Class: ClassRogue, Subclass: SubclassArcaneTrickster,
+		Level: 5, STR: 8, DEX: 16, CON: 12, INT: 16, WIS: 10, CHA: 12,
+		HPMax: 25, HPCurrent: 25, ArmorClass: 14,
+	}
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureSpellsForCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &AdventurePlugin{euro: &EuroPlugin{}}
+	if err := p.handleDnDCastCmd(MessageContext{Sender: uid}, "magic_missile"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := LoadDnDCharacter(uid)
+	if got.PendingCast == "" {
+		t.Error("magic_missile should be queued as pending_cast for AT Rogue")
+	}
+}
+
+// !cast gate (negative): a plain Thief Rogue still can't cast.
+func TestCast_PlainRogueRejected(t *testing.T) {
+	setupAbilitiesTestDB(t)
+	uid := id.UserID("@thief_cast:example")
+	if err := createAdvCharacter(uid, "thief_cast"); err != nil {
+		t.Fatal(err)
+	}
+	c := &DnDCharacter{
+		UserID: uid, Race: RaceElf, Class: ClassRogue, Subclass: SubclassThief,
+		Level: 5, STR: 8, DEX: 16, CON: 12, INT: 14, WIS: 10, CHA: 12,
+		HPMax: 25, HPCurrent: 25, ArmorClass: 14,
+	}
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	p := &AdventurePlugin{euro: &EuroPlugin{}}
+	if err := p.handleDnDCastCmd(MessageContext{Sender: uid}, "magic_missile"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := LoadDnDCharacter(uid)
+	if got.PendingCast != "" {
+		t.Error("Thief Rogue should not be able to !cast")
+	}
+}
+
 // Surface-level sanity: rage shows up in characterActiveAbilities for a
 // Berserker but not a Champion. Tests the gating helper directly so we
 // don't need the resource-pool DB read that renderArmList does.

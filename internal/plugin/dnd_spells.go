@@ -148,6 +148,47 @@ func slotsForClassLevel(class DnDClass, level int) map[int]int {
 	return nil
 }
 
+// subclassSpellSlots returns a slot pool granted by a subclass on top of the
+// class baseline. Phase 10 SUB2-AT: Arcane Trickster is a third-caster that
+// unlocks at Rogue L5 (3 L1 slots), expanding modestly with level. Returns
+// nil for subclasses without spellcasting.
+func subclassSpellSlots(sub DnDSubclass, level int) map[int]int {
+	if sub == SubclassArcaneTrickster && level >= 5 {
+		// 5e third-caster table, simplified to the levels the engine cares
+		// about: 3 L1 at L5–6, 4 L1 + 2 L2 at L7+, expanding into L3 at
+		// rogue L13. Matches the design doc's "L5 → 3 L1 slots" anchor.
+		switch {
+		case level >= 13:
+			return map[int]int{1: 4, 2: 3, 3: 2}
+		case level >= 7:
+			return map[int]int{1: 4, 2: 2}
+		default:
+			return map[int]int{1: 3}
+		}
+	}
+	return nil
+}
+
+// slotsForCharacter returns the combined class+subclass slot pool. Use this
+// for any character-level decision (display, slot reset, !cast gating);
+// slotsForClassLevel is the class-only base.
+func slotsForCharacter(c *DnDCharacter) map[int]int {
+	if c == nil {
+		return nil
+	}
+	out := map[int]int{}
+	for lvl, n := range slotsForClassLevel(c.Class, c.Level) {
+		out[lvl] += n
+	}
+	for lvl, n := range subclassSpellSlots(c.Subclass, c.Level) {
+		out[lvl] += n
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // Tables transcribed from gogobee_spell_system.md §1. We interpolate
 // between the doc's milestone rows so every level 1..20 has a defined pool.
 func mageSlots(level int) map[int]int {
@@ -265,13 +306,27 @@ func spellcastingMod(c *DnDCharacter) int {
 		return abilityModifier(c.INT)
 	case ClassCleric, ClassRanger:
 		return abilityModifier(c.WIS)
+	case ClassRogue:
+		// Phase 10 SUB2-AT: Arcane Trickster is INT-based.
+		if c.Subclass == SubclassArcaneTrickster {
+			return abilityModifier(c.INT)
+		}
 	}
 	return 0
 }
 
 // spellSaveDC = 8 + proficiency bonus + spellcasting modifier.
+//
+// Phase 10 SUB2-AT: Arcane Trickster L7 Magical Ambush adds +2. 5e gives
+// targets disadvantage on the save when the AT casts while hidden — we
+// don't model "hidden" in the one-shot combat layer, so the bump bakes the
+// expected-value effect in as a flat DC nudge whenever the AT casts.
 func spellSaveDC(c *DnDCharacter) int {
-	return 8 + proficiencyBonus(c.Level) + spellcastingMod(c)
+	dc := 8 + proficiencyBonus(c.Level) + spellcastingMod(c)
+	if c != nil && c.Class == ClassRogue && c.Subclass == SubclassArcaneTrickster && c.Level >= 7 {
+		dc += 2
+	}
+	return dc
 }
 
 // spellAttackBonus = proficiency bonus + spellcasting modifier.
@@ -288,7 +343,50 @@ func classIsCaster(class DnDClass) bool {
 	return false
 }
 
+// isSpellcaster is the character-level gate: full casters by class plus the
+// Arcane Trickster subclass once it unlocks at Rogue L5. Use this for !cast,
+// !spells and any spellbook bootstrap path.
+func isSpellcaster(c *DnDCharacter) bool {
+	if c == nil {
+		return false
+	}
+	if classIsCaster(c.Class) {
+		return true
+	}
+	if c.Class == ClassRogue && c.Subclass == SubclassArcaneTrickster && c.Level >= 5 {
+		return true
+	}
+	return false
+}
+
 // ── Slot persistence ─────────────────────────────────────────────────────────
+
+// setSpellSlotsForCharacter writes the combined class+subclass slot pool
+// (Phase 10 SUB2-AT covers Arcane Trickster's third-caster pool). Mirrors
+// setSpellSlotsForLevel's reset-and-insert flow.
+func setSpellSlotsForCharacter(c *DnDCharacter) error {
+	if c == nil {
+		return nil
+	}
+	pool := slotsForCharacter(c)
+	tx, err := db.Get().Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM dnd_spell_slots WHERE user_id = ?`, string(c.UserID)); err != nil {
+		return err
+	}
+	for lvl, total := range pool {
+		if _, err := tx.Exec(`
+			INSERT INTO dnd_spell_slots (user_id, slot_level, total, used)
+			VALUES (?, ?, ?, 0)`,
+			string(c.UserID), lvl, total); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
 
 // setSpellSlotsForLevel writes the slot pool for a class+level, fully
 // resetting any prior pool. Used by setup/migration/respec.
@@ -491,7 +589,7 @@ func concentrationActive(c *DnDCharacter) string {
 // enough leveled options to be functional. Players can swap via
 // !spells learn (Mage) or !prepare (Cleric) once SP4 lands.
 func ensureSpellsForCharacter(c *DnDCharacter) error {
-	if c == nil || !classIsCaster(c.Class) {
+	if !isSpellcaster(c) {
 		return nil
 	}
 	existing, err := listKnownSpells(c.UserID)
@@ -499,11 +597,14 @@ func ensureSpellsForCharacter(c *DnDCharacter) error {
 		return err
 	}
 	if len(existing) > 0 {
-		// Refresh the slot pool in case level has changed since the prior
-		// grant (covers level-up between sessions).
-		return setSpellSlotsForLevel(c.UserID, c.Class, c.Level)
+		// Refresh the slot pool in case level/subclass has changed since the
+		// prior grant (covers level-up between sessions and AT subclass pick).
+		return setSpellSlotsForCharacter(c)
 	}
 	defaults := defaultKnownSpells(c.Class, c.Level)
+	if c.Class == ClassRogue && c.Subclass == SubclassArcaneTrickster {
+		defaults = arcaneTricksterDefaultSpells(c.Level)
+	}
 	for _, sid := range defaults {
 		// Cleric "prepares" daily — but prep system is SP4. Until then,
 		// every default cleric spell is auto-prepared so !cast works.
@@ -511,7 +612,26 @@ func ensureSpellsForCharacter(c *DnDCharacter) error {
 			return err
 		}
 	}
-	return setSpellSlotsForLevel(c.UserID, c.Class, c.Level)
+	return setSpellSlotsForCharacter(c)
+}
+
+// arcaneTricksterDefaultSpells returns the Mage-list starter spells granted
+// when a Rogue picks Arcane Trickster. Picks lean on illusion + control +
+// single-target combat utility from spells already in the registry; mage_hand
+// and disguise_self/invisibility are flavored AT staples but not modelled
+// yet, so we substitute the closest available analogues.
+func arcaneTricksterDefaultSpells(level int) []string {
+	out := []string{"minor_illusion", "shocking_grasp"}
+	if level >= 5 {
+		out = append(out, "magic_missile", "shield", "sleep")
+	}
+	if level >= 7 {
+		out = append(out, "mirror_image", "misty_step")
+	}
+	if level >= 13 {
+		out = append(out, "hypnotic_pattern")
+	}
+	return out
 }
 
 // defaultKnownSpells returns a sensible starter list for class+level. Tuned
@@ -608,6 +728,19 @@ func highestAvailableSlot(class DnDClass, level int) int {
 	pool := slotsForClassLevel(class, level)
 	high := 0
 	for lvl := range pool {
+		if lvl > high {
+			high = lvl
+		}
+	}
+	return high
+}
+
+// highestAvailableSlotForChar — like highestAvailableSlot but consults the
+// combined class+subclass pool. Phase 10 SUB2-AT uses this to clamp Arcane
+// Trickster upcasts to their actual subclass slot ceiling.
+func highestAvailableSlotForChar(c *DnDCharacter) int {
+	high := 0
+	for lvl := range slotsForCharacter(c) {
 		if lvl > high {
 			high = lvl
 		}

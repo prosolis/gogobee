@@ -71,9 +71,9 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 	if err != nil || c == nil {
 		return p.SendDM(ctx.Sender, "Couldn't load your Adv 2.0 sheet.")
 	}
-	if !classIsCaster(c.Class) {
+	if !isSpellcaster(c) {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"%s isn't a caster class. `!cast` is for Mage, Cleric, and Ranger.",
+			"%s isn't a caster class. `!cast` is for Mage, Cleric, Ranger, and Arcane Trickster Rogues (L5+).",
 			titleClass(c.Class)))
 	}
 
@@ -119,10 +119,15 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 			"Unknown spell %q. Run `!spells` to list what you know.", strings.Join(spellTokens, " ")))
 	}
 
-	// Class gate.
+	// Class gate. Arcane Trickster Rogues use the Mage spell list (Phase 10
+	// SUB2-AT), so accept Mage-tagged spells when the player has that subclass.
+	effectiveClass := c.Class
+	if c.Class == ClassRogue && c.Subclass == SubclassArcaneTrickster {
+		effectiveClass = ClassMage
+	}
 	classOK := false
 	for _, cl := range spell.Classes {
-		if cl == c.Class {
+		if cl == effectiveClass {
 			classOK = true
 			break
 		}
@@ -130,6 +135,14 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 	if !classOK {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
 			"%s is not on the %s spell list.", spell.Name, titleClass(c.Class)))
+	}
+	// AT slot ceiling — capped at L1 until L7 (then L2), tracks third-caster
+	// progression. Refuse upcasting beyond what the subclass actually has.
+	if c.Class == ClassRogue && c.Subclass == SubclassArcaneTrickster {
+		if max := highestAvailableSlotForChar(c); spell.Level > max {
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"Arcane Trickster L%d only has up to L%d slots.", c.Level, max))
+		}
 	}
 
 	// Reaction spells deferred.
@@ -368,7 +381,7 @@ func (p *AdventurePlugin) handleDnDSpellsCmd(ctx MessageContext, args string) er
 	if err != nil || c == nil {
 		return p.SendDM(ctx.Sender, "Couldn't load your Adv 2.0 sheet.")
 	}
-	if !classIsCaster(c.Class) {
+	if !isSpellcaster(c) {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
 			"%s isn't a caster class.", titleClass(c.Class)))
 	}
