@@ -241,6 +241,14 @@ func processOvernightCamp(e *Expedition) string {
 		_ = applyThreatDelta(e.ID, -5, "long rest in fortified camp")
 	}
 
+	// §7.3 Underforge: fortified rest drops heat stacks by 2.
+	heatReduced := 0
+	if (kind == CampTypeFortified || kind == CampTypeBase) && e.ZoneID == ZoneUnderforge {
+		before := e.TemporalStack
+		after := reduceUnderforgeHeat(e)
+		heatReduced = before - after
+	}
+
 	// Auto-break the camp now that the rest has been applied.
 	_ = updateCamp(e.ID, nil)
 	e.Camp = nil
@@ -255,8 +263,12 @@ func processOvernightCamp(e *Expedition) string {
 	case CampTypeStandard:
 		return fmt.Sprintf("Long rest: HP %d → %d, spell slots & resources refreshed.", prevHP, c.HPCurrent)
 	case CampTypeFortified, CampTypeBase:
-		return fmt.Sprintf("Fortified rest: HP %d → %d (+1d6 = %d bonus); threat clock −5; resources refreshed.",
+		summary := fmt.Sprintf("Fortified rest: HP %d → %d (+1d6 = %d bonus); threat clock −5; resources refreshed.",
 			prevHP, c.HPCurrent, bonusHP)
+		if heatReduced > 0 {
+			summary += fmt.Sprintf(" Heat stacks −%d.", heatReduced)
+		}
+		return summary
 	}
 	return ""
 }

@@ -364,6 +364,16 @@ func applyThreatDelta(expID string, delta int, reason string) error {
 	return err
 }
 
+// updateTemporalStack persists the zone-temporal stack (heat / instability).
+func updateTemporalStack(expID string, stack int) error {
+	_, err := db.Get().Exec(`
+		UPDATE dnd_expedition
+		   SET temporal_stack = ?,
+		       last_activity = CURRENT_TIMESTAMP
+		 WHERE expedition_id = ?`, stack, expID)
+	return err
+}
+
 // advanceExpeditionDay bumps current_day by one. Real-time day cycle (E1d)
 // calls this from the 06:00 cron.
 func advanceExpeditionDay(expID string) error {

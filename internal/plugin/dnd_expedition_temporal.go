@@ -32,6 +32,44 @@ type ZoneTemporalEffects struct {
 	// TidalActive — Sunken Temple Day 6 only. Combat: +1d6 cold per
 	// turn while wading; kuo-toa +2 AC, +1d4 attack rolls.
 	TidalActive bool
+
+	// UnderforgeHeatStacks — §7.3, 0–10. 1–3 ambient, 4–6 +1d4 fire
+	// per round in combat, 7–9 disadvantage on CON saves, 10 -2 to
+	// all rolls + forced rest/extraction.
+	UnderforgeHeatStacks int
+
+	// UnderforgeHeatBand classifies the stacks into the spec's
+	// behavior bands: "ambient", "warning", "supply", "critical".
+	UnderforgeHeatBand string
+}
+
+// UnderforgeHeatBandFor returns the §7.3 band label for a heat count.
+func UnderforgeHeatBandFor(stacks int) string {
+	switch {
+	case stacks <= 0:
+		return "none"
+	case stacks <= 3:
+		return "ambient"
+	case stacks <= 6:
+		return "warning"
+	case stacks <= 9:
+		return "supply"
+	default:
+		return "critical"
+	}
+}
+
+// zoneTemporalHarsh reports whether per-zone temporal state forces
+// harsh-conditions burn for THIS day's burn calculation. (Force-double
+// — overriding HarshMod with a 2× floor — uses the separate pre-burn
+// hook instead.)
+func zoneTemporalHarsh(e *Expedition) bool {
+	switch e.ZoneID {
+	case ZoneUnderforge:
+		// §7.3: heat 7–9 → supply burn +50%. Heat 10 also harsh.
+		return e.TemporalStack >= 7
+	}
+	return false
 }
 
 // applyZoneTemporalPreBurn runs at the top of deliverBriefing, before
@@ -62,9 +100,14 @@ func applyZoneTemporalPostRollover(e *Expedition) []string {
 		return sunkenTempleTemporalPostRollover(e)
 	case ZoneManorBlackspire:
 		return manorTemporalPostRollover(e)
+	case ZoneUnderforge:
+		return underforgeTemporalPostRollover(e)
 	}
 	return nil
 }
+
+// UnderforgeMaxHeat is the §7.3 cap.
+const UnderforgeMaxHeat = 10
 
 // ─────────────────────────────────────────────────────────────────────
 // §7.1 — Sunken Temple, Tidal Event (Day 6)
@@ -136,4 +179,79 @@ func manorTemporalPostRollover(e *Expedition) []string {
 		fmt.Sprintf("manor reset — non-boss rooms respawned one enemy each (cycle day %d)", day),
 		line)
 	return []string{line}
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// §7.3 — The Underforge, Heat Accumulation
+// ─────────────────────────────────────────────────────────────────────
+
+// underforgeTemporalPostRollover increments Heat Stacks by 1/day (cap
+// 10), persists the change, and emits narration on band-crossing into
+// "warning" (4) and "critical" (10). Boss-defeated suppresses further
+// accumulation but does not reset existing heat — the pit stays hot.
+func underforgeTemporalPostRollover(e *Expedition) []string {
+	if e.BossDefeated {
+		return nil
+	}
+	prev := e.TemporalStack
+	if prev >= UnderforgeMaxHeat {
+		return nil
+	}
+	next := prev + 1
+	if next > UnderforgeMaxHeat {
+		next = UnderforgeMaxHeat
+	}
+	e.TemporalStack = next
+	if err := updateTemporalStack(e.ID, next); err != nil {
+		return nil
+	}
+	prevBand := UnderforgeHeatBandFor(prev)
+	newBand := UnderforgeHeatBandFor(next)
+
+	var lines []string
+	switch {
+	case prevBand != "warning" && newBand == "warning":
+		// First crossing into 4–6.
+		line := flavor.Pick(flavor.UnderforgHeapWarning)
+		line = strings.ReplaceAll(line, "[N]", fmt.Sprintf("%d", next))
+		_ = appendExpeditionLog(e.ID, e.CurrentDay, "temporal",
+			fmt.Sprintf("heat stack %d — warning band: +1d4 fire damage in combat rounds", next),
+			line)
+		lines = append(lines, line)
+	case prevBand != "supply" && newBand == "supply":
+		// Crossed into 7–9: supply +50%, dis on CON saves.
+		line := flavor.Pick(flavor.UnderforgHeapWarning)
+		line = strings.ReplaceAll(line, "[N]", fmt.Sprintf("%d", next))
+		_ = appendExpeditionLog(e.ID, e.CurrentDay, "temporal",
+			fmt.Sprintf("heat stack %d — supply burn +50%%, disadvantage on CON saves", next),
+			line)
+		lines = append(lines, line)
+	case prevBand != "critical" && newBand == "critical":
+		// Crossed into 10: exhaustion threshold.
+		line := flavor.Pick(flavor.UnderforgHeapCritical)
+		_ = appendExpeditionLog(e.ID, e.CurrentDay, "temporal",
+			"heat stack 10 — exhaustion: -2 to all rolls; rest in fortified camp or extract",
+			line)
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// reduceUnderforgeHeat is called by processOvernightCamp when the
+// active camp is fortified (or base) in the Underforge — long rest
+// drops heat stacks by 2 per §7.3. Returns the new stack count.
+func reduceUnderforgeHeat(e *Expedition) int {
+	if e.ZoneID != ZoneUnderforge {
+		return e.TemporalStack
+	}
+	next := e.TemporalStack - 2
+	if next < 0 {
+		next = 0
+	}
+	if next == e.TemporalStack {
+		return next
+	}
+	e.TemporalStack = next
+	_ = updateTemporalStack(e.ID, next)
+	return next
 }

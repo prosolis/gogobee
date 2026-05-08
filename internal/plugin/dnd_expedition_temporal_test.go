@@ -247,6 +247,154 @@ func TestManorReset_PredicateOnly(t *testing.T) {
 	}
 }
 
+func TestUnderforge_HeatStackIncrementsAndBands(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-uf-heat:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneUnderforge, "",
+		ExpeditionSupplies{Current: 60, Max: 60, DailyBurn: 2, HarshMod: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &AdventurePlugin{}
+
+	// Drive 11 mornings — heat should top out at 10.
+	for i := 0; i < 11; i++ {
+		fresh, _ := getExpedition(exp.ID)
+		if _, err := db.Get().Exec(
+			`UPDATE dnd_expedition SET last_briefing_at = NULL WHERE expedition_id = ?`,
+			exp.ID); err != nil {
+			t.Fatal(err)
+		}
+		// Top up supplies so we don't hit starvation; not relevant here.
+		if _, err := db.Get().Exec(
+			`UPDATE dnd_expedition SET supplies_json = ? WHERE expedition_id = ?`,
+			`{"current":99,"max":99,"daily_burn":2,"harsh_mod":2,"foraged_today":false,"packs_standard":3,"packs_deluxe":0}`,
+			exp.ID); err != nil {
+			t.Fatal(err)
+		}
+		fresh, _ = getExpedition(exp.ID)
+		if err := p.deliverBriefing(fresh, time.Now().UTC()); err != nil {
+			t.Fatalf("briefing %d: %v", i, err)
+		}
+	}
+	got, _ := getExpedition(exp.ID)
+	if got.TemporalStack != 10 {
+		t.Errorf("heat stack = %d, want 10 (capped)", got.TemporalStack)
+	}
+
+	// Verify warning + critical narrations both fired.
+	rows, _ := db.Get().Query(
+		`SELECT summary FROM dnd_expedition_log WHERE expedition_id = ? AND entry_type = 'temporal' ORDER BY entry_id`,
+		exp.ID)
+	defer rows.Close()
+	var summaries []string
+	for rows.Next() {
+		var s string
+		_ = rows.Scan(&s)
+		summaries = append(summaries, s)
+	}
+	want := []string{"warning band", "+50%", "exhaustion"}
+	for _, w := range want {
+		found := false
+		for _, s := range summaries {
+			if strings.Contains(s, w) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing temporal entry containing %q in %v", w, summaries)
+		}
+	}
+}
+
+func TestUnderforge_HarshAtHeat7(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-uf-harsh:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneUnderforge, "",
+		ExpeditionSupplies{Current: 60, Max: 60, DailyBurn: 2, HarshMod: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Heat 6 — should NOT be harsh.
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET temporal_stack = 6, current_day = 7 WHERE expedition_id = ?`,
+		exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	exp, _ = getExpedition(exp.ID)
+	if zoneTemporalHarsh(exp) {
+		t.Error("heat=6 should not trigger harsh")
+	}
+	// Heat 7 — should be harsh.
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET temporal_stack = 7 WHERE expedition_id = ?`,
+		exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	exp, _ = getExpedition(exp.ID)
+	if !zoneTemporalHarsh(exp) {
+		t.Error("heat=7 should trigger harsh")
+	}
+}
+
+func TestUnderforgeHeatBandFor(t *testing.T) {
+	cases := []struct {
+		stacks int
+		want   string
+	}{
+		{0, "none"},
+		{1, "ambient"}, {3, "ambient"},
+		{4, "warning"}, {6, "warning"},
+		{7, "supply"}, {9, "supply"},
+		{10, "critical"},
+	}
+	for _, c := range cases {
+		if got := UnderforgeHeatBandFor(c.stacks); got != c.want {
+			t.Errorf("UnderforgeHeatBandFor(%d) = %q, want %q", c.stacks, got, c.want)
+		}
+	}
+}
+
+func TestUnderforge_FortifiedRestReducesHeat(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-uf-rest:example")
+	defer cleanupExpeditions(uid)
+
+	exp := &Expedition{
+		ID:          "fake-uf",
+		ZoneID:      ZoneUnderforge,
+		TemporalStack: 5,
+	}
+	// Insert minimal row so updateTemporalStack works.
+	if _, err := db.Get().Exec(`
+		INSERT INTO dnd_expedition (expedition_id, user_id, zone_id, run_id, status, start_date, current_day, supplies_json, threat_events, region_state, last_activity, temporal_stack)
+		VALUES (?, ?, ?, NULL, 'active', CURRENT_TIMESTAMP, 1, '{}', '[]', '{}', CURRENT_TIMESTAMP, 5)`,
+		exp.ID, string(uid), string(ZoneUnderforge)); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Get().Exec(`DELETE FROM dnd_expedition WHERE expedition_id = ?`, exp.ID)
+
+	got := reduceUnderforgeHeat(exp)
+	if got != 3 {
+		t.Errorf("reduceUnderforgeHeat(5) = %d, want 3", got)
+	}
+	exp.TemporalStack = 1
+	got = reduceUnderforgeHeat(exp)
+	if got != 0 {
+		t.Errorf("reduceUnderforgeHeat(1) = %d, want 0 (no underflow)", got)
+	}
+	// Wrong zone — no-op.
+	other := &Expedition{ZoneID: ZoneGoblinWarrens, TemporalStack: 5}
+	if reduceUnderforgeHeat(other) != 5 {
+		t.Error("reduceUnderforgeHeat on non-Underforge should be no-op")
+	}
+}
+
 func TestSunkenTemple_NoTidalOnNonZone(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@exp-tidal-other:example")

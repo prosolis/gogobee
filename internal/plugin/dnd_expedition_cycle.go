@@ -157,7 +157,7 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	forceDouble := applyZoneTemporalPreBurn(e, e.CurrentDay+1)
 
 	// Advance day + supply burn happen together at the morning rollover.
-	harsh := e.ThreatLevel > 60 || e.TemporalStack > 0
+	harsh := e.ThreatLevel > 60 || zoneTemporalHarsh(e)
 	newSupplies, burn := applyDailyBurn(e.Supplies, harsh, e.SiegeMode || forceDouble)
 	if err := updateSupplies(e.ID, newSupplies); err != nil {
 		return err
