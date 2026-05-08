@@ -168,24 +168,28 @@ func TestZoneCmd_AdvanceFinalRoomBumpsMood(t *testing.T) {
 	zoneCmdTestCharacter(t, uid, 1)
 	defer cleanupZoneRuns(uid)
 
-	p := &AdventurePlugin{}
-	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "enter goblin_warrens"); err != nil {
+	// D1e wired real combat into !zone advance, so the cmd-level path
+	// is no longer deterministic for an L1 fighter against the Goblin
+	// Warrens roster. Drive the persistence layer directly to assert
+	// the mood-on-completion contract.
+	run, err := startZoneRun(uid, ZoneGoblinWarrens, 1, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	run, _ := getActiveZoneRun(uid)
-	// Advance through every room. zone_complete fires on the boss-room
-	// advance and bumps mood by +10 (50 → 60).
 	for i := 0; i < run.TotalRooms; i++ {
-		if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "advance"); err != nil {
-			t.Fatalf("advance %d: %v", i, err)
+		if _, err := markRoomCleared(run.RunID); err != nil {
+			t.Fatalf("markRoomCleared %d: %v", i, err)
 		}
+	}
+	if _, err := applyMoodEvent(run.RunID, MoodEventZoneComplete); err != nil {
+		t.Fatal(err)
 	}
 	final, err := getZoneRun(run.RunID)
 	if err != nil || final == nil {
 		t.Fatal("could not fetch completed run")
 	}
 	if !final.BossDefeated {
-		t.Error("boss should be defeated after final advance")
+		t.Error("boss should be defeated after final markRoomCleared")
 	}
 	if final.GMMood != 60 {
 		t.Errorf("post-completion mood = %d, want 60 (50 + zone_complete +10)", final.GMMood)

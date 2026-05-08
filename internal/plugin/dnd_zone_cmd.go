@@ -3,6 +3,8 @@ package plugin
 import (
 	"fmt"
 	"strings"
+
+	"maunium.net/go/mautrix/id"
 )
 
 // !zone — Phase 11 D1c. The command surface for the dungeon-zone state
@@ -20,9 +22,8 @@ import (
 //	!zone advance                 → resolve the current room and move on
 //	!zone abandon                 → end the active run (no rewards)
 //
-// Combat resolution per room arrives in D1e; advance currently just
-// records the room as cleared and reports the next room type.
-// TwinBee narration / mood triggers arrive in D1d.
+// TwinBee narration / mood triggers arrive in D1d. Combat / trap / boss
+// resolution per room is wired in D1e via dnd_zone_combat.go.
 
 func (p *AdventurePlugin) handleDnDZoneCmd(ctx MessageContext, args string) error {
 	userMu := p.advUserLock(ctx.Sender)
@@ -286,9 +287,11 @@ func (p *AdventurePlugin) zoneCmdMap(ctx MessageContext) error {
 
 // ── advance ─────────────────────────────────────────────────────────────────
 
-// zoneCmdAdvance is the D1c stub: it records the current room cleared and
-// reports the next room. Real combat / trap / boss resolution wires in
-// D1e+. This is intentional — D1c ships the *surface*.
+// zoneCmdAdvance resolves the room the player is currently standing in,
+// then moves them to the next. Resolution branches on RoomType — combat
+// for Exploration/Elite/Boss, a trap nick for Trap, narration-only for
+// Entry. Player loss aborts the run with a mood penalty and player-death
+// flavor; boss win drops the zone Loot table.
 func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	run, err := getActiveZoneRun(ctx.Sender)
 	if err != nil {
@@ -301,24 +304,49 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	zone, _ := getZone(run.ZoneID)
 	prev := run.CurrentRoomType()
 	prevIdx := run.CurrentRoom
+
+	// Resolve the current room *before* clearing it, so combat results
+	// can decide whether the player advances or the run ends.
+	resolution, ended, err := p.resolveRoom(ctx.Sender, run, zone)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't resolve room: "+err.Error())
+	}
+	if ended {
+		return p.SendDM(ctx.Sender, resolution)
+	}
+
 	next, err := markRoomCleared(run.RunID)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't advance: "+err.Error())
 	}
 	if next == "" {
-		// Boss room cleared → zone complete. Bump mood per design §3.2.
 		_, _ = applyMoodEvent(run.RunID, MoodEventZoneComplete)
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("🏆 **Cleared %s.** Boss defeated. Run complete.\n\n", zone.Display))
+		if resolution != "" {
+			b.WriteString(resolution)
+			b.WriteString("\n\n")
+		}
+		b.WriteString(fmt.Sprintf("🏆 **Cleared %s.** Run complete.\n\n", zone.Display))
 		if line := twinBeeLine(zone.ID, GMZoneComplete, run.RunID, prevIdx); line != "" {
 			b.WriteString(line)
 			b.WriteString("\n\n")
 		}
-		b.WriteString("_(Combat resolution + loot rolls land in D1e — for now this is a clean state-machine win.)_")
+		// Drop the zone loot table on boss kill.
+		if granted := p.rollZoneLoot(ctx.Sender, run, zone); len(granted) > 0 {
+			b.WriteString("**Loot:**\n")
+			for _, id := range granted {
+				b.WriteString("• " + id + "\n")
+			}
+		}
 		return p.SendDM(ctx.Sender, b.String())
 	}
-	nextIdx := run.CurrentRoom + 1 // markRoomCleared already advanced; reflect for narration salt
+
+	nextIdx := run.CurrentRoom + 1
 	var b strings.Builder
+	if resolution != "" {
+		b.WriteString(resolution)
+		b.WriteString("\n\n")
+	}
 	b.WriteString(fmt.Sprintf("✓ Cleared room %d (%s).\n\n", prevIdx+1, prettyRoomType(prev)))
 	if next == RoomBoss {
 		if line := twinBeeLine(zone.ID, GMBossEntry, run.RunID, nextIdx); line != "" {
@@ -334,6 +362,102 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	b.WriteString(fmt.Sprintf("**Room %d/%d — %s.** ", nextIdx+1, run.TotalRooms, prettyRoomType(next)))
 	b.WriteString("`!zone advance` to continue.")
 	return p.SendDM(ctx.Sender, b.String())
+}
+
+// resolveRoom dispatches to the per-room-type resolver. Returns the
+// resolution narration, an `ended` flag (true when the run ended due to
+// player death — caller should send the narration and stop), and any
+// error encountered. Entry rooms are pure flavor and resolve trivially.
+func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition) (string, bool, error) {
+	switch run.CurrentRoomType() {
+	case RoomEntry:
+		return "", false, nil
+	case RoomTrap:
+		_, narration := p.resolveTrapRoom(userID, run, zone)
+		return narration, false, nil
+	case RoomExploration:
+		return p.resolveCombatRoom(userID, run, zone, false)
+	case RoomElite:
+		return p.resolveCombatRoom(userID, run, zone, true)
+	case RoomBoss:
+		return p.resolveBossRoom(userID, run, zone)
+	}
+	return "", false, nil
+}
+
+// resolveCombatRoom spawns one roster enemy (elite filter optional),
+// runs combat, persists side effects, fires nat-1/nat-20 mood deltas,
+// and renders the narration block. Returns ended=true on player loss.
+func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition, elite bool) (string, bool, error) {
+	monster, ok := pickZoneEnemy(zone, run.RunID, run.CurrentRoom, elite)
+	if !ok {
+		return fmt.Sprintf("_(No %s roster entry — skipping.)_", map[bool]string{true: "elite", false: "exploration"}[elite]), false, nil
+	}
+	result, err := p.runZoneCombat(userID, monster, int(zone.Tier))
+	if err != nil {
+		return "", false, err
+	}
+	scanMoodEventsFromCombat(run.RunID, result)
+
+	var b strings.Builder
+	if line := twinBeeLine(zone.ID, GMCombatStart, run.RunID, run.CurrentRoom); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	if elite {
+		b.WriteString(fmt.Sprintf("⚔️ **Elite encounter — %s** (HP %d, AC %d)\n", monster.Name, monster.HP, monster.AC))
+	} else {
+		b.WriteString(fmt.Sprintf("⚔️ **%s** (HP %d, AC %d)\n", monster.Name, monster.HP, monster.AC))
+	}
+	if !result.PlayerWon {
+		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
+		_ = abandonZoneRun(userID)
+		if line := twinBeeLine(zone.ID, GMPlayerDeath, run.RunID, run.CurrentRoom); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
+		return b.String(), true, nil
+	}
+	if line := twinBeeLine(zone.ID, GMCombatEnd, run.RunID, run.CurrentRoom); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString(fmt.Sprintf("✅ **%s** down (HP %d→%d).", monster.Name, result.PlayerStartHP, result.PlayerEndHP))
+	return b.String(), false, nil
+}
+
+// resolveBossRoom runs the zone-boss bestiary entry through the same
+// combat path as room combat. Win → caller drops zone loot.
+func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition) (string, bool, error) {
+	monster, ok := dndBestiary[zone.Boss.BestiaryID]
+	if !ok {
+		return fmt.Sprintf("_(Boss %s not in bestiary — skipping.)_", zone.Boss.Name), false, nil
+	}
+	result, err := p.runZoneCombat(userID, monster, int(zone.Tier))
+	if err != nil {
+		return "", false, err
+	}
+	scanMoodEventsFromCombat(run.RunID, result)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("👑 **Boss — %s** (HP %d, AC %d)\n", monster.Name, monster.HP, monster.AC))
+	if !result.PlayerWon {
+		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
+		_ = abandonZoneRun(userID)
+		if line := twinBeeLine(zone.ID, GMPlayerDeath, run.RunID, run.CurrentRoom); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString(fmt.Sprintf("💀 **%s** stands over your body. Run ended.", monster.Name))
+		return b.String(), true, nil
+	}
+	if line := twinBeeLine(zone.ID, GMBossDeath, run.RunID, run.CurrentRoom); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString(fmt.Sprintf("🏆 **%s** falls (HP %d→%d).", monster.Name, result.PlayerStartHP, result.PlayerEndHP))
+	return b.String(), false, nil
 }
 
 // ── abandon ─────────────────────────────────────────────────────────────────
