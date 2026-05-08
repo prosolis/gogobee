@@ -162,6 +162,12 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	e.Supplies = newSupplies
 	e.CurrentDay++
 
+	// E2a: daily threat drift (+3 base, GM-mood modifier). No-op after
+	// boss kill. May cross a threshold and append a flavor-bearing log.
+	if _, _, err := applyDailyThreatDrift(e); err != nil {
+		slog.Warn("expedition: threat drift", "expedition", e.ID, "err", err)
+	}
+
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)
 
