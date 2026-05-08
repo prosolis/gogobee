@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"math/rand/v2"
+	"strings"
 
 	"gogobee/internal/db"
 	"maunium.net/go/mautrix/id"
@@ -241,20 +242,25 @@ var advAllTreasures = map[int][]AdvTreasureDef{
 
 // ── Treasure Drop Logic ──────────────────────────────────────────────────────
 
-func rollAdvTreasureDrop(tier int, userID id.UserID, chatLevel int) *AdvTreasureDrop {
-	rate, ok := advTreasureDropRates[tier]
+// rollAdvTreasureDropDetailed returns the drop (or nil) plus the random roll
+// and the effective drop rate, so callers can surface near-miss feedback
+// ("rolled 1.8% vs 1.5% chance — just missed"). Players never see treasure
+// math otherwise, which makes rare drops feel mythical.
+func rollAdvTreasureDropDetailed(tier int, userID id.UserID, chatLevel int) (drop *AdvTreasureDrop, roll, rate float64) {
+	r, ok := advTreasureDropRates[tier]
 	if !ok {
-		return nil
+		return nil, 0, 0
 	}
-	rate += chatLevelRareBonus(chatLevel)
+	rate = r + chatLevelRareBonus(chatLevel)
+	roll = rand.Float64()
 
-	if rand.Float64() >= rate {
-		return nil
+	if roll >= rate {
+		return nil, roll, rate
 	}
 
 	pool, ok := advAllTreasures[tier]
 	if !ok || len(pool) == 0 {
-		return nil
+		return nil, roll, rate
 	}
 
 	// Pick random treasure
@@ -267,11 +273,68 @@ func rollAdvTreasureDrop(tier int, userID id.UserID, chatLevel int) *AdvTreasure
 		def = &pool[rand.IntN(len(pool))]
 		owns, err = advUserOwnsTreasure(userID, def.Key)
 		if err != nil || owns {
-			return nil // both rolls duplicated
+			return nil, roll, rate // both rolls duplicated
 		}
 	}
 
-	return &AdvTreasureDrop{Def: def}
+	return &AdvTreasureDrop{Def: def}, roll, rate
+}
+
+// rollAdvTreasureDrop is the legacy single-return variant used by call sites
+// that don't surface near-miss feedback (auto-babysit, twinbee shares).
+func rollAdvTreasureDrop(tier int, userID id.UserID, chatLevel int) *AdvTreasureDrop {
+	d, _, _ := rollAdvTreasureDropDetailed(tier, userID, chatLevel)
+	return d
+}
+
+// ── Treasure Comparison ─────────────────────────────────────────────────────
+
+// advTreasureIrreplaceable reports whether a treasure carries a bonus type
+// that can't be replicated by another drop (e.g. monthly death bypass).
+// Such treasures are excluded from auto-swap and fall back to the manual
+// discard prompt so the player consciously chooses to give one up.
+func advTreasureIrreplaceable(def *AdvTreasureDef) bool {
+	if def == nil {
+		return false
+	}
+	for _, b := range def.Bonuses {
+		if strings.HasPrefix(b.Type, "special_") {
+			return true
+		}
+	}
+	return false
+}
+
+// advTreasureRank produces a comparable triple (tier, bonusCount, key) for
+// auto-swap decisions. Bonuses are heterogeneous and there's no honest
+// scalar comparator — we use tier first, then bonus count as a tiebreaker,
+// then the deterministic key so equal-rank ties prefer the existing item
+// (no churn). Higher tuple = better treasure.
+type advTreasureRankKey struct {
+	Tier       int
+	BonusCount int
+	Key        string
+}
+
+func advTreasureRank(def *AdvTreasureDef) advTreasureRankKey {
+	if def == nil {
+		return advTreasureRankKey{}
+	}
+	return advTreasureRankKey{Tier: def.Tier, BonusCount: len(def.Bonuses), Key: def.Key}
+}
+
+// advTreasureRankBetter reports whether a is strictly better than b.
+// Equal-rank returns false (caller treats this as "keep existing").
+func advTreasureRankBetter(a, b advTreasureRankKey) bool {
+	if a.Tier != b.Tier {
+		return a.Tier > b.Tier
+	}
+	if a.BonusCount != b.BonusCount {
+		return a.BonusCount > b.BonusCount
+	}
+	// Deterministic but neutral tiebreak — different keys aren't "better"
+	// than each other, so equal Tier+BonusCount means no swap.
+	return false
 }
 
 // ── Treasure DB Operations ───────────────────────────────────────────────────

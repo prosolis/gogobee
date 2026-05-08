@@ -61,7 +61,16 @@ type advPendingShopConfirm struct {
 type advShopSession struct {
 	StartedAt   time.Time
 	ItemsBought int
+	// Persuasion discount: 0.10 if the player passed Persuasion DC 15 on
+	// session start, else 0. Applied to all purchases this session.
+	// Expires `dndPersuasionDiscountTTL` after StartedAt — players can't
+	// hold a discount session open indefinitely.
+	PersuasionDiscount float64
 }
+
+// dndPersuasionDiscountTTL — how long after shop entry the Persuasion
+// discount remains valid. After this, prices return to full.
+const dndPersuasionDiscountTTL = 30 * time.Minute
 
 func (p *AdventurePlugin) shopSessionGet(userID id.UserID) *advShopSession {
 	if val, ok := p.shopSessions.Load(string(userID)); ok {
@@ -72,10 +81,43 @@ func (p *AdventurePlugin) shopSessionGet(userID id.UserID) *advShopSession {
 
 func (p *AdventurePlugin) shopSessionStart(userID id.UserID) {
 	if p.shopSessionGet(userID) == nil {
+		discount := 0.0
+		if dndNPCPersuasionDiscount(userID) {
+			discount = 0.10
+		}
 		p.shopSessions.Store(string(userID), &advShopSession{
-			StartedAt: time.Now(),
+			StartedAt:          time.Now(),
+			PersuasionDiscount: discount,
 		})
 	}
+}
+
+// shopSessionPriceFactor returns the multiplier to apply to shop prices for
+// the given user's current session. 1.0 normally, 0.9 if Persuasion passed.
+// The discount expires after dndPersuasionDiscountTTL to prevent indefinite
+// session-holding (audit fix G).
+func (p *AdventurePlugin) shopSessionPriceFactor(userID id.UserID) float64 {
+	sess := p.shopSessionGet(userID)
+	if sess == nil {
+		return 1.0
+	}
+	if sess.PersuasionDiscount > 0 && time.Since(sess.StartedAt) > dndPersuasionDiscountTTL {
+		return 1.0
+	}
+	return 1.0 - sess.PersuasionDiscount
+}
+
+// shopSessionAnnounceDiscount returns flavor text to surface a passed
+// Persuasion check, or empty string if none/expired.
+func (p *AdventurePlugin) shopSessionAnnounceDiscount(userID id.UserID) string {
+	sess := p.shopSessionGet(userID)
+	if sess == nil || sess.PersuasionDiscount <= 0 {
+		return ""
+	}
+	if time.Since(sess.StartedAt) > dndPersuasionDiscountTTL {
+		return ""
+	}
+	return "_(Persuasion DC 15 passed — 10% discount applied; expires 30 minutes after shop entry.)_"
 }
 
 func (p *AdventurePlugin) shopSessionBump(userID id.UserID) {
@@ -486,19 +528,22 @@ func (p *AdventurePlugin) resolveShopConfirm(ctx MessageContext, interaction *ad
 		return p.SendDM(ctx.Sender, fmt.Sprintf("Your **%s** (Masterwork ⭐) is better than that T%d shop item.", current.Name, def.Tier))
 	}
 
+	// Persuasion-discounted price.
+	price := def.Price * p.shopSessionPriceFactor(ctx.Sender)
+
 	// Affordability.
-	if balance < def.Price {
+	if balance < price {
 		flavor, _ := advPickFlavor(luigiInsufficientFunds, ctx.Sender, "luigi_broke")
-		return p.SendDM(ctx.Sender, fmt.Sprintf("*%s*\n\nYou have €%.0f. %s costs €%.0f.", flavor, balance, def.Name, def.Price))
+		return p.SendDM(ctx.Sender, fmt.Sprintf("*%s*\n\nYou have €%.0f. %s costs €%.0f.", flavor, balance, def.Name, price))
 	}
 
 	// Debit.
-	if !p.euro.Debit(ctx.Sender, def.Price, "adventure_shop_"+string(data.Slot)) {
+	if !p.euro.Debit(ctx.Sender, price, "adventure_shop_"+string(data.Slot)) {
 		return p.SendDM(ctx.Sender, "Transaction failed. The economy is having a moment.")
 	}
 
 	// Community contribution: 5% of purchase price.
-	if potCut := int(def.Price * 0.05); potCut > 0 {
+	if potCut := int(price * 0.05); potCut > 0 {
 		communityPotAdd(potCut)
 		trackTaxPaid(ctx.Sender, potCut)
 	}
@@ -693,18 +738,19 @@ func (p *AdventurePlugin) advBuyEquipment(userID id.UserID, slot EquipmentSlot, 
 			current.Name, current.Tier, def.Tier)
 	}
 
+	price := def.Price * p.shopSessionPriceFactor(userID)
 	balance := p.euro.GetBalance(userID)
-	if balance < def.Price {
+	if balance < price {
 		flavor, _ := advPickFlavor(luigiInsufficientFunds, userID, "luigi_broke")
-		return fmt.Sprintf("*%s*\n\nYou have €%.0f. %s costs €%.0f.", flavor, balance, def.Name, def.Price)
+		return fmt.Sprintf("*%s*\n\nYou have €%.0f. %s costs €%.0f.", flavor, balance, def.Name, price)
 	}
 
-	if !p.euro.Debit(userID, def.Price, "adventure_shop_"+string(slot)) {
+	if !p.euro.Debit(userID, price, "adventure_shop_"+string(slot)) {
 		return "Transaction failed. The economy is having a moment."
 	}
 
 	// Community contribution: 5% of purchase price.
-	if potCut := int(def.Price * 0.05); potCut > 0 {
+	if potCut := int(price * 0.05); potCut > 0 {
 		communityPotAdd(potCut)
 		trackTaxPaid(userID, potCut)
 	}
@@ -975,15 +1021,16 @@ func (p *AdventurePlugin) resolveShopSupplyChoice(ctx MessageContext, interactio
 		return p.SendDM(ctx.Sender, "I don't have that. Reply with an item name from the list, or `back` to return.")
 	}
 
+	consumablePrice := float64(match.Price) * p.shopSessionPriceFactor(ctx.Sender)
 	balance := p.euro.GetBalance(ctx.Sender)
-	if balance < float64(match.Price) {
+	if balance < consumablePrice {
 		p.pending.Store(string(ctx.Sender), interaction)
-		return p.SendDM(ctx.Sender, fmt.Sprintf("You need €%d for %s but only have €%.0f.", match.Price, match.Name, balance))
+		return p.SendDM(ctx.Sender, fmt.Sprintf("You need €%.0f for %s but only have €%.0f.", consumablePrice, match.Name, balance))
 	}
 
 	// Purchase the consumable
-	p.euro.Debit(ctx.Sender, float64(match.Price), "shop_consumable")
-	if potCut := int(math.Round(float64(match.Price) * 0.05)); potCut > 0 {
+	p.euro.Debit(ctx.Sender, consumablePrice, "shop_consumable")
+	if potCut := int(math.Round(consumablePrice * 0.05)); potCut > 0 {
 		communityPotAdd(potCut)
 		trackTaxPaid(ctx.Sender, potCut)
 	}
@@ -998,6 +1045,6 @@ func (p *AdventurePlugin) resolveShopSupplyChoice(ctx MessageContext, interactio
 	// Stay in supplies view for more purchases
 	p.pending.Store(string(ctx.Sender), interaction)
 	newBalance := p.euro.GetBalance(ctx.Sender)
-	return p.SendDM(ctx.Sender, fmt.Sprintf("Purchased **%s** for €%d. Added to inventory.\n💰 Balance: €%.0f\n\nReply with another item name or `back` to return.",
-		match.Name, match.Price, newBalance))
+	return p.SendDM(ctx.Sender, fmt.Sprintf("Purchased **%s** for €%.0f. Added to inventory.\n💰 Balance: €%.0f\n\nReply with another item name or `back` to return.",
+		match.Name, consumablePrice, newBalance))
 }

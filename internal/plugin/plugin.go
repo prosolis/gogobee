@@ -690,7 +690,12 @@ func IsDMRoom(roomID id.RoomID, userID id.UserID) bool {
 }
 
 // SendDM sends a direct message to a user. Reuses existing DM room if available.
+// No-op when the Matrix client is nil (which happens in unit tests that
+// construct plugins without a real client).
 func (b *Base) SendDM(userID id.UserID, text string) error {
+	if b == nil || b.Client == nil {
+		return nil
+	}
 	roomID, err := b.GetDMRoom(userID)
 	if err != nil {
 		return err

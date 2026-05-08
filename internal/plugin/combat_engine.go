@@ -9,9 +9,23 @@ type CombatStats struct {
 	Attack    int
 	Defense   int
 	Speed     int
-	CritRate  float64
-	DodgeRate float64
-	BlockRate float64
+	CritRate  float64 // legacy; superseded by nat-20 crits but still consumed by autoCrit logic & equipment scaling.
+	DodgeRate float64 // legacy; no longer queried by hit resolution but still computed for narrative scaling.
+	BlockRate float64 // still used to halve damage on a successful hit.
+
+	// D&D layer. AC and AttackBonus drive d20-vs-AC hit resolution.
+	// Set via dnd_combat.go's applyDnDPlayerLayer / applyDnDArenaMonsterLayer / applyDnDDungeonMonsterLayer.
+	AC          int
+	AttackBonus int
+
+	// Phase 8 — equipment-driven damage. When Weapon is non-nil, the d20
+	// attack path rolls weapon damage dice + AbilityModForDamage instead of
+	// the legacy calcDamage penetration formula. When nil, legacy math
+	// applies (used by monsters and any combatant without a D&D weapon).
+	Weapon              *WeaponProfile
+	AbilityModForDamage int
+	WeaponProficient    bool // false → -4 attack penalty (appendix §8 implementation note)
+	TwoHandedMode       bool // true + versatile weapon → use larger versatile die
 }
 
 type CombatModifiers struct {
@@ -33,6 +47,11 @@ type CombatModifiers struct {
 	ReflectNext    float64 // consumable: fraction of next hit reflected
 	AutoCritFirst  bool    // consumable: first player hit is auto-crit
 	FlatDmgStart   int     // consumable: flat damage to enemy pre-combat
+
+	// D&D race passives (Phase 3 — race traits with combat hooks).
+	LuckyReroll  bool // Halfling: reroll the first nat 1 of the fight
+	RageReady    bool // Orc: when HP first drops <50%, next attack deals +50% damage
+	PoisonResist bool // Dwarf: poison tick damage halved
 }
 
 type Combatant struct {
@@ -61,6 +80,10 @@ type CombatEvent struct {
 	PlayerHP int
 	EnemyHP  int
 	Desc     string // optional flavor (item name, ability name)
+	// D&D layer fields. Set only on events from the d20-vs-AC resolution path.
+	// Roll is the raw d20 (1..20); RollAgainst is the target AC.
+	Roll        int
+	RollAgainst int
 }
 
 type CombatResult struct {
@@ -126,6 +149,11 @@ type combatState struct {
 
 	// Sovereign reprieve
 	deathSaveUsed bool
+
+	// D&D race-passive state
+	luckyUsed         bool // Halfling Lucky reroll consumed
+	raged             bool // Orc Rage already triggered this fight
+	pendingRageAttack bool // next player attack gets +50% damage
 
 	round  int
 	events []CombatEvent
@@ -353,6 +381,9 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 
 // ── Attack Resolution ────────────────────────────────────────────────────────
 
+// resolvePlayerAttack — d20 + AttackBonus vs enemy AC.
+// Nat 20 = auto-hit + crit. Nat 1 = auto-miss tagged "fumble".
+// Block (on hit) halves damage. autoCrit consumable forces a crit on hit.
 func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *CombatPhase, result *CombatResult) bool {
 	phaseName := phase.Name
 
@@ -366,44 +397,98 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		return false
 	}
 
-	// Enemy dodge
-	enemyDodge := enemy.Stats.DodgeRate * phase.SpeedWeight
-	if enemyDodge > 0 && rand.Float64() < enemyDodge {
+	// Orc Rage: trigger on the first attack after dropping below 50% HP.
+	// Use HP*2 < MaxHP rather than HP < MaxHP/2 so the threshold is exact
+	// regardless of MaxHP parity (avoids per-character drift on odd MaxHP).
+	if player.Mods.RageReady && !st.raged && st.playerHP > 0 &&
+		st.playerHP*2 < player.Stats.MaxHP {
+		st.raged = true
+		st.pendingRageAttack = true
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "player", Action: "rage",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Desc: "Orc Rage",
+		})
+	}
+
+	roll := 1 + rand.IntN(20)
+	// Halfling Lucky: reroll the first nat 1 of the fight.
+	if roll == 1 && player.Mods.LuckyReroll && !st.luckyUsed {
+		st.luckyUsed = true
+		newRoll := 1 + rand.IntN(20)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "player", Action: "lucky_reroll",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			Roll: newRoll, RollAgainst: enemy.Stats.AC, Desc: "Halfling Lucky",
+		})
+		roll = newRoll
+	}
+	isFumble := roll == 1
+	isNat20 := roll == 20
+	// Class proficiency penalty (appendix §8): -4 attack with a non-proficient weapon.
+	attackBonus := player.Stats.AttackBonus
+	if player.Stats.Weapon != nil && !player.Stats.WeaponProficient {
+		attackBonus -= 4
+	}
+	total := roll + attackBonus
+
+	if isFumble || (!isNat20 && total < enemy.Stats.AC) {
+		desc := ""
+		if isFumble {
+			desc = "fumble"
+		}
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "player", Action: "miss",
 			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			Roll: roll, RollAgainst: enemy.Stats.AC, Desc: desc,
 		})
 		return false
 	}
 
-	// Calculate damage
-	dmg := calcDamage(player.Stats.Attack, phase.AttackWeight, player.Mods.DamageBonus,
-		enemy.Stats.Defense, phase.DefenseWeight, enemy.Mods.DamageReduct)
+	// Damage roll: weapon dice path (Phase 8) or legacy penetration formula.
+	var dmg int
+	if player.Stats.Weapon != nil {
+		// Unproficient wielders don't add their ability mod to damage.
+		mod := player.Stats.AbilityModForDamage
+		if !player.Stats.WeaponProficient {
+			mod = 0
+		}
+		total, _ := rollWeaponDamage(player.Stats.Weapon, mod, player.Stats.TwoHandedMode)
+		dmg = total
+		// Class damage bonus / streak bonus / etc. layered on top via DamageBonus.
+		if player.Mods.DamageBonus > 0 {
+			dmg = int(float64(dmg) * (1 + player.Mods.DamageBonus))
+		}
+		// Apply enemy damage reduction (consumables, sets) the same way calcDamage does.
+		if enemy.Mods.DamageReduct > 0 && enemy.Mods.DamageReduct != 1.0 {
+			dmg = int(float64(dmg) * enemy.Mods.DamageReduct)
+		}
+	} else {
+		dmg = calcDamage(player.Stats.Attack, phase.AttackWeight, player.Mods.DamageBonus,
+			enemy.Stats.Defense, phase.DefenseWeight, enemy.Mods.DamageReduct)
+	}
 
-	// Block: half damage
 	blocked := enemy.Stats.BlockRate > 0 && rand.Float64() < enemy.Stats.BlockRate
 	if blocked {
 		dmg = max(1, dmg/2)
 	}
 
-	// Crit check
-	critRate := player.Stats.CritRate
-	if phaseName == "Decisive" {
-		critRate *= 2
-	}
-	isCrit := false
+	isCrit := isNat20
 	if st.autoCrit {
 		isCrit = true
 		st.autoCrit = false
-		dmg *= 2
-	} else if critRate > 0 && rand.Float64() < critRate {
-		isCrit = true
+	}
+	if isCrit {
+		// Crit: double damage. (5e rolls extra dice; we double total to
+		// match the engine's pre-Phase-8 crit semantics.)
 		dmg *= 2
 	}
-
+	// Orc Rage: +50% damage on this attack, then consume.
+	if st.pendingRageAttack {
+		dmg = int(float64(dmg) * 1.5)
+		st.pendingRageAttack = false
+	}
 	dmg = max(1, dmg)
 
-	// Cleave handling for enemy is in resolveEnemyAttack
 	action := "hit"
 	if isCrit {
 		action = "crit"
@@ -415,20 +500,21 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: phaseName, Actor: "player", Action: action,
 		Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		Roll: roll, RollAgainst: enemy.Stats.AC,
 	})
-
 	return st.enemyHP <= 0
 }
 
+// resolveEnemyAttack — enemy rolls d20 + AttackBonus vs player AC.
+// Pet whiff and spore-cloud miss preempt the roll. Ward absorbs a hit fully.
+// Block halves damage. Reflect bounces a fraction back. Death save fires if HP hits 0.
 func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *CombatPhase, result *CombatResult, petWhiff, petDeflect, sporeMiss bool) bool {
 	phaseName := phase.Name
 
-	// Spore cloud round consumed when enemy attacks (even if whiffed/missed)
 	if st.sporeRounds > 0 {
 		st.sporeRounds--
 	}
 
-	// Pet whiff → guaranteed miss
 	if petWhiff {
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "pet", Action: "pet_whiff",
@@ -437,7 +523,6 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 		return false
 	}
 
-	// Spore cloud miss
 	if sporeMiss {
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "consumable", Action: "spore_miss",
@@ -446,17 +531,24 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 		return false
 	}
 
-	// Player dodge
-	playerDodge := player.Stats.DodgeRate * phase.SpeedWeight
-	if playerDodge > 0 && rand.Float64() < playerDodge {
+	roll := 1 + rand.IntN(20)
+	isFumble := roll == 1
+	isNat20 := roll == 20
+	total := roll + enemy.Stats.AttackBonus
+
+	if isFumble || (!isNat20 && total < player.Stats.AC) {
+		desc := ""
+		if isFumble {
+			desc = "fumble"
+		}
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "miss",
 			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			Roll: roll, RollAgainst: player.Stats.AC, Desc: desc,
 		})
 		return false
 	}
 
-	// Ward: absorb full hit
 	if st.wardCharges > 0 {
 		st.wardCharges--
 		st.events = append(st.events, CombatEvent{
@@ -473,25 +565,17 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	dmg := calcDamage(int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
 		playerDefense(player, st), phase.DefenseWeight, player.Mods.DamageReduct)
 
-	// Player block
 	blocked := player.Stats.BlockRate > 0 && rand.Float64() < player.Stats.BlockRate
 	if blocked {
 		dmg = max(1, dmg/2)
 	}
 
-	// Crit
-	critRate := enemy.Stats.CritRate
-	if phaseName == "Decisive" {
-		critRate *= 2
-	}
-	isCrit := critRate > 0 && rand.Float64() < critRate
+	isCrit := isNat20
 	if isCrit {
 		dmg *= 2
 	}
-
 	dmg = max(1, dmg)
 
-	// Pet deflect: halve damage
 	if petDeflect {
 		dmg = max(1, dmg/2)
 		st.events = append(st.events, CombatEvent{
@@ -511,9 +595,9 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: phaseName, Actor: "enemy", Action: action,
 		Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		Roll: roll, RollAgainst: player.Stats.AC,
 	})
 
-	// Reflect: bounce portion back (after player takes the hit)
 	if st.reflectFrac > 0 {
 		reflected := max(1, int(float64(dmg)*st.reflectFrac))
 		st.reflectFrac = 0
@@ -554,6 +638,9 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 	case "poison":
 		st.poisonTicks = 2
 		st.poisonDmg = 3 + rand.IntN(3)
+		if player.Mods.PoisonResist {
+			st.poisonDmg = max(1, st.poisonDmg/2)
+		}
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "poison",
 			Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,

@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"time"
@@ -643,6 +644,139 @@ type AdvActionResult struct {
 	NearDeath      bool
 	StreakBonus     int
 	CombatLog      *CombatResult
+	// MasteryCrossings records equipment slots whose ActionsUsed crossed a
+	// mastery threshold (advMasteryThresholds) on this action. The caller
+	// uses this to DM a celebration so the silent counter becomes visible.
+	MasteryCrossings []AdvMasteryCrossing
+}
+
+type AdvMasteryCrossing struct {
+	Slot      EquipmentSlot
+	ItemName  string
+	Threshold int // 50, 100, or 250
+}
+
+// advMasteryThresholds defines the action counts at which equipment mastery
+// is celebrated. Picked to span an early-game milestone (50), a mid-game
+// commitment (100), and a hard-to-reach veteran tier (250).
+var advMasteryThresholds = []int{50, 100, 250}
+
+// advMasteryTier reports how many mastery thresholds a piece has crossed
+// (0–3) and the next threshold. nextThreshold is 0 when the piece has
+// already crossed every threshold.
+func advMasteryTier(actionsUsed int) (tier, nextThreshold int) {
+	for _, t := range advMasteryThresholds {
+		if actionsUsed >= t {
+			tier++
+		} else {
+			nextThreshold = t
+			break
+		}
+	}
+	return tier, nextThreshold
+}
+
+// advMasteryMarker returns the visual tier marker for a piece of equipment.
+// Empty for sub-50; ✦/✦✦/✦✦✦ at the 50/100/250 thresholds.
+func advMasteryMarker(actionsUsed int) string {
+	tier, _ := advMasteryTier(actionsUsed)
+	switch tier {
+	case 1:
+		return "✦"
+	case 2:
+		return "✦✦"
+	case 3:
+		return "✦✦✦"
+	}
+	return ""
+}
+
+// advSlotRelevantToActivity reports whether using a slot during the given
+// activity should count toward that slot's mastery. Combat actions exercise
+// the combat loadout (weapon/armor/helmet/boots); harvest actions exercise
+// only the tool. This is what makes mastery feel like "you used this
+// piece" rather than "you played for a while" — without this gate every
+// slot ticks in lockstep and the per-slot view is meaningless.
+func advSlotRelevantToActivity(slot EquipmentSlot, activity AdvActivityType) bool {
+	if isCombatActivity(activity) {
+		return slot == SlotWeapon || slot == SlotArmor || slot == SlotHelmet || slot == SlotBoots
+	}
+	if isHarvestActivity(activity) {
+		return slot == SlotTool
+	}
+	return false
+}
+
+// advMasteryRowSegment formats the `23/50`, `73/100 ✦`, `142/250 ✦✦`, or
+// `250 ✦✦✦` segment shown inline on each equipment row in the character
+// sheet so progress is visible at a glance — not just a tier marker that
+// flips on at 50/100/250 with nothing in between.
+func advMasteryRowSegment(actionsUsed int) string {
+	if actionsUsed <= 0 {
+		return ""
+	}
+	_, next := advMasteryTier(actionsUsed)
+	marker := advMasteryMarker(actionsUsed)
+	if next == 0 {
+		// At max — there's no "next" threshold to count toward.
+		return fmt.Sprintf("%d %s", actionsUsed, marker)
+	}
+	if marker == "" {
+		return fmt.Sprintf("%d/%d", actionsUsed, next)
+	}
+	return fmt.Sprintf("%d/%d %s", actionsUsed, next, marker)
+}
+
+// AdvMasteryRollup summarizes mastery state across all equipped slots so the
+// character sheet can show one informative aggregate line without a
+// per-slot block. AnyProgress is true when at least one slot has any
+// ActionsUsed — used to decide whether to show a "building up" hint when
+// no thresholds have crossed yet.
+type AdvMasteryRollup struct {
+	ThresholdsCrossed int     // raw count, pre-cap (sum across all slots)
+	MaxedSlots        int     // slots with all 3 thresholds crossed
+	Bonus             float64 // capped %, mirrors advEquipmentMasteryBonus
+	AnyProgress       bool
+}
+
+func advMasteryRollup(equip map[EquipmentSlot]*AdvEquipment) AdvMasteryRollup {
+	r := AdvMasteryRollup{}
+	for _, eq := range equip {
+		if eq == nil {
+			continue
+		}
+		if eq.ActionsUsed > 0 {
+			r.AnyProgress = true
+		}
+		tier, _ := advMasteryTier(eq.ActionsUsed)
+		r.ThresholdsCrossed += tier
+		if tier == len(advMasteryThresholds) {
+			r.MaxedSlots++
+		}
+	}
+	r.Bonus = advEquipmentMasteryBonus(equip)
+	return r
+}
+
+// advEquipmentMasteryBonus returns the loot-quality bonus from accumulated
+// mastery across all equipped slots. Each crossed threshold grants +1% loot
+// quality on its slot, capped at +10% total to keep balance reasonable.
+func advEquipmentMasteryBonus(equip map[EquipmentSlot]*AdvEquipment) float64 {
+	total := 0.0
+	for _, eq := range equip {
+		if eq == nil {
+			continue
+		}
+		for _, t := range advMasteryThresholds {
+			if eq.ActionsUsed >= t {
+				total++
+			}
+		}
+	}
+	if total > 10 {
+		total = 10
+	}
+	return total
 }
 
 func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, loc *AdvLocation, bonuses *AdvBonusSummary, inPenaltyZone bool) *AdvActionResult {
@@ -650,6 +784,12 @@ func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEqui
 		Location: loc,
 		XPSkill:  advXPSkill(loc.Activity),
 	}
+
+	// Apply equipment-mastery loot bonus on a local copy so we don't mutate
+	// the caller's bonuses struct (it's reused across multiple actions).
+	localBonuses := *bonuses
+	localBonuses.LootQuality += advEquipmentMasteryBonus(equip)
+	bonuses = &localBonuses
 
 	probs := calculateAdvProbabilities(char, equip, loc, bonuses, inPenaltyZone)
 
@@ -718,9 +858,28 @@ func resolveAdvAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEqui
 		result.EquipBroken = advCheckBrokenEquipment(equip)
 	}
 
-	// Increment actions_used for equipment mastery
-	for _, eq := range equip {
+	// Increment actions_used for equipment mastery only on slots relevant
+	// to the activity — a foraging trip shouldn't master a sword, and a
+	// dungeon run shouldn't master a pickaxe. Detect threshold crossings
+	// so the caller can DM a celebration.
+	for slot, eq := range equip {
+		if eq == nil {
+			continue
+		}
+		if !advSlotRelevantToActivity(slot, loc.Activity) {
+			continue
+		}
+		before := eq.ActionsUsed
 		eq.ActionsUsed++
+		for _, t := range advMasteryThresholds {
+			if before < t && eq.ActionsUsed >= t {
+				result.MasteryCrossings = append(result.MasteryCrossings, AdvMasteryCrossing{
+					Slot:      slot,
+					ItemName:  eq.Name,
+					Threshold: t,
+				})
+			}
+		}
 	}
 
 	return result
@@ -762,9 +921,10 @@ func resolveAdvEmptyOutcome(loc *AdvLocation, _ float64) AdvOutcomeType {
 // ── Eligible Locations for DM Menu ───────────────────────────────────────────
 
 type AdvEligibleLocation struct {
-	Location      *AdvLocation
-	InPenaltyZone bool
-	DeathPct      float64
+	Location       *AdvLocation
+	InPenaltyZone  bool
+	DeathPct       float64
+	ExceptionalPct float64
 }
 
 func advEligibleLocations(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, activity AdvActivityType, bonuses *AdvBonusSummary) []AdvEligibleLocation {
@@ -777,9 +937,10 @@ func advEligibleLocations(char *AdventureCharacter, equip map[EquipmentSlot]*Adv
 		}
 		probs := calculateAdvProbabilities(char, equip, &loc, bonuses, penalty)
 		eligible = append(eligible, AdvEligibleLocation{
-			Location:      &loc,
-			InPenaltyZone: penalty,
-			DeathPct:      probs.DeathPct,
+			Location:       &loc,
+			InPenaltyZone:  penalty,
+			DeathPct:       probs.DeathPct,
+			ExceptionalPct: probs.ExceptionalPct,
 		})
 	}
 	return eligible

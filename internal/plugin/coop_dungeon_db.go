@@ -192,6 +192,31 @@ func unlockCoopCombatActionsForRun(runID int) error {
 	return err
 }
 
+// activeCoopMemberSet returns the set of user IDs currently locked into an
+// active co-op run. The midnight reset uses this to skip the streak/babysit
+// logic for those players — their co-op participation auto-resolves daily,
+// so they should not be treated as idle even though they take no manual
+// actions.
+func activeCoopMemberSet() (map[string]bool, error) {
+	d := db.Get()
+	rows, err := d.Query(`SELECT m.user_id FROM coop_dungeon_members m
+		JOIN coop_dungeon_runs r ON r.id = m.run_id
+		WHERE r.status = 'active'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		out[u] = true
+	}
+	return out, rows.Err()
+}
+
 func lockCoopCombatActions() error {
 	d := db.Get()
 	_, err := d.Exec(`UPDATE adventure_characters

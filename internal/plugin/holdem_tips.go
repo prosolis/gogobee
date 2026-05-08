@@ -664,9 +664,15 @@ func rewriteTipWithLLM(host, model string, ctx holdemTipContext, base string) (s
 		return "", fmt.Errorf("empty response")
 	}
 	if !rewriteKeepsAction(base, tip) {
+		slog.Warn("holdem: tip rewrite rejected (vocabulary)",
+			"base", base, "rewrite", tip,
+			"street", ctx.Street.String(), "to_call", ctx.ToCall)
 		return "", fmt.Errorf("rewrite changed action vocabulary")
 	}
 	if reason := rewriteSemanticProblem(ctx, tip); reason != "" {
+		slog.Warn("holdem: tip rewrite rejected (semantic)",
+			"reason", reason, "base", base, "rewrite", tip,
+			"street", ctx.Street.String(), "to_call", ctx.ToCall)
 		return "", fmt.Errorf("rewrite semantic drift: %s", reason)
 	}
 	return tip, nil

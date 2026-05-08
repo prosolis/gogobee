@@ -69,7 +69,8 @@ func runShowdown(g *HoldemGame) ([]showdownResult, map[id.UserID]int64) {
 	for _, e := range evaluated {
 		p := g.Players[e.seatIdx]
 		won := winnings[p.UserID]
-		line := renderShowdownLine(p.DisplayName, p.Hole, e.name, won)
+		desc := describeMadeHand(e.name, p.Hole, g.Community)
+		line := renderShowdownLine(p.DisplayName, p.Hole, desc, won)
 		showdownLines = append(showdownLines, showdownResult{line: line})
 	}
 

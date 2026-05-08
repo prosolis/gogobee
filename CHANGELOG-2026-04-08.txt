@@ -1,0 +1,162 @@
+GOGOBEE CHANGELOG — 2026-04-08
+================================
+
+6 commits, 76 files changed, ~3,000 lines added
+
+────────────────────────────────────────────────────────────────────────────────
+1. ADVENTURE 2.5 — STEPS 1-2: ACTION ECONOMY & CHAT LEVEL LOOKUP
+────────────────────────────────────────────────────────────────────────────────
+   - Split daily actions into combat (1) and harvest (3) instead of 3 generic.
+     Players can now do 1 combat + 3 harvest per day instead of choosing 3 from
+     either pool.
+   - Added cross-plugin chat level lookup so adventure perks can read XP levels
+     from the main XP plugin.
+   - Updated character sheet to show combat/harvest action counts separately.
+   - Refactored adventure command dispatch for the new action types.
+
+   Files: adventure.go, adventure_character.go, adventure_render.go,
+          adventure_babysit.go, adventure_events.go, adventure_scheduler.go,
+          adventure_twinbee.go, xp.go, db.go, main.go
+
+
+────────────────────────────────────────────────────────────────────────────────
+2. ADVENTURE 2.5 — STEPS 3-6: CHAT LEVEL PERKS
+────────────────────────────────────────────────────────────────────────────────
+   - Chat Level XP Bonus: +5% adventure XP per 10 chat levels, capped at +25%.
+   - Chat Level Rare Drop Bonus: +0.5% rare drop rate per 10 chat levels,
+     capped at +2.5%.
+   - Shop Greeting: Luigi's greeting changes at chat levels 10, 30, and 50.
+   - Death Pardon: Chat level 30+ grants one free death pardon per week.
+     Pardoned players keep their streak and skip the death timer.
+
+   Files: adventure_chat_perks.go (new), adventure.go, adventure_arena.go,
+          adventure_character.go, adventure_masterwork.go, adventure_shop.go,
+          adventure_treasure.go, db.go
+
+
+────────────────────────────────────────────────────────────────────────────────
+3. ADVENTURE 2.5 — STEPS 7-9: ARENA STREAK SYSTEM
+────────────────────────────────────────────────────────────────────────────────
+   - Replaced per-tier arena entry with a continuous streak starting at Tier 1.
+   - Players fight through T1-T5 sequentially. After each tier, a 30-second
+     countdown starts with real-time message edits. Type !bail to cash out,
+     or auto-advance to the next tier.
+   - Per-tier euro multipliers: T1=1.0x, T2=1.5x, T3=2.0x, T4=2.75x, T5=4.0x.
+   - XP multiplier at payout based on tiers cleared: 1.0x/1.2x/1.5x/1.85x/2.5x.
+   - Death forfeits ALL accumulated rewards (euros + XP).
+   - Gladiator's Helm: streak-exclusive Masterwork-tier drop (8% at T4, 18% T5).
+   - Removed old commands: !arena tier N, !arena descend, !arena cashout.
+   - Added !bail command and countdown goroutine with message editing.
+   - Restart recovery: stale active/awaiting runs auto-bail on bot restart.
+
+   Files: adventure_arena.go (major rewrite), adventure_arena_render.go,
+          adventure.go, adventure_arena_test.go, db.go
+
+
+────────────────────────────────────────────────────────────────────────────────
+4. BUG FIXES & POLISH
+────────────────────────────────────────────────────────────────────────────────
+   - Fixed streak grace period calculation in adventure scheduler.
+   - Fixed UNO earnings tracking not crediting properly.
+   - Fixed hospital UX: cleaner admission flow, insurance billing display.
+   - Added wordle/lottery atomicity: ticket purchases and wordle completions
+     now use proper transactions.
+   - Added !adv alias for !adventure.
+   - Hospital insurance billing now shows itemized breakdown.
+   - Fixed character sheet showing wrong holiday action count.
+   - Removed dead holiday prompt code.
+   - Capped babysit counter to prevent unbounded growth.
+
+   Files: adventure_character.go, adventure_hospital.go, adventure_scheduler.go,
+          adventure_babysit.go, adventure_render.go, lottery.go, lottery_db.go,
+          lottery_draw.go, wordle.go, stats.go, urls.go, llm_passive.go
+
+
+────────────────────────────────────────────────────────────────────────────────
+5. FULL CODEBASE AUDIT — 21 FIXES
+────────────────────────────────────────────────────────────────────────────────
+
+  CRITICAL:
+   - Credit()/Debit() now reject non-positive amounts. Previously, a negative
+     amount could mint or drain euros with no validation.
+   - Lottery ticket purchase moved count check inside DB transaction, closing
+     a TOCTOU race where concurrent buys could exceed the 100-ticket cap.
+
+  HIGH:
+   - Arena bail channel ownership reworked. The countdown goroutine and bail
+     handler now use LoadAndDelete to claim exclusive ownership of the channel,
+     preventing double-close panics.
+   - Added safeGo() panic recovery wrapper. Applied to 17 goroutine launch
+     sites across 14 plugin files. A panic in any async handler previously
+     killed the entire daemon.
+   - Entry.ID validated before exec.Command in fetch-esteemed (path traversal).
+   - Silently ignored DB errors in lottery_db.go now logged.
+
+  MEDIUM:
+   - Added database indexes: idx_arena_runs_user(user_id, status) and
+     idx_euro_bal_user(user_id) for high-traffic query paths.
+   - db.Close() function added; called on SIGINT/SIGTERM shutdown.
+   - Miniflux mutex pattern fixed: snapshot pollingDisabled under lock,
+     check after unlock (was Lock/early-return/Unlock without defer).
+   - JSON unmarshal errors in lottery history/tickets now logged instead
+     of silently discarded.
+   - Internal error details no longer leaked to users in forex and esteemed
+     responses (was showing raw %v error strings).
+
+  LOW:
+   - "Failed to load character" error now suggests !adventure.
+   - Empty !buy args shows usage hint instead of "No item matching ''".
+
+  FALSE POSITIVES VERIFIED:
+   - fun.go array access (bounds checks exist at L441, L591).
+   - adventure_twinbee.go filtered[0] (empty check at L90).
+   - wotd.go defs[0] (empty check at L102).
+   - moderation.go timer overwrite (existing.Stop() called at L799).
+   - All rate-limit callers already provide user feedback.
+
+  Files: euro.go, lottery_db.go, adventure_arena.go, plugin.go, db.go,
+         main.go, forex.go, esteemed.go, miniflux.go, adventure.go,
+         fetch-esteemed/main.go, + 14 plugin files (safeGo conversions)
+
+
+────────────────────────────────────────────────────────────────────────────────
+6. TEST COVERAGE — 328 TESTS ACROSS 4 PACKAGES
+────────────────────────────────────────────────────────────────────────────────
+
+  NEW TEST FILES:
+   - internal/util/parser_test.go (30 tests)
+     XPForLevel, LevelFromXP, round-trip for 0-100, ProgressBar edge cases,
+     IsCommand, GetArgs, HasNonASCII, ParseMessage
+
+   - internal/crypto/crypto_test.go (12 tests)
+     Encrypt/Decrypt round-trip, empty plaintext, different nonces,
+     wrong key rejection, HMAC determinism/length, ParseKey validation
+
+   - internal/plugin/helpers_test.go (30 tests)
+     formatNumber, formatNumberInt64, normalizeExpression (natural language,
+     prefix stripping, commas, percent-of), formatCalcResult, countMatches,
+     formatLotteryNumbers, generateLotteryNumbers (count, range, sorted,
+     unique), joinNames, chatLevelXPBonus, chatLevelRareBonus, shopGreeting
+
+   - internal/plugin/audit_fixes_test.go (21 tests)
+     safeGo panic recovery (normal, panic, nil panic), bail channel
+     ownership transfer (both directions), arena status renders for
+     indexed states, lottery edge cases, error message leak checks,
+     UX guidance verification, integer overflow guards, regression guards
+
+   - internal/db/db_test.go (4 tests)
+     Init/Close lifecycle, idempotent Init, schema index verification,
+     schema runs cleanly against fresh SQLite
+
+  EXISTING TESTS (pre-existing, not written today):
+   - adventure_arena_test.go: 55 (51 pre-existing + 4 added)
+   - adventure_shop_test.go: 26
+   - uno_test.go: 20
+   - adventure_test.go: 17
+   - holdem_tips_test.go: 16
+   - adventure_holidays_test.go: 15
+   - wordle_game_test.go: 9
+   - holdem_eval_test.go: 8
+   - blackjack_test.go: 7
+
+  TOTAL: 328 tests, 0 failures, 4 packages covered

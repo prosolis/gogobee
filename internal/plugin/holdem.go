@@ -841,7 +841,9 @@ func (p *HoldemPlugin) doShowdown(game *HoldemGame) {
 
 	// Post end announcement to room and DM each player.
 	endAnn := renderEndAnnouncement(results, game)
-	p.SendMessage(game.RoomID, endAnn)
+	if gameHasPublicRoom(game) {
+		p.SendMessage(game.RoomID, endAnn)
+	}
 	p.broadcastDM(game, endAnn)
 
 	// Settle balances.
@@ -874,7 +876,9 @@ func (p *HoldemPlugin) finishHand(game *HoldemGame) {
 	// Award pot to last remaining player.
 	ann, winnerID := awardPotToLastPlayer(game)
 	if ann != "" {
-		p.SendMessage(game.RoomID, ann)
+		if gameHasPublicRoom(game) {
+			p.SendMessage(game.RoomID, ann)
+		}
 		p.broadcastDM(game, ann)
 	}
 
@@ -980,18 +984,22 @@ func (p *HoldemPlugin) sendTurnNotifications(game *HoldemGame) {
 	}
 }
 
+// broadcastDM delivers msg to each player's channel — their DM room in
+// multiplayer, or game.RoomID directly in solo-vs-bot (where the room IS
+// the player's DM). Deduplicated by room so callers that also post to
+// game.RoomID for spectators (see gameHasPublicRoom) don't cause the solo
+// player to see the message twice.
 func (p *HoldemPlugin) broadcastDM(game *HoldemGame, msg string) {
+	sent := map[id.RoomID]bool{}
 	first := true
 	for _, pl := range game.Players {
 		if pl.IsNPC || pl.State == PlayerSatOut {
 			continue
 		}
-		// Skip players whose DM room IS the game room — they already saw
-		// the message via the public-room post (solo-vs-bot case, where
-		// game.RoomID == player's DM).
-		if pl.DMRoomID == game.RoomID {
+		if sent[pl.DMRoomID] {
 			continue
 		}
+		sent[pl.DMRoomID] = true
 		if !first {
 			// Jitter 150–400ms between sends to avoid bursts on the Matrix server.
 			time.Sleep(150*time.Millisecond + time.Duration(rand.IntN(250))*time.Millisecond)
@@ -999,6 +1007,17 @@ func (p *HoldemPlugin) broadcastDM(game *HoldemGame, msg string) {
 		first = false
 		p.SendMessage(pl.DMRoomID, msg)
 	}
+}
+
+// gameHasPublicRoom reports whether game.RoomID is a separate public room
+// (multiplayer) rather than a player's own DM (solo-vs-bot).
+func gameHasPublicRoom(g *HoldemGame) bool {
+	for _, pl := range g.Players {
+		if !pl.IsNPC && pl.DMRoomID == g.RoomID {
+			return false
+		}
+	}
+	return true
 }
 
 // --- NPC ---

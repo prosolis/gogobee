@@ -334,25 +334,49 @@ func (p *AdventurePlugin) midnightReset() error {
 	}
 
 	today := time.Now().UTC().Format("2006-01-02")
+	yesterday := time.Now().UTC().Add(-24 * time.Hour).Format("2006-01-02")
+
+	coopMembers, err := activeCoopMemberSet()
+	if err != nil {
+		slog.Error("adventure: failed to load active coop members", "err", err)
+		coopMembers = map[string]bool{}
+	}
 
 	dmsSent := 0
 	for _, char := range chars {
+		// Active co-op members can't take manual actions (combat is locked
+		// to the coop run, harvest is optional). Their participation
+		// auto-resolves daily, so credit them with a streak day and skip
+		// idle/babysit logic — otherwise the lockCoopCombatActions sentinel
+		// (combat_actions_used = 99) trips HasActedToday and falls through
+		// to the streak-reset branch.
+		if coopMembers[string(char.UserID)] {
+			char.CurrentStreak++
+			if char.CurrentStreak > char.BestStreak {
+				char.BestStreak = char.CurrentStreak
+			}
+			char.LastActionDate = today
+			_ = saveAdvCharacter(&char)
+			continue
+		}
+
 		if !char.HasActedToday() {
 			// If the player died today or yesterday, they couldn't act — no shame,
 			// no streak reset. This covers both currently-dead players and players
 			// who were just revived at midnight (Alive already flipped to true by
 			// the reminder loop before midnightReset runs).
-			if char.LastDeathDate == today ||
-				char.LastDeathDate == time.Now().UTC().Add(-24*time.Hour).Format("2006-01-02") {
+			if char.LastDeathDate == today || char.LastDeathDate == yesterday {
 				continue
 			}
 
 			// Auto-babysit: if enabled, alive, and affordable, run a single babysit day instead of losing streak
+			autoBabysitShortfall := int64(0)
 			if char.AutoBabysit && char.Alive && !char.BabysitActive {
 				daily := babysitDailyCost(char.CombatLevel)
-				if p.euro.GetBalance(char.UserID) >= float64(daily) {
+				bal := p.euro.GetBalance(char.UserID)
+				if bal >= float64(daily) {
 					if p.euro.Debit(char.UserID, float64(daily), "auto_babysit") {
-						p.runAutoBabysitDay(&char)
+						res := p.runAutoBabysitDay(&char)
 						if char.CurrentStreak > 0 {
 							char.CurrentStreak++
 							if char.CurrentStreak > char.BestStreak {
@@ -371,9 +395,11 @@ func (p *AdventurePlugin) midnightReset() error {
 							time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
 						}
 						dmsSent++
-						p.SendDM(char.UserID, fmt.Sprintf("🍼 **Auto-babysit activated** — €%d deducted. Your streak is safe at %d days.", daily, char.CurrentStreak))
+						p.SendDM(char.UserID, renderAutoBabysitDM(daily, char.CurrentStreak, res))
 						continue
 					}
+				} else {
+					autoBabysitShortfall = int64(float64(daily) - bal)
 				}
 			}
 
@@ -385,6 +411,9 @@ func (p *AdventurePlugin) midnightReset() error {
 
 			// Idle shame DM
 			text := renderAdvIdleShameDM(&char)
+			if autoBabysitShortfall > 0 {
+				text += fmt.Sprintf("\n\n💸 Auto-babysit was on but couldn't cover today (€%d short). Top up the wallet and TwinBee can step in next time.", autoBabysitShortfall)
+			}
 			if char.CurrentStreak > 0 {
 				oldStreak := char.CurrentStreak
 				char.CurrentStreak /= 2
@@ -400,7 +429,6 @@ func (p *AdventurePlugin) midnightReset() error {
 			}
 		} else {
 			// Update streak — LastActionDate was set at action time
-			yesterday := time.Now().UTC().Add(-24 * time.Hour).Format("2006-01-02")
 			if char.LastActionDate == yesterday || char.LastActionDate == today {
 				char.CurrentStreak++
 			} else {

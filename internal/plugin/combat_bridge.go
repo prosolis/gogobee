@@ -29,6 +29,27 @@ func (p *AdventurePlugin) runArenaCombat(
 	// Load consumables from inventory and auto-select
 	consumables := p.loadConsumableInventory(userID)
 	enemyStats, _ := DeriveArenaMonsterStats(monster)
+
+	// All combat is D&D. If the player has no sheet yet (or only a draft),
+	// auto-migrate them to a sensible inferred character before fighting.
+	dndChar, freshMigrate, err := ensureDnDCharacterForCombat(userID, char)
+	if err != nil {
+		slog.Error("dnd: ensureDnDCharacterForCombat (arena) failed", "user", userID, "err", err)
+		return CombatResult{}, 0
+	}
+	if freshMigrate {
+		p.maybeSendDnDOnboarding(userID, char, dndChar)
+	}
+	applyDnDPlayerLayer(&playerStats, dndChar)
+	applyDnDEquipmentLayer(&playerStats, dndChar, equip)
+	applyDnDHPScaling(&playerStats, dndChar)
+	applyClassPassives(&playerStats, &playerMods, dndChar)
+	applyRacePassives(&playerStats, &playerMods, dndChar)
+	if firedName, fired := applyArmedAbility(dndChar, &playerMods); fired {
+		slog.Info("dnd: armed ability fired", "user", userID, "ability", firedName)
+	}
+	applyDnDArenaMonsterLayer(&enemyStats, monster.ThreatLevel)
+
 	selected := SelectConsumables(consumables, playerStats, enemyStats, arenaRound, arenaTier)
 	ApplyConsumableMods(&playerStats, &playerMods, selected)
 
@@ -65,6 +86,14 @@ func (p *AdventurePlugin) runArenaCombat(
 	}
 
 	p.grantCombatAchievements(userID, result)
+
+	persistDnDHPAfterCombat(userID, result.PlayerStartHP, result.PlayerEndHP)
+
+	if xp := arenaCombatXP(result, monster.ThreatLevel); xp > 0 {
+		if _, err := p.grantDnDXP(userID, xp); err != nil {
+			slog.Error("dnd: grantDnDXP arena", "user", userID, "err", err)
+		}
+	}
 
 	return result, condRepair
 }
@@ -124,6 +153,26 @@ func (p *AdventurePlugin) runDungeonCombat(
 	// Load consumables from inventory and auto-select
 	consumables := p.loadConsumableInventory(userID)
 	enemyStats, enemyMods := DeriveDungeonMonsterStats(loc)
+
+	// All combat is D&D. Auto-migrate if needed.
+	dndChar, freshMigrate, err := ensureDnDCharacterForCombat(userID, char)
+	if err != nil {
+		slog.Error("dnd: ensureDnDCharacterForCombat (dungeon) failed", "user", userID, "err", err)
+		return CombatResult{}
+	}
+	if freshMigrate {
+		p.maybeSendDnDOnboarding(userID, char, dndChar)
+	}
+	applyDnDPlayerLayer(&playerStats, dndChar)
+	applyDnDEquipmentLayer(&playerStats, dndChar, equip)
+	applyDnDHPScaling(&playerStats, dndChar)
+	applyClassPassives(&playerStats, &playerMods, dndChar)
+	applyRacePassives(&playerStats, &playerMods, dndChar)
+	if firedName, fired := applyArmedAbility(dndChar, &playerMods); fired {
+		slog.Info("dnd: armed ability fired", "user", userID, "ability", firedName)
+	}
+	applyDnDDungeonMonsterLayer(&enemyStats, loc.Tier)
+
 	selected := SelectConsumables(consumables, playerStats, enemyStats, 0, loc.Tier)
 	ApplyConsumableMods(&playerStats, &playerMods, selected)
 
@@ -162,6 +211,15 @@ func (p *AdventurePlugin) runDungeonCombat(
 	}
 
 	p.grantCombatAchievements(userID, result)
+
+	persistDnDHPAfterCombat(userID, result.PlayerStartHP, result.PlayerEndHP)
+
+	if xp := dungeonCombatXP(result, loc.Tier); xp > 0 {
+		if _, err := p.grantDnDXP(userID, xp); err != nil {
+			slog.Error("dnd: grantDnDXP dungeon", "user", userID, "err", err)
+		}
+	}
+	_ = dndChar
 
 	return result
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/flavor"
 
 	"maunium.net/go/mautrix/id"
 )
@@ -134,12 +135,15 @@ func (p *AdventurePlugin) npcFireEncounter(userID id.UserID, npc string) {
 	case "misty":
 		char.MistyLastSeen = &now
 		char.MistyEncounterCount++
-		opening = mistyOpenings[rand.IntN(len(mistyOpenings))]
+		// Pool union: legacy mistyOpenings + D&D MistyGreeting flavor.
+		mistyPool := dndMistyGreetingPool()
+		opening = mistyPool[rand.IntN(len(mistyPool))]
 		prompt = fmt.Sprintf("👤 A woman approaches you.\n\n_%s_\n\n"+
 			"Reply `yes` to give €%d, or `no` to walk away.", opening, mistyCost)
 	case "arina":
 		char.ArinaLastSeen = &now
-		opening = arinaOpenings[rand.IntN(len(arinaOpenings))]
+		arinaPool := dndArinaGreetingPool()
+		opening = arinaPool[rand.IntN(len(arinaPool))]
 		prompt = fmt.Sprintf("💎 A woman in expensive clothing stops you.\n\n_%s_\n\n"+
 			"Reply `yes` to pay €%d, or `no` to decline.", opening, arinaCost)
 	}
@@ -223,6 +227,9 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 			}
 			return p.SendDM(ctx.Sender, "You reach for your gold but there isn't enough. She sees this. She doesn't say anything.\n\n_"+mistyDeclineLine+"_")
 		}
+		// D&D Insight check — passing refunds the donation. Renders flavor on
+		// either outcome (success or fail) when a check was attempted.
+		insightCheck := dndNPCInsightRefund(ctx.Sender, p.euro, mistyCost)
 		char.MistyBuffExpires = expires
 		char.MistyDonatedCount++
 
@@ -239,6 +246,20 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 		hint := mistyHousingHint(char)
 		if hint != "" {
 			reply += "\n\n_" + hint + "_"
+		}
+
+		// Flavor for the D&D check outcome (when applicable).
+		if insightCheck.Attempted {
+			if insightCheck.Succeeded {
+				if line := flavor.Pick(flavor.MistyInsightSuccess); line != "" {
+					reply += "\n\n_" + line + "_"
+				}
+				reply += "\n\n_(Insight DC 12 passed — donation refunded.)_"
+			} else {
+				if line := flavor.Pick(flavor.MistySkillFail); line != "" {
+					reply += "\n\n_" + line + "_"
+				}
+			}
 		}
 
 		return p.SendDM(ctx.Sender, fmt.Sprintf("_%s_", reply))
@@ -264,13 +285,28 @@ func (p *AdventurePlugin) resolveArina(ctx MessageContext, char *AdventureCharac
 			reply := arinaDeclineLines[rand.IntN(len(arinaDeclineLines))]
 			return p.SendDM(ctx.Sender, fmt.Sprintf("You can't afford it. She noticed before you did.\n\n_%s_", reply))
 		}
+		// D&D Arcana check — flavor for either outcome when a check was attempted.
+		arcanaCheck := dndNPCArcanaRefund(ctx.Sender, p.euro, arinaCost)
 		char.ArinaBuffExpires = expires
 		if err := saveAdvCharacter(char); err != nil {
 			slog.Error("npc: failed to save arina buff", "user", ctx.Sender, "err", err)
 		}
+		extra := ""
+		if arcanaCheck.Attempted {
+			if arcanaCheck.Succeeded {
+				if line := flavor.Pick(flavor.ArinaArcanaSuccess); line != "" {
+					extra = "\n\n_" + line + "_"
+				}
+				extra += "\n\n_(Arcana DC 14 passed — investment refunded.)_"
+			} else {
+				if line := flavor.Pick(flavor.ArinaSkillFail); line != "" {
+					extra = "\n\n_" + line + "_"
+				}
+			}
+		}
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"_She snatches the money from you, almost rudely, then looks at you expectantly._\n\n\"%s\"\n\n_She walks away just as quickly as she came._",
-			arinaAcceptLine))
+			"_She snatches the money from you, almost rudely, then looks at you expectantly._\n\n\"%s\"\n\n_She walks away just as quickly as she came._%s",
+			arinaAcceptLine, extra))
 	}
 
 	// Declined — no mechanical effect, just insults

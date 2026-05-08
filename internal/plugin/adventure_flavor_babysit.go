@@ -28,6 +28,17 @@ var babysitDiaperLines = []string{
 	"The diapers. They happened. They were handled. Moving on.",
 }
 
+// babysitHighlightLines fire on auto-babysit days when the haul was unusually
+// good — making the babysitter feel like a companion rather than a silent
+// insurance product. Each line takes one %s slot for the focused skill name.
+var babysitHighlightLines = []string{
+	"The babysitter says your kid was a natural at %s today. They want it noted.",
+	"Solid day on the %s circuit, apparently. The babysitter looked smug about it.",
+	"Whatever the babysitter did with your %s gear — it worked. The numbers don't lie.",
+	"The babysitter handed in a %s haul and said nothing. The smug silence said plenty.",
+	"Your kid is, against the odds, getting alarmingly good at %s under TwinBee's care.",
+}
+
 // pickBabysitFlavor returns a random entry from the given pool.
 func pickBabysitFlavor(pool []string) string {
 	if len(pool) == 0 {

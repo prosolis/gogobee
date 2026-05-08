@@ -44,6 +44,10 @@ func Init(dataDir string) error {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
+	if err := snapshotPreDnD(d); err != nil {
+		slog.Error("db: pre-D&D snapshot failed (non-fatal)", "err", err)
+	}
+
 	globalDB = d
 	dataPath = dataDir
 	slog.Info("database initialized", "path", dbPath)
@@ -144,6 +148,31 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE adventure_characters ADD COLUMN crafts_succeeded INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE adventure_characters ADD COLUMN death_source TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE adventure_characters ADD COLUMN death_location TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN auto_babysit_focus TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_characters ADD COLUMN treasures_locked INTEGER NOT NULL DEFAULT 0`,
+		// D&D layer (Phase 1) — additive columns on existing equipment/inventory tables
+		`ALTER TABLE adventure_equipment ADD COLUMN dnd_rarity TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_equipment ADD COLUMN dnd_stat_bonus_json TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_equipment ADD COLUMN dnd_attuned INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE adventure_inventory ADD COLUMN dnd_rarity TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE adventure_inventory ADD COLUMN dnd_stat_bonus_json TEXT NOT NULL DEFAULT ''`,
+		// Phase 2 cleanup: auto-migrated chars (created on first combat for
+		// players who never ran !setup). !setup can freely overwrite these.
+		`ALTER TABLE dnd_character ADD COLUMN auto_migrated INTEGER NOT NULL DEFAULT 0`,
+		// Phase 6 rest mechanics
+		`ALTER TABLE dnd_character ADD COLUMN last_short_rest_at DATETIME`,
+		`ALTER TABLE dnd_character ADD COLUMN last_long_rest_at DATETIME`,
+		// Phase 6 active abilities: armed for next combat
+		`ALTER TABLE dnd_character ADD COLUMN armed_ability TEXT NOT NULL DEFAULT ''`,
+		// Audit fix F: prevent onboarding DM from re-firing after !setup cancel
+		`ALTER TABLE dnd_character ADD COLUMN onboarding_sent INTEGER NOT NULL DEFAULT 0`,
+		// Phase 9 — spell system. pending_cast holds a JSON blob describing
+		// the queued spell (id, slot level, target, rolled effect args) that
+		// fires on the next one-shot combat. concentration_* track the
+		// currently-active concentration spell for buff persistence.
+		`ALTER TABLE dnd_character ADD COLUMN pending_cast TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE dnd_character ADD COLUMN concentration_spell TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE dnd_character ADD COLUMN concentration_expires_at DATETIME`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -154,6 +183,29 @@ func runMigrations(d *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// snapshotPreDnD copies the current adventure_characters rows into
+// adventure_characters_pre_dnd as a one-shot rollback safety net for the
+// D&D-layer migration. Idempotent: only inserts rows for user_ids that
+// aren't already snapshotted, so running on a fresh install (no characters)
+// or on subsequent boots is a no-op.
+func snapshotPreDnD(d *sql.DB) error {
+	_, err := d.Exec(`
+		INSERT OR IGNORE INTO adventure_characters_pre_dnd (user_id, snapshot_json)
+		SELECT user_id,
+		       json_object(
+		         'combat_level', combat_level,
+		         'combat_xp', combat_xp,
+		         'mining_skill', mining_skill, 'mining_xp', mining_xp,
+		         'foraging_skill', foraging_skill, 'foraging_xp', foraging_xp,
+		         'fishing_skill', fishing_skill, 'fishing_xp', fishing_xp,
+		         'arena_wins', arena_wins, 'arena_losses', arena_losses,
+		         'current_streak', current_streak, 'best_streak', best_streak
+		       )
+		FROM adventure_characters
+	`)
+	return err
 }
 
 // JobCompleted checks if a scheduled job has already completed for the given date key.
@@ -1457,6 +1509,92 @@ CREATE TABLE IF NOT EXISTS coop_dungeon_gifts (
     stack_lead_id INTEGER                        -- NULL for lead/standalone; follower points to lead's id
 );
 CREATE INDEX IF NOT EXISTS idx_coop_gifts_run_day ON coop_dungeon_gifts(run_id, day, vote_result);
+
+-- ── D&D Layer (Phase 1) ────────────────────────────────────────────────────
+-- Per-player D&D character state. Sits alongside adventure_characters; players
+-- without a row here continue using the legacy adventure system unchanged.
+-- pending_setup=1 means a draft (race/class/stats may be partial).
+-- pending_setup=0 means !setup confirmed; D&D-gated commands available.
+CREATE TABLE IF NOT EXISTS dnd_character (
+    user_id        TEXT PRIMARY KEY,
+    race           TEXT NOT NULL DEFAULT '',
+    class          TEXT NOT NULL DEFAULT '',
+    dnd_level      INTEGER NOT NULL DEFAULT 1,
+    dnd_xp         INTEGER NOT NULL DEFAULT 0,
+    str_score      INTEGER NOT NULL DEFAULT 8,
+    dex_score      INTEGER NOT NULL DEFAULT 8,
+    con_score      INTEGER NOT NULL DEFAULT 8,
+    int_score      INTEGER NOT NULL DEFAULT 8,
+    wis_score      INTEGER NOT NULL DEFAULT 8,
+    cha_score      INTEGER NOT NULL DEFAULT 8,
+    hp_current     INTEGER NOT NULL DEFAULT 0,
+    hp_max         INTEGER NOT NULL DEFAULT 0,
+    temp_hp        INTEGER NOT NULL DEFAULT 0,
+    armor_class    INTEGER NOT NULL DEFAULT 10,
+    pending_setup  INTEGER NOT NULL DEFAULT 1,
+    last_respec_at DATETIME,
+    created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS dnd_abilities (
+    user_id      TEXT NOT NULL,
+    ability_id   TEXT NOT NULL,
+    uses_left    INTEGER NOT NULL DEFAULT 0,
+    acquired_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, ability_id)
+);
+
+CREATE TABLE IF NOT EXISTS dnd_resources (
+    user_id        TEXT NOT NULL,
+    resource_type  TEXT NOT NULL,    -- stamina|focus|mana|divine_favor|spell_slot_1
+    current_value  INTEGER NOT NULL DEFAULT 0,
+    max_value      INTEGER NOT NULL DEFAULT 0,
+    last_reset_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, resource_type)
+);
+
+CREATE TABLE IF NOT EXISTS dnd_combat_state (
+    user_id        TEXT PRIMARY KEY,
+    enemy_id       TEXT NOT NULL DEFAULT '',
+    round          INTEGER NOT NULL DEFAULT 0,
+    player_turn    INTEGER NOT NULL DEFAULT 1,
+    conditions_json TEXT NOT NULL DEFAULT '[]',
+    log_json       TEXT NOT NULL DEFAULT '[]',
+    started_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ── D&D Layer (Phase 9 — spells) ──────────────────────────────────────────
+-- Per-player known spell list. For Cleric, prepared=0 means the spell is on
+-- the class list but not currently prepared (cast unavailable until prepared).
+-- For Mage/Ranger, prepared is always 1 (spells known are always castable).
+CREATE TABLE IF NOT EXISTS dnd_known_spells (
+    user_id    TEXT NOT NULL,
+    spell_id   TEXT NOT NULL,
+    source     TEXT NOT NULL DEFAULT '',  -- class | subclass | racial
+    prepared   INTEGER NOT NULL DEFAULT 1,
+    learned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, spell_id)
+);
+
+-- Per-player spell slot pool, one row per (user, slot_level). slot_level is
+-- 1..5 (no cantrip row — cantrips have no slot cost). Refreshed on long rest.
+CREATE TABLE IF NOT EXISTS dnd_spell_slots (
+    user_id    TEXT NOT NULL,
+    slot_level INTEGER NOT NULL,
+    total      INTEGER NOT NULL DEFAULT 0,
+    used       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, slot_level)
+);
+
+-- One-shot snapshot of adventure_characters taken at first deploy of the D&D layer.
+-- Rollback safety net: if anything in adventure_characters diverges unexpectedly,
+-- compare to this snapshot to detect data corruption.
+CREATE TABLE IF NOT EXISTS adventure_characters_pre_dnd (
+    user_id          TEXT PRIMARY KEY,
+    snapshot_json    TEXT NOT NULL,
+    snapshotted_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

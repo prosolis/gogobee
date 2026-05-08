@@ -74,14 +74,55 @@ func (p *AdventurePlugin) handleBabysitCmd(ctx MessageContext, args string) erro
 		return p.handleBabysitPurchase(ctx, 30)
 	case lower == "auto":
 		return p.handleBabysitAutoToggle(ctx)
+	case strings.HasPrefix(lower, "focus"):
+		return p.handleBabysitFocus(ctx, strings.TrimSpace(strings.TrimPrefix(lower, "focus")))
 	default:
 		return p.SendDM(ctx.Sender, "🍼 **Adventurer Babysitting Service**\n\n"+
 			"`!adventure babysit week` — 7 days of service\n"+
 			"`!adventure babysit month` — 30 days of service\n"+
 			"`!adventure babysit auto` — toggle auto-babysit on missed days\n"+
+			"`!adventure babysit focus <mining|fishing|foraging>` — pick the skill auto-babysit trains\n"+
 			"`!adventure babysit status` — check service status\n"+
 			"`!adventure babysit cancel` — cancel early (no refund)")
 	}
+}
+
+func (p *AdventurePlugin) handleBabysitFocus(ctx MessageContext, arg string) error {
+	userMu := p.advUserLock(ctx.Sender)
+	userMu.Lock()
+	defer userMu.Unlock()
+
+	char, err := loadAdvCharacter(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "No adventurer found. Type `!adventure` to create one.")
+	}
+
+	switch arg {
+	case "":
+		current := char.AutoBabysitFocus
+		if current == "" {
+			current = "weakest skill (default)"
+		}
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"🎯 **Auto-babysit focus:** %s\n\nSet with `!adventure babysit focus <mining|fishing|foraging>`. Use `!adventure babysit focus clear` to revert to the weakest-skill default.",
+			current))
+	case "clear", "default", "weakest", "off":
+		char.AutoBabysitFocus = ""
+	case "mining", "fishing", "foraging":
+		char.AutoBabysitFocus = arg
+	default:
+		return p.SendDM(ctx.Sender, "Pick one of `mining`, `fishing`, `foraging`, or `clear`.")
+	}
+
+	if err := saveAdvCharacter(char); err != nil {
+		slog.Error("babysit: failed to save focus", "user", ctx.Sender, "err", err)
+		return p.SendDM(ctx.Sender, "Something went wrong. Try again.")
+	}
+
+	if char.AutoBabysitFocus == "" {
+		return p.SendDM(ctx.Sender, "🎯 Auto-babysit focus cleared. The babysitter will train your weakest skill.")
+	}
+	return p.SendDM(ctx.Sender, fmt.Sprintf("🎯 Auto-babysit focus set to **%s**. The babysitter will train this on missed days.", char.AutoBabysitFocus))
 }
 
 func (p *AdventurePlugin) handleBabysitAutoToggle(ctx MessageContext) error {
@@ -348,13 +389,24 @@ func (p *AdventurePlugin) runBabysitAction(char *AdventureCharacter, equip map[E
 	return int(result.TotalLootValue), result.XPGained, items
 }
 
+// AutoBabysitDayResult summarizes one day of auto-babysit work, surfaced in
+// the morning DM so the babysitter feels like a companion that did
+// something rather than a silent insurance product.
+type AutoBabysitDayResult struct {
+	Skill   string
+	Gold    int
+	XP      int
+	Items   []string
+	Highlight bool // true if the day produced an unusually large single haul or multiple item finds
+}
+
 // runAutoBabysitDay runs a single day of babysit actions for auto-babysit.
 // Called by the scheduler when a player with auto-babysit enabled misses a day.
-func (p *AdventurePlugin) runAutoBabysitDay(char *AdventureCharacter) {
+func (p *AdventurePlugin) runAutoBabysitDay(char *AdventureCharacter) AutoBabysitDayResult {
 	equip, err := loadAdvEquipment(char.UserID)
 	if err != nil {
 		slog.Error("auto-babysit: failed to load equipment", "user", char.UserID, "err", err)
-		return
+		return AutoBabysitDayResult{}
 	}
 
 	isHol, _ := isHolidayToday()
@@ -364,17 +416,29 @@ func (p *AdventurePlugin) runAutoBabysitDay(char *AdventureCharacter) {
 	}
 
 	bonuses := &AdvBonusSummary{}
-	skill := babysitWeakestSkill(char)
+	// Honor a player-set focus if it's a valid harvest skill; otherwise
+	// fall back to the weakest-skill default.
+	skill := char.AutoBabysitFocus
+	switch skill {
+	case "mining", "fishing", "foraging":
+		// player preference
+	default:
+		skill = babysitWeakestSkill(char)
+	}
 	activity := skillToActivity(skill)
 
 	var totalGold int
 	var totalXP int
 	var allItems []string
+	bestSingleHaul := 0
 	for char.HarvestActionsUsed < harvestMax {
 		gold, xp, items := p.runBabysitAction(char, equip, activity, bonuses)
 		totalGold += gold
 		totalXP += xp
 		allItems = append(allItems, items...)
+		if gold > bestSingleHaul {
+			bestSingleHaul = gold
+		}
 		char.HarvestActionsUsed++
 	}
 
@@ -387,6 +451,14 @@ func (p *AdventurePlugin) runAutoBabysitDay(char *AdventureCharacter) {
 	}
 	logBabysitActivity(char.UserID, string(activity), "auto_babysit_daily",
 		totalGold, totalXP, itemsJSON)
+
+	return AutoBabysitDayResult{
+		Skill:     skill,
+		Gold:      totalGold,
+		XP:        totalXP,
+		Items:     allItems,
+		Highlight: bestSingleHaul >= 200 || len(allItems) >= 2,
+	}
 }
 
 // ── Expiry Check ────────────────────────────────────────────────────────────

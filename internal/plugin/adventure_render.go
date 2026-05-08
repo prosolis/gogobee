@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"hash/fnv"
 	"math/rand/v2"
 	"strings"
 	"sync"
@@ -131,22 +132,29 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 	eqScore := advEquipmentScore(equip)
 	for _, slot := range allSlots {
 		eq := equip[slot]
+		if eq == nil {
+			continue
+		}
+		marker := ""
+		if eq.Masterwork {
+			marker = " ⭐"
+		} else if eq.ArenaTier > 0 {
+			marker = " ⚔️"
+		}
+		// Mastery segment is appended as a third inline field after
+		// condition only when there's progress — keeps rows tight for
+		// freshly-equipped gear and grows with use.
 		mastery := ""
-		if eq != nil && eq.ActionsUsed >= 20 {
-			mastery = " ✦"
+		if seg := advMasteryRowSegment(eq.ActionsUsed); seg != "" {
+			mastery = " | " + seg
 		}
-		if eq != nil {
-			marker := ""
-			if eq.Masterwork {
-				marker = " ⭐"
-			} else if eq.ArenaTier > 0 {
-				marker = " ⚔️"
-			}
-			sb.WriteString(fmt.Sprintf("  %s %s: %s%s (Tier %d | %d%% condition%s)\n",
-				slotEmoji(slot), slotTitle(slot), eq.Name, marker, eq.Tier, eq.Condition, mastery))
-		}
+		sb.WriteString(fmt.Sprintf("  %s %s: %s%s (Tier %d | %d%% cond%s)\n",
+			slotEmoji(slot), slotTitle(slot), eq.Name, marker, eq.Tier, eq.Condition, mastery))
 	}
 	sb.WriteString(fmt.Sprintf("  Equipment Score: %.1f\n", eqScore))
+	if line := renderAdvMasteryAggregate(equip); line != "" {
+		sb.WriteString("  " + line + "\n")
+	}
 
 	// Treasures
 	if len(treasures) > 0 {
@@ -157,15 +165,8 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 				continue
 			}
 			seen[t.TreasureKey] = true
-			// Find def for inventory desc
-			for tier, defs := range advAllTreasures {
-				_ = tier
-				for _, def := range defs {
-					if def.Key == t.TreasureKey {
-						sb.WriteString(fmt.Sprintf("  %s\n", def.InventoryDesc))
-						break
-					}
-				}
+			if def := lookupAdvTreasureDef(t.TreasureKey); def != nil {
+				sb.WriteString(fmt.Sprintf("  %s\n", def.InventoryDesc))
 			}
 		}
 	}
@@ -233,6 +234,138 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 }
 
 // ── Morning DM ───────────────────────────────────────────────────────────────
+
+// renderCoopTeaser surfaces an open co-op run the player could join, so the
+// system isn't a footnote in help text. Returns "" when there's nothing to
+// surface (no open runs, or the player is already locked into one). When
+// runs exist that the player is under-levelled for, we still hint at them
+// as a stretch goal — joining as a liability is a real choice.
+func renderCoopTeaser(char *AdventureCharacter) string {
+	runs, err := loadOpenCoopRuns()
+	if err != nil || len(runs) == 0 {
+		return ""
+	}
+
+	pick, stretch := pickCoopTeaserCandidate(runs, char)
+	tag := ""
+	if pick == nil {
+		pick = stretch
+		tag = " *(below recommended level — would join as liability)*"
+	}
+	if pick == nil {
+		return ""
+	}
+
+	leaderName := string(pick.LeaderID)
+	if c, err := loadAdvCharacter(pick.LeaderID); err == nil && c != nil && c.DisplayName != "" {
+		leaderName = c.DisplayName
+	}
+	def := coopTierTable[pick.Tier]
+	return fmt.Sprintf("🛡️ **Open Co-op #%d** — Tier %d (%s) led by %s · `!coop join %d`%s",
+		pick.ID, pick.Tier, def.difficulty, leaderName, pick.ID, tag)
+}
+
+// pickCoopTeaserCandidate scans the open coop runs and returns up to two
+// picks: a primary (where the player meets the level gate) and a stretch
+// (any other run, joined as a liability). Skips runs the player already
+// leads. Pure function — testable without DB.
+func pickCoopTeaserCandidate(runs []*CoopRun, char *AdventureCharacter) (match, stretch *CoopRun) {
+	for _, r := range runs {
+		if r.LeaderID == char.UserID {
+			continue
+		}
+		def := coopTierTable[r.Tier]
+		if char.CombatLevel >= def.minLevel && match == nil {
+			match = r
+		} else if stretch == nil {
+			stretch = r
+		}
+	}
+	return match, stretch
+}
+
+// renderCraftingTeaser surfaces the crafting system before and just after
+// the Foraging-10 auto-unlock, so it doesn't stay invisible to players who
+// never type !adventure recipes. Returns "" when the teaser shouldn't fire
+// today (out of pre-unlock window, or already deep into post-unlock).
+func renderCraftingTeaser(char *AdventureCharacter) string {
+	const unlock = 10
+	if char.ForagingSkill < unlock {
+		// Pre-unlock teaser: only when within 3 levels.
+		if char.ForagingSkill < unlock-3 {
+			return ""
+		}
+		levelsToGo := unlock - char.ForagingSkill
+		return fmt.Sprintf("🧪 **Crafting unlocks in %d Foraging level%s** — auto-craft consumables from gathered ingredients (Berry Poultice, Herb Salve, etc.).",
+			levelsToGo, plural(levelsToGo))
+	}
+
+	// Post-unlock: nudge when no successful crafts yet (gentle), or once a
+	// week (loose periodicity via day-of-year %).
+	if char.CraftsSucceeded == 0 {
+		return "🧪 **Crafting is unlocked.** Gather a couple of matching ingredients and TwinBee will auto-craft consumables — try `!adventure recipes` to see what your level supports."
+	}
+	// Per-player weekly reminder: hash UserID + ISO week to pick a stable
+	// weekday for this player. Spreads the cohort across the week instead
+	// of all firing on the same global day.
+	if int(time.Now().UTC().Weekday()) == craftingReminderWeekday(char.UserID, time.Now().UTC()) {
+		return "🧪 *Crafting reminder* — `!adventure recipes` shows what's available at Foraging Lv." + fmt.Sprintf("%d.", char.ForagingSkill)
+	}
+	return ""
+}
+
+// craftingReminderWeekday picks the day-of-week (0=Sunday..6=Saturday) on
+// which a given player gets the weekly crafting nudge during the given
+// week. Stable within an ISO week (predictable, not annoying), rotates
+// across weeks (not always the same day long-term).
+func craftingReminderWeekday(userID id.UserID, now time.Time) int {
+	year, week := now.ISOWeek()
+	h := fnv.New32a()
+	fmt.Fprintf(h, "%s|%d|%d", string(userID), year, week)
+	return int(h.Sum32() % 7)
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// renderRivalNudge surfaces a pending rival challenge in the morning DM so
+// players who missed or ignored the dramatic challenge DM see a reminder
+// before it expires. Returns "" if there's no pending challenge against
+// this player.
+func renderRivalNudge(char *AdventureCharacter) string {
+	c := pendingRivalChallengeForChallenged(char.UserID)
+	if c == nil {
+		return ""
+	}
+	hours := int(time.Until(c.ExpiresAt).Hours())
+	if hours < 1 {
+		hours = 1 // floor — "<1h" feels worse than "1h"
+	}
+	rivalName := string(c.ChallengerID)
+	if rc, err := loadAdvCharacter(c.ChallengerID); err == nil && rc != nil && rc.DisplayName != "" {
+		rivalName = rc.DisplayName
+	}
+	return fmt.Sprintf("⚔️ **Rival challenge open** — %s, round %d/3, €%d on the line · expires in %dh · reply **rock**, **paper**, or **scissors**",
+		rivalName, c.Round, c.Stake, hours)
+}
+
+// writeAdvLocationLines renders the eligible-location bullets shown in the
+// morning DM. Each line surfaces both the downside (death %) and upside
+// (exceptional %) so the menu teaches risk/reward, not just risk.
+func writeAdvLocationLines(sb *strings.Builder, locs []AdvEligibleLocation) {
+	for _, el := range locs {
+		warn := ""
+		if el.InPenaltyZone {
+			warn = " ⚠️"
+		}
+		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death · ~%.0f%% exceptional%s)\n",
+			el.Location.Name, el.Location.Tier, el.DeathPct, el.ExceptionalPct, warn))
+	}
+}
 
 func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, balance float64, bonuses *AdvBonusSummary, holidayName string) string {
 	var sb strings.Builder
@@ -303,51 +436,45 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 			coopRun.ID, coopRun.CurrentDay, coopRun.TotalDays, harvestLeft, harvestMax))
 	} else {
 		sb.WriteString(fmt.Sprintf("📋 **Actions:** %d/%d combat · %d/%d harvest\n\n", combatLeft, combatMax, harvestLeft, harvestMax))
+
+		// Co-op teaser — show open runs the player could join.
+		if line := renderCoopTeaser(char); line != "" {
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+	}
+
+	// Rival nudge — a pending challenge waits for action.
+	if line := renderRivalNudge(char); line != "" {
+		sb.WriteString(line)
+		sb.WriteString("\n")
+	}
+
+	// Crafting teaser — surface the system when it's near unlock or post-unlock.
+	if line := renderCraftingTeaser(char); line != "" {
+		sb.WriteString(line)
+		sb.WriteString("\n")
 	}
 
 	// Location choices
 	if inCoop {
-		sb.WriteString(fmt.Sprintf("**1️⃣ Dungeon:** _(off in the Co-op, no solo combat — `!coop status` for run state)_\n"))
+		sb.WriteString("**1️⃣ Dungeon:** _(off in the Co-op, no solo combat — `!coop status` for run state)_\n")
 	} else if char.CanDoCombat(isHol) {
 		sb.WriteString("**1️⃣ Dungeon:**\n")
-		for _, el := range advEligibleLocations(char, equip, AdvActivityDungeon, bonuses) {
-			warn := ""
-			if el.InPenaltyZone {
-				warn = " ⚠️"
-			}
-			sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-		}
+		writeAdvLocationLines(&sb, advEligibleLocations(char, equip, AdvActivityDungeon, bonuses))
 	} else {
 		sb.WriteString("**1️⃣ Dungeon:** _(no combat actions remaining)_\n")
 	}
 
 	if char.CanDoHarvest(isHol) {
 		sb.WriteString("**2️⃣ Mine:**\n")
-		for _, el := range advEligibleLocations(char, equip, AdvActivityMining, bonuses) {
-			warn := ""
-			if el.InPenaltyZone {
-				warn = " ⚠️"
-			}
-			sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-		}
+		writeAdvLocationLines(&sb, advEligibleLocations(char, equip, AdvActivityMining, bonuses))
 
 		sb.WriteString("**3️⃣ Forage:**\n")
-		for _, el := range advEligibleLocations(char, equip, AdvActivityForaging, bonuses) {
-			warn := ""
-			if el.InPenaltyZone {
-				warn = " ⚠️"
-			}
-			sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-		}
+		writeAdvLocationLines(&sb, advEligibleLocations(char, equip, AdvActivityForaging, bonuses))
 
 		sb.WriteString("**4️⃣ Fish:**\n")
-		for _, el := range advEligibleLocations(char, equip, AdvActivityFishing, bonuses) {
-			warn := ""
-			if el.InPenaltyZone {
-				warn = " ⚠️"
-			}
-			sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death%s)\n", el.Location.Name, el.Location.Tier, el.DeathPct, warn))
-		}
+		writeAdvLocationLines(&sb, advEligibleLocations(char, equip, AdvActivityFishing, bonuses))
 	} else {
 		sb.WriteString("**2️⃣ Mine:** _(no harvest actions remaining)_\n")
 		sb.WriteString("**3️⃣ Forage:** _(no harvest actions remaining)_\n")
@@ -503,6 +630,183 @@ func renderAdvRespawnDM(char *AdventureCharacter) string {
 	return advSubstituteFlavor(text, map[string]string{
 		"{name}": char.DisplayName,
 	})
+}
+
+// ── Treasure List ───────────────────────────────────────────────────────────
+
+// lookupAdvTreasureDef returns the canonical definition for a treasure key,
+// or nil if unknown. Walks the tiered table; cheap because the total count
+// is small.
+func lookupAdvTreasureDef(key string) *AdvTreasureDef {
+	for _, defs := range advAllTreasures {
+		for i := range defs {
+			if defs[i].Key == key {
+				d := defs[i]
+				return &d
+			}
+		}
+	}
+	return nil
+}
+
+// renderAdvTreasureList renders the standalone treasure listing for
+// `!adventure treasures`. Shows each treasure, marks irreplaceable ones,
+// and surfaces the lock state so players know whether new drops will
+// auto-swap or be refused.
+func renderAdvTreasureList(treasures []AdvTreasureDef, locked bool) string {
+	var sb strings.Builder
+	sb.WriteString("💎 **Your Treasures**")
+	if locked {
+		sb.WriteString(" 🔒 _(locked — drops at cap refused)_")
+	}
+	sb.WriteString("\n\n")
+
+	if len(treasures) == 0 {
+		sb.WriteString("_No treasures yet. Higher-tier locations have higher drop rates._")
+		return sb.String()
+	}
+
+	for _, t := range treasures {
+		t := t
+		marker := ""
+		if advTreasureIrreplaceable(&t) {
+			marker = " 🛡️"
+		}
+		sb.WriteString(fmt.Sprintf("  • Tier %d · %s%s\n    _%s_\n", t.Tier, t.Name, marker, t.InventoryDesc))
+	}
+
+	if locked {
+		sb.WriteString("\n_Unlock with `!adventure treasures unlock` to allow higher-tier auto-swaps._")
+	} else {
+		sb.WriteString("\n_Higher-tier drops auto-swap your lowest replaceable treasure (10-min undo). 🛡️ = irreplaceable, never auto-discarded._\n_Lock with `!adventure treasures lock` to refuse drops at cap._")
+	}
+	return sb.String()
+}
+
+// renderAdvMasteryAggregate produces the one-line summary shown under the
+// equipment block on the character sheet. Three states:
+//   - Bonus active: shows percent, threshold count, cap-reached when at +10%.
+//   - No bonus but some progress: hints that a threshold is approaching.
+//   - No progress: empty (don't bloat sheets for new players).
+func renderAdvMasteryAggregate(equip map[EquipmentSlot]*AdvEquipment) string {
+	r := advMasteryRollup(equip)
+	if !r.AnyProgress {
+		return ""
+	}
+	if r.Bonus > 0 {
+		base := fmt.Sprintf("🎯 Mastery: +%.0f%% loot quality · %d threshold%s crossed",
+			r.Bonus, r.ThresholdsCrossed, plural(r.ThresholdsCrossed))
+		if r.MaxedSlots > 0 {
+			base += fmt.Sprintf(" · %d slot%s maxed", r.MaxedSlots, plural(r.MaxedSlots))
+		}
+		// Cap is +10%; the raw count keeps rising past it. Flag when the
+		// player is paying threshold tax for nothing.
+		if r.Bonus >= 10 {
+			base += " (cap reached)"
+		}
+		base += " · `!adventure mastery`"
+		return base
+	}
+	// Some progress, no thresholds crossed yet — surface the next gate.
+	return "🎯 Mastery: building up — first threshold at 50 actions/slot · `!adventure mastery`"
+}
+
+// ── Equipment Mastery View ──────────────────────────────────────────────────
+
+// renderAdvMasteryView renders a per-slot mastery readout: progress bar,
+// tier marker, and next threshold so players can see "where am I" between
+// the discrete celebration DMs that fire at threshold crossings.
+func renderAdvMasteryView(equip map[EquipmentSlot]*AdvEquipment) string {
+	var sb strings.Builder
+	sb.WriteString("🎯 **Equipment Mastery**\n\n")
+
+	any := false
+	for _, slot := range allSlots {
+		eq := equip[slot]
+		if eq == nil {
+			sb.WriteString(fmt.Sprintf("  %s %s — _empty_\n", slotEmoji(slot), slotTitle(slot)))
+			continue
+		}
+		any = true
+		tier, next := advMasteryTier(eq.ActionsUsed)
+		marker := advMasteryMarker(eq.ActionsUsed)
+		if marker == "" {
+			marker = "·"
+		}
+
+		// Bar against the next threshold (or against 250 when at max so the
+		// bar visually maxes out rather than disappearing).
+		var barTotal int
+		if next > 0 {
+			barTotal = next
+		} else {
+			barTotal = advMasteryThresholds[len(advMasteryThresholds)-1]
+		}
+		bar := masteryBar(eq.ActionsUsed, barTotal)
+		_ = tier
+
+		if next > 0 {
+			sb.WriteString(fmt.Sprintf("  %s %s · %s · %d/%d %s %s\n",
+				slotEmoji(slot), slotTitle(slot), eq.Name, eq.ActionsUsed, next, bar, marker))
+		} else {
+			sb.WriteString(fmt.Sprintf("  %s %s · %s · %d (max) %s %s\n",
+				slotEmoji(slot), slotTitle(slot), eq.Name, eq.ActionsUsed, bar, marker))
+		}
+	}
+
+	bonus := advEquipmentMasteryBonus(equip)
+	sb.WriteString("\n")
+	if !any {
+		sb.WriteString("_No equipment yet — gear up first._")
+		return sb.String()
+	}
+	if bonus > 0 {
+		sb.WriteString(fmt.Sprintf("**Active mastery bonus: +%.0f%% loot quality** (cap +10%%)\n", bonus))
+	} else {
+		sb.WriteString("_No mastery bonus yet — first threshold at 50 actions per slot._\n")
+	}
+	sb.WriteString("Thresholds: 50 ✦ · 100 ✦✦ · 250 ✦✦✦. Each crossed threshold per slot adds +1% loot quality.")
+	return sb.String()
+}
+
+// masteryBar builds a 10-cell progress bar for the mastery view.
+func masteryBar(value, total int) string {
+	if total <= 0 {
+		return "▱▱▱▱▱▱▱▱▱▱"
+	}
+	filled := value * 10 / total
+	if filled > 10 {
+		filled = 10
+	}
+	if filled < 0 {
+		filled = 0
+	}
+	return strings.Repeat("▰", filled) + strings.Repeat("▱", 10-filled)
+}
+
+// ── Auto-Babysit DM ─────────────────────────────────────────────────────────
+
+// renderAutoBabysitDM builds the morning notification when auto-babysit
+// covered an idle day. Surfaces what the babysitter actually accomplished
+// (skill focus, gold/XP, items) plus a flavor highlight on lucky days, so
+// the system feels like an active companion instead of a silent debit.
+func renderAutoBabysitDM(daily int, streak int, res AutoBabysitDayResult) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🍼 **Auto-babysit activated** — €%d deducted. Your streak is safe at %d days.\n", daily, streak))
+	if res.Skill != "" {
+		sb.WriteString(fmt.Sprintf("Focus: %s · €%d earned · %d XP", res.Skill, res.Gold, res.XP))
+		if len(res.Items) > 0 {
+			sb.WriteString(fmt.Sprintf(" · items: %s", strings.Join(res.Items, ", ")))
+		}
+		sb.WriteString("\n")
+	}
+	if res.Highlight && res.Skill != "" {
+		line := pickBabysitFlavor(babysitHighlightLines)
+		if line != "" {
+			sb.WriteString("\n_" + fmt.Sprintf(line, res.Skill) + "_")
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // ── Idle Shame DM ────────────────────────────────────────────────────────────

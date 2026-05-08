@@ -247,6 +247,28 @@ func lastRivalChallengeTime() time.Time {
 	return time.Time{}
 }
 
+// pendingRivalChallengeForChallenged returns the active challenge where the
+// given user is the challenged party (i.e. the side that needs to act).
+// Returns nil if no challenge is pending or the user is only on the
+// auto-resolved challenger side.
+func pendingRivalChallengeForChallenged(userID id.UserID) *advRivalChallenge {
+	d := db.Get()
+	c := &advRivalChallenge{}
+	err := d.QueryRow(`
+		SELECT challenge_id, challenger_id, challenged_id, stake,
+		       round, player_score, rival_score, expires_at, created_at
+		FROM adventure_rival_challenges
+		WHERE challenged_id = ? AND expires_at > CURRENT_TIMESTAMP
+		ORDER BY created_at DESC LIMIT 1`, string(userID)).Scan(
+		&c.ChallengeID, &c.ChallengerID, &c.ChallengedID, &c.Stake,
+		&c.Round, &c.PlayerScore, &c.RivalScore, &c.ExpiresAt, &c.CreatedAt,
+	)
+	if err != nil {
+		return nil
+	}
+	return c
+}
+
 func hasActiveChallenge(userID id.UserID) bool {
 	d := db.Get()
 	var count int

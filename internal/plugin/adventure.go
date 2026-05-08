@@ -36,6 +36,7 @@ type AdventurePlugin struct {
 	shopSessions   sync.Map // userID string -> *advShopSession
 	hospitalNudges sync.Map // userID string -> time.Time (when to send nudge)
 	craftResults   sync.Map // userID string -> []CraftResult (pending craft results for narrative)
+	treasureUndo   sync.Map // userID string -> *advTreasureUndoToken (10-min auto-swap reversal)
 	morningHour int
 	summaryHour int
 }
@@ -47,6 +48,19 @@ func (p *AdventurePlugin) advUserLock(userID id.UserID) *sync.Mutex {
 }
 
 const advDMResponseWindow = 3 * time.Hour
+const advTreasureUndoWindow = 10 * time.Minute
+
+// advTreasureUndoToken tracks a recent auto-swap so the player can undo it
+// within the window by replying "undo" in DM. Holds the discarded def so
+// the swap can be reversed exactly. AnnounceTimer is the deferred room
+// announcement — fired once the undo window closes if the swap stands,
+// stopped on undo so reversed swaps don't get publicly announced.
+type advTreasureUndoToken struct {
+	Discarded     *AdvTreasureDef
+	Kept          *AdvTreasureDef
+	ExpiresAt     time.Time
+	AnnounceTimer *time.Timer
+}
 
 // advMarkMenuSent records that an actionable adventure menu was DM'd to the user.
 // Only bare-number DM replies within this window will be treated as adventure choices.
@@ -106,6 +120,19 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "adventure", Description: "Daily adventure game — dungeon, mine, forage, or rest", Usage: "!adventure", Category: "Games"},
 		{Name: "arena", Description: "Arena combat — fight through 5 tiers of increasingly deadly monsters", Usage: "!arena", Category: "Games"},
 		{Name: "thom", Description: "Visit Thom Krooke — housing and loans", Usage: "!thom", Category: "Games"},
+		{Name: "setup", Description: "Create or continue your Adv 2.0 character (race, class, stats)", Usage: "!setup", Category: "Games"},
+		{Name: "sheet", Description: "View your Adv 2.0 character sheet", Usage: "!sheet", Category: "Games"},
+		{Name: "abilities", Description: "List your Adv 2.0 class and race abilities", Usage: "!abilities", Category: "Games"},
+		{Name: "respec", Description: "Wipe and rebuild your Adv 2.0 character (5000 euros, 7-day cooldown)", Usage: "!respec", Category: "Games"},
+		{Name: "check", Description: "Roll an Adv 2.0 skill check (d20 + ability modifier vs DC)", Usage: "!check <skill> [dc]", Category: "Games"},
+		{Name: "rest", Description: "Take an Adv 2.0 rest (`short`: 1h cooldown, partial heal — `long`: 24h, full heal, requires housing or inn)", Usage: "!rest short|long", Category: "Games"},
+		{Name: "arm", Description: "Pre-arm an active Adv 2.0 ability for next combat (consumes resource)", Usage: "!arm <ability>", Category: "Games"},
+		{Name: "roll", Description: "Roll dice (NdN+M format, e.g. 2d6+3, d20, 4d6-1)", Usage: "!roll <dice>", Category: "Games"},
+		{Name: "stats", Description: "Show your Adv 2.0 ability scores and modifiers", Usage: "!stats", Category: "Games"},
+		{Name: "level", Description: "Show your Adv 2.0 level and XP progress", Usage: "!level", Category: "Games"},
+		{Name: "cast", Description: "Cast an Adv 2.0 spell (queues for next combat, or resolves out-of-combat)", Usage: "!cast <spell> [--upcast N] [--target @user]", Category: "Games"},
+		{Name: "spells", Description: "List your known spells, prepared spells, and spell slots", Usage: "!spells [learn <spell>]", Category: "Games"},
+		{Name: "prepare", Description: "Cleric: prepare a spell for the day (cap = WIS mod + level)", Usage: "!prepare <spell> | !prepare clear <spell>", Category: "Games"},
 	}
 }
 
@@ -176,6 +203,47 @@ func (p *AdventurePlugin) OnReaction(_ ReactionContext) error { return nil }
 // ── Message Dispatch ─────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
+	// 0. D&D layer commands (Phase 1 — work in rooms and DMs)
+	if p.IsCommand(ctx.Body, "setup") {
+		return p.handleDnDSetupCmd(ctx, p.GetArgs(ctx.Body, "setup"))
+	}
+	if p.IsCommand(ctx.Body, "sheet") {
+		return p.handleDnDSheetCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "abilities") {
+		return p.handleDnDAbilitiesCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "respec") {
+		return p.handleDnDRespecCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "check") {
+		return p.handleDnDCheckCmd(ctx, p.GetArgs(ctx.Body, "check"))
+	}
+	if p.IsCommand(ctx.Body, "rest") {
+		return p.handleDnDRestCmd(ctx, p.GetArgs(ctx.Body, "rest"))
+	}
+	if p.IsCommand(ctx.Body, "arm") {
+		return p.handleDnDArmCmd(ctx, p.GetArgs(ctx.Body, "arm"))
+	}
+	if p.IsCommand(ctx.Body, "cast") {
+		return p.handleDnDCastCmd(ctx, p.GetArgs(ctx.Body, "cast"))
+	}
+	if p.IsCommand(ctx.Body, "spells") {
+		return p.handleDnDSpellsCmd(ctx, p.GetArgs(ctx.Body, "spells"))
+	}
+	if p.IsCommand(ctx.Body, "prepare") {
+		return p.handleDnDPrepareCmd(ctx, p.GetArgs(ctx.Body, "prepare"))
+	}
+	if p.IsCommand(ctx.Body, "roll") {
+		return p.handleDnDRollCmd(ctx, p.GetArgs(ctx.Body, "roll"))
+	}
+	if p.IsCommand(ctx.Body, "stats") {
+		return p.handleDnDStatsCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "level") {
+		return p.handleDnDLevelCmd(ctx)
+	}
+
 	// 1. Arena commands (work in rooms and DMs)
 	if p.IsCommand(ctx.Body, "bail") {
 		return p.handleArenaBail(ctx)
@@ -269,6 +337,10 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleBoostCmd(ctx)
 	case lower == "recipes":
 		return p.handleRecipesCmd(ctx)
+	case lower == "mastery":
+		return p.handleMasteryCmd(ctx)
+	case lower == "treasures" || strings.HasPrefix(lower, "treasures "):
+		return p.handleTreasuresCmd(ctx, strings.TrimSpace(strings.TrimPrefix(lower, "treasures")))
 	}
 
 	return p.SendDM(ctx.Sender, "Unknown command. Type `!adventure help` to see available commands.")
@@ -289,10 +361,13 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure rivals`" + ` — View rival duel records
 ` + "`!adventure babysit`" + ` — Adventurer Babysitting Service
 ` + "`!adventure babysit auto`" + ` — Toggle auto-babysit (protects streaks on missed days)
+` + "`!adventure babysit focus <skill>`" + ` — Pick the skill auto-babysit trains (mining/fishing/foraging)
 ` + "`!adventure blacksmith`" + ` — Visit the blacksmith (view repair costs)
 ` + "`!adventure repair all`" + ` — Repair all damaged equipment
 ` + "`!adventure repair <slot>`" + ` — Repair a specific slot
 ` + "`!adventure recipes`" + ` — List crafting recipes known at your current Foraging level
+` + "`!adventure mastery`" + ` — Per-slot equipment mastery progress and active bonus
+` + "`!adventure treasures`" + ` — List your treasures · ` + "`treasures lock`" + ` to refuse swaps
 ` + "`!coop`" + ` — Co-op dungeons (multi-day party runs). See ` + "`!coop help`" + `.
 ` + "`!hospital`" + ` — Visit St. Guildmore's Memorial Hospital (same-day revival when dead)
 ` + "`!thom`" + ` — Visit Thom Krooke (housing and loans)
@@ -414,6 +489,9 @@ func (p *AdventurePlugin) handleShopCmd(ctx MessageContext, args string) error {
 
 	if category == "" {
 		text := luigiShopGreeting(ctx.Sender, equip, balance, showAll, p.chatLevel(ctx.Sender))
+		if disc := p.shopSessionAnnounceDiscount(ctx.Sender); disc != "" {
+			text += "\n\n" + disc
+		}
 		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 			Type:      "shop_category",
 			Data:      &advPendingShopCategory{ShowAll: showAll},
@@ -557,6 +635,15 @@ func (p *AdventurePlugin) handleDMReply(ctx MessageContext) error {
 	// Strip !adventure / !adv prefix if present — dispatch directly to avoid recursion
 	if strings.HasPrefix(lower, "!adventure") || strings.HasPrefix(lower, "!adv") {
 		return p.dispatchCommand(ctx)
+	}
+
+	// "undo" reverts a recent treasure auto-swap. Checked ahead of the
+	// pending-interaction block so it doesn't get consumed by an unrelated
+	// pending prompt.
+	if lower == "undo" {
+		if p.tryTreasureUndo(ctx.Sender) {
+			return nil
+		}
 	}
 
 	// Check for pending interaction first (always honored regardless of window)
@@ -968,6 +1055,13 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 
 	// Send resolution DM with closing block
 	text := renderAdvResolutionDM(result, char)
+	if result.CombatLog != nil {
+		// Combat closing narrative — victory or death depending on outcome.
+		text += dndItalicize(dndCombatClosingLine(result.CombatLog.PlayerWon, false))
+		if rollLine := dndRollSummaryLine(*result.CombatLog); rollLine != "" {
+			text += "\n" + rollLine
+		}
+	}
 	if deathReprieved {
 		nextWindow := char.DeathReprieveLast.Add(168 * time.Hour)
 		text += fmt.Sprintf("\n\n⚔️ **Death's Reprieve activated.** Your Sovereign gear absorbed the killing blow. "+
@@ -983,6 +1077,9 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	if result.CombatLog != nil {
 		phaseMessages := RenderCombatLog(*result.CombatLog, char.DisplayName, loc.Denizens)
 		phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
+		if open := dndCombatOpeningLine(); open != "" && len(phaseMessages) > 0 {
+			phaseMessages[0] = "_" + open + "_\n\n" + phaseMessages[0]
+		}
 		done := p.sendCombatMessages(ctx.Sender, phaseMessages, text)
 
 		go func() {
@@ -1016,6 +1113,14 @@ func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCha
 	if result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional {
 		p.checkTreasureDrop(ctx.Sender, char, loc)
 		p.checkMasterworkDrop(ctx.Sender, char, equip, loc, result.Outcome)
+	}
+
+	// Equipment mastery — celebrate threshold crossings so the silent
+	// per-slot counter becomes visible to the player.
+	for _, mc := range result.MasteryCrossings {
+		p.SendDM(ctx.Sender, fmt.Sprintf(
+			"🛠️ **Mastery: %s — %d uses!** Your %s is paying it back: +1%% loot quality from this slot.",
+			mc.ItemName, mc.Threshold, mc.Slot))
 	}
 
 	// If the player still has actions remaining, nudge them
@@ -1087,8 +1192,15 @@ func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharact
 // ── Treasure Drop Check ─────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) checkTreasureDrop(userID id.UserID, char *AdventureCharacter, loc *AdvLocation) {
-	drop := rollAdvTreasureDrop(loc.Tier, userID, p.chatLevel(userID))
+	drop, roll, rate := rollAdvTreasureDropDetailed(loc.Tier, userID, p.chatLevel(userID))
 	if drop == nil {
+		// Near-miss feedback: when the roll was within 2× of the drop rate,
+		// tell the player they almost got it. Treasure rates are 0.15–1.5%
+		// so without this signal the system feels invisible.
+		if rate > 0 && roll < rate*2 {
+			p.SendDM(userID, fmt.Sprintf("🎁 *Treasure: just missed* — rolled %.2f%% against %.2f%% drop chance.",
+				roll*100, rate*100))
+		}
 		return
 	}
 
@@ -1110,24 +1222,143 @@ func (p *AdventurePlugin) checkTreasureDrop(userID id.UserID, char *AdventureCha
 		return
 	}
 
-	// At cap — prompt for discard
+	// At cap — try the auto-swap path before falling back to the manual
+	// discard prompt. The prompt was the wound; most players don't want
+	// agency at the rare moment of finding a treasure, they want the swap.
 	existing, err := advUserTreasures(userID)
 	if err != nil || len(existing) == 0 {
 		return
 	}
 
-	// Set pending interaction
-	p.pending.Store(string(userID), &advPendingInteraction{
-		Type: "treasure_discard",
-		Data: &advPendingTreasureDiscard{
-			NewTreasure: drop.Def,
-			Existing:    existing,
-		},
-		ExpiresAt: time.Now().Add(advDMResponseWindow),
+	// Lock honors the player's "I'm done curating" state — refuse the drop
+	// instead of churning their set.
+	if char.TreasuresLocked {
+		p.SendDM(userID, fmt.Sprintf("💎 *Treasure refused* — found **%s** (Tier %d) but your treasures are locked. Unlock with `!adventure treasures unlock` to allow swaps.",
+			drop.Def.Name, drop.Def.Tier))
+		return
+	}
+
+	// Pick the worst replaceable existing treasure as the swap candidate.
+	// Irreplaceable treasures (special_* bonuses) are protected — never
+	// auto-discarded, even by a higher-tier drop.
+	worstIdx := -1
+	var worstRank advTreasureRankKey
+	for i := range existing {
+		ex := existing[i]
+		if advTreasureIrreplaceable(&ex) {
+			continue
+		}
+		r := advTreasureRank(&ex)
+		if worstIdx < 0 || advTreasureRankBetter(worstRank, r) {
+			worstIdx, worstRank = i, r
+		}
+	}
+
+	newRank := advTreasureRank(drop.Def)
+
+	// All existing are irreplaceable — fall back to the manual prompt so
+	// the player consciously chooses what to give up.
+	if worstIdx < 0 {
+		p.pending.Store(string(userID), &advPendingInteraction{
+			Type: "treasure_discard",
+			Data: &advPendingTreasureDiscard{
+				NewTreasure: drop.Def,
+				Existing:    existing,
+			},
+			ExpiresAt: time.Now().Add(advDMResponseWindow),
+		})
+		p.SendDM(userID, renderAdvTreasureDiscardPrompt(drop.Def, existing))
+		return
+	}
+
+	// New treasure is irreplaceable but would force out a replaceable —
+	// auto-swap is fine here, the protection rule is about not removing
+	// existing irreplaceables.
+	if !advTreasureRankBetter(newRank, worstRank) {
+		// New is no better than the worst we'd give up. Don't churn —
+		// just tell the player about the find passively.
+		p.SendDM(userID, fmt.Sprintf("💎 *Found %s (Tier %d)* — left behind: your current set ranks higher.",
+			drop.Def.Name, drop.Def.Tier))
+		return
+	}
+
+	// Swap: discard worst, save new, store undo token.
+	discarded := existing[worstIdx]
+	if err := advDiscardTreasure(userID, discarded.Key); err != nil {
+		slog.Error("adventure: failed to discard for auto-swap", "user", userID, "err", err)
+		return
+	}
+	if err := advSaveTreasure(userID, drop.Def); err != nil {
+		slog.Error("adventure: failed to save auto-swapped treasure", "user", userID, "err", err)
+		// Best-effort recovery — restore the discarded one.
+		_ = advSaveTreasure(userID, &discarded)
+		return
+	}
+
+	// High-tier story items earn a public moment even via auto-swap, but
+	// defer the announce until after the undo window so reversed swaps
+	// don't get publicly announced. Capture the data we need on close
+	// over so the timer doesn't reach back into mutable state.
+	announceChar := *char
+	announceDef := *drop.Def
+	announceLoc := *loc
+	announceTimer := time.AfterFunc(advTreasureUndoWindow, func() {
+		// Token is deleted on undo, so only fire when it's still present.
+		// The map entry also gets cleared lazily below by future undo
+		// attempts; firing once based on Timer presence is enough.
+		if _, ok := p.treasureUndo.Load(string(userID)); !ok {
+			return
+		}
+		p.treasureUndo.Delete(string(userID))
+		p.announceTreasureToRoom(&announceChar, &announceDef, &announceLoc)
 	})
 
-	text := renderAdvTreasureDiscardPrompt(drop.Def, existing)
-	p.SendDM(userID, text)
+	p.treasureUndo.Store(string(userID), &advTreasureUndoToken{
+		Discarded:     &discarded,
+		Kept:          drop.Def,
+		ExpiresAt:     time.Now().Add(advTreasureUndoWindow),
+		AnnounceTimer: announceTimer,
+	})
+
+	p.SendDM(userID, fmt.Sprintf(
+		"💎 **Found %s** (Tier %d)\nAuto-swapped for **%s** (Tier %d, lowest in your set).\n_Reply `undo` within %d min to revert, or `!adventure treasures` to review._",
+		drop.Def.Name, drop.Def.Tier,
+		discarded.Name, discarded.Tier,
+		int(advTreasureUndoWindow.Minutes())))
+}
+
+// tryTreasureUndo reverses a recent auto-swap. Returns true when an undo
+// was applied. Stale or missing tokens return false so the caller falls
+// through to the regular DM dispatch.
+func (p *AdventurePlugin) tryTreasureUndo(userID id.UserID) bool {
+	val, ok := p.treasureUndo.Load(string(userID))
+	if !ok {
+		return false
+	}
+	tok := val.(*advTreasureUndoToken)
+	p.treasureUndo.Delete(string(userID))
+	// Cancel the deferred room announcement — a reversed swap shouldn't
+	// produce a public "X recovered Y" line.
+	if tok.AnnounceTimer != nil {
+		tok.AnnounceTimer.Stop()
+	}
+	if time.Now().After(tok.ExpiresAt) {
+		p.SendDM(userID, "⌛ The undo window expired. Your treasure swap stands.")
+		return true
+	}
+
+	// Reverse: discard the kept one, restore the discarded one.
+	if err := advDiscardTreasure(userID, tok.Kept.Key); err != nil {
+		slog.Error("adventure: failed to discard kept on undo", "user", userID, "err", err)
+		return true
+	}
+	if err := advSaveTreasure(userID, tok.Discarded); err != nil {
+		slog.Error("adventure: failed to restore on undo", "user", userID, "err", err)
+		return true
+	}
+	p.SendDM(userID, fmt.Sprintf("↩️ Reverted. Your **%s** is back, **%s** released.",
+		tok.Discarded.Name, tok.Kept.Name))
+	return true
 }
 
 func (p *AdventurePlugin) sendTreasureDiscoveryDM(userID id.UserID, char *AdventureCharacter, def *AdvTreasureDef, loc *AdvLocation) {
@@ -1146,17 +1377,27 @@ func (p *AdventurePlugin) sendTreasureDiscoveryDM(userID id.UserID, char *Advent
 
 	p.SendDM(userID, text)
 
-	// Room announcement for tier 5 or special items
-	if def.RoomAnnounce != "" {
-		gr := gamesRoom()
-		if gr != "" {
-			announce := advSubstituteFlavor(def.RoomAnnounce, map[string]string{
-				"{name}":     char.DisplayName,
-				"{location}": loc.Name,
-			})
-			p.SendMessage(id.RoomID(gr), announce)
-		}
+	p.announceTreasureToRoom(char, def, loc)
+}
+
+// announceTreasureToRoom posts the public "X recovered Y from Z" notice for
+// treasures that carry a RoomAnnounce string (typically tier 5 / story
+// items). Called from both the normal discovery path and the auto-swap
+// path so high-tier finds keep their public moment regardless of whether
+// they arrived under or at the treasure cap.
+func (p *AdventurePlugin) announceTreasureToRoom(char *AdventureCharacter, def *AdvTreasureDef, loc *AdvLocation) {
+	if def == nil || def.RoomAnnounce == "" {
+		return
 	}
+	gr := gamesRoom()
+	if gr == "" {
+		return
+	}
+	announce := advSubstituteFlavor(def.RoomAnnounce, map[string]string{
+		"{name}":     char.DisplayName,
+		"{location}": loc.Name,
+	})
+	p.SendMessage(id.RoomID(gr), announce)
 }
 
 // ── Flavor Text Selection ────────────────────────────────────────────────────
@@ -1354,6 +1595,53 @@ func (p *AdventurePlugin) handleRecipesCmd(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Failed to load your character.")
 	}
 	return p.SendDM(ctx.Sender, renderRecipesKnown(char.ForagingSkill))
+}
+
+func (p *AdventurePlugin) handleTreasuresCmd(ctx MessageContext, arg string) error {
+	userMu := p.advUserLock(ctx.Sender)
+	userMu.Lock()
+	defer userMu.Unlock()
+
+	char, err := loadAdvCharacter(ctx.Sender)
+	if err != nil || char == nil {
+		return p.SendDM(ctx.Sender, "Failed to load your character.")
+	}
+
+	switch arg {
+	case "lock":
+		char.TreasuresLocked = true
+		if err := saveAdvCharacter(char); err != nil {
+			slog.Error("adventure: failed to save treasures_locked", "user", ctx.Sender, "err", err)
+			return p.SendDM(ctx.Sender, "Something went wrong. Try again.")
+		}
+		return p.SendDM(ctx.Sender, "🔒 **Treasures locked.** Drops at cap will be refused — no auto-swap. Unlock with `!adventure treasures unlock`.")
+	case "unlock":
+		char.TreasuresLocked = false
+		if err := saveAdvCharacter(char); err != nil {
+			slog.Error("adventure: failed to save treasures_locked", "user", ctx.Sender, "err", err)
+			return p.SendDM(ctx.Sender, "Something went wrong. Try again.")
+		}
+		return p.SendDM(ctx.Sender, "🔓 **Treasures unlocked.** Higher-tier drops will auto-swap your lowest replaceable treasure (with 10-min undo).")
+	case "":
+		treasures, err := advUserTreasures(ctx.Sender)
+		if err != nil {
+			return p.SendDM(ctx.Sender, "Failed to load your treasures.")
+		}
+		return p.SendDM(ctx.Sender, renderAdvTreasureList(treasures, char.TreasuresLocked))
+	default:
+		return p.SendDM(ctx.Sender, "Usage: `!adventure treasures` (list) · `!adventure treasures lock` · `!adventure treasures unlock`")
+	}
+}
+
+func (p *AdventurePlugin) handleMasteryCmd(ctx MessageContext) error {
+	if _, _, err := p.ensureCharacter(ctx.Sender); err != nil {
+		return p.SendDM(ctx.Sender, "Failed to load your character.")
+	}
+	equip, err := loadAdvEquipment(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Failed to load your equipment.")
+	}
+	return p.SendDM(ctx.Sender, renderAdvMasteryView(equip))
 }
 
 func (p *AdventurePlugin) handleBoostCmd(ctx MessageContext) error {

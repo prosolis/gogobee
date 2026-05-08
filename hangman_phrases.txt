@@ -1,0 +1,237 @@
+# GogoBee Hangman Seed Phrases -- Video Game Edition
+#
+# Tiers are assigned automatically by character count at load time.
+# Section headers below are for human readability only -- the bot ignores them.
+#
+#   Easy:   8-20 characters
+#   Medium: 21-40 characters
+#   Hard:   41-80 characters
+#
+# Add community phrases via: !hangman submit [phrase]
+# All submissions require LLM approval before entering the pool.
+# This file can be edited directly. Bot reloads on restart.
+
+# ---------------------------------------------------------------------------
+# EASY (8-20 characters)
+# ---------------------------------------------------------------------------
+
+Finish Him!
+Game Over
+Insert Coin
+Hadouken!
+Fatality!
+Big Boss
+Konami Code
+Warp Zone
+Blue Shell
+God Mode
+BFG 9000
+Cacodemon
+Quad Damage
+Samus Aran
+Morph Ball
+Mother Brain
+Dracula!
+Simon Belmont
+Ecclesia
+Outer Heaven
+Spread Gun
+Power Pellet
+Checkpoint
+Rocket Jump
+Mushroom Kingdom
+Princess Peach
+Bowser's Castle
+Fire Flower
+Varia Suit
+Space Jump
+Vampire Killer
+Holy Water
+Trevor Belmont
+Soma Cruz
+Julius Belmont
+Waluigi!
+Richter!
+Phantoon
+Speed Run
+High Score
+Continue?
+Press Start
+Ryu Hayabusa
+Plasma Gun
+What is a man?
+Serious Sam
+Shoryuken!
+Duck Hunt
+The cake is a lie
+War never changes
+Would you kindly?
+Do a barrel roll!
+Praise the Sun!
+A winner is you
+You're pretty good
+La-Li-Lu-Le-Lo
+I am error
+Leeroy Jenkins!
+For the Horde!
+For the Alliance!
+Frostmourne hungers
+Falcon Punch!
+Rip and tear!
+Vic Viper
+Salamander!
+Parodius Da!
+We'll bang, okay?
+What you say!!
+You spoony bard!
+One-Winged Angel
+Morning Star
+Glyph Union
+TwinBee, scramble!
+
+# ---------------------------------------------------------------------------
+# MEDIUM (21-40 characters)
+# ---------------------------------------------------------------------------
+
+Stay a while and listen
+It's dangerous to go alone!
+Kept you waiting, huh?
+A man chooses, a slave obeys
+Metal Gear?! Metal Gear!!
+We're not tools of the government
+The winds of destruction
+Who are the Patriots?
+This is good, isn't it?
+You have died of dysentery
+The Triforce of Courage
+Ganon has broken the seal!
+May the wind guide you home
+Dodongo dislikes smoke
+The right man in the wrong place
+Nothing is true, everything is permitted
+I used to be an adventurer like you
+You can't hide from the Grim Reaper
+All your base are belong to us!
+Somebody set up us the bomb!
+For great justice, take off every Zig!
+How are you gentlemen!!
+Kain has betrayed us!
+Garland will knock you all down!
+You are not prepared!
+I am Uther the Lightbringer!
+Order of Ecclesia calls
+The Dark Lord rises again!
+Shanoa, bearer of glyphs
+In this world, it's kill or be killed
+Despite everything, it's still you
+The Underground is your home now
+Papyrus demands a battle!
+I'm going to make spaghetti!
+Toriel will protect you
+Estus Flask replenished
+The age of fire fades
+Prepare to die, undead one
+Can't let you do that, Star Fox!
+Andross' empire spans the Lylat system!
+Captain Falcon, show me your moves!
+OBJECTION! That testimony is a lie!
+Hold it! I have new evidence!
+Phoenix Wright, attorney at law!
+Does this unit have a soul?
+Shepard, the Reapers are coming!
+Tali'Zorah vas Normandy!
+Gruntilda shall not be defeated!
+K. Rool has stolen the banana hoard!
+Kirby, hero of Dream Land!
+Meta Knight awaits your challenge!
+Congraturation! This story is happy end.
+Cecil has become a Paladin
+Cloud Strife, SOLDIER First Class
+Time compression is inevitable
+You require more vespene gas
+Nuclear launch detected
+You must construct additional pylons
+I'm Commander Shepard!
+War... War has changed.
+Rip and tear until it is done!
+Dawn of Sorrow awaits
+Do you feel like a hero yet?
+You're a monster. You know that, Walker?
+Halo... it's not a natural formation.
+Whip it good, Belmont!
+
+# ---------------------------------------------------------------------------
+# HARD (41-80 characters)
+# ---------------------------------------------------------------------------
+
+What is a man? A miserable pile of secrets!
+Die monster! You don't belong in this world!
+My name is Dracula, and I bid you welcome.
+You have no chance to survive make your time!
+You've met with a terrible fate, haven't you?
+Fear the old blood... and welcome, good hunter.
+Welcome to the Liandri Grand Tournament!
+I am the very model of a scientist Salarian!
+Metroid Prime has escaped into the impact crater!
+I want to be the very best, like no one ever was
+The world needs only one Big Boss... and one Snake.
+Snake, do you think love can bloom on a battlefield?
+Thank you Mario, but our princess is in another castle!
+You must gather your party before venturing forth
+Snake, we're not tools of the government, or anyone else
+Did I ever tell you what the definition of insanity is?
+They're everywhere! The demons... they won't stop coming!
+Dracula! Your time has come! The Vampire Killer strikes!
+Link... I'm Navi, your fairy companion! Listen!
+Hero of Time, your destiny awaits in the Sacred Realm
+Master Chief, finish the fight. Earth is counting on you.
+Outer Heaven... a place where warriors can find purpose
+We passed the point of no return a long time ago, Snake
+Liquid! I was the one who was meant to be the successor!
+Revolver Ocelot is a triple agent working for the Patriots
+Phazon corruption detected! Seek immediate medical attention!
+Dark Samus has absorbed the Phazon and grown more powerful!
+I'm the Doom Slayer, and I'm here to kill every last one of you!
+Praise the Chosen Undead, for they shall link the fire!
+Ganon is the evil king who stole the Triforce of Power!
+The legendary soldier who defied his genes... Big Boss
+Killing spree! Monster kill! Godlike! Unstoppable!
+Humanity restored! The bonfire blazes with newfound strength!
+You are the last line of defense against an infinite demonic army
+Liquid Snake... your dominant genes... give you the edge in battle!
+All we did was give meaning to the nuclear age by using nukes!
+I'm a soldier who's been betrayed, abandoned... I fight alone now
+Samus Aran, the last of the Chozo warriors, descends into the unknown
+You are the Chosen Undead, fated to succeed where so many have failed
+The price of living in the past is a slow death in the present
+A sword wields no strength unless the hands that hold it have courage
+The flow of time is always cruel, its speed seems different for each person
+Hey! Listen! There's something important you need to know!
+We are born of the blood, made men by the blood, undone by the blood
+War has changed. It's no longer about nations, ideologies, or ethnicity
+Mental has sent his armies, and I am all that stands between them and Earth!
+I'm no hero. Never was. Never will be. I'm just an old killer.
+What is a man? A miserable pile of secrets! But enough talk... have at you!
+I used to be an adventurer like you, then I took an arrow in the knee
+I'm not the only one who's responsible. The humans are just as guilty!
+The Skaarj have invaded, and you must fight your way to freedom
+
+# ---------------------------------------------------------------------------
+# EXTREME (81+ characters) -- Full quotes. No mercy.
+# ---------------------------------------------------------------------------
+
+For you, the day Bison graced your village was the most important day of your life. But for me... it was Tuesday.
+What is a man? A miserable pile of secrets! But enough talk... have at you!
+Die monster! You don't belong in this world! It was not by my hand that I am once again given flesh!
+You can't keep a good man down, and that goes double for a soldier who's been fighting his whole life.
+They say the definition of insanity is doing the same thing over and over and expecting different results... did I ever tell you that?
+I've been waiting for this... a professional killer. I'm so excited I may be sick!
+Kept you waiting, huh? Don't worry though. I'll take you somewhere warm. Back to the battlefield.
+It's easy to forget what a sin is in the middle of a battlefield. Especially when you're killing to stay alive.
+We are not tools of the government or anyone else. Fighting was the only thing, the only thing I was good at. But at least I always fought for what I believed in.
+In the 21st century, the battlefield will once again be a symbol of the glory of nations. I am a weapon. A human weapon.
+A man's dreams can be his greatest asset... or his most dangerous enemy. The question is: what are you willing to sacrifice to see them through?
+I need scissors! 61!
+Outer Heaven, a place where soldiers need not justify their actions -- where warriors can be free of political manipulation.
+Nothing happened to me. I happened. I'm the one who knocks, the one who causes all the trouble... that is my purpose.
+Sun Tzu said that. I think he meant it as a metaphor, but he also said never leave home without a healthy supply of rations, so what does he know?

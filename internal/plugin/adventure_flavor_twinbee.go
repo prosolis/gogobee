@@ -529,51 +529,38 @@ var RespawnDM = []string{
 }
 
 var IdleShameDM = []string{
-	"{name}, you didn't leave the house today.\n\n" +
-		"Your adventurer sat in their hovel, stared at the wall,\n" +
-		"and achieved absolutely nothing. No loot. No XP. No death,\n" +
-		"which is honestly the nicest thing that can be said about today.\n\n" +
-		"Tomorrow's choices arrive at 08:00 UTC.\n" +
-		"Please, for the love of everything, try to be brave.",
+	"{name}, hey. Didn't see you out there today.\n\n" +
+		"TwinBee swung by the hovel — door was shut, no answer.\n" +
+		"Hope you're alright. The dungeon will keep. The mine will keep.\n" +
+		"They've been there a while; they're patient.\n\n" +
+		"Tomorrow: 08:00 UTC. We'll be ready when you are.",
 
-	"No action today, {name}.\n\n" +
-		"The morning DM was sent. The morning DM was not answered.\n" +
-		"The dungeon was there. The mine was there. The forest was there.\n" +
-		"You were also there, presumably, somewhere, not responding.\n\n" +
-		"TwinBee noticed. The daily summary has noted your absence.\n" +
-		"Tomorrow: 08:00 UTC. The options will be there. Please be there too.",
+	"Quiet day for you, {name}.\n\n" +
+		"The morning DM went out and didn't come back. That happens.\n" +
+		"Real life sometimes shows up uninvited and stays for dinner.\n" +
+		"TwinBee picked up a little extra in the field — covered for you.\n\n" +
+		"Tomorrow morning the choices reset. Drop by when you can.",
 
-	"{name}. You rested today.\n\n" +
-		"'Rested' is the word being used. It is the charitable word.\n" +
-		"The uncharitable word is 'nothing.' You did nothing.\n" +
-		"The dungeons are still there. The mines are still there.\n" +
-		"The foraging areas are still there. Your XP is still where you left it.\n\n" +
-		"08:00 UTC tomorrow. An adventure awaits.\n" +
-		"The adventure has been waiting since you ignored it this morning.",
+	"{name}, no sign of you in the field today.\n\n" +
+		"The forest is still there. So's the mine. So's that one rusted sword\n" +
+		"you keep meaning to replace. Nothing important moved.\n\n" +
+		"08:00 UTC tomorrow — fresh menu, same patient TwinBee.",
 
-	"Today passed without you, {name}.\n\n" +
-		"TwinBee went to a dungeon. The dungeon was real.\n" +
-		"Your share of TwinBee's haul was distributed to people who showed up.\n" +
-		"You did not show up. You did not get a share.\n" +
-		"TwinBee noticed. TwinBee says nothing.\n" +
-		"TwinBee's silence is louder than most things.\n\n" +
-		"Tomorrow: 08:00 UTC. Show up.",
+	"Missed you out there, {name}.\n\n" +
+		"TwinBee went on a haul today and saved a corner of the splits for you,\n" +
+		"then ate it on principle when you didn't show. (Sorry. House rule.)\n" +
+		"Nothing's lost that can't be earned back.\n\n" +
+		"Tomorrow: 08:00 UTC. The dungeons are warm.",
 
-	"A day of rest, {name}. Unearned, but rest.\n\n" +
-		"The hovel is comfortable. The wall is familiar.\n" +
-		"Nothing in the hovel tried to kill you, which is the one advantage the hovel has.\n" +
-		"The hovel also paid you nothing and taught you nothing and advanced nothing.\n" +
-		"The hovel is comfortable and useless. So was today.\n\n" +
-		"Tomorrow is 08:00 UTC. The choices will be new ones.\n" +
-		"Make one of them. Any of them. Please.",
+	"A quiet day, {name}. Those happen.\n\n" +
+		"You weren't on the trail. The trail didn't fall apart without you.\n" +
+		"It'll be there tomorrow, and the day after, and the one after that.\n\n" +
+		"08:00 UTC. Whenever you're back, we pick up where we left off.",
 
-	"Where were you today, {name}?\n\n" +
-		"The bot sent the DM. The DM was delivered.\n" +
-		"The DM sat there, unread or unresponded-to, while your adventurer\n" +
-		"sat in the hovel and the day happened without them.\n" +
-		"XP: not gained. Loot: not found. Death: at least avoided.\n\n" +
-		"Low bar. You cleared the low bar by doing nothing.\n" +
-		"Tomorrow: 08:00 UTC. Clear a higher bar.",
+	"{name}. Hope you had a good rest day.\n\n" +
+		"TwinBee held down the fort. Nothing dramatic, nothing lost —\n" +
+		"the world declined to end on your behalf, which feels generous.\n\n" +
+		"When you're ready, the morning DM hits at 08:00 UTC. No rush.",
 }
 
 var OnboardingDM = []string{

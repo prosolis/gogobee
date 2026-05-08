@@ -319,7 +319,16 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 	// Render combat log as phased messages + final outcome
 	phaseMessages := RenderCombatLogArena(result, char.DisplayName, monster.Name)
 	phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
+	if open := dndCombatOpeningLine(); open != "" && len(phaseMessages) > 0 {
+		phaseMessages[0] = "_" + open + "_\n\n" + phaseMessages[0]
+	}
 	finalMessage := renderArenaCombatFinalMessage(result, monster, reward, battleXP, run.Round)
+	// Boss = T5 final round. Use BossDeath flavor for that fight's win.
+	isBoss := run.Tier == 5
+	finalMessage += dndItalicize(dndCombatClosingLine(true, isBoss))
+	if rollLine := dndRollSummaryLine(result); rollLine != "" {
+		finalMessage += "\n" + rollLine
+	}
 
 	// Suppress the "(at risk)" line on the tier-completing round — those earnings
 	// are about to be locked in by the tier-complete branch below, so labelling
@@ -413,6 +422,9 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	lostEarnings := run.Earnings + run.TierEarnings
 
 	phaseMessages := RenderCombatLogArena(result, char.DisplayName, monster.Name)
+	if open := dndCombatOpeningLine(); open != "" && len(phaseMessages) > 0 {
+		phaseMessages[0] = "_" + open + "_\n\n" + phaseMessages[0]
+	}
 
 	dt := transitionDeath(DeathTransitionParams{
 		Char:          char,
@@ -442,6 +454,10 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	upsertArenaStats(run.UserID, 0, true, run.Tier)
 
 	finalMsg := renderArenaCombatFinalMessage(result, monster, 0, arenaParticipationXP, run.Round)
+	finalMsg += dndItalicize(dndCombatClosingLine(false, false))
+	if rollLine := dndRollSummaryLine(result); rollLine != "" {
+		finalMsg += "\n" + rollLine
+	}
 	if dt.PetRecovered {
 		finalMsg += fmt.Sprintf("\n\nYour pet dragged you out of the arena. Death timer reduced. All session earnings forfeited.")
 	} else {

@@ -94,6 +94,8 @@ type AdventureCharacter struct {
 	PetLevel10Date      string
 	PetMorningDefense   bool
 	AutoBabysit         bool
+	AutoBabysitFocus    string // mining|fishing|foraging — preferred skill for auto-babysit; "" defaults to weakest
+	TreasuresLocked     bool   // when true, treasure drops at cap are refused instead of auto-swapping
 	StreakDecayed        bool
 	CraftsSucceeded     int
 	DeathSource         string // "adventure" | "arena" | "" (legacy/unknown — treated as adventure)
@@ -378,7 +380,17 @@ func xpToNextLevel(level int) int {
 
 // checkAdvLevelUp checks if a character leveled up in the given skill and applies it.
 // Returns whether a level-up occurred and the new level.
+//
+// Combat is special-cased: once a player has confirmed a D&D character,
+// combat_level freezes. dnd_level (driven by dnd_xp via grantDnDXP) is
+// canonical going forward. Combat XP still accrues into combat_xp for
+// historical display, but never causes combat_level to advance.
+// Skill levels (mining/foraging/fishing) are unaffected and continue to
+// progress on their own track per v1.1 §4.
 func checkAdvLevelUp(char *AdventureCharacter, skill string) (bool, int) {
+	if skill == "combat" && HasCompletedSetup(char.UserID) {
+		return false, char.CombatLevel
+	}
 	var xp *int
 	var level *int
 	switch skill {
@@ -426,7 +438,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 
 	var houseFrozen, houseAutopay int
 	var petChasedAway, petReactivated, petArrived, thomAnimalLine, petSupplyUnlocked, petMorningDef int
-	var autoBabysit, streakDecayed int
+	var autoBabysit, streakDecayed, treasuresLocked int
 
 	err := d.QueryRow(`
 		SELECT user_id, display_name,
@@ -453,7 +465,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		       misty_encounter_count, misty_donated_count,
 		       thom_animal_line_fired, pet_supply_shop_unlocked, pet_level10_date,
 		       pet_morning_defense, auto_babysit, streak_decayed, crafts_succeeded,
-		       death_source, death_location
+		       death_source, death_location, auto_babysit_focus, treasures_locked
 		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
 		&c.UserID, &c.DisplayName,
 		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -479,7 +491,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 		&c.MistyEncounterCount, &c.MistyDonatedCount,
 		&thomAnimalLine, &petSupplyUnlocked, &c.PetLevel10Date,
 		&petMorningDef, &autoBabysit, &streakDecayed, &c.CraftsSucceeded,
-		&c.DeathSource, &c.DeathLocation,
+		&c.DeathSource, &c.DeathLocation, &c.AutoBabysitFocus, &treasuresLocked,
 	)
 	if err != nil {
 		return nil, err
@@ -491,6 +503,7 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	c.BabysitActive = babysitAct == 1
 	c.PetMorningDefense = petMorningDef == 1
 	c.AutoBabysit = autoBabysit == 1
+	c.TreasuresLocked = treasuresLocked == 1
 	c.StreakDecayed = streakDecayed == 1
 	if deadUntil.Valid {
 		c.DeadUntil = &deadUntil.Time
@@ -650,7 +663,9 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 			streak_decayed = ?,
 			crafts_succeeded = ?,
 			death_source = ?,
-			death_location = ?
+			death_location = ?,
+			auto_babysit_focus = ?,
+			treasures_locked = ?
 		WHERE user_id = ?`,
 		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
 		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
@@ -678,9 +693,18 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 		streakDecayed,
 		char.CraftsSucceeded,
 		char.DeathSource, char.DeathLocation,
+		char.AutoBabysitFocus,
+		boolToInt(char.TreasuresLocked),
 		string(char.UserID),
 	)
 	return err
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func loadAdvEquipment(userID id.UserID) (map[EquipmentSlot]*AdvEquipment, error) {
@@ -809,7 +833,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		       misty_encounter_count, misty_donated_count,
 		       thom_animal_line_fired, pet_supply_shop_unlocked, pet_level10_date,
 		       pet_morning_defense, auto_babysit, streak_decayed, crafts_succeeded,
-		       death_source, death_location
+		       death_source, death_location, auto_babysit_focus, treasures_locked
 		FROM adventure_characters`)
 	if err != nil {
 		return nil, err
@@ -824,7 +848,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		var mistyLastSeen, arinaLastSeen, mistyBuffExp, mistyDebuffExp, arinaBuffExp sql.NullTime
 		var houseFrozen, houseAutopay int
 		var petChasedAway, petReactivated, petArrived, thomAnimalLine, petSupplyUnlocked, petMorningDef int
-		var autoBabysit, streakDecayed int
+		var autoBabysit, streakDecayed, treasuresLocked int
 		if err := rows.Scan(
 			&c.UserID, &c.DisplayName,
 			&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
@@ -850,7 +874,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 			&c.MistyEncounterCount, &c.MistyDonatedCount,
 			&thomAnimalLine, &petSupplyUnlocked, &c.PetLevel10Date,
 			&petMorningDef, &autoBabysit, &streakDecayed, &c.CraftsSucceeded,
-			&c.DeathSource, &c.DeathLocation,
+			&c.DeathSource, &c.DeathLocation, &c.AutoBabysitFocus, &treasuresLocked,
 		); err != nil {
 			return nil, err
 		}
@@ -861,6 +885,7 @@ func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 		c.BabysitActive = babysitAct == 1
 		c.PetMorningDefense = petMorningDef == 1
 		c.AutoBabysit = autoBabysit == 1
+		c.TreasuresLocked = treasuresLocked == 1
 		c.StreakDecayed = streakDecayed == 1
 		c.HouseLoanFrozen = houseFrozen == 1
 		c.HouseAutopay = houseAutopay == 1
