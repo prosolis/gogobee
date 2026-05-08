@@ -375,3 +375,19 @@ func TestTauntComplimentResponseLines_Deterministic(t *testing.T) {
 		t.Errorf("taunt and compliment shouldn't collide on same key: %q", t1)
 	}
 }
+
+func TestRenderZoneMap_LayoutAndMarkers(t *testing.T) {
+	seq := []RoomType{RoomEntry, RoomExploration, RoomTrap, RoomElite, RoomBoss}
+	cleared := map[int]bool{0: true, 1: true}
+	got := renderZoneMap(seq, 2, cleared)
+	want := "E──?──T──★──☠\n✓  ✓  ▶  ·  ·"
+	if got != want {
+		t.Errorf("renderZoneMap mismatch:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func TestRenderZoneMap_Empty(t *testing.T) {
+	if got := renderZoneMap(nil, 0, nil); got != "(no rooms)" {
+		t.Errorf("empty seq: got %q", got)
+	}
+}

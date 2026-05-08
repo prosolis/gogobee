@@ -286,18 +286,56 @@ func (p *AdventurePlugin) zoneCmdMap(ctx MessageContext) error {
 	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("**%s — Map**\n```\n", zone.Display))
-	for i, rt := range run.RoomSeq {
-		marker := "  "
+	b.WriteString(renderZoneMap(run.RoomSeq, run.CurrentRoom, cleared))
+	b.WriteString("\n```\n")
+	b.WriteString("_E=Entry  ?=Exploration  T=Trap  ★=Elite  ☠=Boss · ✓ cleared  ▶ here  · pending_")
+	return p.SendDM(ctx.Sender, b.String())
+}
+
+// renderZoneMap produces a horizontal ASCII layout: a row of room glyphs
+// connected with `──`, with a status row underneath showing cleared/here/
+// pending markers per room. Glyphs match the legend printed alongside the
+// map. roomSeq is the run's room order; current is the 0-based index of
+// the player's location; cleared maps room index → true for finished rooms.
+func renderZoneMap(roomSeq []RoomType, current int, cleared map[int]bool) string {
+	if len(roomSeq) == 0 {
+		return "(no rooms)"
+	}
+	var top, bot strings.Builder
+	for i, rt := range roomSeq {
+		if i > 0 {
+			top.WriteString("──")
+			bot.WriteString("  ")
+		}
+		top.WriteString(roomGlyph(rt))
 		switch {
 		case cleared[i]:
-			marker = "✓ "
-		case i == run.CurrentRoom:
-			marker = "▶ "
+			bot.WriteString("✓")
+		case i == current:
+			bot.WriteString("▶")
+		default:
+			bot.WriteString("·")
 		}
-		b.WriteString(fmt.Sprintf("%s[%d] %s\n", marker, i+1, prettyRoomType(rt)))
 	}
-	b.WriteString("```")
-	return p.SendDM(ctx.Sender, b.String())
+	return top.String() + "\n" + bot.String()
+}
+
+// roomGlyph returns the single-character ASCII map glyph for a RoomType.
+func roomGlyph(rt RoomType) string {
+	switch rt {
+	case RoomEntry:
+		return "E"
+	case RoomExploration:
+		return "?"
+	case RoomTrap:
+		return "T"
+	case RoomElite:
+		return "★"
+	case RoomBoss:
+		return "☠"
+	default:
+		return "·"
+	}
 }
 
 // ── advance ─────────────────────────────────────────────────────────────────
