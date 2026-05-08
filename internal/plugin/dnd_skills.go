@@ -194,6 +194,14 @@ func subclassSkillAdvantage(c *DnDCharacter, info dndSkillInfo) bool {
 		if c.Level >= 7 && info.Key == SkillStealth {
 			return true
 		}
+	case SubclassGloomStalker:
+		// L5 Umbral Sight: in 5e the player is invisible to creatures
+		// relying on darkvision while in darkness. Adventure zones don't
+		// track lighting, so we apply unconditionally — same approachability
+		// shortcut Thief Supreme Sneak takes.
+		if c.Level >= 5 && info.Key == SkillStealth {
+			return true
+		}
 	}
 	return false
 }

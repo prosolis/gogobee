@@ -241,9 +241,12 @@ Each subclass selection triggers a TwinBee narration line and a one-line flavor 
 - [ ] `!respec` command (cooldown + cost)
 
 ### Phase SUB2 — Ability Implementation
-- [ ] All Level 5 abilities per subclass
-- [ ] Level 7 abilities per subclass
-- [ ] Berserker Rage mechanic and Exhaustion tracking
+- [x] Fighter (SUB2a-i) and Rogue Assassin/Battle Master (SUB2a-ii) L5/L7
+- [x] Arcane Trickster spellcasting (SUB2-AT)
+- [x] Mage subclasses L5/L7 (SUB2b)
+- [x] Cleric subclasses L5/L7 + Channel Divinity (SUB2c)
+- [x] Ranger subclasses L5/L7 (SUB2d)
+- [x] Berserker Rage mechanic and Exhaustion tracking
 
 ### Phase SUB3 — Advanced Abilities
 - [ ] Level 10 and 15 abilities per subclass

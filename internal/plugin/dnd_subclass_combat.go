@@ -79,6 +79,62 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 		if c.Level >= 7 {
 			mods.SporeCloud += 2
 		}
+	case SubclassHunter:
+		// L5 Hunter's Prey: 5e gives a one-of-three pick (Colossus Slayer:
+		// +1d8 vs. damaged foes once per turn / Giant Killer reaction /
+		// Horde Breaker second attack). One-shot combat can't model the
+		// pick UI, so we collapse to the most generally-applicable flavor
+		// — Colossus Slayer — as a flat +10% damage bump (any hit after
+		// the opener lands on an already-damaged target).
+		// L7 Defensive Tactics: collapse to Multiattack Defense — +1 AC.
+		if c.Level >= 5 {
+			mods.DamageBonus += 0.10
+		}
+		if c.Level >= 7 {
+			stats.AC++
+		}
+	case SubclassBeastMaster:
+		// L5 Ranger's Companion + Exceptional Training: a baseline combat
+		// pet shows up on initiative and pokes the enemy. Use max-style
+		// floors — if the player already has a stronger NPC pet active
+		// (e.g. a higher-level adventure pet via combat_stats.go), keep
+		// theirs. PetAttackDmg scales with level so the companion grows
+		// with the Ranger.
+		// L7 Bestial Fury: pet attacks twice when commanded. We can't
+		// schedule a second swing in the existing pet hook, so we bump
+		// the proc rate (extra swings per fight) and per-hit damage.
+		if c.Level >= 5 {
+			proc := 0.20
+			dmg := 2 + c.Level/2
+			if c.Level >= 7 {
+				proc = 0.35
+				dmg += 3
+			}
+			if mods.PetAttackProc < proc {
+				mods.PetAttackProc = proc
+			}
+			if mods.PetAttackDmg < dmg {
+				mods.PetAttackDmg = dmg
+			}
+		}
+	case SubclassGloomStalker:
+		// L5 Dread Ambusher: +WIS to initiative and +1 attack with +1d8 in
+		// the first round. Initiative rides on Speed in our model; the
+		// extra opener damage rides AssassinateBonusDmg (consumed on first
+		// hit only — the same channel the Assassin uses).
+		// L5 Umbral Sight: the in-darkness stealth advantage is wired in
+		// subclassSkillAdvantage; here we just give the combat half.
+		// L7 Stalker's Flurry: 5e re-rolls a missed attack. The closest
+		// engine primitive is AssassinateAdvantage (best of two on the
+		// first roll), which is a slightly tighter expression of the
+		// same fantasy ("you don't whiff your opener").
+		if c.Level >= 5 {
+			stats.Speed += abilityModifier(c.WIS)
+			mods.AssassinateBonusDmg += 5 + abilityModifier(c.WIS)
+		}
+		if c.Level >= 7 {
+			mods.AssassinateAdvantage = true
+		}
 	}
 }
 
