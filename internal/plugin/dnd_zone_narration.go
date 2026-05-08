@@ -77,6 +77,8 @@ func zoneRoomEntryPool(zoneID ZoneID) []string {
 		return append(append([]string{}, flavor.RoomEntryCryptValdris...), flavor.RoomEntryGeneric...)
 	case ZoneForestShadows:
 		return append(append([]string{}, flavor.RoomEntryForestShadows...), flavor.RoomEntryGeneric...)
+	case ZoneSunkenTemple:
+		return append(append([]string{}, flavor.RoomEntrySunkenTemple...), flavor.RoomEntryGeneric...)
 	case ZoneManorBlackspire:
 		return append(append([]string{}, flavor.RoomEntryHauntedManor...), flavor.RoomEntryGeneric...)
 	case ZoneUnderdark:
@@ -97,6 +99,8 @@ func bossEntryPool(zoneID ZoneID) []string {
 		return flavor.BossEntryValdris
 	case ZoneForestShadows:
 		return flavor.BossEntryHollowKing
+	case ZoneSunkenTemple:
+		return flavor.BossEntryDreamingAboleth
 	case ZoneDragonsLair:
 		return flavor.BossEntryInfernax
 	case ZoneAbyssPortal:
@@ -147,6 +151,10 @@ func zoneLorePool(zoneID ZoneID) []string {
 		return append(append([]string{}, flavor.LoreLinesWarrens...), flavor.LoreLines...)
 	case ZoneCryptValdris:
 		return append(append([]string{}, flavor.LoreLinesCrypt...), flavor.LoreLines...)
+	case ZoneForestShadows:
+		return append(append([]string{}, flavor.LoreLinesForestShadows...), flavor.LoreLines...)
+	case ZoneSunkenTemple:
+		return append(append([]string{}, flavor.LoreLinesSunkenTemple...), flavor.LoreLines...)
 	}
 	return flavor.LoreLines
 }
@@ -160,6 +168,10 @@ func bossSignaturePool(zoneID ZoneID) []string {
 		return flavor.GrolSignatureCallouts
 	case ZoneCryptValdris:
 		return flavor.ValdrisSignatureCallouts
+	case ZoneForestShadows:
+		return flavor.HollowKingSignatureCallouts
+	case ZoneSunkenTemple:
+		return flavor.AbolethSignatureCallouts
 	}
 	return nil
 }
@@ -172,6 +184,10 @@ func eliteRoomEntryPool(zoneID ZoneID) []string {
 		return flavor.EliteRoomEntryWarrens
 	case ZoneCryptValdris:
 		return flavor.EliteRoomEntryCrypt
+	case ZoneForestShadows:
+		return flavor.EliteRoomEntryForestShadows
+	case ZoneSunkenTemple:
+		return flavor.EliteRoomEntrySunkenTemple
 	}
 	return nil
 }

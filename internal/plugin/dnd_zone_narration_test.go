@@ -186,14 +186,14 @@ func TestComposeBossEntry_AppendsAbilityCalloutForTier1(t *testing.T) {
 }
 
 func TestComposeBossEntry_NoCalloutForUnflavoredZone(t *testing.T) {
-	// Forest of Shadows has a named boss-entry pool (Hollow King) but no
+	// Dragon's Lair has a named boss-entry pool (Infernax) but no
 	// signature-callout pool yet — composer should return the bare entry.
-	got := composeBossEntry(ZoneForestShadows, "run-d2b", 1)
+	got := composeBossEntry(ZoneDragonsLair, "run-d2b", 1)
 	if got == "" {
-		t.Fatal("forest boss-entry should still render")
+		t.Fatal("dragon's lair boss-entry should still render")
 	}
 	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 1 {
-		t.Errorf("Forest boss-entry expected 1 TwinBee block (no callout pool), got %d:\n%s", n, got)
+		t.Errorf("Dragon's Lair boss-entry expected 1 TwinBee block (no callout pool), got %d:\n%s", n, got)
 	}
 }
 
@@ -229,10 +229,68 @@ func TestZoneLorePool_PrependsZoneSpecific(t *testing.T) {
 		t.Errorf("Warrens lore pool should be larger than generic; got %d vs generic %d",
 			len(w), len(flavor.LoreLines))
 	}
-	// Tier 2+ zone with no dedicated lore must fall back to the generic pool.
-	if got := zoneLorePool(ZoneForestShadows); len(got) != len(flavor.LoreLines) {
-		t.Errorf("Forest lore pool should fall back to generic; got %d, want %d",
+	// Tier 3+ zone with no dedicated lore must fall back to the generic pool.
+	if got := zoneLorePool(ZoneDragonsLair); len(got) != len(flavor.LoreLines) {
+		t.Errorf("Dragon's Lair lore pool should fall back to generic; got %d, want %d",
 			len(got), len(flavor.LoreLines))
+	}
+}
+
+// ── Phase 11 D3c — Tier 2 zone flavor file routing ──────────────────────────
+
+func TestComposeBossEntry_AppendsAbilityCalloutForTier2(t *testing.T) {
+	got := composeBossEntry(ZoneForestShadows, "run-d3c", 5)
+	if !strings.Contains(got, "Hollow King") {
+		t.Errorf("Forest boss-entry should mention Hollow King: %q", got)
+	}
+	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 2 {
+		t.Errorf("Forest boss-entry expected 2 TwinBee blocks (entry+callout), got %d:\n%s", n, got)
+	}
+
+	got = composeBossEntry(ZoneSunkenTemple, "run-d3c", 5)
+	if !strings.Contains(got, "Aboleth") {
+		t.Errorf("Sunken Temple boss-entry should mention Aboleth: %q", got)
+	}
+	if n := strings.Count(got, "🎭 **TwinBee:**"); n != 2 {
+		t.Errorf("Sunken Temple boss-entry expected 2 TwinBee blocks (entry+callout), got %d:\n%s", n, got)
+	}
+}
+
+func TestEliteRoomEntryLine_Tier2Routes(t *testing.T) {
+	f := eliteRoomEntryLine(ZoneForestShadows, "run-elite-t2", 3)
+	if f == "" || !strings.HasPrefix(f, "🎭 **TwinBee:**") {
+		t.Errorf("Forest elite line missing/no prefix: %q", f)
+	}
+	s := eliteRoomEntryLine(ZoneSunkenTemple, "run-elite-t2", 3)
+	if s == "" || !strings.HasPrefix(s, "🎭 **TwinBee:**") {
+		t.Errorf("Sunken Temple elite line missing/no prefix: %q", s)
+	}
+	if f == s {
+		t.Errorf("Forest and Sunken Temple elite lines collided on same salt")
+	}
+}
+
+func TestZoneLorePool_Tier2PrependsZoneSpecific(t *testing.T) {
+	f := zoneLorePool(ZoneForestShadows)
+	if len(f) <= len(flavor.LoreLines) {
+		t.Errorf("Forest lore pool should be larger than generic; got %d vs generic %d",
+			len(f), len(flavor.LoreLines))
+	}
+	s := zoneLorePool(ZoneSunkenTemple)
+	if len(s) <= len(flavor.LoreLines) {
+		t.Errorf("Sunken Temple lore pool should be larger than generic; got %d vs generic %d",
+			len(s), len(flavor.LoreLines))
+	}
+}
+
+func TestRoomEntryPool_Tier2PrependsZoneSpecific(t *testing.T) {
+	f := zoneRoomEntryPool(ZoneForestShadows)
+	if len(f) <= len(flavor.RoomEntryGeneric) {
+		t.Errorf("Forest room-entry pool should overlay zone-specific lines; got %d", len(f))
+	}
+	s := zoneRoomEntryPool(ZoneSunkenTemple)
+	if len(s) <= len(flavor.RoomEntryGeneric) {
+		t.Errorf("Sunken Temple room-entry pool should overlay zone-specific lines; got %d", len(s))
 	}
 }
 
