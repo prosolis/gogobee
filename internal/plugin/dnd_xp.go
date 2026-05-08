@@ -189,13 +189,18 @@ func buildLevelUpMessage(c *DnDCharacter, events []LevelUpEvent, flavor string) 
 		}
 	}
 
-	// Subclass selection cue: design doc specs a prompt at L5. Mechanics
-	// arrive in a future phase; for now the level-up DM mentions it so the
-	// player isn't surprised when it lands.
-	for _, ev := range events {
-		if ev.NewLevel == 5 {
-			b.WriteString("\n🎯 _Subclass selection unlocks at L5 — coming in a future update._")
-			break
+	// Phase 10 — subclass selection cue. Fires when the player crosses L5
+	// without already having a subclass (rare path: a multi-level grant
+	// that crosses L5 keeps prompting until they pick). Existing-subclass
+	// cases stay quiet on later level-ups.
+	if c.Subclass == "" && c.Level >= dndSubclassMinLevel {
+		for _, ev := range events {
+			if ev.NewLevel >= dndSubclassMinLevel {
+				b.WriteString("\n🎯 ")
+				b.WriteString(renderSubclassPrompt(c.Class))
+				b.WriteString("\n")
+				break
+			}
 		}
 	}
 	return b.String()

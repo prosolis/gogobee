@@ -176,6 +176,12 @@ type DnDCharacter struct {
 	PendingCast              string
 	ConcentrationSpell       string
 	ConcentrationExpiresAt   *time.Time
+	// Phase 10 — subclass.
+	// Subclass: empty until the player runs !subclass at L5+. Once set,
+	// changing requires `!subclass <name>` again subject to a 30-day
+	// cooldown (LastSubclassRespecAt) and 500-coin cost.
+	Subclass                 DnDSubclass
+	LastSubclassRespecAt     *time.Time
 	LastRespecAt    *time.Time
 	LastShortRestAt *time.Time
 	LastLongRestAt  *time.Time
@@ -204,18 +210,20 @@ func LoadDnDCharacter(userID id.UserID) (*DnDCharacter, error) {
 		       hp_current, hp_max, temp_hp, armor_class,
 		       pending_setup, auto_migrated, onboarding_sent, armed_ability,
 		       pending_cast, concentration_spell, concentration_expires_at,
+		       subclass, last_subclass_respec_at,
 		       last_respec_at, last_short_rest_at, last_long_rest_at,
 		       created_at, updated_at
 		FROM dnd_character WHERE user_id = ?`, string(userID))
 	c := &DnDCharacter{}
 	var pending, autoMig, onboard int
-	var raceStr, classStr string
+	var raceStr, classStr, subclassStr string
 	var uidStr string
 	err := row.Scan(&uidStr, &raceStr, &classStr, &c.Level, &c.XP,
 		&c.STR, &c.DEX, &c.CON, &c.INT, &c.WIS, &c.CHA,
 		&c.HPCurrent, &c.HPMax, &c.TempHP, &c.ArmorClass,
 		&pending, &autoMig, &onboard, &c.ArmedAbility,
 		&c.PendingCast, &c.ConcentrationSpell, &c.ConcentrationExpiresAt,
+		&subclassStr, &c.LastSubclassRespecAt,
 		&c.LastRespecAt, &c.LastShortRestAt, &c.LastLongRestAt,
 		&c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -227,6 +235,7 @@ func LoadDnDCharacter(userID id.UserID) (*DnDCharacter, error) {
 	c.UserID = id.UserID(uidStr)
 	c.Race = DnDRace(raceStr)
 	c.Class = DnDClass(classStr)
+	c.Subclass = DnDSubclass(subclassStr)
 	c.PendingSetup = pending == 1
 	c.AutoMigrated = autoMig == 1
 	c.OnboardingSent = onboard == 1
@@ -253,8 +262,9 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		    hp_current, hp_max, temp_hp, armor_class,
 		    pending_setup, auto_migrated, onboarding_sent, armed_ability,
 		    pending_cast, concentration_spell, concentration_expires_at,
+		    subclass, last_subclass_respec_at,
 		    last_respec_at, last_short_rest_at, last_long_rest_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(user_id) DO UPDATE SET
 		    race=excluded.race, class=excluded.class,
 		    dnd_level=excluded.dnd_level, dnd_xp=excluded.dnd_xp,
@@ -270,6 +280,8 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		    pending_cast=excluded.pending_cast,
 		    concentration_spell=excluded.concentration_spell,
 		    concentration_expires_at=excluded.concentration_expires_at,
+		    subclass=excluded.subclass,
+		    last_subclass_respec_at=excluded.last_subclass_respec_at,
 		    last_respec_at=excluded.last_respec_at,
 		    last_short_rest_at=excluded.last_short_rest_at,
 		    last_long_rest_at=excluded.last_long_rest_at,
@@ -279,6 +291,7 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		c.HPCurrent, c.HPMax, c.TempHP, c.ArmorClass,
 		pending, autoMig, onboard, c.ArmedAbility,
 		c.PendingCast, c.ConcentrationSpell, c.ConcentrationExpiresAt,
+		string(c.Subclass), c.LastSubclassRespecAt,
 		c.LastRespecAt, c.LastShortRestAt, c.LastLongRestAt)
 	if err != nil {
 		return fmt.Errorf("save dnd_character: %w", err)

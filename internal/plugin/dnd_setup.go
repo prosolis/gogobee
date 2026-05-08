@@ -383,6 +383,10 @@ func (p *AdventurePlugin) handleDnDRespecCmd(ctx MessageContext) error {
 	c.PendingSetup = true
 	c.AutoMigrated = false
 	c.LastRespecAt = &now
+	// Phase 10: full wipe also resets subclass state. Subclass-respec
+	// cooldown is dropped — at L1 with no class there's nothing to gate.
+	c.Subclass = ""
+	c.LastSubclassRespecAt = nil
 	// Save the wipe BEFORE debiting euros (audit fix B). If save fails, the
 	// player's old state survives and they keep their euros — better than
 	// a destructive debit-without-wipe.

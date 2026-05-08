@@ -124,6 +124,7 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "sheet", Description: "View your Adv 2.0 character sheet", Usage: "!sheet", Category: "Games"},
 		{Name: "abilities", Description: "List your Adv 2.0 class and race abilities", Usage: "!abilities", Category: "Games"},
 		{Name: "respec", Description: "Wipe and rebuild your Adv 2.0 character (5000 euros, 7-day cooldown)", Usage: "!respec", Category: "Games"},
+		{Name: "subclass", Description: "View or choose your Adv 2.0 subclass (unlocks at L5; change costs 500 euros, 30-day cooldown)", Usage: "!subclass [name|number]", Category: "Games"},
 		{Name: "check", Description: "Roll an Adv 2.0 skill check (d20 + ability modifier vs DC)", Usage: "!check <skill> [dc]", Category: "Games"},
 		{Name: "rest", Description: "Take an Adv 2.0 rest (`short`: 1h cooldown, partial heal — `long`: 24h, full heal, requires housing or inn)", Usage: "!rest short|long", Category: "Games"},
 		{Name: "arm", Description: "Pre-arm an active Adv 2.0 ability for next combat (consumes resource)", Usage: "!arm <ability>", Category: "Games"},
@@ -215,6 +216,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	}
 	if p.IsCommand(ctx.Body, "respec") {
 		return p.handleDnDRespecCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "subclass") {
+		return p.handleDnDSubclassCmd(ctx, p.GetArgs(ctx.Body, "subclass"))
 	}
 	if p.IsCommand(ctx.Body, "check") {
 		return p.handleDnDCheckCmd(ctx, p.GetArgs(ctx.Body, "check"))

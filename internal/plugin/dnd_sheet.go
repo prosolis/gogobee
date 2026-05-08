@@ -77,6 +77,13 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, equip map[Equipmen
 		name = adv.DisplayName
 	}
 	b.WriteString(fmt.Sprintf("⚔️ **%s** — Level %d %s %s\n", name, c.Level, ri.Display, ci.Display))
+	if c.Subclass != "" {
+		if si, ok := subclassInfo(c.Subclass); ok {
+			b.WriteString(fmt.Sprintf("    _%s_\n", si.Display))
+		}
+	} else if c.Level >= dndSubclassMinLevel {
+		b.WriteString("    _Subclass: unchosen — run `!subclass`_\n")
+	}
 	b.WriteString(strings.Repeat("─", 36) + "\n")
 
 	// Vitals

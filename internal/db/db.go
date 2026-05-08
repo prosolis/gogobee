@@ -173,6 +173,11 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE dnd_character ADD COLUMN pending_cast TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE dnd_character ADD COLUMN concentration_spell TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE dnd_character ADD COLUMN concentration_expires_at DATETIME`,
+		// Phase 10 — subclass system. Subclass id is set at L5 via !subclass.
+		// last_subclass_respec_at gates the 30-day cooldown for changing it
+		// (separate from last_respec_at, which gates the full character wipe).
+		`ALTER TABLE dnd_character ADD COLUMN subclass TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE dnd_character ADD COLUMN last_subclass_respec_at DATETIME`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
