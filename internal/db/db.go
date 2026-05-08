@@ -1630,6 +1630,60 @@ CREATE TABLE IF NOT EXISTS dnd_zone_run (
 );
 CREATE INDEX IF NOT EXISTS idx_zone_run_active
     ON dnd_zone_run(user_id, completed_at, abandoned);
+
+-- ── D&D Layer (Phase 12 E1a — expeditions) ─────────────────────────────────
+-- A multi-day expedition wrapping a zone run. The expedition tracks
+-- real-world day count, supplies, camp state, threat clock, and zone-specific
+-- temporal stacks (heat / instability / time distortion). One active row
+-- per player (status='active'); enforced in code.
+--
+-- supplies_json:    serialized ExpeditionSupplies (current, max, daily_burn, harsh_mod, foraged_today)
+-- camp_json:        serialized *CampState (NULL when no camp pitched)
+-- threat_events:    serialized []ThreatEvent log
+-- region_state:     serialized region progression for Tier 4-5 zones (E4)
+CREATE TABLE IF NOT EXISTS dnd_expedition (
+    expedition_id    TEXT PRIMARY KEY,
+    user_id          TEXT NOT NULL,
+    zone_id          TEXT NOT NULL,
+    run_id           TEXT,                              -- FK-ish: dnd_zone_run.run_id
+    status           TEXT NOT NULL DEFAULT 'active',    -- active|extracting|complete|failed|abandoned
+    start_date       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    current_day      INTEGER NOT NULL DEFAULT 1,
+    current_region   TEXT NOT NULL DEFAULT '',
+    boss_defeated    INTEGER NOT NULL DEFAULT 0,
+    supplies_json    TEXT NOT NULL DEFAULT '{}',
+    camp_json        TEXT,
+    threat_level     INTEGER NOT NULL DEFAULT 0,
+    threat_siege     INTEGER NOT NULL DEFAULT 0,
+    threat_events    TEXT NOT NULL DEFAULT '[]',
+    temporal_stack   INTEGER NOT NULL DEFAULT 0,        -- heat / instability / etc.
+    region_state     TEXT NOT NULL DEFAULT '{}',
+    xp_earned        INTEGER NOT NULL DEFAULT 0,
+    coins_earned     INTEGER NOT NULL DEFAULT 0,
+    gm_mood          INTEGER NOT NULL DEFAULT 50,
+    last_briefing_at DATETIME,
+    last_recap_at    DATETIME,
+    last_activity    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at     DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_expedition_active
+    ON dnd_expedition(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_expedition_run
+    ON dnd_expedition(run_id);
+
+-- One row per ExpeditionEntry (§9). Cheap to append; queried last-N for
+-- !expedition log and to reconstruct overnight events for morning briefings.
+CREATE TABLE IF NOT EXISTS dnd_expedition_log (
+    entry_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    expedition_id   TEXT NOT NULL,
+    day             INTEGER NOT NULL,
+    timestamp       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    entry_type      TEXT NOT NULL,                      -- action|combat|rest|event|narrative|briefing|recap
+    summary         TEXT NOT NULL DEFAULT '',
+    flavor          TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_expedition_log_recent
+    ON dnd_expedition_log(expedition_id, timestamp DESC);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.
