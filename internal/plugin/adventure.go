@@ -247,6 +247,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "level") {
 		return p.handleDnDLevelCmd(ctx)
 	}
+	if p.IsCommand(ctx.Body, "zone") {
+		return p.handleDnDZoneCmd(ctx, p.GetArgs(ctx.Body, "zone"))
+	}
 
 	// 1. Arena commands (work in rooms and DMs)
 	if p.IsCommand(ctx.Body, "bail") {
