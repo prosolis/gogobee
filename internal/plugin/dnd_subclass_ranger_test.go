@@ -166,6 +166,123 @@ func TestSubclassSkillAdvantage_GloomStalkerPreL5No(t *testing.T) {
 	}
 }
 
+// ── Phase 10 SUB3d — Hunter L10/L15 ─────────────────────────────────────
+
+func TestApplySubclassPassives_HunterL10Multiattack(t *testing.T) {
+	c := &DnDCharacter{Class: ClassRanger, Subclass: SubclassHunter, Level: 10}
+	stats := &CombatStats{AC: 14}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(stats, mods, c)
+	// L5 +0.10 + L10 +0.15 = 0.25
+	if mods.DamageBonus < 0.249 || mods.DamageBonus > 0.251 {
+		t.Errorf("Hunter L10 DamageBonus = %v, want ~0.25", mods.DamageBonus)
+	}
+	if mods.DamageReduct != 1.0 {
+		t.Errorf("Hunter L10 DamageReduct = %v, want 1.0 (no Superior Defense yet)", mods.DamageReduct)
+	}
+}
+
+func TestApplySubclassPassives_HunterL15SuperiorDefense(t *testing.T) {
+	c := &DnDCharacter{Class: ClassRanger, Subclass: SubclassHunter, Level: 15}
+	stats := &CombatStats{AC: 14}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(stats, mods, c)
+	if mods.DamageReduct < 0.849 || mods.DamageReduct > 0.851 {
+		t.Errorf("Hunter L15 DamageReduct = %v, want ~0.85", mods.DamageReduct)
+	}
+	if mods.DamageBonus < 0.249 || mods.DamageBonus > 0.251 {
+		t.Errorf("Hunter L15 DamageBonus = %v, want ~0.25 (L5+L10 still on)", mods.DamageBonus)
+	}
+}
+
+// ── Phase 10 SUB3d — Beast Master L10/L15 ───────────────────────────────
+
+func TestApplySubclassPassives_BeastMasterL10ShareSpells(t *testing.T) {
+	c := &DnDCharacter{Class: ClassRanger, Subclass: SubclassBeastMaster, Level: 10}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.PetAttackProc < 0.449 || mods.PetAttackProc > 0.451 {
+		t.Errorf("BM L10 PetAttackProc = %v, want ~0.45", mods.PetAttackProc)
+	}
+	// L10 → 6 + 10/2 = 11
+	if mods.PetAttackDmg != 11 {
+		t.Errorf("BM L10 PetAttackDmg = %d, want 11", mods.PetAttackDmg)
+	}
+	if mods.DamageBonus < 0.049 || mods.DamageBonus > 0.051 {
+		t.Errorf("BM L10 DamageBonus = %v, want ~0.05", mods.DamageBonus)
+	}
+}
+
+func TestApplySubclassPassives_BeastMasterL15SuperiorBond(t *testing.T) {
+	c := &DnDCharacter{Class: ClassRanger, Subclass: SubclassBeastMaster, Level: 15}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.PetAttackProc < 0.549 || mods.PetAttackProc > 0.551 {
+		t.Errorf("BM L15 PetAttackProc = %v, want ~0.55", mods.PetAttackProc)
+	}
+	// L15 → 8 + 15/2 = 8 + 7 = 15
+	if mods.PetAttackDmg != 15 {
+		t.Errorf("BM L15 PetAttackDmg = %d, want 15", mods.PetAttackDmg)
+	}
+	if mods.DamageReduct < 0.919 || mods.DamageReduct > 0.921 {
+		t.Errorf("BM L15 DamageReduct = %v, want ~0.92", mods.DamageReduct)
+	}
+}
+
+// L10/L15 must not downgrade a stronger external pet floor.
+func TestApplySubclassPassives_BeastMasterL15DoesntDowngradeStrongerPet(t *testing.T) {
+	c := &DnDCharacter{Class: ClassRanger, Subclass: SubclassBeastMaster, Level: 15}
+	mods := &CombatModifiers{
+		DamageReduct:  1.0,
+		PetAttackProc: 0.80,
+		PetAttackDmg:  25,
+	}
+	applySubclassPassives(&CombatStats{}, mods, c)
+	if mods.PetAttackProc != 0.80 {
+		t.Errorf("PetAttackProc = %v, want 0.80 preserved", mods.PetAttackProc)
+	}
+	if mods.PetAttackDmg != 25 {
+		t.Errorf("PetAttackDmg = %d, want 25 preserved", mods.PetAttackDmg)
+	}
+}
+
+// ── Phase 10 SUB3d — Gloom Stalker L10/L15 ──────────────────────────────
+
+func TestApplySubclassPassives_GloomStalkerL10StalkersFlurry(t *testing.T) {
+	c := &DnDCharacter{
+		Class: ClassRanger, Subclass: SubclassGloomStalker, Level: 10,
+		WIS: 14, // mod +2
+	}
+	stats := &CombatStats{Speed: 10}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(stats, mods, c)
+	if mods.DamageBonus < 0.119 || mods.DamageBonus > 0.121 {
+		t.Errorf("GS L10 DamageBonus = %v, want ~0.12", mods.DamageBonus)
+	}
+	if !mods.AssassinateAdvantage {
+		t.Error("GS L10 should still have AssassinateAdvantage from L7")
+	}
+	if mods.DamageReduct != 1.0 {
+		t.Errorf("GS L10 DamageReduct = %v, want 1.0 (no Shadowy Dodge yet)", mods.DamageReduct)
+	}
+}
+
+func TestApplySubclassPassives_GloomStalkerL15ShadowyDodge(t *testing.T) {
+	c := &DnDCharacter{
+		Class: ClassRanger, Subclass: SubclassGloomStalker, Level: 15,
+		WIS: 14, // mod +2
+	}
+	stats := &CombatStats{Speed: 10}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	applySubclassPassives(stats, mods, c)
+	if mods.DamageReduct < 0.899 || mods.DamageReduct > 0.901 {
+		t.Errorf("GS L15 DamageReduct = %v, want ~0.90", mods.DamageReduct)
+	}
+	if mods.DamageBonus < 0.119 || mods.DamageBonus > 0.121 {
+		t.Errorf("GS L15 DamageBonus = %v, want ~0.12 (L10 still on)", mods.DamageBonus)
+	}
+}
+
 // ── End-to-end: Hunter colossus-slayer damage lift ──────────────────────
 
 func TestSimulateCombat_HunterDamageBonusImprovesWinRate(t *testing.T) {

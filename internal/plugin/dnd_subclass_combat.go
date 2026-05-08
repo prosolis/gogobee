@@ -235,6 +235,21 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 		if c.Level >= 7 {
 			stats.AC++
 		}
+		// Phase 10 SUB3d — Hunter L10 Multiattack (Volley/Whirlwind). Both 5e
+		// options are AoE; in 1v1 there's only one target, so we collapse the
+		// extra-target throughput to "extra hit per round on the one foe" — a
+		// flat +15% damage bump (close to a half-extra-attack's value, soft
+		// on the upside since AoE wouldn't all land on a single target).
+		if c.Level >= 10 {
+			mods.DamageBonus += 0.15
+		}
+		// Phase 10 SUB3d — Hunter L15 Superior Hunter's Defense. 5e picks one
+		// of Evasion / Stand Against the Tide / Uncanny Dodge. Uncanny Dodge
+		// (halve damage from one attack/turn) is the most generally-applicable
+		// — proxy as a permanent ~15% incoming damage reduction.
+		if c.Level >= 15 {
+			mods.DamageReduct *= 0.85
+		}
 	case SubclassBeastMaster:
 		// L5 Ranger's Companion + Exceptional Training: a baseline combat
 		// pet shows up on initiative and pokes the enemy. Use max-style
@@ -259,6 +274,37 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 				mods.PetAttackDmg = dmg
 			}
 		}
+		// Phase 10 SUB3d — Beast Master L10 Share Spells. 5e: any spell the
+		// Ranger casts on themselves can also affect the pet within 30 ft.
+		// In practice this means the pet rides the Ranger's self-buffs
+		// (Hunter's Mark damage rider, Pass without Trace, etc.). We fold
+		// that into the pet channel: bump per-hit damage and proc rate to
+		// reflect the buffed pet, plus a small DamageBonus rider matching
+		// the player's own buffed swings sharing.
+		if c.Level >= 10 {
+			if mods.PetAttackProc < 0.45 {
+				mods.PetAttackProc = 0.45
+			}
+			if mods.PetAttackDmg < 6+c.Level/2 {
+				mods.PetAttackDmg = 6 + c.Level/2
+			}
+			mods.DamageBonus += 0.05
+		}
+		// Phase 10 SUB3d — Beast Master L15 Superior Bond. 5e: pet immune to
+		// charm/fright, returns at 1 HP after a long rest if killed. We don't
+		// simulate pet death, so we proxy the "always-there partner" fantasy
+		// as a further pet-throughput bump and a small DamageReduct (pet
+		// body-blocks more reliably).
+		if c.Level >= 15 {
+			if mods.PetAttackProc < 0.55 {
+				mods.PetAttackProc = 0.55
+			}
+			extra := 8 + c.Level/2
+			if mods.PetAttackDmg < extra {
+				mods.PetAttackDmg = extra
+			}
+			mods.DamageReduct *= 0.92
+		}
 	case SubclassGloomStalker:
 		// L5 Dread Ambusher: +WIS to initiative and +1 attack with +1d8 in
 		// the first round. Initiative rides on Speed in our model; the
@@ -276,6 +322,21 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 		}
 		if c.Level >= 7 {
 			mods.AssassinateAdvantage = true
+		}
+		// Phase 10 SUB3d — Gloom Stalker L10 Stalker's Flurry. 5e: re-roll a
+		// missed attack once per turn. AssassinateAdvantage already grants
+		// "best of two" on the opener (L7 Stalker's Flurry proxy), so the
+		// L10 expansion to "every turn" rides as steady throughput — a flat
+		// +12% damage bump representing recovered misses across the fight.
+		if c.Level >= 10 {
+			mods.DamageBonus += 0.12
+		}
+		// Phase 10 SUB3d — Gloom Stalker L15 Shadowy Dodge. 5e: Reaction —
+		// when attacked, impose disadvantage on that attack. We don't model
+		// reactions, so collapse the "one attack per round at disadvantage"
+		// to a permanent ~10% incoming damage reduction.
+		if c.Level >= 15 {
+			mods.DamageReduct *= 0.90
 		}
 	}
 }
