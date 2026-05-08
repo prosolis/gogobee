@@ -35,9 +35,10 @@ func TestBestiaryByCR(t *testing.T) {
 			t.Errorf("CR filter leaked: %s CR=%v", m.Name, m.CR)
 		}
 	}
-	high := dndBestiaryByCR(20.0)
+	// Cap above CR 24 to cover Infernax (Ancient Red Dragon, T5 boss).
+	high := dndBestiaryByCR(30.0)
 	if len(high) != len(dndBestiary) {
-		t.Errorf("CR≤20 filter returned %d, want all %d", len(high), len(dndBestiary))
+		t.Errorf("CR≤30 filter returned %d, want all %d", len(high), len(dndBestiary))
 	}
 }
 

@@ -48,6 +48,32 @@ func TestZoneRegistry_Tier3Present(t *testing.T) {
 	}
 }
 
+func TestZoneRegistry_Tier4Present(t *testing.T) {
+	if _, ok := getZone(ZoneUnderdark); !ok {
+		t.Fatal("The Underdark not registered")
+	}
+	if _, ok := getZone(ZoneFeywildCrossing); !ok {
+		t.Fatal("Feywild Crossing not registered")
+	}
+	t4 := zonesByTier(ZoneTierVeteran)
+	if len(t4) != 2 {
+		t.Fatalf("expected 2 Tier 4 zones, got %d", len(t4))
+	}
+}
+
+func TestZoneRegistry_Tier5Present(t *testing.T) {
+	if _, ok := getZone(ZoneDragonsLair); !ok {
+		t.Fatal("Dragon's Lair not registered")
+	}
+	if _, ok := getZone(ZoneAbyssPortal); !ok {
+		t.Fatal("The Abyss Portal not registered")
+	}
+	t5 := zonesByTier(ZoneTierLegendary)
+	if len(t5) != 2 {
+		t.Fatalf("expected 2 Tier 5 zones, got %d", len(t5))
+	}
+}
+
 func TestZoneRegistry_BestiaryRefsResolve(t *testing.T) {
 	for _, z := range allZones() {
 		for _, e := range z.Enemies {

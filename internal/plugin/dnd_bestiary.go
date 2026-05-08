@@ -430,6 +430,227 @@ var _ = func() bool {
 	return true
 }()
 
+// ---- Tier 4-5 zone roster (Phase 11 D5a) -------------------------------------
+//
+// Underdark + Feywild Crossing (T4) and Dragon's Lair + Abyss Portal (T5)
+// enemy entries. Stat blocks per gogobee_dungeon_zones.md §5. Same
+// Attack-as-average-damage convention as prior tiers; AttackBonus = d20
+// to-hit modifier; elites flagged via the zone roster, not here.
+// Feywild reuses Tier 2's green_hag entry.
+
+var _ = func() bool {
+	tier45 := map[string]DnDMonsterTemplate{
+		// ── Underdark ────────────────────────────────────────────────────
+		"drow": {
+			ID: "drow", Name: "Drow",
+			CR: 0.25, HP: 13, AC: 15, Attack: 5, AttackBonus: 4, Speed: 12,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Drow Poison", Phase: "any", ProcChance: 0.30, Effect: "stun"},
+			XPValue:   50,
+			Notes:     "Fey Ancestry (adv. vs charm); Sunlight Sensitivity; Hand Crossbow poison bolt.",
+		},
+		"drow_elite_warrior": {
+			ID: "drow_elite_warrior", Name: "Drow Elite Warrior",
+			CR: 5, HP: 71, AC: 18, Attack: 18, AttackBonus: 7, Speed: 12,
+			BlockRate: 0.20,
+			Ability:   &MonsterAbility{Name: "Parry", Phase: "any", ProcChance: 0.35, Effect: "block"},
+			XPValue:   1800,
+			Notes:     "Multiattack 3 hits; Parry reaction; Drow Poison (CON DC 13 unconscious).",
+		},
+		"drow_mage": {
+			ID: "drow_mage", Name: "Drow Mage",
+			CR: 7, HP: 45, AC: 12, Attack: 22, AttackBonus: 5, Speed: 12,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Lightning Bolt", Phase: "decisive", ProcChance: 0.45, Effect: "aoe"},
+			XPValue:   2900,
+			Notes:     "Spells: Lightning Bolt, Fly, Darkness, Faerie Fire. Magic Resistance.",
+		},
+		"mind_flayer": {
+			ID: "mind_flayer", Name: "Mind Flayer",
+			CR: 7, HP: 71, AC: 15, Attack: 26, AttackBonus: 7, Speed: 12,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Mind Blast", Phase: "opening", ProcChance: 0.55, Effect: "stun"},
+			XPValue:   2900,
+			Notes:     "Mind Blast AoE psychic INT DC 15 or Stunned; Extract Brain instakills stunned; telepathy.",
+		},
+		"hook_horror": {
+			ID: "hook_horror", Name: "Hook Horror",
+			CR: 3, HP: 75, AC: 15, Attack: 14, AttackBonus: 6, Speed: 10,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Pack Tactics", Phase: "any", ProcChance: 0.30, Effect: "advantage"},
+			XPValue:   700,
+			Notes:     "Echoes of Darkness blindsight 60 ft; grapple claws; pack tactics.",
+		},
+		"roper": {
+			ID: "roper", Name: "Roper",
+			CR: 5, HP: 93, AC: 20, Attack: 22, AttackBonus: 7, Speed: 4,
+			BlockRate: 0.20,
+			Ability:   &MonsterAbility{Name: "Reel", Phase: "any", ProcChance: 0.50, Effect: "stun"},
+			XPValue:   1800,
+			Notes:     "Elite. 6 tendrils grapple+restrain; Reel pulls 25 ft; False Appearance.",
+		},
+		"boss_ilvaras_xunyl": {
+			ID: "boss_ilvaras_xunyl", Name: "Ilvaras Xunyl, Drow High Priestess",
+			CR: 12, HP: 162, AC: 16, Attack: 38, AttackBonus: 9, Speed: 12,
+			BlockRate: 0.15,
+			Ability:   &MonsterAbility{Name: "Divine Word", Phase: "decisive", ProcChance: 0.40, Effect: "execute"},
+			XPValue:   8400,
+			Notes:     "Underdark boss. Legendary Actions; Lolth's Favour 1/combat; phase 2 below 35% HP — Lolth's Avatar overlay.",
+		},
+		// ── Feywild Crossing ─────────────────────────────────────────────
+		"redcap": {
+			ID: "redcap", Name: "Redcap",
+			CR: 3, HP: 45, AC: 13, Attack: 16, AttackBonus: 6, Speed: 14,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Outsize Strength", Phase: "any", ProcChance: 0.40, Effect: "bonus_damage"},
+			XPValue:   700,
+			Notes:     "Iron Boots add bludgeoning on hit; loses power without blood-soaked cap.",
+		},
+		"will_o_wisp": {
+			ID: "will_o_wisp", Name: "Will-o'-Wisp",
+			CR: 2, HP: 22, AC: 19, Attack: 9, AttackBonus: 4, Speed: 14,
+			BlockRate: 0.0,
+			Ability:   &MonsterAbility{Name: "Consume Life", Phase: "any", ProcChance: 0.40, Effect: "lifesteal"},
+			XPValue:   450,
+			Notes:     "Variable Illumination; Ephemeral (+13 vs OAs); incorporeal.",
+		},
+		"quickling": {
+			ID: "quickling", Name: "Quickling",
+			CR: 1, HP: 10, AC: 16, Attack: 8, AttackBonus: 5, Speed: 18,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Blur", Phase: "any", ProcChance: 0.50, Effect: "evade"},
+			XPValue:   200,
+			Notes:     "Attacks at disadvantage vs Quickling; 3 attacks/turn; Evasion.",
+		},
+		"night_hag": {
+			ID: "night_hag", Name: "Night Hag",
+			CR: 5, HP: 112, AC: 17, Attack: 21, AttackBonus: 7, Speed: 12,
+			BlockRate: 0.15,
+			Ability:   &MonsterAbility{Name: "Etherealness", Phase: "any", ProcChance: 0.30, Effect: "evade"},
+			XPValue:   1800,
+			Notes:     "Etherealness; Dream Haunting (no long rest benefit); Heartstone.",
+		},
+		"fomorian": {
+			ID: "fomorian", Name: "Fomorian",
+			CR: 8, HP: 149, AC: 14, Attack: 30, AttackBonus: 9, Speed: 12,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Evil Eye", Phase: "any", ProcChance: 0.45, Effect: "stun"},
+			XPValue:   3900,
+			Notes:     "Elite. Evil Eye WIS DC 14 (Frightened/Poisoned/Stunned — GM choice); stomp AoE.",
+		},
+		"boss_thornmother": {
+			ID: "boss_thornmother", Name: "The Thornmother",
+			CR: 11, HP: 187, AC: 17, Attack: 32, AttackBonus: 8, Speed: 12,
+			BlockRate: 0.15,
+			Ability:   &MonsterAbility{Name: "Beguiling Bargain", Phase: "opening", ProcChance: 0.50, Effect: "stun"},
+			XPValue:   7200,
+			Notes:     "Feywild Crossing boss. Coven Magic; Shapechange; phase 2 below 30% HP — True Form, +4d6 psychic, summons 2 Night Hags.",
+		},
+		// ── Dragon's Lair ────────────────────────────────────────────────
+		"kobold": {
+			ID: "kobold", Name: "Kobold",
+			CR: 0.125, HP: 5, AC: 12, Attack: 4, AttackBonus: 4, Speed: 12,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Pack Tactics", Phase: "any", ProcChance: 0.40, Effect: "advantage"},
+			XPValue:   25,
+			Notes:     "Sunlight Sensitivity; Trap expertise; pack tactics.",
+		},
+		"guard_drake": {
+			ID: "guard_drake", Name: "Guard Drake",
+			CR: 2, HP: 52, AC: 14, Attack: 12, AttackBonus: 5, Speed: 12,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Draconic Loyalty", Phase: "any", ProcChance: 1.00, Effect: "fear_immune"},
+			XPValue:   450,
+			Notes:     "Multiattack; immune to fear near dragons.",
+		},
+		"kobold_scale_sorcerer": {
+			ID: "kobold_scale_sorcerer", Name: "Kobold Scale Sorcerer",
+			CR: 1, HP: 27, AC: 15, Attack: 11, AttackBonus: 4, Speed: 12,
+			BlockRate: 0.05,
+			Ability:   &MonsterAbility{Name: "Chromatic Orb", Phase: "decisive", ProcChance: 0.50, Effect: "bonus_damage"},
+			XPValue:   200,
+			Notes:     "Spells: Chromatic Orb, Mage Armor, Shield. Draconic Sorcery.",
+		},
+		"dragonborn_cultist": {
+			ID: "dragonborn_cultist", Name: "Dragonborn Cultist",
+			CR: 4, HP: 71, AC: 16, Attack: 17, AttackBonus: 6, Speed: 12,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Draconic Gift", Phase: "opening", ProcChance: 0.50, Effect: "aoe"},
+			XPValue:   1100,
+			Notes:     "Breath weapon 2d6 (DC 13); Fanatical Devotion (immune to fear).",
+		},
+		"young_red_dragon": {
+			ID: "young_red_dragon", Name: "Young Red Dragon",
+			CR: 10, HP: 178, AC: 18, Attack: 36, AttackBonus: 10, Speed: 16,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Fire Breath", Phase: "any", ProcChance: 0.30, Effect: "aoe_fire"},
+			XPValue:   5900,
+			Notes:     "Elite. Fire Breath 16d6 DEX DC 21; Multiattack; Frightful Presence WIS DC 16.",
+		},
+		"boss_infernax": {
+			ID: "boss_infernax", Name: "Infernax the Undying",
+			CR: 24, HP: 546, AC: 22, Attack: 65, AttackBonus: 14, Speed: 18,
+			BlockRate: 0.15,
+			Ability:   &MonsterAbility{Name: "Frightful Presence", Phase: "opening", ProcChance: 0.80, Effect: "stun"},
+			XPValue:   62000,
+			Notes:     "Dragon's Lair boss. Ancient Red Dragon. Legendary Actions; Lair Actions; phase 2 below 50% HP — fire ignores resistance.",
+		},
+		// ── Abyss Portal ─────────────────────────────────────────────────
+		"quasit": {
+			ID: "quasit", Name: "Quasit",
+			CR: 1, HP: 7, AC: 13, Attack: 6, AttackBonus: 4, Speed: 14,
+			BlockRate: 0.0,
+			Ability:   &MonsterAbility{Name: "Invisibility", Phase: "any", ProcChance: 0.40, Effect: "evade"},
+			XPValue:   200,
+			Notes:     "Scare WIS DC 10 Frightened 1 min; poison claws.",
+		},
+		"vrock": {
+			ID: "vrock", Name: "Vrock",
+			CR: 6, HP: 104, AC: 15, Attack: 25, AttackBonus: 6, Speed: 12,
+			BlockRate: 0.10,
+			Ability:   &MonsterAbility{Name: "Stunning Screech", Phase: "opening", ProcChance: 0.50, Effect: "stun"},
+			XPValue:   2300,
+			Notes:     "Multiattack; Spores CON DC 14 (5d10 poison/24h); Screech CON DC 14 Stunned.",
+		},
+		"hezrou": {
+			ID: "hezrou", Name: "Hezrou",
+			CR: 8, HP: 136, AC: 16, Attack: 30, AttackBonus: 7, Speed: 13,
+			BlockRate: 0.15,
+			Ability:   &MonsterAbility{Name: "Stench", Phase: "any", ProcChance: 0.50, Effect: "debuff"},
+			XPValue:   3900,
+			Notes:     "Stench CON DC 14 Poisoned (disadvantage); multiattack.",
+		},
+		"nalfeshnee": {
+			ID: "nalfeshnee", Name: "Nalfeshnee",
+			CR: 13, HP: 184, AC: 18, Attack: 42, AttackBonus: 10, Speed: 12,
+			BlockRate: 0.15,
+			Ability:   &MonsterAbility{Name: "Horror Nimbus", Phase: "opening", ProcChance: 0.55, Effect: "stun"},
+			XPValue:   10000,
+			Notes:     "Multiattack 3 hits; Horror Nimbus AoE WIS DC 15 Frightened; Magic Resistance.",
+		},
+		"marilith": {
+			ID: "marilith", Name: "Marilith",
+			CR: 16, HP: 189, AC: 18, Attack: 50, AttackBonus: 11, Speed: 12,
+			BlockRate: 0.25,
+			Ability:   &MonsterAbility{Name: "Reactive Parry", Phase: "any", ProcChance: 0.50, Effect: "block"},
+			XPValue:   15000,
+			Notes:     "Elite. 7 attacks/turn; Parry reaction; Reactive (extra reaction); Magic Resistance.",
+		},
+		"boss_belaxath": {
+			ID: "boss_belaxath", Name: "Belaxath the Undivided",
+			CR: 19, HP: 262, AC: 19, Attack: 58, AttackBonus: 12, Speed: 14,
+			BlockRate: 0.20,
+			Ability:   &MonsterAbility{Name: "Lightning Discharge", Phase: "decisive", ProcChance: 0.40, Effect: "aoe"},
+			XPValue:   22000,
+			Notes:     "Abyss Portal boss. Balor. Fire Aura; Death Throes on death; Demonic Resilience; Legendary Resistance 3/combat; phase 2 below 40% HP — Huge size, advantage on attacks.",
+		},
+	}
+	for id, m := range tier45 {
+		dndBestiary[id] = m
+	}
+	return true
+}()
+
 // dndBestiaryByCR returns templates whose CR is at or below the given cap.
 // Useful for procedurally selecting a monster appropriate to player level.
 func dndBestiaryByCR(maxCR float32) []DnDMonsterTemplate {

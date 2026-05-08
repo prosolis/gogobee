@@ -115,6 +115,10 @@ func init() {
 	registerZone(zoneSunkenTemple())
 	registerZone(zoneManorBlackspire())
 	registerZone(zoneUnderforge())
+	registerZone(zoneUnderdark())
+	registerZone(zoneFeywildCrossing())
+	registerZone(zoneDragonsLair())
+	registerZone(zoneAbyssPortal())
 }
 
 // getZone returns the definition by ID and ok=false if unknown.
@@ -441,5 +445,196 @@ func zoneUnderforge() ZoneDefinition {
 			{ItemID: "azer_ingots", UniqueAlways: true, Note: "1d6 ingots; high-value Thom Krooke sale"},
 		},
 		FlavorFile: "zone_underforge_flavor.go",
+	}
+}
+
+// ---- Tier 4-5 zone factories (Phase 11 D5a) ---------------------------------
+
+func zoneUnderdark() ZoneDefinition {
+	return ZoneDefinition{
+		ID:         ZoneUnderdark,
+		Display:    "The Underdark",
+		Tier:       ZoneTierVeteran,
+		LevelMin:   8,
+		LevelMax:   12,
+		Faction:    "Drow, Mind Flayers, Beholders (far), Ropers, Hook Horrors",
+		Atmosphere: "Absolute darkness, phosphorescent mushroom groves, vast underground seas, carved drow cities in the distance, things older than the surface world.",
+		Hook:       "There is a world below the world. It has its own cities, its own wars, its own sky — which is stone, and has never once been kind. TwinBee speaks more quietly here. Something might be listening.",
+		MinRooms:   8,
+		MaxRooms:   10,
+		Enemies: []ZoneEnemy{
+			{BestiaryID: "drow", SpawnWeight: 7},
+			{BestiaryID: "drow_elite_warrior", SpawnWeight: 4},
+			{BestiaryID: "drow_mage", SpawnWeight: 3},
+			{BestiaryID: "mind_flayer", SpawnWeight: 2},
+			{BestiaryID: "hook_horror", SpawnWeight: 4},
+			{BestiaryID: "roper", SpawnWeight: 1, IsElite: true},
+		},
+		Boss: ZoneBoss{
+			BestiaryID:  "boss_ilvaras_xunyl",
+			Name:        "Ilvaras Xunyl, Drow High Priestess",
+			CR:          12,
+			HP:          162,
+			AC:          16,
+			PhaseTwoAt:  0.35,
+			Description: "She has killed four previous expeditions from the surface. She keeps their weapons as trophies. She has run out of wall space.",
+			Abilities: []string{
+				"Spells: Flame Strike, Dispel Magic, Divine Word (CHA DC 18), Insect Plague",
+				"Lolth's Favour: 1/combat auto-succeed a failed save",
+				"Summon Spiders (1/combat): 2d6 Giant Spiders fill the room",
+				"Legendary Actions (3): Melee (1 LA), Cast Cantrip (1 LA), Drain Life (3 LA — 4d10 necrotic)",
+				"Phase 2 (<35% HP): Lolth's Avatar overlay — +3 AC; spells cast as 1 higher slot",
+			},
+		},
+		Loot: []ZoneLootEntry{
+			{ItemID: "xunyls_diadem", DropChance: 0.05, Note: "+3 CHA; Drow Spells (Darkness, Faerie Fire 1/day each)"},
+			{ItemID: "arm_drow_chain_+2", DropChance: 0.08},
+			{ItemID: "wpn_dagger_of_venom", DropChance: 0.10},
+			{ItemID: "spider_silk", UniqueAlways: true, Note: "2d4 high-value crafting material"},
+			{ItemID: "coins_15d10x12", DropChance: 1.0, Note: "15d10 × 12 coins"},
+		},
+		FlavorFile: "zone_underdark_flavor.go",
+	}
+}
+
+func zoneFeywildCrossing() ZoneDefinition {
+	return ZoneDefinition{
+		ID:         ZoneFeywildCrossing,
+		Display:    "Feywild Crossing",
+		Tier:       ZoneTierVeteran,
+		LevelMin:   8,
+		LevelMax:   12,
+		Faction:    "Hags, Redcaps, Will-o-Wisps, Fomorians, Unseelie Fey",
+		Atmosphere: "Impossible beauty, treacherous whimsy, time distortion, rules that change without notice, bargains with terrible fine print.",
+		Hook:       "The veil between worlds is thin here. Colors are too saturated. The mushrooms are too large. A small creature made of starlight just offered you a deal. TwinBee advises extreme caution regarding deals.",
+		MinRooms:   8,
+		MaxRooms:   10,
+		Enemies: []ZoneEnemy{
+			{BestiaryID: "redcap", SpawnWeight: 6},
+			{BestiaryID: "will_o_wisp", SpawnWeight: 5},
+			{BestiaryID: "quickling", SpawnWeight: 5},
+			{BestiaryID: "green_hag", SpawnWeight: 4},
+			{BestiaryID: "night_hag", SpawnWeight: 3},
+			{BestiaryID: "fomorian", SpawnWeight: 1, IsElite: true},
+		},
+		Boss: ZoneBoss{
+			BestiaryID:  "boss_thornmother",
+			Name:        "The Thornmother",
+			CR:          11,
+			HP:          187,
+			AC:          17,
+			PhaseTwoAt:  0.30,
+			Description: "She has three names. She will offer to tell you all three. She will not tell you what accepting means. The flowers around her throne are beautiful and they are not flowers.",
+			Abilities: []string{
+				"Coven Magic: extra spell slots scaled by GM Mood (Elated/Engaged TwinBee = stronger Thornmother)",
+				"Beguiling Bargain (1/combat): offers a deal — accept a debuff for a permanent minor buff",
+				"Thorned Grasp: Restrained + 4d6 piercing/turn, CON DC 16 to break free",
+				"Shapechange (1/combat): adopts a player's appearance; 50% miss vs her until DC 17 Investigation",
+				"Phase 2 (<30% HP): True Form — illusions drop; +4d6 psychic on attacks; coven summons 2 Night Hags",
+			},
+		},
+		Loot: []ZoneLootEntry{
+			{ItemID: "thornmothers_bargain", UniqueAlways: true, Note: "ring; +4 to one stat / -2 to another (player choice; permanent)"},
+			{ItemID: "wpn_rapier_of_puncturing_+2", DropChance: 0.08},
+			{ItemID: "arm_cloak_of_protection_+2", DropChance: 0.08},
+			{ItemID: "feywild_essence", UniqueAlways: true, Note: "1d4 legendary crafting material"},
+		},
+		FlavorFile: "zone_feywild_crossing_flavor.go",
+	}
+}
+
+func zoneDragonsLair() ZoneDefinition {
+	return ZoneDefinition{
+		ID:         ZoneDragonsLair,
+		Display:    "Dragon's Lair (Infernus Peak)",
+		Tier:       ZoneTierLegendary,
+		LevelMin:   12,
+		LevelMax:   20,
+		Faction:    "Kobolds, Drakes, Young Dragons, Wyrm",
+		Atmosphere: "Scorched stone, rivers of gold coins half-melted into the floor, kobold warrens as outer defenses, growing heat, the unmistakable smell of something ancient and enormous.",
+		Hook:       "The mountain has not erupted in forty years. The locals say it is dormant. The locals are wrong about what lives in mountains. TwinBee has prepared an unusually long entry description for this one.",
+		MinRooms:   9,
+		MaxRooms:   10,
+		Enemies: []ZoneEnemy{
+			{BestiaryID: "kobold", SpawnWeight: 7},
+			{BestiaryID: "guard_drake", SpawnWeight: 5},
+			{BestiaryID: "kobold_scale_sorcerer", SpawnWeight: 4},
+			{BestiaryID: "dragonborn_cultist", SpawnWeight: 3},
+			{BestiaryID: "young_red_dragon", SpawnWeight: 1, IsElite: true},
+		},
+		Boss: ZoneBoss{
+			BestiaryID:  "boss_infernax",
+			Name:        "Infernax the Undying",
+			CR:          24,
+			HP:          546,
+			AC:          22,
+			PhaseTwoAt:  0.50,
+			Description: "Ancient Red Dragon. He remembers when the surface civilizations were just fires. He found the fires amusing. He finds their descendants less so.",
+			Abilities: []string{
+				"Multiattack: Bite + 2 Claws",
+				"Fire Breath (recharge 5–6): 90-ft cone, 26d6 fire, DEX DC 24 half",
+				"Frightful Presence: WIS DC 21 or Frightened 1 min",
+				"Legendary Resistance (3/combat): auto-succeed failed save",
+				"Legendary Actions (3): Detect (1), Tail Attack (1), Wing Attack (2 — AoE knockback DEX DC 22)",
+				"Lair Actions (init 20): Magma eruption (2d6 fire), Volcanic gases (CON DC 13 Poisoned), Tremor (DEX DC 15 Prone)",
+				"Phase 2 (<50% HP): Fire Breath recharge 4–6; fire damage ignores resistance",
+			},
+		},
+		Loot: []ZoneLootEntry{
+			{ItemID: "scale_of_infernax", UniqueAlways: true, Note: "legendary crafting anchor for legendary fire weapons"},
+			{ItemID: "arm_dragon_scale_mail_red", DropChance: 0.15},
+			{ItemID: "wpn_flame_tongue_+3", DropChance: 0.10},
+			{ItemID: "ring_of_fire_resistance", DropChance: 0.12},
+			{ItemID: "coins_50d10x100", DropChance: 1.0, Note: "Dragon Hoard: 50d10 × 100 coins"},
+		},
+		FlavorFile: "zone_dragons_lair_flavor.go",
+	}
+}
+
+func zoneAbyssPortal() ZoneDefinition {
+	return ZoneDefinition{
+		ID:         ZoneAbyssPortal,
+		Display:    "The Abyss Portal",
+		Tier:       ZoneTierLegendary,
+		LevelMin:   15,
+		LevelMax:   20,
+		Faction:    "Demons, Fiends, Corrupted Celestials",
+		Atmosphere: "Reality fractures, impossible geometry, constant low psychic pressure, the feeling of being watched by something that has no eyes.",
+		Hook:       "Someone opened a door they should not have opened. The door is still open. Things are still coming through. TwinBee is not making jokes about this one.",
+		MinRooms:   9,
+		MaxRooms:   10,
+		Enemies: []ZoneEnemy{
+			{BestiaryID: "quasit", SpawnWeight: 6},
+			{BestiaryID: "vrock", SpawnWeight: 5},
+			{BestiaryID: "hezrou", SpawnWeight: 4},
+			{BestiaryID: "nalfeshnee", SpawnWeight: 2},
+			{BestiaryID: "marilith", SpawnWeight: 1, IsElite: true},
+		},
+		Boss: ZoneBoss{
+			BestiaryID:  "boss_belaxath",
+			Name:        "Belaxath the Undivided",
+			CR:          19,
+			HP:          262,
+			AC:          19,
+			PhaseTwoAt:  0.40,
+			Description: "Balor. The portal was not summoned. It was torn. Belaxath did the tearing from the other side, with purpose, over three decades. It is annoyed it took that long.",
+			Abilities: []string{
+				"Multiattack: Longsword + Whip",
+				"Fire Aura: 10d6 fire to all melee attackers each turn; weapons +3d6 fire",
+				"Lightning Discharge (recharge 5–6): 120-ft line, 12d6 lightning, DEX DC 20 half",
+				"Death Throes: on death, 30-ft radius, 20d6 fire, DEX DC 20 half — destroys non-legendary equipment on failed save",
+				"Magic Resistance: advantage on saves vs spells",
+				"Legendary Resistance (3/combat)",
+				"Demonic Resilience: resist cold/fire/lightning; immune poison; immune non-magical physical",
+				"Phase 2 (<40% HP): grows to Huge size; advantage on all attacks; Death Throes recharge 4–6",
+			},
+		},
+		Loot: []ZoneLootEntry{
+			{ItemID: "shard_of_the_abyss", UniqueAlways: true, Note: "legendary quest item for portal-closing storyline"},
+			{ItemID: "wpn_demon_blade", DropChance: 0.05, Note: "+3 greatsword; +2d6 necrotic; immune to Charm/Frightened"},
+			{ItemID: "arm_demon_armor_+3", DropChance: 0.05},
+			{ItemID: "portal_fragment", UniqueAlways: true, Note: "legendary crafting — required for highest-tier recipes"},
+		},
+		FlavorFile: "zone_abyss_portal_flavor.go",
 	}
 }
