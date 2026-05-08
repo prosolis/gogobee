@@ -255,6 +255,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "expedition") {
 		return p.handleDnDExpeditionCmd(ctx, p.GetArgs(ctx.Body, "expedition"))
 	}
+	if p.IsCommand(ctx.Body, "camp") {
+		return p.handleCampCmd(ctx, p.GetArgs(ctx.Body, "camp"))
+	}
 
 	// 1. Arena commands (work in rooms and DMs)
 	if p.IsCommand(ctx.Body, "bail") {

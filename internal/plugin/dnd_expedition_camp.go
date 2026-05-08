@@ -1,0 +1,224 @@
+package plugin
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"gogobee/internal/flavor"
+)
+
+// Phase 12 E1e — basic camp system (rough + standard).
+// Spec: gogobee_expedition_system.md §5. Fortified and Base camps are
+// deliverables of E2 (Threat Clock & Night Phase) and E4 (Multi-Region)
+// respectively — !camp explicitly rejects those types here so the
+// surface is forward-compatible.
+
+const (
+	CampTypeRough     = "rough"
+	CampTypeStandard  = "standard"
+	CampTypeFortified = "fortified"
+	CampTypeBase      = "base"
+)
+
+// campSupplyCost — extra SU consumed at pitch time (§5.1).
+var campSupplyCost = map[string]float32{
+	CampTypeRough:     0.5,
+	CampTypeStandard:  1.0,
+	CampTypeFortified: 2.0,
+	CampTypeBase:      3.0,
+}
+
+// !camp <type> — establish a camp on the current expedition.
+//
+// Validation (§5.2):
+//   - cannot camp in an active-enemy room
+//   - cannot camp in a trap room
+//   - cannot camp in a boss room
+//   - non-cleared room ⇒ forced rough camp regardless of intent
+//
+// Until !advance is wired into the expedition layer (a later phase),
+// the player is treated as standing at the entry room (cleared by
+// definition), so all rooms read as cleared and camp validation only
+// rejects the never-applicable boss/trap/active cases.
+
+func (p *AdventurePlugin) handleCampCmd(ctx MessageContext, args string) error {
+	userMu := p.advUserLock(ctx.Sender)
+	userMu.Lock()
+	defer userMu.Unlock()
+
+	c, err := LoadDnDCharacter(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't load your character: "+err.Error())
+	}
+	if c == nil || c.PendingSetup {
+		return p.SendDM(ctx.Sender,
+			"No Adv 2.0 character yet — run `!setup` first.")
+	}
+
+	exp, err := getActiveExpedition(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+	}
+	if exp == nil {
+		return p.SendDM(ctx.Sender,
+			"No active expedition. `!camp` only works during an expedition. Use `!expedition start` first.")
+	}
+
+	args = strings.TrimSpace(strings.ToLower(args))
+	requested, rest := splitFirstWord(args)
+	if requested == "" {
+		return p.SendDM(ctx.Sender, campHelpText(exp))
+	}
+	if requested == "break" || requested == "down" || requested == "leave" {
+		return p.campBreak(ctx, exp)
+	}
+	switch requested {
+	case "rough", "standard":
+		// allowed in E1e
+	case "fortified":
+		return p.SendDM(ctx.Sender,
+			"Fortified camps require a boss-cleared room or cache site. (Wires up in a later phase — for now, `rough` or `standard`.)")
+	case "base":
+		return p.SendDM(ctx.Sender,
+			"Base camps unlock in Tier 4–5 zones from Day 3+. (Wires up in a later phase.)")
+	default:
+		return p.SendDM(ctx.Sender,
+			"Unknown camp type. Try `rough` (any location) or `standard` (cleared rooms).")
+	}
+	_ = rest
+
+	return p.campPitch(ctx, exp, requested)
+}
+
+func campHelpText(exp *Expedition) string {
+	var b strings.Builder
+	b.WriteString("**!camp <type>** — establish camp during an expedition.\n\n")
+	b.WriteString("`!camp rough` — partial rest (any location, +0.5 SU, high night risk)\n")
+	b.WriteString("`!camp standard` — full long rest (cleared room, +1 SU, medium risk)\n")
+	b.WriteString("`!camp break` — break camp\n\n")
+	if exp.Camp != nil && exp.Camp.Active {
+		b.WriteString(fmt.Sprintf("_Currently camped: **%s** (room %d)._",
+			exp.Camp.Type, exp.Camp.RoomIndex+1))
+	}
+	return b.String()
+}
+
+func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind string) error {
+	if exp.Camp != nil && exp.Camp.Active {
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"You're already camped (**%s**). `!camp break` first.", exp.Camp.Type))
+	}
+
+	// Room-context validation. Once !advance is wired into expeditions
+	// this resolves to the actual current room from the linked DungeonRun.
+	// For now, the entry room (always cleared) is the assumed location.
+	cleared, problem := campLocationCheck(exp)
+	if problem != "" {
+		return p.SendDM(ctx.Sender, problem)
+	}
+	if !cleared && kind == CampTypeStandard {
+		// §5.2: non-cleared room forces rough.
+		kind = CampTypeRough
+		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative",
+			"intended standard camp; downgraded to rough (room not cleared)", "")
+	}
+
+	cost, ok := campSupplyCost[kind]
+	if !ok {
+		cost = 0.5
+	}
+	if exp.Supplies.Current < cost {
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"Not enough supplies for that camp (need **%.1f SU**, have **%.1f SU**). Try `!camp rough` or break camp and conserve.",
+			cost, exp.Supplies.Current))
+	}
+
+	exp.Supplies.Current -= cost
+	if err := updateSupplies(exp.ID, exp.Supplies); err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't deduct supplies: "+err.Error())
+	}
+	camp := &CampState{
+		Active:        true,
+		Type:          kind,
+		RoomIndex:     campCurrentRoomIndex(exp),
+		EstablishedAt: time.Now().UTC(),
+		NightEvents:   []string{},
+	}
+	if err := updateCamp(exp.ID, camp); err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't pitch camp: "+err.Error())
+	}
+
+	line := flavor.Pick(flavor.CampEstablished)
+	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "rest",
+		fmt.Sprintf("camp pitched (%s) — %.1f SU consumed", kind, cost), line)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("⛺ **Camp established — %s.**\n", kind))
+	b.WriteString(fmt.Sprintf("Supplies: %.1f / %.1f SU (−%.1f).\n",
+		exp.Supplies.Current, exp.Supplies.Max, cost))
+	if line != "" {
+		b.WriteString("\n" + line + "\n")
+	}
+	if kind == CampTypeRough {
+		b.WriteString("\n_Rough camp — partial rest. HP recovers to 50%, no spell slots restored._")
+	} else {
+		b.WriteString("\n_Standard camp — full long rest at the next morning briefing._")
+	}
+	return p.SendDM(ctx.Sender, b.String())
+}
+
+func (p *AdventurePlugin) campBreak(ctx MessageContext, exp *Expedition) error {
+	if exp.Camp == nil || !exp.Camp.Active {
+		return p.SendDM(ctx.Sender, "No camp to break.")
+	}
+	if err := updateCamp(exp.ID, nil); err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't break camp: "+err.Error())
+	}
+	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative", "camp broken", "")
+	return p.SendDM(ctx.Sender, "Camp struck. The dungeon awaits.")
+}
+
+// campLocationCheck enforces §5.2 placement rules. Returns (clearedRoom, problem).
+// Until !advance wires into expeditions, the player is at the entry room
+// (always cleared, never trap/boss/active-enemy) so this currently always
+// returns (true, "").
+func campLocationCheck(exp *Expedition) (cleared bool, problem string) {
+	if exp.RunID == "" {
+		// No room state — treat as the entry room. Cleared by definition.
+		return true, ""
+	}
+	run, err := getZoneRun(exp.RunID)
+	if err != nil || run == nil {
+		// Run was wiped/abandoned out from under us; behave like entry.
+		return true, ""
+	}
+	rt := run.CurrentRoomType()
+	switch rt {
+	case RoomBoss:
+		return false, "You can't camp in a boss room. The room knows it's a boss room."
+	case RoomTrap:
+		return false, "You can't camp in a trap room — even a disarmed one."
+	}
+	// Active-enemy detection requires combat-state lookup; defer to E2.
+	cleared = false
+	for _, idx := range run.RoomsCleared {
+		if idx == run.CurrentRoom {
+			cleared = true
+			break
+		}
+	}
+	return cleared, ""
+}
+
+// campCurrentRoomIndex returns 0 (entry) when no room context exists.
+func campCurrentRoomIndex(exp *Expedition) int {
+	if exp.RunID == "" {
+		return 0
+	}
+	run, err := getZoneRun(exp.RunID)
+	if err != nil || run == nil {
+		return 0
+	}
+	return run.CurrentRoom
+}
