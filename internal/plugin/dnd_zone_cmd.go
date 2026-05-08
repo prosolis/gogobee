@@ -185,6 +185,10 @@ func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🗝 **Entering %s** _(T%d, %d rooms)_\n\n", zone.Display, int(zone.Tier), run.TotalRooms))
 	b.WriteString("_" + zone.Hook + "_\n\n")
+	if line := twinBeeLine(zone.ID, GMRoomEntry, run.RunID, run.CurrentRoom); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n\n")
+	}
 	b.WriteString(fmt.Sprintf("**Room 1/%d — %s.** Use `!zone advance` to proceed, `!zone map` for layout.",
 		run.TotalRooms, prettyRoomType(run.CurrentRoomType())))
 	return p.SendDM(ctx.Sender, b.String())
@@ -200,6 +204,7 @@ func (p *AdventurePlugin) zoneCmdStatus(ctx MessageContext) error {
 	if run == nil {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone list` then `!zone enter <id>`.")
 	}
+	_ = applyMoodDecayIfStale(run)
 	zone, _ := getZone(run.ZoneID)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("**%s** — room %d/%d (%s)\n",
@@ -292,6 +297,7 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	if run == nil {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
+	_ = applyMoodDecayIfStale(run)
 	zone, _ := getZone(run.ZoneID)
 	prev := run.CurrentRoomType()
 	prevIdx := run.CurrentRoom
@@ -300,15 +306,32 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Couldn't advance: "+err.Error())
 	}
 	if next == "" {
-		// Run completed via boss room.
+		// Boss room cleared → zone complete. Bump mood per design §3.2.
+		_, _ = applyMoodEvent(run.RunID, MoodEventZoneComplete)
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("🏆 **Cleared %s.** Boss defeated. Run complete.\n\n", zone.Display))
+		if line := twinBeeLine(zone.ID, GMZoneComplete, run.RunID, prevIdx); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n\n")
+		}
 		b.WriteString("_(Combat resolution + loot rolls land in D1e — for now this is a clean state-machine win.)_")
 		return p.SendDM(ctx.Sender, b.String())
 	}
+	nextIdx := run.CurrentRoom + 1 // markRoomCleared already advanced; reflect for narration salt
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("✓ Cleared room %d (%s).\n", prevIdx+1, prettyRoomType(prev)))
-	b.WriteString(fmt.Sprintf("**Room %d/%d — %s.** ", run.CurrentRoom+2, run.TotalRooms, prettyRoomType(next)))
+	b.WriteString(fmt.Sprintf("✓ Cleared room %d (%s).\n\n", prevIdx+1, prettyRoomType(prev)))
+	if next == RoomBoss {
+		if line := twinBeeLine(zone.ID, GMBossEntry, run.RunID, nextIdx); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n\n")
+		}
+	} else {
+		if line := twinBeeLine(zone.ID, GMRoomEntry, run.RunID, nextIdx); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n\n")
+		}
+	}
+	b.WriteString(fmt.Sprintf("**Room %d/%d — %s.** ", nextIdx+1, run.TotalRooms, prettyRoomType(next)))
 	b.WriteString("`!zone advance` to continue.")
 	return p.SendDM(ctx.Sender, b.String())
 }
