@@ -31,6 +31,15 @@ const (
 	ZoneFeywildCrossing ZoneID = "feywild_crossing"
 	ZoneDragonsLair     ZoneID = "dragons_lair"
 	ZoneAbyssPortal     ZoneID = "abyss_portal"
+
+	// ZoneArena is a synthetic ID — never registered via registerZone, so
+	// !zone enter can't reach it. It exists to route renderBossOutcome's
+	// twinBeeLine calls when an arena fight (resolveArenaBoss, post-L2)
+	// reuses the boss-shaped narrative path. The Nat20/Nat1/BossDeath/
+	// PlayerDeath pools are generic, so ZoneArena falls through the
+	// existing zoneRoomEntryPool / bossEntryPool / zoneLorePool /
+	// bossPhaseTwoPool switches to the right defaults.
+	ZoneArena ZoneID = "arena"
 )
 
 // ZoneTier — 1..5. Player level ranges per design doc §2.
