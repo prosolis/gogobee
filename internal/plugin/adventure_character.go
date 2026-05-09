@@ -559,9 +559,12 @@ func createAdvCharacter(userID id.UserID, displayName string) error {
 	}
 
 	// Adv 2.0 Phase L4f-prep — dual-write display_name into player_meta.
+	// Adv 2.0 Phase L5d — also seed created_at + last_active_at lifecycle
+	// timestamps so the player_meta row is fully formed at creation.
 	// Inside the same tx so the two rows are created atomically.
 	if _, err = tx.Exec(
-		`INSERT INTO player_meta (user_id, display_name) VALUES (?, ?)
+		`INSERT INTO player_meta (user_id, display_name, created_at, last_active_at)
+		 VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		 ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name`,
 		string(userID), displayName,
 	); err != nil {

@@ -388,6 +388,7 @@ func (p *AdventurePlugin) midnightReset() error {
 					text += " — not all is lost."
 				}
 				_ = saveAdvCharacter(&char)
+				_ = upsertPlayerMetaLifecycleState(char.UserID, lifecycleStateFromAdvChar(&char))
 			}
 			if err := p.SendDM(char.UserID, text); err != nil {
 				slog.Error("adventure: failed to send idle shame DM", "user", char.UserID, "err", err)
@@ -404,6 +405,7 @@ func (p *AdventurePlugin) midnightReset() error {
 				char.BestStreak = char.CurrentStreak
 			}
 			_ = saveAdvCharacter(&char)
+			_ = upsertPlayerMetaLifecycleState(char.UserID, lifecycleStateFromAdvChar(&char))
 		}
 	}
 
@@ -419,6 +421,10 @@ func (p *AdventurePlugin) midnightReset() error {
 	}
 	if resetErr != nil {
 		return fmt.Errorf("reset daily actions after 3 attempts: %w", resetErr)
+	}
+	// Adv 2.0 Phase L5d — parallel reset on player_meta during dual-write soak.
+	if err := resetAllPlayerMetaDailyActions(); err != nil {
+		slog.Error("player_meta: daily action reset failed", "err", err)
 	}
 
 	// Prune expired buffs

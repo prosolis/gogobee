@@ -240,6 +240,11 @@ func (p *AdventurePlugin) Init() error {
 	if err := backfillPlayerMetaNPCState(); err != nil {
 		slog.Error("player_meta: NPC state backfill failed", "err", err)
 	}
+	// Adv 2.0 Phase L5d — one-shot lifecycle state backfill into player_meta.
+	// Idempotent (only fills rows whose created_at is still NULL).
+	if err := backfillPlayerMetaLifecycleState(); err != nil {
+		slog.Error("player_meta: lifecycle state backfill failed", "err", err)
+	}
 	// Phase L3 — cancel any open/active legacy coop dungeon runs and
 	// refund member contributions + unsettled bets. Idempotent.
 	closeAndRefundLegacyCoopRuns(p.euro)
@@ -1032,6 +1037,7 @@ func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharact
 	if err := saveAdvCharacter(char); err != nil {
 		return p.SendDM(ctx.Sender, "Failed to save. Even resting is broken.")
 	}
+	_ = upsertPlayerMetaLifecycleState(char.UserID, lifecycleStateFromAdvChar(char))
 
 	logAdvActivity(char.UserID, string(AdvActivityRest), "", "rest", 0, 0, "")
 

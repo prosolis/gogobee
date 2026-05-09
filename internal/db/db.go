@@ -267,6 +267,22 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE player_meta ADD COLUMN misty_donated_count INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN thom_animal_line_fired INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN robbie_visit_count INTEGER NOT NULL DEFAULT 0`,
+		// Adv 2.0 Phase L5d — Streak/action/lifecycle migration off AdvCharacter.
+		// Streak (current/best/decayed/last_action_date), per-day action flags
+		// (action_taken_today/holiday_action_taken/combat_actions_used/
+		// harvest_actions_used), and lifecycle timestamps (created_at /
+		// last_active_at) move to player_meta (gogobee_legacy_migration.md
+		// §7.3 L5d).
+		`ALTER TABLE player_meta ADD COLUMN current_streak INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN best_streak INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN last_action_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE player_meta ADD COLUMN streak_decayed INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN action_taken_today INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN holiday_action_taken INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN combat_actions_used INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN harvest_actions_used INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN created_at DATETIME`,
+		`ALTER TABLE player_meta ADD COLUMN last_active_at DATETIME`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

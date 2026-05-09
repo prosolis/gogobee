@@ -1174,6 +1174,159 @@ func TestUpsertPlayerMetaNPCState_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestPlayerMetaLifecycleStateBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-life-bf:example")
+	if err := createAdvCharacter(uid, "Lifer"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	created := time.Now().UTC().Add(-30 * 24 * time.Hour).Truncate(time.Second)
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET current_streak = ?, best_streak = ?, last_action_date = ?, streak_decayed = ?,
+		        action_taken_today = ?, holiday_action_taken = ?,
+		        combat_actions_used = ?, harvest_actions_used = ?,
+		        created_at = ?
+		  WHERE user_id = ?`,
+		7, 12, "2026-05-08", 0, 1, 0, 1, 2, created, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET current_streak = 0, best_streak = 0, last_action_date = '',
+		        streak_decayed = 0, action_taken_today = 0, holiday_action_taken = 0,
+		        combat_actions_used = 0, harvest_actions_used = 0,
+		        created_at = NULL, last_active_at = NULL WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaLifecycleState(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	got, err := loadLifecycleState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.CurrentStreak != 7 || got.BestStreak != 12 || got.LastActionDate != "2026-05-08" ||
+		!got.ActionTakenToday || got.CombatActionsUsed != 1 || got.HarvestActionsUsed != 2 {
+		t.Errorf("after backfill: got %+v", got)
+	}
+	if got.CreatedAt == nil || !got.CreatedAt.Equal(created) {
+		t.Errorf("created_at: got %v want %v", got.CreatedAt, created)
+	}
+
+	// Layer a dual-write: streak halve.
+	got.CurrentStreak = 3
+	got.StreakDecayed = true
+	if err := upsertPlayerMetaLifecycleState(uid, got); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaLifecycleState(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	got2, _ := loadLifecycleState(uid)
+	if got2.CurrentStreak != 3 || !got2.StreakDecayed {
+		t.Errorf("backfill clobbered dual-write: got %+v", got2)
+	}
+}
+
+func TestLoadLifecycleState_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-life-fb:example")
+	if err := createAdvCharacter(uid, "Faller"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	// createAdvCharacter now seeds player_meta.created_at, so to test
+	// fallback, force the player_meta row to have empty lifecycle.
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET current_streak = 0, best_streak = 0, last_action_date = '',
+		        streak_decayed = 0, action_taken_today = 0, holiday_action_taken = 0,
+		        combat_actions_used = 0, harvest_actions_used = 0,
+		        created_at = NULL, last_active_at = NULL WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters SET current_streak = ?, best_streak = ? WHERE user_id = ?`,
+		5, 8, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	got, err := loadLifecycleState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.CurrentStreak != 5 || got.BestStreak != 8 {
+		t.Errorf("fallback: got %+v", got)
+	}
+}
+
+func TestUpsertPlayerMetaLifecycleState_RoundTrip(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-life-rt:example")
+	created := time.Now().UTC().Add(-7 * 24 * time.Hour).Truncate(time.Second)
+	in := LifecycleState{
+		CurrentStreak:      4,
+		BestStreak:         10,
+		LastActionDate:     "2026-05-09",
+		StreakDecayed:      false,
+		ActionTakenToday:   true,
+		HolidayActionTaken: false,
+		CombatActionsUsed:  2,
+		HarvestActionsUsed: 1,
+		CreatedAt:          &created,
+	}
+	if err := upsertPlayerMetaLifecycleState(uid, in); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	got, err := loadLifecycleState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.CurrentStreak != 4 || got.BestStreak != 10 || got.LastActionDate != "2026-05-09" ||
+		!got.ActionTakenToday || got.CombatActionsUsed != 2 || got.HarvestActionsUsed != 1 {
+		t.Errorf("round-trip mismatch: got %+v", got)
+	}
+	if got.CreatedAt == nil || !got.CreatedAt.Equal(created) {
+		t.Errorf("created_at: got %v want %v", got.CreatedAt, created)
+	}
+}
+
+func TestResetAllPlayerMetaDailyActions(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-life-reset:example")
+	if err := createAdvCharacter(uid, "Resetter"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	in := LifecycleState{
+		LastActionDate:     "2020-01-01", // way in the past so the reset matches
+		ActionTakenToday:   true,
+		HolidayActionTaken: true,
+		CombatActionsUsed:  3,
+		HarvestActionsUsed: 2,
+	}
+	if err := upsertPlayerMetaLifecycleState(uid, in); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	if err := resetAllPlayerMetaDailyActions(); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	got, _ := loadLifecycleState(uid)
+	if got.ActionTakenToday || got.HolidayActionTaken ||
+		got.CombatActionsUsed != 0 || got.HarvestActionsUsed != 0 {
+		t.Errorf("after reset: got %+v", got)
+	}
+}
+
 func TestUpsertPlayerMetaHouseState_RoundTrip(t *testing.T) {
 	setupAuditTestDB(t)
 

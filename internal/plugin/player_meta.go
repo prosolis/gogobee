@@ -1353,6 +1353,246 @@ func npcStateFromAdvChar(c *AdventureCharacter) NPCState {
 	}
 }
 
+// LifecycleState mirrors player_meta's streak/action/lifecycle columns.
+// Phase L5d ports these fields off AdvCharacter (gogobee_legacy_migration.md
+// §7.3 L5d). Streak fields update on the daily morning DM tick; action
+// flags reset by `resetAllAdvDailyActions` and only flip true when the
+// player rests; lifecycle timestamps are set at character creation and
+// auto-bumped by every saveAdvCharacter via CURRENT_TIMESTAMP.
+type LifecycleState struct {
+	CurrentStreak      int
+	BestStreak         int
+	LastActionDate     string
+	StreakDecayed      bool
+	ActionTakenToday   bool
+	HolidayActionTaken bool
+	CombatActionsUsed  int
+	HarvestActionsUsed int
+	CreatedAt          *time.Time
+	LastActiveAt       *time.Time
+}
+
+// HasLifecycle returns true when any lifecycle field is non-zero — used
+// as the "row is migrated" marker in loadLifecycleState. CreatedAt is set
+// at character creation, so any migrated row will have it.
+func (s LifecycleState) HasLifecycle() bool {
+	return s.CreatedAt != nil || s.LastActiveAt != nil ||
+		s.CurrentStreak > 0 || s.BestStreak > 0 ||
+		s.LastActionDate != "" || s.StreakDecayed ||
+		s.ActionTakenToday || s.HolidayActionTaken ||
+		s.CombatActionsUsed > 0 || s.HarvestActionsUsed > 0
+}
+
+// upsertPlayerMetaLifecycleState writes the full lifecycle column set for
+// a user. Used by the dual-write path during the L5d soak window.
+// CreatedAt and LastActiveAt are written when non-nil; a nil value leaves
+// the column NULL.
+func upsertPlayerMetaLifecycleState(userID id.UserID, s LifecycleState) error {
+	streakDecayed := 0
+	if s.StreakDecayed {
+		streakDecayed = 1
+	}
+	actionTaken := 0
+	if s.ActionTakenToday {
+		actionTaken = 1
+	}
+	holidayTaken := 0
+	if s.HolidayActionTaken {
+		holidayTaken = 1
+	}
+	var createdAt, lastActiveAt interface{}
+	if s.CreatedAt != nil {
+		createdAt = s.CreatedAt.UTC()
+	}
+	if s.LastActiveAt != nil {
+		lastActiveAt = s.LastActiveAt.UTC()
+	}
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (
+		   user_id, current_streak, best_streak, last_action_date, streak_decayed,
+		   action_taken_today, holiday_action_taken,
+		   combat_actions_used, harvest_actions_used,
+		   created_at, last_active_at
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   current_streak = excluded.current_streak,
+		   best_streak = excluded.best_streak,
+		   last_action_date = excluded.last_action_date,
+		   streak_decayed = excluded.streak_decayed,
+		   action_taken_today = excluded.action_taken_today,
+		   holiday_action_taken = excluded.holiday_action_taken,
+		   combat_actions_used = excluded.combat_actions_used,
+		   harvest_actions_used = excluded.harvest_actions_used,
+		   created_at = excluded.created_at,
+		   last_active_at = excluded.last_active_at`,
+		string(userID), s.CurrentStreak, s.BestStreak, s.LastActionDate, streakDecayed,
+		actionTaken, holidayTaken,
+		s.CombatActionsUsed, s.HarvestActionsUsed,
+		createdAt, lastActiveAt,
+	)
+	return err
+}
+
+// loadLifecycleState returns lifecycle state from player_meta when
+// populated, otherwise falls back to adventure_characters during the L5d
+// soak window.
+func loadLifecycleState(userID id.UserID) (LifecycleState, error) {
+	var (
+		s                                 LifecycleState
+		streakDecayed, actionTaken, holidayTaken int
+		createdAt, lastActiveAt           sql.NullTime
+	)
+	err := db.Get().QueryRow(
+		`SELECT current_streak, best_streak, last_action_date, streak_decayed,
+		        action_taken_today, holiday_action_taken,
+		        combat_actions_used, harvest_actions_used,
+		        created_at, last_active_at
+		   FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(
+		&s.CurrentStreak, &s.BestStreak, &s.LastActionDate, &streakDecayed,
+		&actionTaken, &holidayTaken,
+		&s.CombatActionsUsed, &s.HarvestActionsUsed,
+		&createdAt, &lastActiveAt,
+	)
+	if err == nil {
+		s.StreakDecayed = streakDecayed == 1
+		s.ActionTakenToday = actionTaken == 1
+		s.HolidayActionTaken = holidayTaken == 1
+		if createdAt.Valid {
+			t := createdAt.Time.UTC()
+			s.CreatedAt = &t
+		}
+		if lastActiveAt.Valid {
+			t := lastActiveAt.Time.UTC()
+			s.LastActiveAt = &t
+		}
+		if s.HasLifecycle() {
+			return s, nil
+		}
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return LifecycleState{}, err
+	}
+	// Fallback to AdvCharacter during soak.
+	var (
+		legacy                                                  LifecycleState
+		legacyDecayed, legacyAction, legacyHoliday              int
+		legacyCreated, legacyActive                             sql.NullTime
+	)
+	err = db.Get().QueryRow(
+		`SELECT current_streak, best_streak, last_action_date, streak_decayed,
+		        action_taken_today, holiday_action_taken,
+		        combat_actions_used, harvest_actions_used,
+		        created_at, last_active_at
+		   FROM adventure_characters WHERE user_id = ?`,
+		string(userID),
+	).Scan(
+		&legacy.CurrentStreak, &legacy.BestStreak, &legacy.LastActionDate, &legacyDecayed,
+		&legacyAction, &legacyHoliday,
+		&legacy.CombatActionsUsed, &legacy.HarvestActionsUsed,
+		&legacyCreated, &legacyActive,
+	)
+	if err == sql.ErrNoRows {
+		return LifecycleState{}, nil
+	}
+	if err != nil {
+		return LifecycleState{}, err
+	}
+	legacy.StreakDecayed = legacyDecayed == 1
+	legacy.ActionTakenToday = legacyAction == 1
+	legacy.HolidayActionTaken = legacyHoliday == 1
+	if legacyCreated.Valid {
+		t := legacyCreated.Time.UTC()
+		legacy.CreatedAt = &t
+	}
+	if legacyActive.Valid {
+		t := legacyActive.Time.UTC()
+		legacy.LastActiveAt = &t
+	}
+	return legacy, nil
+}
+
+// backfillPlayerMetaLifecycleState copies lifecycle columns from
+// adventure_characters into player_meta for any row whose lifecycle is
+// still empty (no CreatedAt) AND the legacy row has lifecycle data.
+// Idempotent.
+func backfillPlayerMetaLifecycleState() error {
+	if _, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO player_meta (user_id)
+		SELECT user_id FROM adventure_characters
+	`); err != nil {
+		return err
+	}
+	res, err := db.Get().Exec(`
+		UPDATE player_meta
+		SET current_streak       = (SELECT current_streak       FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    best_streak          = (SELECT best_streak          FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    last_action_date     = (SELECT last_action_date     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    streak_decayed       = (SELECT streak_decayed       FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    action_taken_today   = (SELECT action_taken_today   FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    holiday_action_taken = (SELECT holiday_action_taken FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    combat_actions_used  = (SELECT combat_actions_used  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    harvest_actions_used = (SELECT harvest_actions_used FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    created_at           = (SELECT created_at           FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    last_active_at       = (SELECT last_active_at       FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
+		WHERE created_at IS NULL
+		  AND EXISTS (
+			SELECT 1 FROM adventure_characters ac
+			WHERE ac.user_id = player_meta.user_id
+			  AND ac.created_at IS NOT NULL
+		  )
+	`)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	slog.Info("player_meta: lifecycle state backfilled", "rows", n)
+	return nil
+}
+
+// lifecycleStateFromAdvChar projects lifecycle fields off an
+// AdventureCharacter into a LifecycleState. Used by the dual-write path
+// during the L5d soak window.
+func lifecycleStateFromAdvChar(c *AdventureCharacter) LifecycleState {
+	out := LifecycleState{
+		CurrentStreak:      c.CurrentStreak,
+		BestStreak:         c.BestStreak,
+		LastActionDate:     c.LastActionDate,
+		StreakDecayed:      c.StreakDecayed,
+		ActionTakenToday:   c.ActionTakenToday,
+		HolidayActionTaken: c.HolidayActionTaken,
+		CombatActionsUsed:  c.CombatActionsUsed,
+		HarvestActionsUsed: c.HarvestActionsUsed,
+	}
+	if !c.CreatedAt.IsZero() {
+		t := c.CreatedAt.UTC()
+		out.CreatedAt = &t
+	}
+	if !c.LastActiveAt.IsZero() {
+		t := c.LastActiveAt.UTC()
+		out.LastActiveAt = &t
+	}
+	return out
+}
+
+// resetAllPlayerMetaDailyActions parallels resetAllAdvDailyActions:
+// resets the action_taken_today / holiday_action_taken /
+// combat_actions_used / harvest_actions_used columns in player_meta for
+// any row whose last_action_date is older than today (or NULL/empty).
+// Used by the daily reset tick during the L5d soak window.
+func resetAllPlayerMetaDailyActions() error {
+	today := time.Now().UTC().Format("2006-01-02")
+	_, err := db.Get().Exec(`
+		UPDATE player_meta
+		SET action_taken_today = 0,
+		    holiday_action_taken = 0,
+		    combat_actions_used = 0,
+		    harvest_actions_used = 0
+		WHERE last_action_date < ? OR last_action_date = ''`, today)
+	return err
+}
+
 // backfillPlayerMetaDisplayName copies adventure_characters.display_name
 // into player_meta.display_name for any row whose display_name is still
 // the empty default. Idempotent: safe to re-run; only updates rows that
