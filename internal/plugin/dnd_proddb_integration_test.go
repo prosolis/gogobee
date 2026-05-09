@@ -35,6 +35,12 @@ func TestProdDB_DnDLayer(t *testing.T) {
 	}
 	t.Cleanup(db.Close)
 
+	// Mirror AdventurePlugin.Init: bootstrap legacy adventure_characters rows
+	// into player_meta for any user_id not yet present. Required for DBs that
+	// haven't gone through the L4-L5h dual-write soak (the L5 close-out
+	// rewired loadAdvCharacter to source from player_meta only).
+	bootstrapPlayerMetaFromLegacy()
+
 	// 1. Load every adventure character. They must scan without error.
 	chars, err := loadAllAdvCharacters()
 	if err != nil {

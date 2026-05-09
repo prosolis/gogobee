@@ -171,6 +171,11 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 }
 
 func (p *AdventurePlugin) Init() error {
+	// Bootstrap: migrate any legacy adventure_characters rows that don't yet
+	// have a player_meta row. Idempotent. Required for DBs that didn't go
+	// through the L4-L5h dual-write soak (fresh deploys, restored backups).
+	bootstrapPlayerMetaFromLegacy()
+
 	// Rehydrate DM room mappings for existing characters
 	chars, err := loadAllAdvCharacters()
 	if err != nil {
