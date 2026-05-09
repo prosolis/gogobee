@@ -383,6 +383,56 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 - `grep -rn 'AdventureCharacter' internal/plugin/ --include='*.go' | grep -v adventure_character.go | grep -v _test.go` returns 0.
 - `grep -rn 'CombatLevel' internal/plugin/ --include='*.go'` returns 0 (or only in archive/migration code).
 
+### 7.1 Audit baseline (2026-05-09)
+
+Post-L4d-reader-flip greps:
+- `AdventureCharacter` outside `adventure_character.go` (excl tests): **56 hits across 15 files**.
+- `CombatLevel` (excl tests): **33 hits across 12 files**.
+
+Five of those files vanish at teardown anyway (§7 deletes): `adventure_character.go`, `adventure_activities.go`, `combat_engine.go`, `combat_bridge.go`, `combat_stats.go` (+ tests). Their hits don't need pre-migration.
+
+Remaining `CombatLevel` callsites all use the same fallback: `loadXxx(userID)` returns the player_meta value when populated, otherwise calls `dndLevelFromCombatLevel(adventure_characters.combat_level)`. To kill them we need a one-shot DnDCharacter mass-backfill so every active user has a D&D row, then drop the fallback branch.
+
+### 7.2 AdvCharacter field inventory — what's still legacy-only
+
+Already moved to `player_meta` (L1–L4f-prep): `DisplayName`, `ArenaWins`, `ArenaLosses`, `InvasionScore`, `HospitalVisits`, `RivalPool`, `RivalUnlockedNotified`, `MasterworkDropsReceived`, all `Pet*`, all `House*`.
+
+Still on AdvCharacter (need migration before §7's grep-zero passes):
+
+| Bucket | Fields | Primary readers |
+|---|---|---|
+| **Skills** | `CombatLevel`, `MiningSkill`, `ForagingSkill`, `FishingSkill`, `CombatXP`, `MiningXP`, `ForagingXP`, `FishingXP` | `dnd_sheet.go`, `adventure_babysit.go`, hospital/rival fallback, scheduler |
+| **Streak/lifecycle** | `CurrentStreak`, `BestStreak`, `LastActionDate`, `StreakDecayed`, `CreatedAt`, `LastActiveAt` | scheduler, render, babysit |
+| **Death state** | `Alive`, `DeadUntil`, `DeathReprieveLast`, `LastDeathDate`, `LastPardonUsed`, `GrudgeLocation`, `DeathSource`, `DeathLocation` | combat_bridge (deletes), arena, hospital |
+| **NPC counters/debuffs** | `MistyLastSeen`, `ArinaLastSeen`, `MistyBuffExpires`, `MistyDebuffExpires`, `ArinaBuffExpires`, `NPCMsgCount`, `NPCMsgCountDate`, `MistyRollTarget`, `ArinaRollTarget`, `MistyEncounterCount`, `MistyDonatedCount`, `ThomAnimalLineFired`, `RobbieVisitCount` | `adventure_npcs.go`, render |
+| **Babysit** | `BabysitActive`, `BabysitExpiresAt`, `BabysitSkillFocus`, `AutoBabysit`, `AutoBabysitFocus` | `adventure_babysit.go`, scheduler |
+| **Action state** | `ActionTakenToday`, `HolidayActionTaken`, `CombatActionsUsed`, `HarvestActionsUsed` | scheduler, render |
+| **Misc** | `Title`, `TreasuresLocked`, `CraftsSucceeded` | render, treasure-drop hook |
+
+### 7.3 Sub-phase plan (L5a–L5h)
+
+Each sub-phase is the same shape as L4a–L4e: column-add → backfill (idempotent, INSERT OR IGNORE / WHERE-default-only) → `loadXxxState(userID)` helper with AdvCharacter fallback → dual-write at every mutation site → one-week soak → reader flip → exit-grep check.
+
+| Sub-phase | Bucket | Sizing | Notes |
+|---|---|---|---|
+| **L5a** | Skills (8 fields) | 1 day | `SkillState` struct mirroring `PetState`/`HouseState`. Mutation surface is small: `checkAdvLevelUp(char, skill)` + the few sites that bump `*XP` directly. Reader flip unblocks dnd_sheet's legacy display row and `babysitDailyCost`. CombatLevel rejoins this struct as a transitional column — dropped at teardown after the DnD mass-backfill. |
+| **L5b** | Babysit state (5 fields) | 0.5 day | Mutation surface is `runBabysitDailyTrickle` save in scheduler + the babysit toggle handlers. Tightly scoped. |
+| **L5c** | NPC counters/debuffs (~13 fields) | 1 day | "Later phase" referenced in L4d note. Pack the four `*Expires` and three `*LastSeen` timestamps as nullable columns; counters as ints. The roll-targets are write-once-per-encounter so dual-write is cheap. **Hidden discovery mechanic — never surface in player-facing output.** |
+| **L5d** | Streak + action state + lifecycle (10 fields) | 1 day | Action state mutates every action, so the dual-write hook is hot — ensure the upsert is in the same code path that already does `saveAdvCharacter`. |
+| **L5e** | Death state (8 fields) | 1 day | Decision point: do `DnDCharacter.HPCurrent == 0` semantics replace `Alive`/`DeadUntil`, or do we keep them as `player_meta.alive` / `player_meta.dead_until`? Recommendation: keep them as columns. The hospital revive path (L4a) already restores `DnDCharacter.HPCurrent = HPMax` alongside `Alive=true`, so the two are kept in sync; flipping the readers is the migration, not the death-state semantics. |
+| **L5f** | Misc (`Title`, `TreasuresLocked`, `CraftsSucceeded`) | 0.5 day | Each is a single-mutation-site field. |
+| **L5g** | DnDCharacter mass-backfill | 0.5 day | One-shot: for every active user without a D&D row, insert a default-class character at `dndLevelFromCombatLevel(adventure_characters.combat_level)`. Run once, idempotent (skip rows that already exist). After this lands, drop the `dndLevelFromCombatLevel` fallback branch in `loadHospitalVisits`/`rivalLevelForUser`/`dndLevelForUser`/zone gates. CombatLevel column in player_meta becomes unused at this point — drop it during the L5h cleanup. |
+| **L5h** | L4e in-place housing reader flip + cut all AdvCharacter dual-writes | 1 day | Bundled per L4e note. Once writes stop, AdvCharacter rows go cold; dual-write removal is mechanical (delete `saveAdvCharacter` calls and the upserts that follow them in pairs). |
+
+### 7.4 Final teardown (after L5a–L5h)
+
+After all eight sub-phases ship and soak (one week post-cut-of-AdvCharacter-writes per §11):
+
+1. Re-run §7 greps — both must return 0 (modulo `dnd_l5_cleanup.go` archive code).
+2. Delete files listed below.
+3. Drop `adventure_character` table behind `GOGOBEE_LEGACY_PURGE=1` env gate.
+4. Final `go vet ./... && go test ./...` clean.
+
 **Files deleted:**
 - `adventure_character.go`
 - `adventure_activities.go` (already gutted in L1)
