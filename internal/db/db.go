@@ -283,6 +283,23 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE player_meta ADD COLUMN harvest_actions_used INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN created_at DATETIME`,
 		`ALTER TABLE player_meta ADD COLUMN last_active_at DATETIME`,
+		// Adv 2.0 Phase L5e — Death state migration off AdvCharacter.
+		// Alive / DeadUntil / DeathReprieveLast / LastDeathDate /
+		// LastPardonUsed / GrudgeLocation / DeathSource / DeathLocation move
+		// to player_meta. Dual-write strategy switches to inside
+		// saveAdvCharacter (death state mutates at ~50 save sites; per-site
+		// upserts would be too noisy — gogobee_legacy_migration.md §7.3
+		// L5e). `Alive` defaults to 1 since legacy created characters are
+		// alive, and a never-migrated row should fall through to the legacy
+		// table via loadDeathState.
+		`ALTER TABLE player_meta ADD COLUMN alive INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE player_meta ADD COLUMN dead_until DATETIME`,
+		`ALTER TABLE player_meta ADD COLUMN death_reprieve_last DATETIME`,
+		`ALTER TABLE player_meta ADD COLUMN last_death_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE player_meta ADD COLUMN last_pardon_used DATETIME`,
+		`ALTER TABLE player_meta ADD COLUMN grudge_location TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE player_meta ADD COLUMN death_source TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE player_meta ADD COLUMN death_location TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

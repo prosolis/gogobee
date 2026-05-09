@@ -245,6 +245,11 @@ func (p *AdventurePlugin) Init() error {
 	if err := backfillPlayerMetaLifecycleState(); err != nil {
 		slog.Error("player_meta: lifecycle state backfill failed", "err", err)
 	}
+	// Adv 2.0 Phase L5e — one-shot death state backfill into player_meta.
+	// Idempotent (only fills rows whose death fields are all default).
+	if err := backfillPlayerMetaDeathState(); err != nil {
+		slog.Error("player_meta: death state backfill failed", "err", err)
+	}
 	// Phase L3 — cancel any open/active legacy coop dungeon runs and
 	// refund member contributions + unsettled bets. Idempotent.
 	closeAndRefundLegacyCoopRuns(p.euro)

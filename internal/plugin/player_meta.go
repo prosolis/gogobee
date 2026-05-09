@@ -1593,6 +1593,205 @@ func resetAllPlayerMetaDailyActions() error {
 	return err
 }
 
+// DeathState mirrors player_meta's death-state columns. Phase L5e ports
+// these fields off AdvCharacter (gogobee_legacy_migration.md §7.3 L5e).
+// Mutation surface is large (~50 saveAdvCharacter sites touch death
+// state), so the dual-write pattern switches to inside saveAdvCharacter
+// itself rather than per-site upserts.
+type DeathState struct {
+	Alive             bool
+	DeadUntil         *time.Time
+	DeathReprieveLast *time.Time
+	LastDeathDate     string
+	LastPardonUsed    *time.Time
+	GrudgeLocation    string
+	DeathSource       string
+	DeathLocation     string
+}
+
+// upsertPlayerMetaDeathState writes the full death column set for a user.
+// Called from inside saveAdvCharacter during the L5e soak window.
+func upsertPlayerMetaDeathState(userID id.UserID, s DeathState) error {
+	alive := 0
+	if s.Alive {
+		alive = 1
+	}
+	var deadUntil, reprieve, pardon interface{}
+	if s.DeadUntil != nil {
+		deadUntil = s.DeadUntil.UTC()
+	}
+	if s.DeathReprieveLast != nil {
+		reprieve = s.DeathReprieveLast.UTC()
+	}
+	if s.LastPardonUsed != nil {
+		pardon = s.LastPardonUsed.UTC()
+	}
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (
+		   user_id, alive, dead_until, death_reprieve_last,
+		   last_death_date, last_pardon_used,
+		   grudge_location, death_source, death_location
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   alive = excluded.alive,
+		   dead_until = excluded.dead_until,
+		   death_reprieve_last = excluded.death_reprieve_last,
+		   last_death_date = excluded.last_death_date,
+		   last_pardon_used = excluded.last_pardon_used,
+		   grudge_location = excluded.grudge_location,
+		   death_source = excluded.death_source,
+		   death_location = excluded.death_location`,
+		string(userID), alive, deadUntil, reprieve,
+		s.LastDeathDate, pardon,
+		s.GrudgeLocation, s.DeathSource, s.DeathLocation,
+	)
+	return err
+}
+
+// loadDeathState returns death state from player_meta when populated,
+// otherwise falls back to adventure_characters during the L5e soak
+// window. The "row is migrated" marker is any non-default field.
+func loadDeathState(userID id.UserID) (DeathState, error) {
+	var (
+		s                                 DeathState
+		aliveInt                          int
+		deadUntil, reprieve, pardon       sql.NullTime
+	)
+	err := db.Get().QueryRow(
+		`SELECT alive, dead_until, death_reprieve_last,
+		        last_death_date, last_pardon_used,
+		        grudge_location, death_source, death_location
+		   FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(
+		&aliveInt, &deadUntil, &reprieve,
+		&s.LastDeathDate, &pardon,
+		&s.GrudgeLocation, &s.DeathSource, &s.DeathLocation,
+	)
+	migrated := false
+	if err == nil {
+		s.Alive = aliveInt == 1
+		if deadUntil.Valid {
+			t := deadUntil.Time.UTC()
+			s.DeadUntil = &t
+			migrated = true
+		}
+		if reprieve.Valid {
+			t := reprieve.Time.UTC()
+			s.DeathReprieveLast = &t
+			migrated = true
+		}
+		if pardon.Valid {
+			t := pardon.Time.UTC()
+			s.LastPardonUsed = &t
+			migrated = true
+		}
+		if s.LastDeathDate != "" || s.GrudgeLocation != "" ||
+			s.DeathSource != "" || s.DeathLocation != "" || !s.Alive {
+			migrated = true
+		}
+		if migrated {
+			return s, nil
+		}
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return DeathState{}, err
+	}
+	// Fallback to AdvCharacter during soak.
+	var (
+		legacy                                  DeathState
+		legacyAlive                             int
+		legacyDead, legacyReprieve, legacyPardon sql.NullTime
+	)
+	err = db.Get().QueryRow(
+		`SELECT alive, dead_until, death_reprieve_last,
+		        last_death_date, last_pardon_used,
+		        grudge_location, death_source, death_location
+		   FROM adventure_characters WHERE user_id = ?`,
+		string(userID),
+	).Scan(
+		&legacyAlive, &legacyDead, &legacyReprieve,
+		&legacy.LastDeathDate, &legacyPardon,
+		&legacy.GrudgeLocation, &legacy.DeathSource, &legacy.DeathLocation,
+	)
+	if err == sql.ErrNoRows {
+		return DeathState{Alive: true}, nil
+	}
+	if err != nil {
+		return DeathState{}, err
+	}
+	legacy.Alive = legacyAlive == 1
+	if legacyDead.Valid {
+		t := legacyDead.Time.UTC()
+		legacy.DeadUntil = &t
+	}
+	if legacyReprieve.Valid {
+		t := legacyReprieve.Time.UTC()
+		legacy.DeathReprieveLast = &t
+	}
+	if legacyPardon.Valid {
+		t := legacyPardon.Time.UTC()
+		legacy.LastPardonUsed = &t
+	}
+	return legacy, nil
+}
+
+// backfillPlayerMetaDeathState copies death columns from
+// adventure_characters into player_meta for any row that hasn't been
+// migrated yet. Idempotent: only fills rows where every death field is
+// still the default (alive=1, all timestamps NULL, all strings empty).
+func backfillPlayerMetaDeathState() error {
+	if _, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO player_meta (user_id)
+		SELECT user_id FROM adventure_characters
+	`); err != nil {
+		return err
+	}
+	res, err := db.Get().Exec(`
+		UPDATE player_meta
+		SET alive               = (SELECT alive               FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    dead_until          = (SELECT dead_until          FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    death_reprieve_last = (SELECT death_reprieve_last FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    last_death_date     = (SELECT last_death_date     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    last_pardon_used    = (SELECT last_pardon_used    FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    grudge_location     = (SELECT grudge_location     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    death_source        = (SELECT death_source        FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    death_location      = (SELECT death_location      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
+		WHERE alive = 1 AND dead_until IS NULL
+		  AND death_reprieve_last IS NULL AND last_pardon_used IS NULL
+		  AND last_death_date = '' AND grudge_location = ''
+		  AND death_source = '' AND death_location = ''
+		  AND EXISTS (
+			SELECT 1 FROM adventure_characters ac
+			WHERE ac.user_id = player_meta.user_id
+			  AND (ac.alive = 0 OR ac.dead_until IS NOT NULL
+			       OR ac.death_reprieve_last IS NOT NULL OR ac.last_pardon_used IS NOT NULL
+			       OR ac.last_death_date <> '' OR ac.grudge_location <> ''
+			       OR ac.death_source <> '' OR ac.death_location <> '')
+		  )
+	`)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	slog.Info("player_meta: death state backfilled", "rows", n)
+	return nil
+}
+
+// deathStateFromAdvChar projects death fields off an AdventureCharacter.
+func deathStateFromAdvChar(c *AdventureCharacter) DeathState {
+	return DeathState{
+		Alive:             c.Alive,
+		DeadUntil:         c.DeadUntil,
+		DeathReprieveLast: c.DeathReprieveLast,
+		LastDeathDate:     c.LastDeathDate,
+		LastPardonUsed:    c.LastPardonUsed,
+		GrudgeLocation:    c.GrudgeLocation,
+		DeathSource:       c.DeathSource,
+		DeathLocation:     c.DeathLocation,
+	}
+}
+
 // backfillPlayerMetaDisplayName copies adventure_characters.display_name
 // into player_meta.display_name for any row whose display_name is still
 // the empty default. Idempotent: safe to re-run; only updates rows that

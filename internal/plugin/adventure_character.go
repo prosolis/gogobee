@@ -718,6 +718,12 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 	if dnErr := upsertPlayerMetaDisplayName(char.UserID, char.DisplayName); dnErr != nil {
 		slog.Error("player_meta: display_name dual-write failed", "user", char.UserID, "err", dnErr)
 	}
+	// Adv 2.0 Phase L5e — dual-write death state into player_meta. Mutation
+	// surface is too wide for per-site upserts (~50 save sites), so the
+	// dual-write rides every saveAdvCharacter call.
+	if dsErr := upsertPlayerMetaDeathState(char.UserID, deathStateFromAdvChar(char)); dsErr != nil {
+		slog.Error("player_meta: death state dual-write failed", "user", char.UserID, "err", dsErr)
+	}
 	return nil
 }
 

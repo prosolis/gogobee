@@ -1327,6 +1327,166 @@ func TestResetAllPlayerMetaDailyActions(t *testing.T) {
 	}
 }
 
+func TestPlayerMetaDeathStateBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-death-bf:example")
+	if err := createAdvCharacter(uid, "Mortal"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	deadUntil := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET alive = ?, dead_until = ?, last_death_date = ?,
+		        grudge_location = ?, death_source = ?, death_location = ?
+		  WHERE user_id = ?`,
+		0, deadUntil, "2026-05-09", "Dark Cave", "adventure", "Dark Cave", string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET alive = 1, dead_until = NULL,
+		        death_reprieve_last = NULL, last_death_date = '',
+		        last_pardon_used = NULL, grudge_location = '',
+		        death_source = '', death_location = '' WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaDeathState(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	got, err := loadDeathState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Alive || got.LastDeathDate != "2026-05-09" || got.GrudgeLocation != "Dark Cave" ||
+		got.DeathSource != "adventure" || got.DeathLocation != "Dark Cave" {
+		t.Errorf("after backfill: got %+v", got)
+	}
+	if got.DeadUntil == nil || !got.DeadUntil.Equal(deadUntil) {
+		t.Errorf("dead_until: got %v want %v", got.DeadUntil, deadUntil)
+	}
+
+	// Layer a dual-write: revive.
+	got.Alive = true
+	got.DeadUntil = nil
+	if err := upsertPlayerMetaDeathState(uid, got); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaDeathState(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	got2, _ := loadDeathState(uid)
+	if !got2.Alive || got2.DeadUntil != nil {
+		t.Errorf("backfill clobbered revive: got %+v", got2)
+	}
+}
+
+func TestLoadDeathState_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-death-fb:example")
+	if err := createAdvCharacter(uid, "Faller"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters SET alive = ?, grudge_location = ? WHERE user_id = ?`,
+		0, "Mine", string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET alive = 1, dead_until = NULL,
+		        death_reprieve_last = NULL, last_death_date = '',
+		        last_pardon_used = NULL, grudge_location = '',
+		        death_source = '', death_location = '' WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	got, err := loadDeathState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Alive || got.GrudgeLocation != "Mine" {
+		t.Errorf("fallback: got %+v", got)
+	}
+
+	// Unknown user → zero state defaults to alive.
+	got2, err := loadDeathState(id.UserID("@meta-death-nobody:example"))
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if !got2.Alive {
+		t.Errorf("missing user should default to alive: got %+v", got2)
+	}
+}
+
+func TestUpsertPlayerMetaDeathState_RoundTrip(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-death-rt:example")
+	deadUntil := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	pardon := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	in := DeathState{
+		Alive:          false,
+		DeadUntil:      &deadUntil,
+		LastDeathDate:  "2026-05-09",
+		LastPardonUsed: &pardon,
+		GrudgeLocation: "the Abyss",
+		DeathSource:    "arena",
+		DeathLocation:  "the Arena",
+	}
+	if err := upsertPlayerMetaDeathState(uid, in); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	got, err := loadDeathState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Alive || got.LastDeathDate != "2026-05-09" || got.GrudgeLocation != "the Abyss" ||
+		got.DeathSource != "arena" || got.DeathLocation != "the Arena" {
+		t.Errorf("round-trip mismatch: got %+v", got)
+	}
+	if got.DeadUntil == nil || !got.DeadUntil.Equal(deadUntil) {
+		t.Errorf("dead_until: got %v want %v", got.DeadUntil, deadUntil)
+	}
+	if got.LastPardonUsed == nil || !got.LastPardonUsed.Equal(pardon) {
+		t.Errorf("last_pardon_used: got %v want %v", got.LastPardonUsed, pardon)
+	}
+}
+
+func TestSaveAdvCharacter_DualWritesDeathState(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-death-sw:example")
+	if err := createAdvCharacter(uid, "Saver"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	char, err := loadAdvCharacter(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	deadUntil := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	char.Alive = false
+	char.DeadUntil = &deadUntil
+	char.GrudgeLocation = "the Pit"
+	if err := saveAdvCharacter(char); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	got, err := loadDeathState(uid)
+	if err != nil {
+		t.Fatalf("loadDeathState: %v", err)
+	}
+	if got.Alive || got.GrudgeLocation != "the Pit" {
+		t.Errorf("save did not propagate to player_meta: got %+v", got)
+	}
+}
+
 func TestUpsertPlayerMetaHouseState_RoundTrip(t *testing.T) {
 	setupAuditTestDB(t)
 
