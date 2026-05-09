@@ -106,3 +106,99 @@ func TestUpsertPlayerMetaArena_RoundTrip(t *testing.T) {
 		t.Errorf("missing user not zero: %+v", mZ)
 	}
 }
+
+// Phase L4f-prep — DisplayName migration. Backfill is idempotent and only
+// touches empty rows; dual-write through createAdvCharacter / saveAdvCharacter
+// stays consistent across re-runs; loadDisplayName falls back to AdvCharacter
+// when player_meta hasn't been populated yet.
+
+func TestPlayerMetaDisplayNameBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-dn-bf:example")
+	if err := createAdvCharacter(uid, "DisplayedName"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	// Reset player_meta to empty display_name so the backfill has work.
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET display_name = '' WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaDisplayName(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	got, err := loadDisplayName(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != "DisplayedName" {
+		t.Errorf("after backfill: got %q want %q", got, "DisplayedName")
+	}
+
+	// Layer a dual-write rename. Backfill re-run must NOT clobber it back
+	// (it only touches rows with empty display_name).
+	if err := upsertPlayerMetaDisplayName(uid, "Renamed"); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaDisplayName(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	got2, _ := loadDisplayName(uid)
+	if got2 != "Renamed" {
+		t.Errorf("backfill clobbered dual-write: got %q want %q", got2, "Renamed")
+	}
+}
+
+func TestLoadDisplayName_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-dn-fb:example")
+	if err := createAdvCharacter(uid, "FromAdvChar"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	// Simulate a row that exists in adventure_characters but whose
+	// player_meta display_name hasn't been populated yet (pre-backfill,
+	// pre-dual-write soak case).
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET display_name = '' WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	got, err := loadDisplayName(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != "FromAdvChar" {
+		t.Errorf("fallback: got %q want %q", got, "FromAdvChar")
+	}
+
+	// Unknown user → empty string, no error.
+	got2, err := loadDisplayName(id.UserID("@meta-dn-nobody:example"))
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if got2 != "" {
+		t.Errorf("missing user: got %q want empty", got2)
+	}
+}
+
+func TestCreateAdvCharacter_DualWritesDisplayName(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-dn-create:example")
+	if err := createAdvCharacter(uid, "FreshName"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	got, err := loadDisplayName(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != "FreshName" {
+		t.Errorf("create dual-write: got %q want %q", got, "FreshName")
+	}
+}

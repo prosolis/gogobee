@@ -310,6 +310,13 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 
 **Sizing:** ~0.5 day for the schema/backfill/helper, then 1 day to swap the ~250 read sites in batches per file. Slot it after L2 wraps and before L4f starts.
 
+**Status (2026-05-09):** schema/backfill/helper SHIPPED on `adv-2.0`.
+- `player_meta.display_name` column added via column migration in `internal/db/db.go`.
+- `backfillPlayerMetaDisplayName` runs on every Init: idempotent (`UPDATE ... WHERE display_name = ''` only touches empty rows, so dual-writes layered on top survive re-runs).
+- `upsertPlayerMetaDisplayName(userID, name)` dual-writes from `createAdvCharacter` (inside the same tx, atomic with the AdvCharacter INSERT) and `saveAdvCharacter` (post-commit, error-logged but non-fatal).
+- `loadDisplayName(userID)` reads `player_meta` → falls back to `adventure_characters.display_name` → empty string if neither exists. Helper exists but **readers are NOT flipped yet** — soak week begins now; per-call-site flip happens in a follow-up session once we've confirmed dual-write doesn't drift.
+- Tests: `TestPlayerMetaDisplayNameBackfill_Idempotent`, `TestLoadDisplayName_FallsBackToAdvCharacter`, `TestCreateAdvCharacter_DualWritesDisplayName`.
+
 **Pre-conditions:**
 - L1–L4 all shipped.
 - DisplayName migrated to `player_meta` (see above).

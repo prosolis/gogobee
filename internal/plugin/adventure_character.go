@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"database/sql"
+	"log/slog"
 	"time"
 
 	"gogobee/internal/db"
@@ -557,6 +558,16 @@ func createAdvCharacter(userID id.UserID, displayName string) error {
 		return err
 	}
 
+	// Adv 2.0 Phase L4f-prep — dual-write display_name into player_meta.
+	// Inside the same tx so the two rows are created atomically.
+	if _, err = tx.Exec(
+		`INSERT INTO player_meta (user_id, display_name) VALUES (?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name`,
+		string(userID), displayName,
+	); err != nil {
+		return err
+	}
+
 	// Create tier-0 equipment in all slots
 	for _, slot := range allSlots {
 		def := equipmentTiers[slot][0]
@@ -697,7 +708,14 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 		boolToInt(char.TreasuresLocked),
 		string(char.UserID),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	// Adv 2.0 Phase L4f-prep — dual-write display_name into player_meta.
+	if dnErr := upsertPlayerMetaDisplayName(char.UserID, char.DisplayName); dnErr != nil {
+		slog.Error("player_meta: display_name dual-write failed", "user", char.UserID, "err", dnErr)
+	}
+	return nil
 }
 
 func boolToInt(b bool) int {

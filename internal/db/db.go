@@ -186,6 +186,10 @@ func runMigrations(d *sql.DB) error {
 		// !zone enter sessions that aren't tied to an expedition. Expedition
 		// runs continue to use expedition.region_state for the same data.
 		`ALTER TABLE dnd_zone_run ADD COLUMN harvest_nodes_json TEXT NOT NULL DEFAULT '{}'`,
+		// Adv 2.0 Phase L4f-prep — DisplayName migration off AdvCharacter.
+		// player_meta gets the canonical column; AdvCharacter.display_name
+		// keeps dual-writing during soak (gogobee_legacy_migration.md §7).
+		`ALTER TABLE player_meta ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
