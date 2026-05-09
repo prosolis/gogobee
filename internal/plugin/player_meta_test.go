@@ -1487,6 +1487,97 @@ func TestSaveAdvCharacter_DualWritesDeathState(t *testing.T) {
 	}
 }
 
+func TestPlayerMetaMiscStateBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-misc-bf:example")
+	if err := createAdvCharacter(uid, "Miscer"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters SET title = ?, treasures_locked = ?, crafts_succeeded = ? WHERE user_id = ?`,
+		"Hero", 1, 7, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET title = '', treasures_locked = 0, crafts_succeeded = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaMiscState(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	got, err := loadMiscState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Title != "Hero" || !got.TreasuresLocked || got.CraftsSucceeded != 7 {
+		t.Errorf("after backfill: got %+v", got)
+	}
+
+	// Layer a dual-write: bump crafts.
+	got.CraftsSucceeded = 9
+	if err := upsertPlayerMetaMiscState(uid, got); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaMiscState(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	got2, _ := loadMiscState(uid)
+	if got2.CraftsSucceeded != 9 {
+		t.Errorf("backfill clobbered dual-write: got %+v", got2)
+	}
+}
+
+func TestLoadMiscState_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-misc-fb:example")
+	if err := createAdvCharacter(uid, "Faller"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters SET crafts_succeeded = ? WHERE user_id = ?`,
+		3, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET title = '', treasures_locked = 0, crafts_succeeded = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	got, err := loadMiscState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.CraftsSucceeded != 3 {
+		t.Errorf("fallback: got %+v", got)
+	}
+}
+
+func TestUpsertPlayerMetaMiscState_RoundTrip(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-misc-rt:example")
+	in := MiscState{Title: "Champion", TreasuresLocked: true, CraftsSucceeded: 12}
+	if err := upsertPlayerMetaMiscState(uid, in); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	got, err := loadMiscState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != in {
+		t.Errorf("round-trip mismatch: got %+v want %+v", got, in)
+	}
+}
+
 func TestUpsertPlayerMetaHouseState_RoundTrip(t *testing.T) {
 	setupAuditTestDB(t)
 

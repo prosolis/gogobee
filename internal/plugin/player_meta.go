@@ -1792,6 +1792,104 @@ func deathStateFromAdvChar(c *AdventureCharacter) DeathState {
 	}
 }
 
+// MiscState mirrors player_meta's miscellaneous columns: Title,
+// TreasuresLocked, CraftsSucceeded. Phase L5f ports these fields off
+// AdvCharacter (gogobee_legacy_migration.md §7.3 L5f). Dual-write rides
+// `saveAdvCharacter` alongside the L5e death state, since these fields
+// either rarely mutate or already mutate at every save site.
+type MiscState struct {
+	Title            string
+	TreasuresLocked  bool
+	CraftsSucceeded  int
+}
+
+func upsertPlayerMetaMiscState(userID id.UserID, s MiscState) error {
+	locked := 0
+	if s.TreasuresLocked {
+		locked = 1
+	}
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (user_id, title, treasures_locked, crafts_succeeded)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   title = excluded.title,
+		   treasures_locked = excluded.treasures_locked,
+		   crafts_succeeded = excluded.crafts_succeeded`,
+		string(userID), s.Title, locked, s.CraftsSucceeded,
+	)
+	return err
+}
+
+func loadMiscState(userID id.UserID) (MiscState, error) {
+	var (
+		s         MiscState
+		lockedInt int
+	)
+	err := db.Get().QueryRow(
+		`SELECT title, treasures_locked, crafts_succeeded
+		   FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&s.Title, &lockedInt, &s.CraftsSucceeded)
+	if err == nil && (s.Title != "" || lockedInt == 1 || s.CraftsSucceeded > 0) {
+		s.TreasuresLocked = lockedInt == 1
+		return s, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return MiscState{}, err
+	}
+	// Fallback to AdvCharacter during soak.
+	var legacy MiscState
+	var legacyLocked int
+	err = db.Get().QueryRow(
+		`SELECT title, treasures_locked, crafts_succeeded
+		   FROM adventure_characters WHERE user_id = ?`,
+		string(userID),
+	).Scan(&legacy.Title, &legacyLocked, &legacy.CraftsSucceeded)
+	if err == sql.ErrNoRows {
+		return MiscState{}, nil
+	}
+	if err != nil {
+		return MiscState{}, err
+	}
+	legacy.TreasuresLocked = legacyLocked == 1
+	return legacy, nil
+}
+
+func backfillPlayerMetaMiscState() error {
+	if _, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO player_meta (user_id)
+		SELECT user_id FROM adventure_characters
+	`); err != nil {
+		return err
+	}
+	res, err := db.Get().Exec(`
+		UPDATE player_meta
+		SET title             = (SELECT title             FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    treasures_locked  = (SELECT treasures_locked  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    crafts_succeeded  = (SELECT crafts_succeeded  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
+		WHERE title = '' AND treasures_locked = 0 AND crafts_succeeded = 0
+		  AND EXISTS (
+			SELECT 1 FROM adventure_characters ac
+			WHERE ac.user_id = player_meta.user_id
+			  AND (ac.title <> '' OR ac.treasures_locked = 1 OR ac.crafts_succeeded > 0)
+		  )
+	`)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	slog.Info("player_meta: misc state backfilled", "rows", n)
+	return nil
+}
+
+func miscStateFromAdvChar(c *AdventureCharacter) MiscState {
+	return MiscState{
+		Title:           c.Title,
+		TreasuresLocked: c.TreasuresLocked,
+		CraftsSucceeded: c.CraftsSucceeded,
+	}
+}
+
 // backfillPlayerMetaDisplayName copies adventure_characters.display_name
 // into player_meta.display_name for any row whose display_name is still
 // the empty default. Idempotent: safe to re-run; only updates rows that

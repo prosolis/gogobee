@@ -724,6 +724,11 @@ func saveAdvCharacter(char *AdventureCharacter) error {
 	if dsErr := upsertPlayerMetaDeathState(char.UserID, deathStateFromAdvChar(char)); dsErr != nil {
 		slog.Error("player_meta: death state dual-write failed", "user", char.UserID, "err", dsErr)
 	}
+	// Adv 2.0 Phase L5f — dual-write misc state (Title, TreasuresLocked,
+	// CraftsSucceeded). Same strategy as L5e — rides every save.
+	if msErr := upsertPlayerMetaMiscState(char.UserID, miscStateFromAdvChar(char)); msErr != nil {
+		slog.Error("player_meta: misc state dual-write failed", "user", char.UserID, "err", msErr)
+	}
 	return nil
 }
 

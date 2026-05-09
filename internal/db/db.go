@@ -300,6 +300,12 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE player_meta ADD COLUMN grudge_location TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE player_meta ADD COLUMN death_source TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE player_meta ADD COLUMN death_location TEXT NOT NULL DEFAULT ''`,
+		// Adv 2.0 Phase L5f — Misc fields (Title, TreasuresLocked,
+		// CraftsSucceeded) off AdvCharacter (gogobee_legacy_migration.md
+		// §7.3 L5f). Dual-write inside saveAdvCharacter (same as L5e).
+		`ALTER TABLE player_meta ADD COLUMN title TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE player_meta ADD COLUMN treasures_locked INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN crafts_succeeded INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
