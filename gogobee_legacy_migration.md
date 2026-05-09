@@ -244,38 +244,26 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 
 ---
 
-## 5. Phase L3 — Co-op dungeons (DELETION, not migration)
+## 5. Phase L3 — Co-op dungeons (DELETION, not migration) — SHIPPED 2026-05-09
 
 **Decision (2026-05-08):** Drop co-op dungeons entirely. Do **not** migrate. The user has a different design in mind for the future co-op slot; the current implementation is being retired wholesale.
 
-**Files deleted:**
-- `coop_dungeon.go`
-- `coop_dungeon_db.go`
-- `coop_dungeon_render.go`
-- `coop_dungeon_scheduler.go`
-- `coop_dungeon_balance.go`
-- `coop_dungeon_balance_test.go`
-- `coop_dungeon_betting.go`
-- `coop_dungeon_gifts.go`
-- `coop_dungeon_stats.go`
-- `coop_dungeon_test.go`
-- `coop_event_meta.go`
-- `coop_flavor_twinbee.go`
+**What shipped (2026-05-09):**
+- 11 `coop_*.go` files deleted (no `coop_dungeon_balance.go` ever existed on disk — only `coop_dungeon_balance_test.go`).
+- `internal/plugin/cleanup_l3.go` added: on every startup, cancels any `coop_dungeon_runs` left in `open`/`active`, refunds `coop_dungeon_members.total_contributed` and unsettled `coop_dungeon_bets` via `EuroPlugin.Credit`. Idempotent via per-run status-guarded UPDATE — only the writer that flips status to `cancelled` performs the refund for that run, so a crashed-then-restarted process can't double-credit. Tables left intact for historical querying; SQL drop deferred to a future GOGOBEE_COOP_PURGE pass.
+- `adventure.go`: stripped `!coop` dispatch, `coopTicker` goroutine, startup `lockCoopCombatActions` call, `!coop` help line, ticker comment. Replaced startup hook with `closeAndRefundLegacyCoopRuns(p.euro)`.
+- `adventure_scheduler.go`: removed `activeCoopMemberSet` load + skip branch and post-reset `lockCoopCombatActions` call.
+- `adventure_render.go`: removed `renderCoopTeaser`, `pickCoopTeaserCandidate`, the `loadCoopRunForUser` block, and the in-coop combat-locked status line. Replaced with a temporary closure announcement in the morning DM ("**Co-op dungeons closed for now** — `!expedition` is the way forward; a better co-op design is on the way."). Marked with a TODO to remove after 2026-05-16.
+- `adventure_followups_test.go`: removed `TestPickCoopTeaserCandidate_SkipsLeader`.
 
-**Steps:**
-1. Find all co-op references outside the `coop_*` files (commands registered in `adventure.go`, scheduler hooks, render hooks, betting integration). Grep `coop` and `Coop` across the package.
-2. Remove command handlers from `adventure.go::OnMessage` and `Commands()`.
-3. Remove scheduler ticks that call coop entrypoints.
-4. Drop the `coop_dungeon*` SQL tables in a separate `cleanup_l3.go` migration gated behind `GOGOBEE_COOP_PURGE=1`. Default off — keep historical rows around until manually flipped.
-5. Delete the files.
-6. Add a TwinBee announcement line for active players: "co-op dungeons closed for now; expedition is the way forward; better thing coming." Wire into morning DM for one week post-deploy.
-7. `go test ./... && go vet`.
-
-**Exit criteria:**
-- `grep -rn 'coop_dungeon\|CoopDungeon' internal/plugin/ --include='*.go'` returns 0 (or only in archive/migration).
+**Exit criteria — met:**
+- `grep -rn 'coop_dungeon\|CoopDungeon' internal/plugin/ --include='*.go'` returns only the cleanup migration in `cleanup_l3.go` and a startup hook in `adventure.go` — no live system code references.
+- `go vet ./...` clean.
 - `go test ./...` clean.
 
-**Risk:** Players with active co-op state at deploy time. Mitigate: scheduler closes any in-flight session at L3 deploy with a refund of staked coins; no XP/loot awarded for cancelled sessions. Refund logic is one-shot in the L3 migration, not preserved code.
+**Open follow-ups:**
+- Remove the morning-DM closure announcement after 2026-05-16 (one-week soak).
+- Future GOGOBEE_COOP_PURGE pass drops `coop_dungeon_runs`/`_members`/`_events`/`_bets`/`_gifts` tables and the `cleanup_l3.go` startup hook.
 
 ---
 

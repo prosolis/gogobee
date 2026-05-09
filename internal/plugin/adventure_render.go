@@ -213,55 +213,6 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 
 // ── Morning DM ───────────────────────────────────────────────────────────────
 
-// renderCoopTeaser surfaces an open co-op run the player could join, so the
-// system isn't a footnote in help text. Returns "" when there's nothing to
-// surface (no open runs, or the player is already locked into one). When
-// runs exist that the player is under-levelled for, we still hint at them
-// as a stretch goal — joining as a liability is a real choice.
-func renderCoopTeaser(char *AdventureCharacter) string {
-	runs, err := loadOpenCoopRuns()
-	if err != nil || len(runs) == 0 {
-		return ""
-	}
-
-	pick, stretch := pickCoopTeaserCandidate(runs, char)
-	tag := ""
-	if pick == nil {
-		pick = stretch
-		tag = " *(below recommended level — would join as liability)*"
-	}
-	if pick == nil {
-		return ""
-	}
-
-	leaderName := string(pick.LeaderID)
-	if c, err := loadAdvCharacter(pick.LeaderID); err == nil && c != nil && c.DisplayName != "" {
-		leaderName = c.DisplayName
-	}
-	def := coopTierTable[pick.Tier]
-	return fmt.Sprintf("🛡️ **Open Co-op #%d** — Tier %d (%s) led by %s · `!coop join %d`%s",
-		pick.ID, pick.Tier, def.difficulty, leaderName, pick.ID, tag)
-}
-
-// pickCoopTeaserCandidate scans the open coop runs and returns up to two
-// picks: a primary (where the player meets the level gate) and a stretch
-// (any other run, joined as a liability). Skips runs the player already
-// leads. Pure function — testable without DB.
-func pickCoopTeaserCandidate(runs []*CoopRun, char *AdventureCharacter) (match, stretch *CoopRun) {
-	for _, r := range runs {
-		if r.LeaderID == char.UserID {
-			continue
-		}
-		def := coopTierTable[r.Tier]
-		if char.CombatLevel >= def.minLevel && match == nil {
-			match = r
-		} else if stretch == nil {
-			stretch = r
-		}
-	}
-	return match, stretch
-}
-
 // renderCraftingTeaser surfaces the crafting system before and just after
 // the Foraging-10 auto-unlock, so it doesn't stay invisible to players who
 // never type !adventure recipes. Returns "" when the teaser shouldn't fire
@@ -379,23 +330,10 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 		sb.WriteString("\n\n")
 	}
 
-	// Co-op participants have combat locked for the duration of the run.
-	// Under Adv 2.0 the per-day combat/harvest action caps are no longer
-	// surfaced — harvesting is gated by per-room nodes, supplies, and the
-	// threat clock; combat is gated by zones/expeditions/arena themselves.
-	coopRun, _ := loadCoopRunForUser(char.UserID)
-	inCoop := coopRun != nil && coopRun.Status == "active"
-
-	if inCoop {
-		sb.WriteString(fmt.Sprintf("📋 **Co-op #%d** — day %d/%d, combat locked for the duration of the run\n\n",
-			coopRun.ID, coopRun.CurrentDay, coopRun.TotalDays))
-	} else {
-		// Co-op teaser — show open runs the player could join.
-		if line := renderCoopTeaser(char); line != "" {
-			sb.WriteString(line)
-			sb.WriteString("\n")
-		}
-	}
+	// L3 closure announcement — surfaced for one-week post-deploy soak so
+	// active co-op participants see why the system is gone. Remove after
+	// 2026-05-16 (TODO: drop announcement block at that revisit).
+	sb.WriteString("📋 **Co-op dungeons closed for now** — `!expedition` is the way forward; a better co-op design is on the way.\n\n")
 
 	// Rival nudge — a pending challenge waits for action.
 	if line := renderRivalNudge(char); line != "" {
@@ -416,9 +354,6 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 	sb.WriteString("• `!expedition` — overview & open expeditions\n")
 	sb.WriteString("• `!expedition start <zone>` — begin a new run\n")
 	sb.WriteString("• `!forage` · `!mine` · `!scavenge` · `!fish` · `!essence` · `!commune` — harvest in cleared rooms\n")
-	if inCoop {
-		sb.WriteString(fmt.Sprintf("_(combat is locked while you're in Co-op #%d — `!coop status` for run state)_\n", coopRun.ID))
-	}
 	sb.WriteString("\n")
 
 	sb.WriteString("**🏘️ In town:**\n")

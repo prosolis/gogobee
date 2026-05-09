@@ -42,7 +42,7 @@ type AdventurePlugin struct {
 
 	// stopCh is closed by Stop() to signal all background tickers
 	// (morning/summary/midnight/event/rival/robbie/hospital/mortgage/
-	// coop/expedition briefing+recap) to exit. Each ticker selects
+	// expedition briefing+recap) to exit. Each ticker selects
 	// on its time.Ticker channel and stopCh; the second branch returns.
 	stopCh chan struct{}
 }
@@ -194,9 +194,9 @@ func (p *AdventurePlugin) Init() error {
 	if err := backfillPlayerMetaArena(); err != nil {
 		slog.Error("player_meta: arena backfill failed", "err", err)
 	}
-	if err := lockCoopCombatActions(); err != nil {
-		slog.Error("adventure: startup coop combat lock failed", "err", err)
-	}
+	// Phase L3 — cancel any open/active legacy coop dungeon runs and
+	// refund member contributions + unsettled bets. Idempotent.
+	closeAndRefundLegacyCoopRuns(p.euro)
 	// Phase R1 orphan-archive used to run here on every Init, but it
 	// over-archived: it treats any active dnd_zone_run row not linked to
 	// an active expedition as a legacy `!adventure dungeon` orphan, which
@@ -221,7 +221,6 @@ func (p *AdventurePlugin) Init() error {
 	go p.robbieTicker()
 	go p.hospitalNudgeTicker()
 	go p.mortgageTicker()
-	go p.coopTicker()
 	go p.expeditionBriefingTicker()
 	go p.expeditionRecapTicker()
 
@@ -366,11 +365,6 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 		return p.handleHospitalCmd(ctx)
 	}
 
-	// 1c. Co-op dungeon commands (work in rooms and DMs)
-	if p.IsCommand(ctx.Body, "coop") {
-		return p.handleCoopCmd(ctx)
-	}
-
 	// 2. Check if this is a DM reply from a registered player
 	p.mu.Lock()
 	playerID, isDM := p.dmToPlayer[ctx.RoomID]
@@ -478,7 +472,6 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure recipes`" + ` — List crafting recipes known at your current Foraging level
 ` + "`!adventure mastery`" + ` — Per-slot equipment mastery progress and active bonus
 ` + "`!adventure treasures`" + ` — List your treasures · ` + "`treasures lock`" + ` to refuse swaps
-` + "`!coop`" + ` — Co-op dungeons (multi-day party runs). See ` + "`!coop help`" + `.
 ` + "`!hospital`" + ` — Visit St. Guildmore's Memorial Hospital (same-day revival when dead)
 ` + "`!thom`" + ` — Visit Thom Krooke (housing and loans)
 ` + "`!adventure help`" + ` — This message

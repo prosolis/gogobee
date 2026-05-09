@@ -355,30 +355,8 @@ func (p *AdventurePlugin) midnightReset() error {
 	today := time.Now().UTC().Format("2006-01-02")
 	yesterday := time.Now().UTC().Add(-24 * time.Hour).Format("2006-01-02")
 
-	coopMembers, err := activeCoopMemberSet()
-	if err != nil {
-		slog.Error("adventure: failed to load active coop members", "err", err)
-		coopMembers = map[string]bool{}
-	}
-
 	dmsSent := 0
 	for _, char := range chars {
-		// Active co-op members can't take manual actions (combat is locked
-		// to the coop run, harvest is optional). Their participation
-		// auto-resolves daily, so credit them with a streak day and skip
-		// idle/babysit logic — otherwise the lockCoopCombatActions sentinel
-		// (combat_actions_used = 99) trips HasActedToday and falls through
-		// to the streak-reset branch.
-		if coopMembers[string(char.UserID)] {
-			char.CurrentStreak++
-			if char.CurrentStreak > char.BestStreak {
-				char.BestStreak = char.CurrentStreak
-			}
-			char.LastActionDate = today
-			_ = saveAdvCharacter(&char)
-			continue
-		}
-
 		if !char.HasActedToday() {
 			// If the player died today or yesterday, they couldn't act — no shame,
 			// no streak reset. This covers both currently-dead players and players
@@ -433,13 +411,6 @@ func (p *AdventurePlugin) midnightReset() error {
 		}
 		slog.Warn("adventure: daily action reset failed, retrying", "attempt", attempt+1, "err", resetErr)
 		time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
-	}
-	if resetErr == nil {
-		// Re-lock combat for active co-op participants after the universal
-		// reset would otherwise have given them a fresh combat action.
-		if err := lockCoopCombatActions(); err != nil {
-			slog.Error("adventure: post-reset coop combat lock failed", "err", err)
-		}
 	}
 	if resetErr != nil {
 		return fmt.Errorf("reset daily actions after 3 attempts: %w", resetErr)

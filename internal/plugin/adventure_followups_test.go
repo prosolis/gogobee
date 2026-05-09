@@ -321,34 +321,6 @@ func TestCraftingReminderWeekday_StableWithinWeek(t *testing.T) {
 	}
 }
 
-// ── Co-op Teaser Leader Skip ───────────────────────────────────────────────
-
-func TestPickCoopTeaserCandidate_SkipsLeader(t *testing.T) {
-	me := id.UserID("@me:test")
-	other := id.UserID("@other:test")
-
-	myRun := &CoopRun{ID: 1, Tier: 1, LeaderID: me}
-	theirRunMatch := &CoopRun{ID: 2, Tier: 1, LeaderID: other}
-	theirRunStretch := &CoopRun{ID: 3, Tier: 5, LeaderID: other}
-
-	char := &AdventureCharacter{UserID: me, CombatLevel: 10}
-
-	// Player leads run 1, qualifies for run 2 (T1 minLevel 5), under-level for run 3 (T5 minLevel 40).
-	match, stretch := pickCoopTeaserCandidate([]*CoopRun{myRun, theirRunMatch, theirRunStretch}, char)
-	if match == nil || match.ID != 2 {
-		t.Errorf("expected match=run 2, got %v", match)
-	}
-	if stretch == nil || stretch.ID != 3 {
-		t.Errorf("expected stretch=run 3, got %v", stretch)
-	}
-
-	// Only own run open: nothing to surface.
-	match, stretch = pickCoopTeaserCandidate([]*CoopRun{myRun}, char)
-	if match != nil || stretch != nil {
-		t.Errorf("expected both nil when only own run open; got match=%v stretch=%v", match, stretch)
-	}
-}
-
 // ── Location Risk/Reward Numbers ───────────────────────────────────────────
 
 func TestCalculateAdvProbabilities_RiskReward_NormalizesAcrossConfigs(t *testing.T) {
