@@ -286,12 +286,15 @@ func compileLegacyZoneGraph(z ZoneDefinition) ZoneGraph {
 - **Boss flow** unchanged in essence — entering the boss node still triggers `bossEncounter`. The path to it is what changed.
 - **Region transitions** (`dnd_expedition_region.go`): when `nextNode.RegionID != currentNode.RegionID`, fire the existing region-transition flow.
 
-### G7 — POC zone (Crypt of Valdris)
+### G7 — POC zone (Crypt of Valdris) *(shipped)*
 
-- Implement `zoneCryptValdrisGraph()` per §3 example.
-- Register alongside the existing `zoneCryptValdris()` zone definition.
-- Old linear template stays in place — only new runs use the graph form (gated by env var `GOGOBEE_BRANCHING_ZONES=1` for the POC week).
-- Playtest: forks behave, secrets gate properly, boss reachable via both paths.
+- `zoneCryptValdrisGraph()` lives in `internal/plugin/zone_graph_crypt_valdris.go` (graph topology per §3, including a Perception DC 15 secret reliquary off `side_chapel` with `LootBias=2.0`). Self-registers at init.
+- Two surgical bridges so new runs actually traverse the authored graph when the gate is on:
+  - `startZoneRun` seeds `current_node = g.Entry` instead of `<zone>.r1` when `GOGOBEE_BRANCHING_ZONES=1` and the zone has a hand-authored graph in `zoneGraphRegistry`.
+  - `DungeonRun.CurrentRoomType()` resolves via `g.Nodes[CurrentNode].Kind` under the same gate, so divergent paths (e.g. the secret_chamber) dispatch to the right room resolver — RoomSeq can't represent off-path nodes.
+- Gate off = pre-G7 behavior bit-identical. Legacy zones with the gate on still route through the linear-compiled graph (auto-advance throughout) and use the legacy `<zone>.r{N+1}` node IDs unchanged.
+- Tests: registration + boss reachability via both paths, fork edge layout (weight + lock), secret-chamber DC + loot bias, `CurrentRoomType` graph-vs-RoomSeq behavior under both gate states.
+- Playtest open: forks render, perception teasers fire, boss reachable via main_hall and side_chapel.
 
 ### G8 — Migrate remaining zones one at a time
 
@@ -379,5 +382,5 @@ When the new session starts:
 4. Run G1 (schema) + G2 (types) + G3 (legacy compiler) + G4 (run state). All four are infra; ship together with no behavior change.
 5. Land G5 navigation behind `GOGOBEE_BRANCHING_ZONES=1` env gate.
 6. **G6 (done)** — dependent surfaces: harvest re-keyed on `node_id` (with legacy `room_idx` read-fallback + drop-on-save migration), narration cadence salted on `len(visited_nodes)-1` via `narrationCadence(run)`, `!zone map` graph render gated by `GOGOBEE_BRANCHING_ZONES=1` (locked edges → `╳`, secrets hidden until visited), and a region-boundary hook in graph advance/`!zone go` that mirrors `!region travel` flavor + log without burning supplies (graph is run-state authoritative).
-7. POC G7 with Crypt of Valdris.
+7. **G7 (done)** — POC graph for Crypt of Valdris shipped. `zoneCryptValdrisGraph()` lives in `internal/plugin/zone_graph_crypt_valdris.go` and self-registers at init (8 nodes incl. fork + DC-15 secret reliquary). `startZoneRun` now seeds `current_node = g.Entry` whenever `GOGOBEE_BRANCHING_ZONES=1` and the zone has a hand-authored graph, so new runs traverse the authored topology instead of falling off into `<zone>.r1`. `DungeonRun.CurrentRoomType()` resolves via the live `CurrentNode`'s graph kind under the same gate (essential for divergent paths — RoomSeq can't represent secret_chamber). Gate off = pre-G7 behavior bit-identical.
 8. Pause for playtest before G8 mass migration.
