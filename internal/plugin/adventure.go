@@ -272,7 +272,7 @@ func (p *AdventurePlugin) catchUpRespawns(chars []AdventureCharacter) {
 				continue
 			}
 			slog.Info("adventure: catch-up revived player", "user", char.UserID)
-			text := renderAdvRespawnDM(&char)
+			text := renderAdvRespawnDM(char.UserID)
 			if err := p.SendDM(char.UserID, text); err != nil {
 				slog.Error("adventure: catch-up respawn DM failed", "user", char.UserID, "err", err)
 			}
@@ -538,13 +538,13 @@ func (p *AdventurePlugin) handleMenu(ctx MessageContext) error {
 			if err := saveAdvCharacter(char); err != nil {
 				slog.Error("adventure: on-demand revive failed", "user", char.UserID, "err", err)
 			} else {
-				text := renderAdvRespawnDM(char)
+				text := renderAdvRespawnDM(char.UserID)
 				p.SendDM(ctx.Sender, text)
 				// Fall through to show menu
 			}
 		}
 		if !char.Alive {
-			text := renderAdvDeathStatusDM(char)
+			text := renderAdvDeathStatusDM(char.UserID)
 			return p.SendDM(ctx.Sender, text)
 		}
 	}
@@ -569,7 +569,7 @@ func (p *AdventurePlugin) handleMenu(ctx MessageContext) error {
 	bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, false)
 	balance := p.euro.GetBalance(char.UserID)
 
-	text := renderAdvMorningDM(char, equip, balance, bonuses, holName)
+	text := renderAdvMorningDM(char.UserID, equip, balance, bonuses, holName)
 	p.advMarkMenuSent(ctx.Sender)
 	return p.SendDM(ctx.Sender, text)
 }
@@ -587,7 +587,7 @@ func (p *AdventurePlugin) handleStatus(ctx MessageContext) error {
 		if err := saveAdvCharacter(char); err != nil {
 			slog.Error("adventure: on-demand revive failed", "user", char.UserID, "err", err)
 		} else {
-			p.SendDM(ctx.Sender, renderAdvRespawnDM(char))
+			p.SendDM(ctx.Sender, renderAdvRespawnDM(char.UserID))
 		}
 	}
 
@@ -605,7 +605,7 @@ func (p *AdventurePlugin) handleStatus(ctx MessageContext) error {
 	}
 	balance := p.euro.GetBalance(ctx.Sender)
 
-	text := renderAdvCharacterSheet(char, equip, items, treasures, balance)
+	text := renderAdvCharacterSheet(char.UserID, equip, items, treasures, balance)
 	return p.SendDM(ctx.Sender, text)
 }
 
@@ -705,7 +705,18 @@ func (p *AdventurePlugin) handleLeaderboard(ctx MessageContext) error {
 	if err != nil {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load leaderboard.")
 	}
-	text := renderAdvLeaderboard(chars)
+	entries := make([]AdvLeaderboardEntry, 0, len(chars))
+	for _, c := range chars {
+		entries = append(entries, AdvLeaderboardEntry{
+			UserID:        c.UserID,
+			Level:         dndLevelForUser(c.UserID),
+			MiningSkill:   c.MiningSkill,
+			ForagingSkill: c.ForagingSkill,
+			FishingSkill:  c.FishingSkill,
+			CurrentStreak: c.CurrentStreak,
+		})
+	}
+	text := renderAdvLeaderboard(entries)
 	return p.SendReply(ctx.RoomID, ctx.EventID, text)
 }
 
@@ -736,7 +747,7 @@ func (p *AdventurePlugin) handleAdminRevive(ctx MessageContext, target string) e
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to revive.")
 	}
 
-	p.SendDM(targetID, renderAdvRespawnDM(char))
+	p.SendDM(targetID, renderAdvRespawnDM(targetID))
 	if p.achievements != nil {
 		p.achievements.GrantAchievement(targetID, "adv_revived")
 	}
@@ -890,11 +901,11 @@ func (p *AdventurePlugin) parseAndResolveChoice(ctx MessageContext, body string)
 			if err := saveAdvCharacter(char); err != nil {
 				slog.Error("adventure: on-demand revive failed", "user", char.UserID, "err", err)
 			} else {
-				p.SendDM(ctx.Sender, renderAdvRespawnDM(char))
+				p.SendDM(ctx.Sender, renderAdvRespawnDM(char.UserID))
 			}
 		}
 		if !char.Alive {
-			return p.SendDM(ctx.Sender, renderAdvDeathStatusDM(char))
+			return p.SendDM(ctx.Sender, renderAdvDeathStatusDM(char.UserID))
 		}
 	}
 
@@ -1397,7 +1408,7 @@ func (p *AdventurePlugin) ensureCharacter(userID id.UserID) (*AdventureCharacter
 		p.registerDMRoom(userID)
 
 		// Send onboarding
-		text := renderAdvOnboardingDM(char)
+		text := renderAdvOnboardingDM(userID)
 		p.SendDM(userID, text)
 	}
 

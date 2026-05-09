@@ -28,7 +28,8 @@ var twinBeeWeights = []twinBeeActionWeight{
 }
 
 // twinBeeMaxTier returns the highest tier TwinBee should visit,
-// based on the best player's combined adventure level.
+// based on the best player's combined adventure level. Combat component
+// reads from D&D level (post-L4f) instead of legacy combat level.
 func twinBeeMaxTier() int {
 	chars, err := loadAllAdvCharacters()
 	if err != nil || len(chars) == 0 {
@@ -39,7 +40,7 @@ func twinBeeMaxTier() int {
 		if !c.Alive {
 			continue
 		}
-		combined := c.CombatLevel + c.MiningSkill + c.ForagingSkill + c.FishingSkill
+		combined := dndLevelForUser(c.UserID) + c.MiningSkill + c.ForagingSkill + c.FishingSkill
 		if combined > bestLevel {
 			bestLevel = combined
 		}
@@ -282,7 +283,7 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 		weight := 4 // minimum (level 1 in all 4 skills)
 		for _, c := range chars {
 			if c.UserID == uid {
-				weight = c.CombatLevel + c.MiningSkill + c.ForagingSkill + c.FishingSkill
+				weight = dndLevelForUser(c.UserID) + c.MiningSkill + c.ForagingSkill + c.FishingSkill
 				if weight < 4 {
 					weight = 4
 				}

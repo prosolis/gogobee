@@ -340,6 +340,13 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 - `adventure_render.go`: morning DM reads from DnDCharacter + `player_meta`. Coop teaser gating moves to DnDCharacter.Level.
 - `adventure_twinbee.go`: simulator already addressed in L1. Remaining usage is read-only stat display — port to DnDCharacter.
 
+**Status (2026-05-09):** SHIPPED on `adv-2.0` (full reader-port).
+- New helper `dndLevelForUser(userID)` in `dnd.go`: returns DnDCharacter.Level when present; falls back to `dndLevelFromCombatLevel(adventure_characters.combat_level)` via direct SQL so render code never names the AdventureCharacter type.
+- `adventure_render.go`: every render fn dropped its `*AdventureCharacter` param. Callers pass `userID id.UserID`; the renderer loads AdvCharacter internally (type-inferred local) when it needs skill/streak/babysit/crafts fields. CombatLevel display reads route through `dndLevelForUser`. Death-status DM cost now goes through `hospitalCostsForUser` directly. `renderAdvLeaderboard` switched to a new view-model `AdvLeaderboardEntry`. `AdvPlayerDaySummary.CombatLevel` renamed to `Level`. Crafting-teaser logic extracted into `craftingTeaserText` so the existing bracket-boundary test runs without a DB.
+- `adventure_twinbee.go`: `twinBeeMaxTier` and the gold-share weight loop now read D&D level via `dndLevelForUser` instead of `c.CombatLevel`.
+- Call sites updated in `adventure.go` (8), `adventure_scheduler.go` (5 — including `AdvPlayerDaySummary` populator), `adventure_arena.go` (2). `adventure_followups_test.go` ported to call `craftingTeaserText` directly.
+- `go vet ./... && go test ./...` clean. Grep-empty exit criterion below now holds for `adventure_render.go` and `adventure_twinbee.go`.
+
 **Steps (per sub-phase):** column add → backfill → swap reads → swap writes → port tests → grep check.
 
 **Exit criteria L4 overall:** `grep -l 'AdventureCharacter\|CombatLevel' internal/plugin/adventure_{hospital,rival,masterwork,pets,housing,mortgage,render,twinbee}.go` empty.

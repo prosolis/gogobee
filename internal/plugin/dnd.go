@@ -340,6 +340,24 @@ func dndLevelFromCombatLevel(combatLevel int) int {
 	return lvl
 }
 
+// dndLevelForUser returns the player's display-facing D&D level: the
+// DnDCharacter row's Level when present, else the converted legacy
+// adventure_characters.combat_level as a soak-period fallback. Used by
+// render/twinbee/scheduler after L4f to keep "Combat Lv.X" in player-
+// facing surfaces in sync with the D&D level system without leaking the
+// AdventureCharacter type into render code.
+func dndLevelForUser(userID id.UserID) int {
+	if c, err := LoadDnDCharacter(userID); err == nil && c != nil && c.Level > 0 {
+		return c.Level
+	}
+	row := db.Get().QueryRow(`SELECT combat_level FROM adventure_characters WHERE user_id = ?`, string(userID))
+	var legacy int
+	if err := row.Scan(&legacy); err != nil {
+		return 1
+	}
+	return dndLevelFromCombatLevel(legacy)
+}
+
 // applyRaceMods adds the race's ability modifiers to a base score block.
 func applyRaceMods(race DnDRace, scores [6]int) [6]int {
 	ri, ok := raceInfo(race)

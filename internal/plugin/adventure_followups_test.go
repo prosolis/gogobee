@@ -254,11 +254,7 @@ func TestRenderCraftingTeaser_BracketBoundaries(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			char := &AdventureCharacter{
-				ForagingSkill:   tc.foraging,
-				CraftsSucceeded: tc.craftsSucceeded,
-			}
-			got := renderCraftingTeaser(char)
+			got := craftingTeaserText(tc.foraging, tc.craftsSucceeded, "")
 			if tc.wantEmpty {
 				if got != "" {
 					t.Errorf("expected empty, got %q", got)

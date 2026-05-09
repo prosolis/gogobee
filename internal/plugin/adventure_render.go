@@ -89,15 +89,21 @@ func advSubstituteFlavor(template string, vars map[string]string) string {
 
 // ── Character Sheet ──────────────────────────────────────────────────────────
 
-func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, items []AdvItem, treasures []AdvTreasureBonus, balance float64) string {
+func renderAdvCharacterSheet(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment, items []AdvItem, treasures []AdvTreasureBonus, balance float64) string {
 	var sb strings.Builder
 
-	displayName, _ := loadDisplayName(char.UserID)
+	char, err := loadAdvCharacter(userID)
+	if err != nil || char == nil {
+		return "No adventurer found. Type `!adventure` to begin."
+	}
+
+	displayName, _ := loadDisplayName(userID)
 	sb.WriteString(fmt.Sprintf("⚔️ **%s's Adventurer**\n\n", displayName))
 
-	// Stats
+	// Stats — Combat line shows D&D Level (CombatXP display retired in L4f).
+	dndLevel := dndLevelForUser(userID)
 	sb.WriteString("📊 Stats:\n")
-	sb.WriteString(fmt.Sprintf("  Combat:  Lv.%d  (%d/%d XP)\n", char.CombatLevel, char.CombatXP, xpToNextLevel(char.CombatLevel)))
+	sb.WriteString(fmt.Sprintf("  Combat:  Lv.%d\n", dndLevel))
 	sb.WriteString(fmt.Sprintf("  Mining:  Lv.%d  (%d/%d XP)\n", char.MiningSkill, char.MiningXP, xpToNextLevel(char.MiningSkill)))
 	sb.WriteString(fmt.Sprintf("  Forage:  Lv.%d  (%d/%d XP)\n", char.ForagingSkill, char.ForagingXP, xpToNextLevel(char.ForagingSkill)))
 	sb.WriteString(fmt.Sprintf("  Fishing: Lv.%d  (%d/%d XP)\n", char.FishingSkill, char.FishingXP, xpToNextLevel(char.FishingSkill)))
@@ -195,9 +201,9 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 	}
 
 	// Rival status — read from player_meta (Adv 2.0 Phase L4b).
-	rivalPoolFlag, _, _ := loadRivalState(char.UserID)
+	rivalPoolFlag, _, _ := loadRivalState(userID)
 	if rivalPoolFlag == 1 {
-		records, _ := loadAllRivalRecords(char.UserID)
+		records, _ := loadAllRivalRecords(userID)
 		sb.WriteString("\n⚔️ Rivals: Unlocked")
 		if len(records) > 0 {
 			totalW, totalL := 0, 0
@@ -219,28 +225,35 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 // the Foraging-10 auto-unlock, so it doesn't stay invisible to players who
 // never type !adventure recipes. Returns "" when the teaser shouldn't fire
 // today (out of pre-unlock window, or already deep into post-unlock).
-func renderCraftingTeaser(char *AdventureCharacter) string {
+func renderCraftingTeaser(userID id.UserID) string {
+	char, err := loadAdvCharacter(userID)
+	if err != nil || char == nil {
+		return ""
+	}
+	return craftingTeaserText(char.ForagingSkill, char.CraftsSucceeded, userID)
+}
+
+// craftingTeaserText is the pure-logic core of renderCraftingTeaser, split
+// out so unit tests can exercise the bracket boundaries without a DB.
+func craftingTeaserText(foragingSkill, craftsSucceeded int, userID id.UserID) string {
 	const unlock = 10
-	if char.ForagingSkill < unlock {
+	if foragingSkill < unlock {
 		// Pre-unlock teaser: only when within 3 levels.
-		if char.ForagingSkill < unlock-3 {
+		if foragingSkill < unlock-3 {
 			return ""
 		}
-		levelsToGo := unlock - char.ForagingSkill
+		levelsToGo := unlock - foragingSkill
 		return fmt.Sprintf("🧪 **Crafting unlocks in %d Foraging level%s** — auto-craft consumables from gathered ingredients (Berry Poultice, Herb Salve, etc.).",
 			levelsToGo, plural(levelsToGo))
 	}
 
 	// Post-unlock: nudge when no successful crafts yet (gentle), or once a
 	// week (loose periodicity via day-of-year %).
-	if char.CraftsSucceeded == 0 {
+	if craftsSucceeded == 0 {
 		return "🧪 **Crafting is unlocked.** Gather a couple of matching ingredients and TwinBee will auto-craft consumables — try `!adventure recipes` to see what your level supports."
 	}
-	// Per-player weekly reminder: hash UserID + ISO week to pick a stable
-	// weekday for this player. Spreads the cohort across the week instead
-	// of all firing on the same global day.
-	if int(time.Now().UTC().Weekday()) == craftingReminderWeekday(char.UserID, time.Now().UTC()) {
-		return "🧪 *Crafting reminder* — `!adventure recipes` shows what's available at Foraging Lv." + fmt.Sprintf("%d.", char.ForagingSkill)
+	if int(time.Now().UTC().Weekday()) == craftingReminderWeekday(userID, time.Now().UTC()) {
+		return "🧪 *Crafting reminder* — `!adventure recipes` shows what's available at Foraging Lv." + fmt.Sprintf("%d.", foragingSkill)
 	}
 	return ""
 }
@@ -267,8 +280,8 @@ func plural(n int) string {
 // players who missed or ignored the dramatic challenge DM see a reminder
 // before it expires. Returns "" if there's no pending challenge against
 // this player.
-func renderRivalNudge(char *AdventureCharacter) string {
-	c := pendingRivalChallengeForChallenged(char.UserID)
+func renderRivalNudge(userID id.UserID) string {
+	c := pendingRivalChallengeForChallenged(userID)
 	if c == nil {
 		return ""
 	}
@@ -284,8 +297,13 @@ func renderRivalNudge(char *AdventureCharacter) string {
 		rivalName, c.Round, c.Stake, hours)
 }
 
-func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, balance float64, bonuses *AdvBonusSummary, holidayName string) string {
+func renderAdvMorningDM(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment, balance float64, bonuses *AdvBonusSummary, holidayName string) string {
 	var sb strings.Builder
+
+	char, err := loadAdvCharacter(userID)
+	if err != nil || char == nil {
+		return ""
+	}
 
 	// Holiday notice (before greeting). Today's perks: TwinBee starts new
 	// runs in a slightly better mood (+5), expedition outfitting includes a
@@ -295,19 +313,20 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 	}
 
 	// Pick a morning greeting
-	greeting, _ := advPickFlavor(MorningDM, char.UserID, "morning_dm")
-	displayName, _ := loadDisplayName(char.UserID)
+	greeting, _ := advPickFlavor(MorningDM, userID, "morning_dm")
+	displayName, _ := loadDisplayName(userID)
+	dndLevel := dndLevelForUser(userID)
 	vars := map[string]string{
 		"{name}": displayName,
 		"{character_sheet}": fmt.Sprintf(
 			"  ⚔️ Combat Lv.%d  ⛏️ Mining Lv.%d  🌿 Foraging Lv.%d  🎣 Fishing Lv.%d\n  💰 €%.0f",
-			char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill, balance),
+			dndLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill, balance),
 	}
 	sb.WriteString(advSubstituteFlavor(greeting, vars))
 	sb.WriteString("\n\n")
 
 	// Active buffs
-	buffs, _ := loadAdvActiveBuffs(char.UserID)
+	buffs, _ := loadAdvActiveBuffs(userID)
 	if len(buffs) > 0 {
 		sb.WriteString("✨ **Active buffs:**\n")
 		for _, b := range buffs {
@@ -339,13 +358,13 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 	sb.WriteString("📋 **Co-op dungeons closed for now** — `!expedition` is the way forward; a better co-op design is on the way.\n\n")
 
 	// Rival nudge — a pending challenge waits for action.
-	if line := renderRivalNudge(char); line != "" {
+	if line := renderRivalNudge(userID); line != "" {
 		sb.WriteString(line)
 		sb.WriteString("\n")
 	}
 
 	// Crafting teaser — surface the system when it's near unlock or post-unlock.
-	if line := renderCraftingTeaser(char); line != "" {
+	if line := renderCraftingTeaser(userID); line != "" {
 		sb.WriteString(line)
 		sb.WriteString("\n")
 	}
@@ -373,7 +392,7 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 
 // ── Resolution DM ────────────────────────────────────────────────────────────
 
-func renderAdvResolutionDM(result *AdvActionResult, char *AdventureCharacter) string {
+func renderAdvResolutionDM(result *AdvActionResult, userID id.UserID) string {
 	var sb strings.Builder
 
 	sb.WriteString(result.FlavorText)
@@ -384,7 +403,7 @@ func renderAdvResolutionDM(result *AdvActionResult, char *AdventureCharacter) st
 
 	if result.Outcome == AdvOutcomeDeath {
 		sb.WriteString("💀 **You died.**\n")
-		if char.DeadUntil != nil {
+		if char, err := loadAdvCharacter(userID); err == nil && char != nil && char.DeadUntil != nil {
 			sb.WriteString(fmt.Sprintf("Expected return: %s UTC\n", char.DeadUntil.Format("2006-01-02 15:04")))
 		}
 	}
@@ -490,8 +509,13 @@ func advClosingBlock(outcome AdvOutcomeType, userID id.UserID, location string, 
 
 // ── Death Status DM ──────────────────────────────────────────────────────────
 
-func renderAdvDeathStatusDM(char *AdventureCharacter) string {
-	cost := int64(char.CombatLevel) * 25_000
+func renderAdvDeathStatusDM(userID id.UserID) string {
+	char, err := loadAdvCharacter(userID)
+	if err != nil || char == nil {
+		return "💀 You're still dead."
+	}
+	// Cost mirrors hospitalCostsForUser (post-L4a): D&D Level × 50k after insurance.
+	_, cost := hospitalCostsForUser(char)
 	remaining := "unknown"
 	if char.DeadUntil != nil {
 		remaining = char.DeadUntil.Format("15:04")
@@ -504,9 +528,9 @@ func renderAdvDeathStatusDM(char *AdventureCharacter) string {
 
 // ── Respawn DM ───────────────────────────────────────────────────────────────
 
-func renderAdvRespawnDM(char *AdventureCharacter) string {
-	text, _ := advPickFlavor(RespawnDM, char.UserID, "respawn_dm")
-	displayName, _ := loadDisplayName(char.UserID)
+func renderAdvRespawnDM(userID id.UserID) string {
+	text, _ := advPickFlavor(RespawnDM, userID, "respawn_dm")
+	displayName, _ := loadDisplayName(userID)
 	return advSubstituteFlavor(text, map[string]string{
 		"{name}": displayName,
 	})
@@ -666,9 +690,9 @@ func masteryBar(value, total int) string {
 
 // ── Idle Shame DM ────────────────────────────────────────────────────────────
 
-func renderAdvIdleShameDM(char *AdventureCharacter) string {
-	text, _ := advPickFlavor(IdleShameDM, char.UserID, "idle_shame")
-	displayName, _ := loadDisplayName(char.UserID)
+func renderAdvIdleShameDM(userID id.UserID) string {
+	text, _ := advPickFlavor(IdleShameDM, userID, "idle_shame")
+	displayName, _ := loadDisplayName(userID)
 	return advSubstituteFlavor(text, map[string]string{
 		"{name}": displayName,
 	})
@@ -676,9 +700,9 @@ func renderAdvIdleShameDM(char *AdventureCharacter) string {
 
 // ── Onboarding DM ────────────────────────────────────────────────────────────
 
-func renderAdvOnboardingDM(char *AdventureCharacter) string {
-	text, _ := advPickFlavor(OnboardingDM, char.UserID, "onboarding")
-	displayName, _ := loadDisplayName(char.UserID)
+func renderAdvOnboardingDM(userID id.UserID) string {
+	text, _ := advPickFlavor(OnboardingDM, userID, "onboarding")
+	displayName, _ := loadDisplayName(userID)
 	return advSubstituteFlavor(text, map[string]string{
 		"{name}": displayName,
 	})
@@ -688,7 +712,7 @@ func renderAdvOnboardingDM(char *AdventureCharacter) string {
 
 type AdvPlayerDaySummary struct {
 	DisplayName    string
-	CombatLevel    int
+	Level          int
 	MiningSkill    int
 	ForagingSkill  int
 	FishingSkill   int
@@ -786,7 +810,7 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 					icon = "⚔️"
 				}
 				sb.WriteString(fmt.Sprintf("%s **%s** — Combat Lv.%d | Mining Lv.%d | Forage Lv.%d | Fishing Lv.%d\n",
-					icon, p.DisplayName, p.CombatLevel, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
+					icon, p.DisplayName, p.Level, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
 				sb.WriteString(fmt.Sprintf("   Went to: %s\n", p.Location))
 				sb.WriteString(fmt.Sprintf("   Outcome: %s\n", p.SummaryLine))
 				if !diedOnAdventure {
@@ -809,7 +833,7 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 		}
 
 		sb.WriteString(fmt.Sprintf("⚔️ **%s** — Combat Lv.%d | Mining Lv.%d | Forage Lv.%d | Fishing Lv.%d\n",
-			p.DisplayName, p.CombatLevel, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
+			p.DisplayName, p.Level, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
 		if p.Location != "" {
 			sb.WriteString(fmt.Sprintf("   Went to: %s\n", p.Location))
 			sb.WriteString(fmt.Sprintf("   Outcome: %s\n\n", p.SummaryLine))
@@ -881,7 +905,19 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 
 // ── Leaderboard ──────────────────────────────────────────────────────────────
 
-func renderAdvLeaderboard(chars []AdventureCharacter) string {
+// AdvLeaderboardEntry is the view-model the leaderboard renderer consumes.
+// Callers populate it from AdvCharacter rows + a D&D level lookup so the
+// renderer doesn't depend on the legacy character type.
+type AdvLeaderboardEntry struct {
+	UserID        id.UserID
+	Level         int
+	MiningSkill   int
+	ForagingSkill int
+	FishingSkill  int
+	CurrentStreak int
+}
+
+func renderAdvLeaderboard(chars []AdvLeaderboardEntry) string {
 	if len(chars) == 0 {
 		return "No adventurers registered yet. Type `!adventure` to begin."
 	}
@@ -895,12 +931,12 @@ func renderAdvLeaderboard(chars []AdventureCharacter) string {
 	}
 	var entries []entry
 	for _, c := range chars {
-		score := (c.CombatLevel + c.MiningSkill + c.ForagingSkill + c.FishingSkill) * 10
+		score := (c.Level + c.MiningSkill + c.ForagingSkill + c.FishingSkill) * 10
 		name, _ := loadDisplayName(c.UserID)
 		entries = append(entries, entry{
 			Name:   name,
 			Score:  score,
-			Levels: fmt.Sprintf("⚔️%d ⛏️%d 🌿%d 🎣%d", c.CombatLevel, c.MiningSkill, c.ForagingSkill, c.FishingSkill),
+			Levels: fmt.Sprintf("⚔️%d ⛏️%d 🌿%d 🎣%d", c.Level, c.MiningSkill, c.ForagingSkill, c.FishingSkill),
 			Streak: c.CurrentStreak,
 		})
 	}

@@ -80,7 +80,7 @@ func (p *AdventurePlugin) handleArenaMenu(ctx MessageContext) error {
 	}
 
 	if !char.Alive {
-		return p.SendDM(ctx.Sender, renderAdvDeathStatusDM(char))
+		return p.SendDM(ctx.Sender, renderAdvDeathStatusDM(char.UserID))
 	}
 
 	// Clear any pending entry when viewing menu
@@ -156,7 +156,7 @@ func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext) error {
 	}
 
 	if !char.Alive {
-		return p.SendDM(ctx.Sender, renderAdvDeathStatusDM(char))
+		return p.SendDM(ctx.Sender, renderAdvDeathStatusDM(char.UserID))
 	}
 
 	// Re-check active run (could have changed since entry prompt)

@@ -78,7 +78,7 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			}
 
 			// Send respawn DM
-			text := renderAdvRespawnDM(&char)
+			text := renderAdvRespawnDM(char.UserID)
 			if err := p.SendDM(char.UserID, text); err != nil {
 				slog.Error("adventure: failed to send respawn DM", "user", char.UserID, "err", err)
 			}
@@ -101,7 +101,7 @@ func (p *AdventurePlugin) sendMorningDMs() {
 
 		// If still dead, send death status
 		if !char.Alive {
-			text := renderAdvDeathStatusDM(&char)
+			text := renderAdvDeathStatusDM(char.UserID)
 			if err := p.SendDM(char.UserID, text); err != nil {
 				slog.Error("adventure: failed to send death status DM", "user", char.UserID, "err", err)
 			}
@@ -144,7 +144,7 @@ func (p *AdventurePlugin) sendMorningDMs() {
 		if isHol {
 			holidayLabel = holName
 		}
-		text := renderAdvMorningDM(&char, equip, balance, bonuses, holidayLabel)
+		text := renderAdvMorningDM(char.UserID, equip, balance, bonuses, holidayLabel)
 		if petEvent != "" {
 			text = fmt.Sprintf("🐾 *%s*\n\n%s", petEvent, text)
 		}
@@ -237,7 +237,7 @@ func (p *AdventurePlugin) postDailySummary() {
 		dispName, _ := loadDisplayName(c.UserID)
 		ps := AdvPlayerDaySummary{
 			DisplayName:   dispName,
-			CombatLevel:   c.CombatLevel,
+			Level:         dndLevelForUser(c.UserID),
 			MiningSkill:   c.MiningSkill,
 			ForagingSkill: c.ForagingSkill,
 			FishingSkill:  c.FishingSkill,
@@ -376,7 +376,7 @@ func (p *AdventurePlugin) midnightReset() error {
 			dmsSent++
 
 			// Idle shame DM
-			text := renderAdvIdleShameDM(&char)
+			text := renderAdvIdleShameDM(char.UserID)
 			if char.CurrentStreak > 0 {
 				oldStreak := char.CurrentStreak
 				char.CurrentStreak /= 2
