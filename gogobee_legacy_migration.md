@@ -316,8 +316,15 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 
 **Goal:** Delete legacy types, files, and `combat_engine`. Branching dungeon paths become buildable.
 
+**Pre-condition: DisplayName migration (L4f-prep, ~2026-05-09 note).** The plan as originally written never picked a new home for `AdventureCharacter.DisplayName`. It is *not* legacy-specific — it's the player's chosen identity, used in ~250 spots across arena, rival, scheduler, expedition, holdem, coop. L5's pre-condition `grep AdventureCharacter == 0` cannot pass while DisplayName still lives on AdvCharacter.
+
+**Recommendation:** add `display_name TEXT NOT NULL DEFAULT ''` to `player_meta` as a self-contained step before L4f. Backfill from `adventure_character.display_name` (same shape as §8). Add a `loadDisplayName(userID)` helper that reads from `player_meta` and falls back to AdvCharacter for one soak week, then flip readers. Per-call-site swap is mechanical (`char.DisplayName` → `loadDisplayName(uid)` or pass-through from caller).
+
+**Sizing:** ~0.5 day for the schema/backfill/helper, then 1 day to swap the ~250 read sites in batches per file. Slot it after L2 wraps and before L4f starts.
+
 **Pre-conditions:**
 - L1–L4 all shipped.
+- DisplayName migrated to `player_meta` (see above).
 - `grep -rn 'AdventureCharacter' internal/plugin/ --include='*.go' | grep -v adventure_character.go | grep -v _test.go` returns 0.
 - `grep -rn 'CombatLevel' internal/plugin/ --include='*.go'` returns 0 (or only in archive/migration code).
 
