@@ -58,6 +58,43 @@ func TestRenderZoneGraphMap_HidesUnvisitedSecrets(t *testing.T) {
 	}
 }
 
+// TestRenderZoneGraphMap_CollapsesEmptyColumns confirms columns whose
+// only inhabitant is a hidden secret don't leave a phantom blank slot
+// in the glyph/status rows. Prior to G7 the renderer iterated 0..maxX
+// and emitted a space for empty columns, which read as a "missing dot".
+func TestRenderZoneGraphMap_CollapsesEmptyColumns(t *testing.T) {
+	nodes := []ZoneNode{
+		{NodeID: "z.entry", Kind: NodeKindEntry, IsEntry: true, PosX: 0},
+		{NodeID: "z.mid", Kind: NodeKindExploration, PosX: 1},
+		// Secret sits alone in column 2 — hidden until visited.
+		{NodeID: "z.secret", Kind: NodeKindSecret, PosX: 2, PosY: 1},
+		{NodeID: "z.boss", Kind: NodeKindBoss, IsBoss: true, PosX: 3},
+	}
+	edges := []ZoneEdge{
+		{From: "z.entry", To: "z.mid"},
+		{From: "z.mid", To: "z.secret", Lock: LockPerception, LockData: map[string]any{"dc": 12}},
+		{From: "z.mid", To: "z.boss"},
+		{From: "z.secret", To: "z.boss"},
+	}
+	g := BuildGraph("test_zone_collapse", nodes, edges)
+	got := renderZoneGraphMap(g, &DungeonRun{
+		CurrentNode:  "z.entry",
+		VisitedNodes: []string{"z.entry"},
+	})
+	// With col 2 collapsed, the top row should be a contiguous chain
+	// E──?──☠ with no double-gap.
+	if !strings.Contains(got, "E──?──☠") {
+		t.Errorf("expected collapsed top row 'E──?──☠', got:\n%s", got)
+	}
+	// And no run of 3+ spaces between glyphs (would indicate a phantom column).
+	for _, line := range strings.Split(got, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "   ") {
+			t.Errorf("phantom empty column detected in line %q (full output:\n%s)", line, got)
+		}
+	}
+}
+
 // TestRenderZoneGraphMap_LockedEdgeRenderedAsCross verifies locked-only
 // approaches show ╳ instead of ──.
 func TestRenderZoneGraphMap_LockedEdgeRenderedAsCross(t *testing.T) {

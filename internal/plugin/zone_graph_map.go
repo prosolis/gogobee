@@ -57,9 +57,19 @@ func renderZoneGraphMap(g ZoneGraph, run *DungeonRun) string {
 		})
 	}
 
+	// Drop columns that have no visible nodes (e.g. when the only
+	// entry was a hidden secret). Otherwise the render leaves a blank
+	// slot mid-row that reads as a missing status mark.
+	visibleX := make([]int, 0, maxX+1)
+	for x := 0; x <= maxX; x++ {
+		if len(cols[x]) > 0 {
+			visibleX = append(visibleX, x)
+		}
+	}
+
 	// Find max stack height per column for vertical alignment.
 	maxRows := 0
-	for x := 0; x <= maxX; x++ {
+	for _, x := range visibleX {
 		if len(cols[x]) > maxRows {
 			maxRows = len(cols[x])
 		}
@@ -73,9 +83,9 @@ func renderZoneGraphMap(g ZoneGraph, run *DungeonRun) string {
 	var sb strings.Builder
 	for row := 0; row < maxRows; row++ {
 		var top, bot strings.Builder
-		for x := 0; x <= maxX; x++ {
-			if x > 0 {
-				connector, statusGap := graphConnector(g, cols[x-1], cols[x], row, visited)
+		for i, x := range visibleX {
+			if i > 0 {
+				connector, statusGap := graphConnector(g, cols[visibleX[i-1]], cols[x], row, visited)
 				top.WriteString(connector)
 				bot.WriteString(statusGap)
 			}
