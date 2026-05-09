@@ -312,6 +312,7 @@ func applyXPBonuses(p XPBonusParams) XPResult {
 type DeathTransitionParams struct {
 	Char           *AdventureCharacter
 	Equip          map[EquipmentSlot]*AdvEquipment
+	Pet            PetState // pet state for ditch-recovery roll; zero value disables
 	ChatLevel      int
 	Location       string // set as GrudgeLocation; empty = don't set
 	Source         string // death source: "adventure" | "arena" — recorded on Kill()
@@ -374,8 +375,8 @@ func transitionDeath(p DeathTransitionParams) DeathTransitionResult {
 	}
 	r.Died = true
 
-	if petRollDitchRecovery(p.Char) && p.Char.DeadUntil != nil {
-		reduced := time.Now().UTC().Add(petDitchRecoveryTime(p.Char.PetLevel))
+	if petRollDitchRecovery(p.Pet) && p.Char.DeadUntil != nil {
+		reduced := time.Now().UTC().Add(petDitchRecoveryTime(p.Pet.Level))
 		p.Char.DeadUntil = &reduced
 		r.PetRecovered = true
 	}

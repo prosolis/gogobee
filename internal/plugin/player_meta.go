@@ -402,6 +402,13 @@ type PetState struct {
 	MorningDefense     bool
 }
 
+// HasPet returns true if the player has an active pet (arrived, not chased
+// away). Mirrors AdventureCharacter.HasPet() for the cross-file pet-helper
+// flip in L4d.
+func (s PetState) HasPet() bool {
+	return s.Type != "" && s.Arrived && !s.ChasedAway
+}
+
 // petFlagsJSON is the on-disk encoding of the four pet bools. Adding a new
 // flag is an additive JSON field — old rows decode as false.
 type petFlagsJSON struct {

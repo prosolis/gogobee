@@ -116,13 +116,14 @@ func (p *AdventurePlugin) sendMorningDMs() {
 
 		// Pet arrival check (fires before normal morning DM)
 		house, _ := loadHouseState(char.UserID)
-		if petShouldArrive(&char, house) {
+		pet, _ := loadPetState(char.UserID)
+		if petShouldArrive(pet, house) {
 			p.petArrivalDM(char.UserID)
 			continue
 		}
 
 		// Morning pet event
-		petEvent := petMorningEvent(&char)
+		petEvent := petMorningEvent(pet)
 		if petEvent != "" {
 			char.PetMorningDefense = true
 			_ = saveAdvCharacter(&char)

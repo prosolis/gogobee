@@ -32,25 +32,25 @@ func petXPToNextLevel(level int) int {
 }
 
 // petGrantXP adds XP to the pet and handles level-ups. Returns true if leveled up.
-func petGrantXP(char *AdventureCharacter) bool {
-	if !char.HasPet() || char.PetLevel >= 10 {
+func petGrantXP(pet *PetState) bool {
+	if !pet.HasPet() || pet.Level >= 10 {
 		return false
 	}
 
-	char.PetXP += int(petXPPerAction * 100) // store as centixp for precision
+	pet.XP += int(petXPPerAction * 100) // store as centixp for precision
 	leveled := false
-	for char.PetLevel < 10 {
-		needed := petXPToNextLevel(char.PetLevel) * 100
-		if char.PetXP < needed {
+	for pet.Level < 10 {
+		needed := petXPToNextLevel(pet.Level) * 100
+		if pet.XP < needed {
 			break
 		}
-		char.PetXP -= needed
-		char.PetLevel++
+		pet.XP -= needed
+		pet.Level++
 		leveled = true
 	}
 
-	if char.PetLevel >= 10 && char.PetLevel10Date == "" {
-		char.PetLevel10Date = time.Now().UTC().Format("2006-01-02")
+	if pet.Level >= 10 && pet.Level10Date == "" {
+		pet.Level10Date = time.Now().UTC().Format("2006-01-02")
 	}
 
 	return leveled
@@ -108,19 +108,19 @@ type PetCombatResult struct {
 }
 
 // petRollCombatActions rolls attack and deflect for a combat round.
-func petRollCombatActions(char *AdventureCharacter, enemyName string) *PetCombatResult {
-	if !char.HasPet() {
+func petRollCombatActions(pet PetState, enemyName string) *PetCombatResult {
+	if !pet.HasPet() {
 		return nil
 	}
 
 	result := &PetCombatResult{}
 
 	// Attack roll
-	if rand.Float64() < petAttackChance(char.PetLevel) {
+	if rand.Float64() < petAttackChance(pet.Level) {
 		result.Attacked = true
-		result.AttackDamage = 3 + rand.IntN(5) + char.PetLevel // 3-7 + level
+		result.AttackDamage = 3 + rand.IntN(5) + pet.Level // 3-7 + level
 		var pool []string
-		if char.PetType == "dog" {
+		if pet.Type == "dog" {
 			pool = PetDogAttack
 		} else {
 			pool = PetCatAttack
@@ -132,10 +132,10 @@ func petRollCombatActions(char *AdventureCharacter, enemyName string) *PetCombat
 	}
 
 	// Deflect roll
-	if rand.Float64() < petDeflectChance(char.PetLevel, char.PetArmorTier) {
+	if rand.Float64() < petDeflectChance(pet.Level, pet.ArmorTier) {
 		result.Deflected = true
 		var pool []string
-		if char.PetType == "dog" {
+		if pet.Type == "dog" {
 			pool = PetDogDeflect
 		} else {
 			pool = PetCatDeflect
@@ -149,20 +149,20 @@ func petRollCombatActions(char *AdventureCharacter, enemyName string) *PetCombat
 }
 
 // petRollDitchRecovery rolls for pet intervention on player death.
-func petRollDitchRecovery(char *AdventureCharacter) bool {
-	if !char.HasPet() {
+func petRollDitchRecovery(pet PetState) bool {
+	if !pet.HasPet() {
 		return false
 	}
-	return rand.Float64() < petDitchRecoveryChance(char.PetLevel)
+	return rand.Float64() < petDitchRecoveryChance(pet.Level)
 }
 
 // petVictoryText returns a random victory reaction line.
-func petVictoryText(char *AdventureCharacter) string {
-	if !char.HasPet() {
+func petVictoryText(pet PetState) string {
+	if !pet.HasPet() {
 		return ""
 	}
 	var pool []string
-	if char.PetType == "dog" {
+	if pet.Type == "dog" {
 		pool = PetDogVictory
 	} else {
 		pool = PetCatVictory
@@ -171,12 +171,12 @@ func petVictoryText(char *AdventureCharacter) string {
 }
 
 // petDeathText returns a random death reaction line.
-func petDeathText(char *AdventureCharacter) string {
-	if !char.HasPet() {
+func petDeathText(pet PetState) string {
+	if !pet.HasPet() {
 		return ""
 	}
 	var pool []string
-	if char.PetType == "dog" {
+	if pet.Type == "dog" {
 		pool = PetDogDeath
 	} else {
 		pool = PetCatDeath
@@ -187,11 +187,11 @@ func petDeathText(char *AdventureCharacter) string {
 // ── Pet Arrival Flow ───────────────────────────────────────────────────────
 
 // petShouldArrive checks if pet arrival should trigger.
-// Fires randomly after Tier 1 house upgrade is complete. Housing state
-// comes from player_meta via loadHouseState (L4e reader flip); pet flags
-// still live on AdvCharacter during the soak window.
-func petShouldArrive(char *AdventureCharacter, house HouseState) bool {
-	if char.PetArrived {
+// Fires randomly after Tier 1 house upgrade is complete. Housing and pet
+// state come from player_meta via loadHouseState / loadPetState (L4d/L4e
+// reader flip).
+func petShouldArrive(pet PetState, house HouseState) bool {
+	if pet.Arrived {
 		return false
 	}
 	// Pet arrives after Tier 1 (Livable) upgrade = HouseTier >= 2
@@ -199,8 +199,8 @@ func petShouldArrive(char *AdventureCharacter, house HouseState) bool {
 		return false
 	}
 	// Pet was chased away and reactivated via Misty — allow re-arrival
-	if char.PetChasedAway {
-		return char.PetReactivated
+	if pet.ChasedAway {
+		return pet.Reactivated
 	}
 	// 15% daily chance after house tier 1
 	return rand.Float64() < 0.15
@@ -362,8 +362,8 @@ func (p *AdventurePlugin) resolvePetName(ctx MessageContext) error {
 
 // petMorningEvent rolls for a morning pet event and returns flavor text.
 // Returns empty string if no event fires.
-func petMorningEvent(char *AdventureCharacter) string {
-	if !char.HasPet() {
+func petMorningEvent(pet PetState) string {
+	if !pet.HasPet() {
 		return ""
 	}
 
@@ -372,23 +372,23 @@ func petMorningEvent(char *AdventureCharacter) string {
 		return ""
 	}
 
-	if char.PetType == "cat" {
+	if pet.Type == "cat" {
 		line := PetCatOffering[rand.IntN(len(PetCatOffering))]
-		return strings.ReplaceAll(line, "{pet_name}", char.PetName)
+		return strings.ReplaceAll(line, "{pet_name}", pet.Name)
 	}
 
 	line := PetDogSmothering[rand.IntN(len(PetDogSmothering))]
-	return strings.ReplaceAll(line, "{pet_name}", char.PetName)
+	return strings.ReplaceAll(line, "{pet_name}", pet.Name)
 }
 
 // ── Pet Supply Shop Unlock Check ───────────────────────────────────────────
 
 // petCheckSupplyShopUnlock checks if 1 week has passed since pet hit level 10.
-func petCheckSupplyShopUnlock(char *AdventureCharacter) bool {
-	if char.PetSupplyShopUnlocked || char.PetLevel10Date == "" {
+func petCheckSupplyShopUnlock(pet PetState) bool {
+	if pet.SupplyShopUnlocked || pet.Level10Date == "" {
 		return false
 	}
-	d, err := time.Parse("2006-01-02", char.PetLevel10Date)
+	d, err := time.Parse("2006-01-02", pet.Level10Date)
 	if err != nil {
 		return false
 	}
@@ -399,12 +399,14 @@ func petCheckSupplyShopUnlock(char *AdventureCharacter) bool {
 
 // mistyHousingHint returns a hint about housing/pets if conditions are met.
 // Fires once, after 2+ Misty encounters, player has no house. Housing
-// state comes from player_meta (L4e reader flip).
-func mistyHousingHint(char *AdventureCharacter, house HouseState) string {
-	if house.HasHouse() || char.MistyEncounterCount < 2 {
+// state comes from player_meta (L4e reader flip). Misty NPC counters still
+// live on AdvCharacter (NPC migration is a later phase) so the caller
+// passes them in directly.
+func mistyHousingHint(mistyEncounterCount, mistyDonatedCount int, house HouseState) string {
+	if house.HasHouse() || mistyEncounterCount < 2 {
 		return ""
 	}
-	if char.MistyDonatedCount > 0 {
+	if mistyDonatedCount > 0 {
 		return "You seem like a good person. I can imagine you sitting in a house caring for a pet someday."
 	}
 	return "Thank you for your time."
@@ -412,11 +414,11 @@ func mistyHousingHint(char *AdventureCharacter, house HouseState) string {
 
 // ── Misty Pet Reactivation ─────────────────────────────────────────────────
 
-// mistyReactivatePet marks the pet as reactivated if it was chased away.
-func mistyReactivatePet(char *AdventureCharacter) {
-	if char.PetChasedAway && !char.PetReactivated {
-		char.PetReactivated = true
-	}
+// mistyReactivatePet returns true when a chased-away pet should be marked
+// as reactivated. Caller is responsible for flipping the flag on both
+// AdvCharacter and player_meta.
+func mistyReactivatePet(pet PetState) bool {
+	return pet.ChasedAway && !pet.Reactivated
 }
 
 // ── Pet Level 10 Ticker (runs daily at midnight) ───────────────────────────
@@ -434,7 +436,8 @@ func (p *AdventurePlugin) petMidnightCheck() {
 		}
 
 		// Check supply shop unlock
-		if petCheckSupplyShopUnlock(&char) {
+		pet, _ := loadPetState(char.UserID)
+		if petCheckSupplyShopUnlock(pet) {
 			char.PetSupplyShopUnlocked = true
 			_ = saveAdvCharacter(&char)
 			_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(&char))

@@ -234,7 +234,10 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 		char.MistyDonatedCount++
 
 		// Pet reactivation: donating to Misty after chasing pet away
-		mistyReactivatePet(char)
+		mistyPet, _ := loadPetState(char.UserID)
+		if mistyReactivatePet(mistyPet) {
+			char.PetReactivated = true
+		}
 
 		if err := saveAdvCharacter(char); err != nil {
 			slog.Error("npc: failed to save misty buff", "user", ctx.Sender, "err", err)
@@ -245,7 +248,7 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 
 		// Housing hint (fires once after 2+ encounters)
 		mistyHouse, _ := loadHouseState(char.UserID)
-		hint := mistyHousingHint(char, mistyHouse)
+		hint := mistyHousingHint(char.MistyEncounterCount, char.MistyDonatedCount, mistyHouse)
 		if hint != "" {
 			reply += "\n\n_" + hint + "_"
 		}

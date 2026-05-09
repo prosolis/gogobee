@@ -41,67 +41,67 @@ func TestPetXPToNextLevel_Increasing(t *testing.T) {
 }
 
 func TestPetGrantXP_LevelsUp(t *testing.T) {
-	char := &AdventureCharacter{
-		PetType:    "dog",
-		PetName:    "Rex",
-		PetArrived: true,
-		PetLevel:   1,
-		PetXP:      950, // close to needing 1000 (10 * 100 centixp)
+	pet := &PetState{
+		Type:    "dog",
+		Name:    "Rex",
+		Arrived: true,
+		Level:   1,
+		XP:      950, // close to needing 1000 (10 * 100 centixp)
 	}
-	leveled := petGrantXP(char)
+	leveled := petGrantXP(pet)
 	if !leveled {
 		t.Error("should have leveled up")
 	}
-	if char.PetLevel != 2 {
-		t.Errorf("pet level should be 2, got %d", char.PetLevel)
+	if pet.Level != 2 {
+		t.Errorf("pet level should be 2, got %d", pet.Level)
 	}
 }
 
 func TestPetGrantXP_NoPet(t *testing.T) {
-	char := &AdventureCharacter{}
-	if petGrantXP(char) {
+	pet := &PetState{}
+	if petGrantXP(pet) {
 		t.Error("should not grant XP without a pet")
 	}
 }
 
 func TestPetGrantXP_MaxLevel(t *testing.T) {
-	char := &AdventureCharacter{
-		PetType:    "cat",
-		PetName:    "Luna",
-		PetArrived: true,
-		PetLevel:   10,
-		PetXP:      9999,
+	pet := &PetState{
+		Type:    "cat",
+		Name:    "Luna",
+		Arrived: true,
+		Level:   10,
+		XP:      9999,
 	}
-	if petGrantXP(char) {
+	if petGrantXP(pet) {
 		t.Error("should not level up past max level 10")
 	}
 }
 
 func TestPetGrantXP_ChasedAway(t *testing.T) {
-	char := &AdventureCharacter{
-		PetType:      "dog",
-		PetName:      "Rex",
-		PetArrived:   true,
-		PetChasedAway: true,
-		PetLevel:     1,
-		PetXP:        0,
+	pet := &PetState{
+		Type:       "dog",
+		Name:       "Rex",
+		Arrived:    true,
+		ChasedAway: true,
+		Level:      1,
+		XP:         0,
 	}
-	if petGrantXP(char) {
+	if petGrantXP(pet) {
 		t.Error("should not grant XP to chased-away pet")
 	}
 }
 
 func TestPetGrantXP_SetsLevel10Date(t *testing.T) {
-	char := &AdventureCharacter{
-		PetType:    "dog",
-		PetName:    "Rex",
-		PetArrived: true,
-		PetLevel:   9,
-		PetXP:      4999, // needs 5000 (50 * 100) for level 9→10
+	pet := &PetState{
+		Type:    "dog",
+		Name:    "Rex",
+		Arrived: true,
+		Level:   9,
+		XP:      4999, // needs 5000 (50 * 100) for level 9→10
 	}
-	petGrantXP(char)
-	if char.PetLevel == 10 && char.PetLevel10Date == "" {
-		t.Error("reaching level 10 should set PetLevel10Date")
+	petGrantXP(pet)
+	if pet.Level == 10 && pet.Level10Date == "" {
+		t.Error("reaching level 10 should set Level10Date")
 	}
 }
 
@@ -167,46 +167,42 @@ func TestPetDitchRecoveryChance_Level10(t *testing.T) {
 // ── Pet Combat Results ─────────────────────────────────────────────────────
 
 func TestPetRollCombatActions_NoPet(t *testing.T) {
-	char := &AdventureCharacter{}
-	result := petRollCombatActions(char, "Goblin")
+	result := petRollCombatActions(PetState{}, "Goblin")
 	if result != nil {
 		t.Error("should return nil without a pet")
 	}
 }
 
 func TestPetRollDitchRecovery_NoPet(t *testing.T) {
-	char := &AdventureCharacter{}
-	if petRollDitchRecovery(char) {
+	if petRollDitchRecovery(PetState{}) {
 		t.Error("should return false without a pet")
 	}
 }
 
 func TestPetVictoryText_Dog(t *testing.T) {
-	char := &AdventureCharacter{PetType: "dog", PetName: "Rex", PetArrived: true}
-	text := petVictoryText(char)
+	pet := PetState{Type: "dog", Name: "Rex", Arrived: true}
+	text := petVictoryText(pet)
 	if text == "" {
 		t.Error("should return victory text for dog")
 	}
 }
 
 func TestPetVictoryText_Cat(t *testing.T) {
-	char := &AdventureCharacter{PetType: "cat", PetName: "Luna", PetArrived: true}
-	text := petVictoryText(char)
+	pet := PetState{Type: "cat", Name: "Luna", Arrived: true}
+	text := petVictoryText(pet)
 	if text == "" {
 		t.Error("should return victory text for cat")
 	}
 }
 
 func TestPetVictoryText_NoPet(t *testing.T) {
-	char := &AdventureCharacter{}
-	if petVictoryText(char) != "" {
+	if petVictoryText(PetState{}) != "" {
 		t.Error("should return empty string without pet")
 	}
 }
 
 func TestPetDeathText_NoPet(t *testing.T) {
-	char := &AdventureCharacter{}
-	if petDeathText(char) != "" {
+	if petDeathText(PetState{}) != "" {
 		t.Error("should return empty string without pet")
 	}
 }
@@ -214,37 +210,33 @@ func TestPetDeathText_NoPet(t *testing.T) {
 // ── Pet Arrival Logic ──────────────────────────────────────────────────────
 
 func TestPetShouldArrive_NoHouse(t *testing.T) {
-	char := &AdventureCharacter{}
-	if petShouldArrive(char, HouseState{Tier: 0}) {
+	if petShouldArrive(PetState{}, HouseState{Tier: 0}) {
 		t.Error("should not arrive without house")
 	}
 }
 
 func TestPetShouldArrive_BaseHouseOnly(t *testing.T) {
-	char := &AdventureCharacter{}
-	if petShouldArrive(char, HouseState{Tier: 1}) { // Base house, not yet Livable
+	if petShouldArrive(PetState{}, HouseState{Tier: 1}) { // Base house, not yet Livable
 		t.Error("should not arrive with only base house (need tier 2+)")
 	}
 }
 
 func TestPetShouldArrive_AlreadyArrived(t *testing.T) {
-	char := &AdventureCharacter{PetArrived: true}
-	if petShouldArrive(char, HouseState{Tier: 2}) {
+	if petShouldArrive(PetState{Arrived: true}, HouseState{Tier: 2}) {
 		t.Error("should not trigger if pet already arrived")
 	}
 }
 
 func TestPetShouldArrive_ChasedAway(t *testing.T) {
-	char := &AdventureCharacter{PetChasedAway: true}
-	if petShouldArrive(char, HouseState{Tier: 2}) {
+	if petShouldArrive(PetState{ChasedAway: true}, HouseState{Tier: 2}) {
 		t.Error("should not trigger if pet was chased away (and not reactivated)")
 	}
 }
 
 func TestPetShouldArrive_Reactivated(t *testing.T) {
-	char := &AdventureCharacter{PetChasedAway: true, PetReactivated: true}
+	pet := PetState{ChasedAway: true, Reactivated: true}
 	// With reactivation, should always return true
-	if !petShouldArrive(char, HouseState{Tier: 2}) {
+	if !petShouldArrive(pet, HouseState{Tier: 2}) {
 		t.Error("reactivated pet should always trigger arrival")
 	}
 }
@@ -274,8 +266,7 @@ func TestHasPet(t *testing.T) {
 // ── Morning Pet Events ─────────────────────────────────────────────────────
 
 func TestPetMorningEvent_NoPet(t *testing.T) {
-	char := &AdventureCharacter{}
-	if petMorningEvent(char) != "" {
+	if petMorningEvent(PetState{}) != "" {
 		t.Error("should return empty string without pet")
 	}
 }
@@ -283,30 +274,26 @@ func TestPetMorningEvent_NoPet(t *testing.T) {
 // ── Misty Housing Hint ─────────────────────────────────────────────────────
 
 func TestMistyHousingHint_NoEncounters(t *testing.T) {
-	char := &AdventureCharacter{MistyEncounterCount: 0}
-	if mistyHousingHint(char, HouseState{}) != "" {
+	if mistyHousingHint(0, 0, HouseState{}) != "" {
 		t.Error("should not hint with 0 encounters")
 	}
 }
 
 func TestMistyHousingHint_HasHouse(t *testing.T) {
-	char := &AdventureCharacter{MistyEncounterCount: 3}
-	if mistyHousingHint(char, HouseState{Tier: 1}) != "" {
+	if mistyHousingHint(3, 0, HouseState{Tier: 1}) != "" {
 		t.Error("should not hint if player has house")
 	}
 }
 
 func TestMistyHousingHint_Donated(t *testing.T) {
-	char := &AdventureCharacter{MistyEncounterCount: 2, MistyDonatedCount: 1}
-	hint := mistyHousingHint(char, HouseState{})
+	hint := mistyHousingHint(2, 1, HouseState{})
 	if !strings.Contains(hint, "house") {
 		t.Errorf("donated player hint should mention house, got: %q", hint)
 	}
 }
 
 func TestMistyHousingHint_NotDonated(t *testing.T) {
-	char := &AdventureCharacter{MistyEncounterCount: 2, MistyDonatedCount: 0}
-	hint := mistyHousingHint(char, HouseState{})
+	hint := mistyHousingHint(2, 0, HouseState{})
 	if hint != "Thank you for your time." {
 		t.Errorf("non-donor hint should be dismissive, got: %q", hint)
 	}
@@ -315,56 +302,50 @@ func TestMistyHousingHint_NotDonated(t *testing.T) {
 // ── Misty Pet Reactivation ─────────────────────────────────────────────────
 
 func TestMistyReactivatePet_ChasedAway(t *testing.T) {
-	char := &AdventureCharacter{PetChasedAway: true, PetReactivated: false}
-	mistyReactivatePet(char)
-	if !char.PetReactivated {
-		t.Error("should set PetReactivated")
+	pet := PetState{ChasedAway: true, Reactivated: false}
+	if !mistyReactivatePet(pet) {
+		t.Error("should signal reactivation for chased-away pet")
 	}
 }
 
 func TestMistyReactivatePet_NotChasedAway(t *testing.T) {
-	char := &AdventureCharacter{PetChasedAway: false, PetReactivated: false}
-	mistyReactivatePet(char)
-	if char.PetReactivated {
-		t.Error("should not set PetReactivated if pet wasn't chased away")
+	pet := PetState{ChasedAway: false, Reactivated: false}
+	if mistyReactivatePet(pet) {
+		t.Error("should not reactivate if pet wasn't chased away")
 	}
 }
 
 func TestMistyReactivatePet_AlreadyReactivated(t *testing.T) {
-	char := &AdventureCharacter{PetChasedAway: true, PetReactivated: true}
-	mistyReactivatePet(char)
-	if !char.PetReactivated {
-		t.Error("should remain reactivated")
+	pet := PetState{ChasedAway: true, Reactivated: true}
+	if mistyReactivatePet(pet) {
+		t.Error("should not re-signal once already reactivated")
 	}
 }
 
 // ── Pet Supply Shop Unlock ─────────────────────────────────────────────────
 
 func TestPetCheckSupplyShopUnlock_NotLevel10(t *testing.T) {
-	char := &AdventureCharacter{PetLevel10Date: ""}
-	if petCheckSupplyShopUnlock(char) {
+	if petCheckSupplyShopUnlock(PetState{Level10Date: ""}) {
 		t.Error("should not unlock without level 10 date")
 	}
 }
 
 func TestPetCheckSupplyShopUnlock_AlreadyUnlocked(t *testing.T) {
-	char := &AdventureCharacter{PetSupplyShopUnlocked: true, PetLevel10Date: "2020-01-01"}
-	if petCheckSupplyShopUnlock(char) {
+	pet := PetState{SupplyShopUnlocked: true, Level10Date: "2020-01-01"}
+	if petCheckSupplyShopUnlock(pet) {
 		t.Error("should not re-trigger if already unlocked")
 	}
 }
 
 func TestPetCheckSupplyShopUnlock_TooSoon(t *testing.T) {
 	// Set date to today — not 7 days ago
-	char := &AdventureCharacter{PetLevel10Date: "2099-01-01"}
-	if petCheckSupplyShopUnlock(char) {
+	if petCheckSupplyShopUnlock(PetState{Level10Date: "2099-01-01"}) {
 		t.Error("should not unlock before 7 days have passed")
 	}
 }
 
 func TestPetCheckSupplyShopUnlock_Ready(t *testing.T) {
-	char := &AdventureCharacter{PetLevel10Date: "2020-01-01"}
-	if !petCheckSupplyShopUnlock(char) {
+	if !petCheckSupplyShopUnlock(PetState{Level10Date: "2020-01-01"}) {
 		t.Error("should unlock after 7+ days")
 	}
 }

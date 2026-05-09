@@ -452,8 +452,10 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 
 	phaseMessages := bossFlowPhaseMessages(bossNarr)
 
+	arenaPet, _ := loadPetState(char.UserID)
 	dt := transitionDeath(DeathTransitionParams{
 		Char:          char,
+		Pet:           arenaPet,
 		Source:        "arena",
 		DeathLocation: "the Arena",
 	})

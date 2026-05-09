@@ -170,10 +170,9 @@ func TestTransitionDeath_SovereignReprieve(t *testing.T) {
 func TestTransitionDeath_KillAndPetRecovery(t *testing.T) {
 	deaths, petRecoveries := 0, 0
 	for i := 0; i < 500; i++ {
-		char := &AdventureCharacter{
-			Alive: true, PetType: "cat", PetArrived: true, PetLevel: 5,
-		}
-		r := transitionDeath(DeathTransitionParams{Char: char, Location: "Mine"})
+		char := &AdventureCharacter{Alive: true}
+		pet := PetState{Type: "cat", Arrived: true, Level: 5}
+		r := transitionDeath(DeathTransitionParams{Char: char, Pet: pet, Location: "Mine"})
 		if !r.Died {
 			t.Fatal("should die with no saves available")
 		}
