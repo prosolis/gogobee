@@ -284,7 +284,8 @@ func TestAdv2Scenario_HarvestForestShadows(t *testing.T) {
 	// Seed harvest nodes for the entry room (they're auto-seeded by
 	// loadHarvestNodes on first read, but confirm we get at least one).
 	roomIdx := currentRoomIndexFor(exp)
-	nodes := loadHarvestNodes(exp, roomIdx)
+	nodeID := currentNodeIDFor(exp)
+	nodes := loadHarvestNodes(exp, nodeID)
 	t.Logf("room %d has %d harvest nodes", roomIdx, len(nodes))
 	if len(nodes) == 0 {
 		t.Error("expected at least one harvest node seeded")

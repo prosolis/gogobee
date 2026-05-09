@@ -6,6 +6,8 @@ package plugin
 import (
 	"fmt"
 	"strings"
+
+	"maunium.net/go/mautrix/id"
 )
 
 // advanceTransitionGraph is the graph-mode replacement for
@@ -64,6 +66,13 @@ func (p *AdventurePlugin) advanceTransitionGraph(run *DungeonRun, zone ZoneDefin
 			err = aerr
 			return
 		}
+		// G6d — region boundary hook. Multi-region branching graphs
+		// can cross a region edge mid-run; emit the existing transit
+		// flavor + log so the player gets the same "you've crossed
+		// into X" beat the !region travel command produces. Doesn't
+		// retire the run (the graph is the authoritative state) — it
+		// just narrates the crossing.
+		fireGraphRegionTransition(run.UserID, g.Nodes[currentNode], g.Nodes[chosen.To])
 		next = nodeKindToRoomType(g.Nodes[chosen.To].Kind)
 		return
 	}
@@ -78,6 +87,36 @@ func (p *AdventurePlugin) advanceTransitionGraph(run *DungeonRun, zone ZoneDefin
 	}
 	forkMessage = renderForkPrompt(zone, pf)
 	return
+}
+
+// fireGraphRegionTransition compares the from/to graph node region ids
+// and, when they differ, mirrors the existing !region travel surface:
+// updates Expedition.CurrentRegion + visited list and writes a transit
+// log entry. Unlike full !region travel, it does NOT burn supplies,
+// advance the day, or retire/spawn DungeonRuns — the graph is the
+// authoritative run state, and the player crossed via the graph edge,
+// not a separate transit day. Standalone (no expedition) is a no-op.
+func fireGraphRegionTransition(userID string, from, to ZoneNode) {
+	if from.RegionID == to.RegionID {
+		return
+	}
+	if to.RegionID == "" {
+		return
+	}
+	exp, err := getActiveExpedition(id.UserID(userID))
+	if err != nil || exp == nil {
+		return
+	}
+	if exp.CurrentRegion == to.RegionID {
+		return
+	}
+	if err := setCurrentRegion(exp, to.RegionID); err != nil {
+		return
+	}
+	_, _ = MarkRegionVisited(exp, to.RegionID)
+	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative",
+		fmt.Sprintf("graph region transit: %s → %s (node %s → %s)",
+			from.RegionID, to.RegionID, from.NodeID, to.NodeID), "")
 }
 
 func unlockedChoices(cs []pendingChoice) []pendingChoice {
@@ -147,7 +186,9 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 	}
 	g, _ := loadZoneGraph(run.ZoneID)
 	zone := zoneOrFallback(run.ZoneID)
+	fromNode := g.Nodes[run.CurrentNode]
 	nextNode := g.Nodes[chosen.To]
+	fireGraphRegionTransition(run.UserID, fromNode, nextNode)
 	nextRoom := nodeKindToRoomType(nextNode.Kind)
 	nextIdx := run.CurrentRoom + 1
 	var b strings.Builder

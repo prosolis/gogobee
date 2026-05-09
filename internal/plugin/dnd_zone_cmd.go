@@ -203,11 +203,11 @@ func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🗝 **Entering %s** _(T%d, %d rooms)_\n\n", zone.Display, int(zone.Tier), run.TotalRooms))
 	b.WriteString("_" + zone.Hook + "_\n\n")
-	if line := twinBeeLine(zone.ID, DMRoomEntry, run.RunID, run.CurrentRoom); line != "" {
+	if line := twinBeeLine(zone.ID, DMRoomEntry, run.RunID, narrationCadence(run)); line != "" {
 		b.WriteString(line)
 		b.WriteString("\n\n")
 	}
-	if aside := moodAsideLine(run.DMMood, run.RunID, run.CurrentRoom); aside != "" {
+	if aside := moodAsideLine(run.DMMood, run.RunID, narrationCadence(run)); aside != "" {
 		b.WriteString(aside)
 		b.WriteString("\n\n")
 	}
@@ -286,12 +286,20 @@ func (p *AdventurePlugin) zoneCmdMap(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
 	zone := zoneOrFallback(run.ZoneID)
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("**%s — Map**\n```\n", zone.Display))
+	if branchingZonesEnabled() {
+		if g, ok := loadZoneGraph(run.ZoneID); ok {
+			b.WriteString(renderZoneGraphMap(g, run))
+			b.WriteString("\n```\n")
+			b.WriteString("_E=Entry  ?=Exploration  T=Trap  ★=Elite  ☠=Boss  ⚿=Secret · ✓ cleared  ▶ here  · pending  ╳ locked_")
+			return p.SendDM(ctx.Sender, b.String())
+		}
+	}
 	cleared := map[int]bool{}
 	for _, r := range run.RoomsCleared {
 		cleared[r] = true
 	}
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("**%s — Map**\n```\n", zone.Display))
 	b.WriteString(renderZoneMap(run.RoomSeq, run.CurrentRoom, cleared))
 	b.WriteString("\n```\n")
 	b.WriteString("_E=Entry  ?=Exploration  T=Trap  ★=Elite  ☠=Boss · ✓ cleared  ▶ here  · pending_")
@@ -614,12 +622,12 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	// before the 5–8s phase pacing kicks in.
 	var ib strings.Builder
 	if elite {
-		if line := eliteRoomEntryLine(zone.ID, run.RunID, run.CurrentRoom); line != "" {
+		if line := eliteRoomEntryLine(zone.ID, run.RunID, narrationCadence(run)); line != "" {
 			ib.WriteString(line)
 			ib.WriteString("\n")
 		}
 	}
-	if line := twinBeeLine(zone.ID, DMCombatStart, run.RunID, run.CurrentRoom); line != "" {
+	if line := twinBeeLine(zone.ID, DMCombatStart, run.RunID, narrationCadence(run)); line != "" {
 		ib.WriteString(line)
 		ib.WriteString("\n")
 	}
@@ -642,12 +650,12 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	// lands *after* the play-by-play, where it has dramatic context.
 	var ob strings.Builder
 	if nat20s > 0 {
-		if line := twinBeeLine(zone.ID, DMNat20, run.RunID, run.CurrentRoom); line != "" {
+		if line := twinBeeLine(zone.ID, DMNat20, run.RunID, narrationCadence(run)); line != "" {
 			ob.WriteString(line)
 			ob.WriteString("\n")
 		}
 	} else if nat1s > 0 {
-		if line := twinBeeLine(zone.ID, DMNat1, run.RunID, run.CurrentRoom); line != "" {
+		if line := twinBeeLine(zone.ID, DMNat1, run.RunID, narrationCadence(run)); line != "" {
 			ob.WriteString(line)
 			ob.WriteString("\n")
 		}
@@ -656,7 +664,7 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		markAdventureDead(userID, "zone", zone.Display)
-		if line := twinBeeLine(zone.ID, DMPlayerDeath, run.RunID, run.CurrentRoom); line != "" {
+		if line := twinBeeLine(zone.ID, DMPlayerDeath, run.RunID, narrationCadence(run)); line != "" {
 			ob.WriteString(line)
 			ob.WriteString("\n")
 		}
@@ -669,7 +677,7 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		ended = true
 		return
 	}
-	if line := twinBeeLine(zone.ID, DMCombatEnd, run.RunID, run.CurrentRoom); line != "" {
+	if line := twinBeeLine(zone.ID, DMCombatEnd, run.RunID, narrationCadence(run)); line != "" {
 		ob.WriteString(line)
 		ob.WriteString("\n")
 	}
@@ -853,7 +861,7 @@ func (p *AdventurePlugin) zoneMoodInteraction(
 		return p.SendDM(ctx.Sender, "Couldn't apply mood event: "+err.Error())
 	}
 	var b strings.Builder
-	if line := render(run.RunID, run.CurrentRoom); line != "" {
+	if line := render(run.RunID, narrationCadence(run)); line != "" {
 		b.WriteString(line)
 		b.WriteString("\n\n")
 	}
@@ -885,7 +893,7 @@ func (p *AdventurePlugin) zoneCmdLore(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
 	zone := zoneOrFallback(run.ZoneID)
-	line := twinBeeLine(zone.ID, DMLore, run.RunID, run.CurrentRoom)
+	line := twinBeeLine(zone.ID, DMLore, run.RunID, narrationCadence(run))
 	if line == "" {
 		return p.SendDM(ctx.Sender, "TwinBee has nothing to say about this place.")
 	}

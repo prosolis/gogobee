@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strconv"
 	"strings"
 
 	"gogobee/internal/db"
@@ -25,28 +26,42 @@ import (
 // belong to the expedition system. Standalone harvest is the casual
 // flow: roll d20 vs DC, get yield, decrement node, save.
 
-// loadStandaloneHarvestNodes reads the run's harvest map and returns the
-// nodes for the given room. Lazy-seeds from the zone registry on first
-// access. Caller persists via saveStandaloneHarvestNodes.
-func loadStandaloneHarvestNodes(runID string, zoneID ZoneID, roomIdx int) ([]HarvestNode, error) {
+// loadStandaloneHarvestNodes reads the run's harvest map and returns
+// the nodes for the given graph node. Lazy-seeds from the zone registry
+// on first access. Caller persists via saveStandaloneHarvestNodes.
+//
+// G6 migration: rows written before the re-key used the room-index
+// integer as the storage key. When the node-id key is absent and the
+// id maps back to a legacy room index, we read from the old key so
+// in-flight runs don't lose harvest state. The next save writes under
+// the new key (and drops the old one).
+func loadStandaloneHarvestNodes(runID string, zoneID ZoneID, nodeID string) ([]HarvestNode, error) {
 	table, err := loadStandaloneHarvestTable(runID)
 	if err != nil {
 		return nil, err
 	}
-	roomKey := roomHarvestKey(roomIdx)
+	roomKey := nodeHarvestKey(nodeID)
 	if existing, ok := table[roomKey]; ok {
 		return existing, nil
+	}
+	if idx, ok := legacyRoomIdxFromNodeID(nodeID, zoneID); ok {
+		if existing, ok := table[strconv.Itoa(idx)]; ok {
+			return existing, nil
+		}
 	}
 	return seedRoomNodes(zoneID), nil
 }
 
 // saveStandaloneHarvestNodes writes nodes back into the run's harvest map.
-func saveStandaloneHarvestNodes(runID string, roomIdx int, nodes []HarvestNode) error {
+func saveStandaloneHarvestNodes(runID string, zoneID ZoneID, nodeID string, nodes []HarvestNode) error {
 	table, err := loadStandaloneHarvestTable(runID)
 	if err != nil {
 		return err
 	}
-	table[roomHarvestKey(roomIdx)] = nodes
+	table[nodeHarvestKey(nodeID)] = nodes
+	if idx, ok := legacyRoomIdxFromNodeID(nodeID, zoneID); ok {
+		delete(table, strconv.Itoa(idx))
+	}
 	raw, err := json.Marshal(table)
 	if err != nil {
 		return fmt.Errorf("marshal harvest table: %w", err)
@@ -93,8 +108,8 @@ func (p *AdventurePlugin) handleStandaloneHarvest(ctx MessageContext, char *DnDC
 			prettyRoomType(run.CurrentRoomType())))
 	}
 
-	roomIdx := run.CurrentRoom
-	nodes, err := loadStandaloneHarvestNodes(run.RunID, run.ZoneID, roomIdx)
+	nodeID := harvestNodeIDFor(run)
+	nodes, err := loadStandaloneHarvestNodes(run.RunID, run.ZoneID, nodeID)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't load harvest state.")
 	}
@@ -155,7 +170,7 @@ func (p *AdventurePlugin) handleStandaloneHarvest(ctx MessageContext, char *DnDC
 		b.WriteString(flavor.Pick(flavor.NodeDepleted))
 	}
 
-	if err := saveStandaloneHarvestNodes(run.RunID, roomIdx, nodes); err != nil {
+	if err := saveStandaloneHarvestNodes(run.RunID, run.ZoneID, nodeID, nodes); err != nil {
 		slog.Error("standalone harvest: save nodes", "user", ctx.Sender, "run", run.RunID, "err", err)
 	}
 

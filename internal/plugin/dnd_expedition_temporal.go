@@ -376,7 +376,7 @@ func feywildTemporalPostRollover(e *Expedition) []string {
 		// to the current room's nodes. Combat loot stays gone; only the
 		// renewable harvest nodes loop back.
 		out := []string{line}
-		if restored := restoreHarvestNodesInRoom(e, currentRoomIndexFor(e)); restored {
+		if restored := restoreHarvestNodesInRoom(e, currentNodeIDFor(e)); restored {
 			out = append(out, "_Harvest nodes in this room have re-emerged — the timeline isn't sure they were ever taken._")
 		}
 		return out

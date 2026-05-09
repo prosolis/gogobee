@@ -48,8 +48,9 @@ func TestStandaloneHarvest_RoutesToZoneRun(t *testing.T) {
 	if raw == "" || raw == "{}" {
 		t.Errorf("expected harvest_nodes_json populated after standalone harvest, got %q", raw)
 	}
-	if !strings.Contains(raw, "\"0\":") {
-		t.Errorf("expected room 0 entry in harvest table, got %q", raw)
+	wantKey := "\"" + deriveLegacyNodeID(run.ZoneID, 0) + "\":"
+	if !strings.Contains(raw, wantKey) {
+		t.Errorf("expected entry node %s in harvest table, got %q", wantKey, raw)
 	}
 }
 

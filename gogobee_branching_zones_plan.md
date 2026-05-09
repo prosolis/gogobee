@@ -378,5 +378,6 @@ When the new session starts:
 3. Read `gogobee_dungeon_zones.md` (existing zone design) + `internal/plugin/dnd_zone.go` for current shape.
 4. Run G1 (schema) + G2 (types) + G3 (legacy compiler) + G4 (run state). All four are infra; ship together with no behavior change.
 5. Land G5 navigation behind `GOGOBEE_BRANCHING_ZONES=1` env gate.
-6. POC G7 with Crypt of Valdris.
-7. Pause for playtest before G8 mass migration.
+6. **G6 (done)** — dependent surfaces: harvest re-keyed on `node_id` (with legacy `room_idx` read-fallback + drop-on-save migration), narration cadence salted on `len(visited_nodes)-1` via `narrationCadence(run)`, `!zone map` graph render gated by `GOGOBEE_BRANCHING_ZONES=1` (locked edges → `╳`, secrets hidden until visited), and a region-boundary hook in graph advance/`!zone go` that mirrors `!region travel` flavor + log without burning supplies (graph is run-state authoritative).
+7. POC G7 with Crypt of Valdris.
+8. Pause for playtest before G8 mass migration.

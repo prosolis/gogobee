@@ -330,6 +330,22 @@ func eliteRoomEntryLine(zoneID ZoneID, runID string, roomIdx int) string {
 	return "🎭 **TwinBee:** " + line
 }
 
+// narrationCadence returns the salt index used to seed narration
+// pickers — the count of nodes visited so far (0-based, matching the
+// pre-G6 CurrentRoom semantics). Both linear-mode and graph-mode
+// advance bump len(VisitedNodes) in lockstep with CurrentRoom, so this
+// preserves existing pick determinism while letting G9 drop the legacy
+// current_room column without re-keying every flavor pool seed.
+func narrationCadence(run *DungeonRun) int {
+	if run == nil {
+		return 0
+	}
+	if n := len(run.VisitedNodes); n > 0 {
+		return n - 1
+	}
+	return run.CurrentRoom
+}
+
 // pickLineDeterministic — stable selection across (runID, salt). Same
 // inputs always yield the same line, so a player who re-reads status
 // sees the same prose; different rooms / different runs vary.

@@ -299,7 +299,7 @@ func (p *AdventurePlugin) applyTrapEffectWithDetect(
 		// failed detection no longer contradicts the next line. The mismatch
 		// where "Perception roll pays off" preceded a tripped trap was
 		// caused by this line firing unconditionally.
-		if line := twinBeeLine(zone.ID, DMTrapDetected, run.RunID, run.CurrentRoom); line != "" {
+		if line := twinBeeLine(zone.ID, DMTrapDetected, run.RunID, narrationCadence(run)); line != "" {
 			b.WriteString(line)
 			b.WriteString("\n")
 		}

@@ -9,6 +9,94 @@ import (
 
 // ── pure-function tests (no DB) ────────────────────────────────────────────
 
+// TestLegacyRoomIdxFromNodeID exercises the G6 migration parser:
+// `<zone>.r<N+1>` round-trips, hand-authored ids return ok=false.
+func TestLegacyRoomIdxFromNodeID(t *testing.T) {
+	cases := []struct {
+		nodeID string
+		zone   ZoneID
+		want   int
+		ok     bool
+	}{
+		{"goblin_warrens.r1", ZoneGoblinWarrens, 0, true},
+		{"crypt_valdris.r5", ZoneCryptValdris, 4, true},
+		{"crypt_valdris.fork_a", ZoneCryptValdris, 0, false},
+		{"goblin_warrens.r1", ZoneCryptValdris, 0, false}, // wrong zone prefix
+		{"goblin_warrens.r0", ZoneGoblinWarrens, 0, false},
+		{"", ZoneGoblinWarrens, 0, false},
+	}
+	for _, c := range cases {
+		got, ok := legacyRoomIdxFromNodeID(c.nodeID, c.zone)
+		if ok != c.ok || (ok && got != c.want) {
+			t.Errorf("legacyRoomIdxFromNodeID(%q, %s) = (%d, %t), want (%d, %t)",
+				c.nodeID, c.zone, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// TestLoadHarvestNodes_LegacyRoomKeyFallback confirms a row with the
+// pre-G6 `strconv.Itoa(roomIdx)` storage key is read via the fallback
+// when the new node-id key is queried.
+func TestLoadHarvestNodes_LegacyRoomKeyFallback(t *testing.T) {
+	exp := &Expedition{
+		ZoneID:        ZoneGoblinWarrens,
+		CurrentRegion: "",
+		RegionState: map[string]any{
+			regionStateHarvestKey: map[string]map[string][]HarvestNode{
+				"": {
+					"3": {{ResourceID: "iron_ore", CurrentCharges: 0, MaxCharges: 2}},
+				},
+			},
+		},
+	}
+	nodeID := deriveLegacyNodeID(ZoneGoblinWarrens, 3)
+	got := loadHarvestNodes(exp, nodeID)
+	if len(got) != 1 || got[0].ResourceID != "iron_ore" || got[0].CurrentCharges != 0 {
+		t.Fatalf("legacy fallback didn't return depleted node, got %+v", got)
+	}
+	// Authored (non-legacy) node id with no entry should lazy-seed fresh,
+	// not pick up the legacy "3" entry.
+	fresh := loadHarvestNodes(exp, "goblin_warrens.fork_a")
+	for _, n := range fresh {
+		if n.ResourceID == "iron_ore" && n.CurrentCharges == 0 {
+			t.Errorf("fork_a leaked depleted state from legacy room 3 entry")
+		}
+	}
+}
+
+// TestSaveHarvestNodes_DropsLegacyRoomKey verifies the migration-on-save
+// drops the legacy `strconv.Itoa(roomIdx)` entry after persistence runs.
+func TestSaveHarvestNodes_DropsLegacyRoomKey(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@harvest-migrate:example.org")
+	defer cleanupHarvestState(uid)
+
+	supplies := ExpeditionSupplies{Current: 30, Max: 30, DailyBurn: 1, HarshMod: 1}
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, "", supplies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Seed the legacy "3" key directly so the load fallback fires.
+	exp.RegionState[regionStateHarvestKey] = map[string]map[string][]HarvestNode{
+		"": {
+			"3": {{ResourceID: "iron_ore", CurrentCharges: 0, MaxCharges: 2}},
+		},
+	}
+	nodeID := deriveLegacyNodeID(ZoneGoblinWarrens, 3)
+	got := loadHarvestNodes(exp, nodeID)
+	if err := saveHarvestNodes(exp, nodeID, got); err != nil {
+		t.Fatalf("saveHarvestNodes: %v", err)
+	}
+	table := loadHarvestTable(exp)
+	if _, exists := table[""]["3"]; exists {
+		t.Errorf("legacy room-idx key '3' should be dropped after migration save")
+	}
+	if _, exists := table[""][nodeID]; !exists {
+		t.Errorf("expected node-id key %q after migration save", nodeID)
+	}
+}
+
+
 func TestResolveHarvestOutcome_Brackets(t *testing.T) {
 	cases := []struct {
 		roll, dc int
@@ -241,14 +329,16 @@ func TestReplenishHarvestNodes_RestoresAllRooms(t *testing.T) {
 	}
 
 	// Seed two rooms and drain one node in each.
-	r0 := loadHarvestNodes(exp, 0)
+	n0 := deriveLegacyNodeID(ZoneGoblinWarrens, 0)
+	n1 := deriveLegacyNodeID(ZoneGoblinWarrens, 1)
+	r0 := loadHarvestNodes(exp, n0)
 	r0[0].CurrentCharges = 0
-	if err := saveHarvestNodes(exp, 0, r0); err != nil {
+	if err := saveHarvestNodes(exp, n0, r0); err != nil {
 		t.Fatal(err)
 	}
-	r1 := loadHarvestNodes(exp, 1)
+	r1 := loadHarvestNodes(exp, n1)
 	r1[0].CurrentCharges = 0
-	if err := saveHarvestNodes(exp, 1, r1); err != nil {
+	if err := saveHarvestNodes(exp, n1, r1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -256,7 +346,7 @@ func TestReplenishHarvestNodes_RestoresAllRooms(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, idx := range []int{0, 1} {
-		nodes := loadHarvestNodes(exp, idx)
+		nodes := loadHarvestNodes(exp, deriveLegacyNodeID(ZoneGoblinWarrens, idx))
 		for i, n := range nodes {
 			if n.CurrentCharges != n.MaxCharges {
 				t.Errorf("room %d node %d not replenished: %d/%d",
@@ -276,9 +366,11 @@ func TestSaveHarvestNodes_PersistsAcrossLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nodes := loadHarvestNodes(exp, 2)
+	n2 := deriveLegacyNodeID(ZoneGoblinWarrens, 2)
+	n5 := deriveLegacyNodeID(ZoneGoblinWarrens, 5)
+	nodes := loadHarvestNodes(exp, n2)
 	nodes[0].CurrentCharges = 0
-	if err := saveHarvestNodes(exp, 2, nodes); err != nil {
+	if err := saveHarvestNodes(exp, n2, nodes); err != nil {
 		t.Fatal(err)
 	}
 	// Reload from DB.
@@ -286,12 +378,12 @@ func TestSaveHarvestNodes_PersistsAcrossLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := loadHarvestNodes(reloaded, 2)
+	got := loadHarvestNodes(reloaded, n2)
 	if got[0].CurrentCharges != 0 {
 		t.Errorf("after reload, room 2 node 0 charges = %d, want 0", got[0].CurrentCharges)
 	}
 	// Other rooms should still be untouched (lazy-seeded fresh).
-	other := loadHarvestNodes(reloaded, 5)
+	other := loadHarvestNodes(reloaded, n5)
 	for _, n := range other {
 		if n.CurrentCharges != n.MaxCharges {
 			t.Errorf("room 5 leaked depletion: %+v", n)

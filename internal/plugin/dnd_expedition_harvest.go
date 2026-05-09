@@ -117,13 +117,40 @@ func harvestActionAbility(c *DnDCharacter, action HarvestAction) int {
 // Single-region zones store under "".
 func regionHarvestKey(e *Expedition) string { return e.CurrentRegion }
 
-// roomHarvestKey returns the JSON-safe key for a 0-based room index.
-func roomHarvestKey(roomIdx int) string { return strconv.Itoa(roomIdx) }
+// nodeHarvestKey returns the JSON-safe storage key for a graph node id.
+// Phase G6: harvest tables are keyed by node id (e.g. "crypt_valdris.r3"),
+// not by raw room index. Linear-zone runs derive a node id with the
+// `<zone>.r<N+1>` scheme (deriveLegacyNodeID), so this collapses to a
+// stable key for the existing room-walk model. Branching zones use the
+// hand-authored node ids and get distinct keys per branch.
+func nodeHarvestKey(nodeID string) string { return nodeID }
 
-// loadHarvestNodes returns the (region, room)'s nodes, lazy-seeding from
+// legacyRoomIdxFromNodeID parses a derived node id back to its 0-based
+// room index. Returns ok=false for hand-authored ids that don't match
+// the `<zone>.r<N+1>` scheme — there's no legacy storage to migrate
+// for those, so the caller skips the fallback.
+func legacyRoomIdxFromNodeID(nodeID string, zoneID ZoneID) (int, bool) {
+	prefix := string(zoneID) + ".r"
+	if !strings.HasPrefix(nodeID, prefix) {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(nodeID, prefix))
+	if err != nil || n < 1 {
+		return 0, false
+	}
+	return n - 1, true
+}
+
+// loadHarvestNodes returns the (region, node)'s nodes, lazy-seeding from
 // the §3 registry on first access. Caller must persist via
 // saveHarvestNodes after mutation.
-func loadHarvestNodes(e *Expedition, roomIdx int) []HarvestNode {
+//
+// Migration: rows written before G6 used the room-index integer as the
+// storage key. When a node-id-keyed entry is missing and the id maps
+// back to a legacy room index, we read from the old key so existing
+// expeditions don't lose harvest state mid-flight. The next save writes
+// under the new key.
+func loadHarvestNodes(e *Expedition, nodeID string) []HarvestNode {
 	if e == nil {
 		return nil
 	}
@@ -132,7 +159,7 @@ func loadHarvestNodes(e *Expedition, roomIdx int) []HarvestNode {
 	}
 	table := loadHarvestTable(e)
 	regionKey := regionHarvestKey(e)
-	roomKey := roomHarvestKey(roomIdx)
+	roomKey := nodeHarvestKey(nodeID)
 
 	regionMap, ok := table[regionKey]
 	if !ok {
@@ -142,6 +169,11 @@ func loadHarvestNodes(e *Expedition, roomIdx int) []HarvestNode {
 	if existing, ok := regionMap[roomKey]; ok {
 		return existing
 	}
+	if idx, ok := legacyRoomIdxFromNodeID(nodeID, e.ZoneID); ok {
+		if existing, ok := regionMap[strconv.Itoa(idx)]; ok {
+			return existing
+		}
+	}
 	seeded := seedRoomNodes(e.ZoneID)
 	regionMap[roomKey] = seeded
 	table[regionKey] = regionMap
@@ -149,20 +181,25 @@ func loadHarvestNodes(e *Expedition, roomIdx int) []HarvestNode {
 	return seeded
 }
 
-// saveHarvestNodes writes the supplied node slice into the (region, room)
+// saveHarvestNodes writes the supplied node slice into the (region, node)
 // slot and persists the expedition state.
-func saveHarvestNodes(e *Expedition, roomIdx int, nodes []HarvestNode) error {
+func saveHarvestNodes(e *Expedition, nodeID string, nodes []HarvestNode) error {
 	if e.RegionState == nil {
 		e.RegionState = map[string]any{}
 	}
 	table := loadHarvestTable(e)
 	regionKey := regionHarvestKey(e)
-	roomKey := roomHarvestKey(roomIdx)
+	roomKey := nodeHarvestKey(nodeID)
 	regionMap, ok := table[regionKey]
 	if !ok {
 		regionMap = map[string][]HarvestNode{}
 	}
 	regionMap[roomKey] = nodes
+	if idx, ok := legacyRoomIdxFromNodeID(nodeID, e.ZoneID); ok {
+		// Drop the legacy room-idx entry once the node-id key is live so
+		// the table doesn't carry parallel state forever.
+		delete(regionMap, strconv.Itoa(idx))
+	}
 	table[regionKey] = regionMap
 	e.RegionState[regionStateHarvestKey] = table
 	return persistRegionState(e)
@@ -378,8 +415,8 @@ func (p *AdventurePlugin) handleHarvestCmd(ctx MessageContext, action HarvestAct
 		return p.SendDM(ctx.Sender, blockReason)
 	}
 
-	roomIdx := run.CurrentRoom
-	nodes := loadHarvestNodes(exp, roomIdx)
+	nodeID := harvestNodeIDFor(run)
+	nodes := loadHarvestNodes(exp, nodeID)
 	idx := pickAvailableNode(nodes, exp, char, action)
 	if idx < 0 {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
@@ -413,7 +450,7 @@ func (p *AdventurePlugin) handleHarvestCmd(ctx MessageContext, action HarvestAct
 			pre.WriteString("\n\n_The harvest is forfeit._")
 		}
 		// Persist node state untouched (no charge spent).
-		_ = saveHarvestNodes(exp, roomIdx, nodes)
+		_ = saveHarvestNodes(exp, nodeID, nodes)
 		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
 			fmt.Sprintf("%s %s kind=%d total=%d", string(action), res.ID, int(interrupt), intTotal), "")
 		return p.SendDM(ctx.Sender, pre.String())
@@ -499,7 +536,7 @@ func (p *AdventurePlugin) handleHarvestCmd(ctx MessageContext, action HarvestAct
 		}
 	}
 
-	if err := saveHarvestNodes(exp, roomIdx, nodes); err != nil {
+	if err := saveHarvestNodes(exp, nodeID, nodes); err != nil {
 		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "harvest",
 			fmt.Sprintf("persistence error: %v", err), "")
 	}
@@ -640,9 +677,9 @@ func (p *AdventurePlugin) handleResourcesCmd(ctx MessageContext) error {
 	if err != nil || run == nil {
 		return p.SendDM(ctx.Sender, "Couldn't load region state.")
 	}
-	roomIdx := run.CurrentRoom
-	nodes := loadHarvestNodes(exp, roomIdx)
-	_ = saveHarvestNodes(exp, roomIdx, nodes) // persist seed if first touch
+	nodeID := harvestNodeIDFor(run)
+	nodes := loadHarvestNodes(exp, nodeID)
+	_ = saveHarvestNodes(exp, nodeID, nodes) // persist seed if first touch
 
 	zone, _ := getZone(exp.ZoneID)
 	regionLabel := exp.CurrentRegion
@@ -894,14 +931,15 @@ func rollManorCursedTrinket(zoneID ZoneID, action HarvestAction, rng func(int) i
 	return roll < manorCursedTrinketChance
 }
 
-// restoreHarvestNodesInRoom resets every node in (region, room) to its
+// restoreHarvestNodesInRoom resets every node in (region, node) to its
 // MaxCharges. Used by the Feywild Time Loop event (§7.4) — "previous
-// harvest results in that room are nullified."
-func restoreHarvestNodesInRoom(exp *Expedition, roomIdx int) bool {
-	if roomIdx < 0 {
+// harvest results in that room are nullified." Empty nodeID is a no-op
+// (caller had no active run/node to target).
+func restoreHarvestNodesInRoom(exp *Expedition, nodeID string) bool {
+	if nodeID == "" {
 		return false
 	}
-	nodes := loadHarvestNodes(exp, roomIdx)
+	nodes := loadHarvestNodes(exp, nodeID)
 	if len(nodes) == 0 {
 		return false
 	}
@@ -919,7 +957,7 @@ func restoreHarvestNodesInRoom(exp *Expedition, roomIdx int) bool {
 	// briefing/cycle flow persists RegionState downstream. Avoiding the
 	// persist call here keeps the helper test-friendly without a DB.
 	regionKey := regionHarvestKey(exp)
-	roomKey := roomHarvestKey(roomIdx)
+	roomKey := nodeHarvestKey(nodeID)
 	table := loadHarvestTable(exp)
 	regionMap := table[regionKey]
 	if regionMap == nil {
@@ -942,4 +980,33 @@ func currentRoomIndexFor(e *Expedition) int {
 		return -1
 	}
 	return run.CurrentRoom
+}
+
+// currentNodeIDFor returns the active region run's current graph node
+// id, or "" if no run is linked / loadable. Used by harvest call sites
+// that need to address the node-id-keyed harvest table from event
+// handlers (no DungeonRun on hand).
+func currentNodeIDFor(e *Expedition) string {
+	if e == nil || e.RunID == "" {
+		return ""
+	}
+	run, err := getZoneRun(e.RunID)
+	if err != nil || run == nil {
+		return ""
+	}
+	return harvestNodeIDFor(run)
+}
+
+// harvestNodeIDFor resolves the storage-key node id for a run. Prefers
+// the dual-written CurrentNode; falls back to the legacy linear
+// derivation when a row predates G4. Never returns "" for an active
+// run with a populated RoomSeq.
+func harvestNodeIDFor(run *DungeonRun) string {
+	if run == nil {
+		return ""
+	}
+	if run.CurrentNode != "" {
+		return run.CurrentNode
+	}
+	return deriveLegacyNodeID(run.ZoneID, run.CurrentRoom)
 }

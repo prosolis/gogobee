@@ -145,13 +145,14 @@ func TestRollManorCursedTrinket(t *testing.T) {
 }
 
 func TestRestoreHarvestNodesInRoom(t *testing.T) {
+	nodeID := deriveLegacyNodeID(ZoneFeywildCrossing, 0)
 	exp := &Expedition{
 		ZoneID:        ZoneFeywildCrossing,
 		CurrentRegion: "",
 		RegionState: map[string]any{
 			regionStateHarvestKey: map[string]map[string][]HarvestNode{
 				"": {
-					"0": {
+					nodeID: {
 						{ResourceID: "fey_dust", CurrentCharges: 0, MaxCharges: 2},
 						{ResourceID: "enchanted_petal", CurrentCharges: 1, MaxCharges: 2},
 					},
@@ -159,11 +160,11 @@ func TestRestoreHarvestNodesInRoom(t *testing.T) {
 			},
 		},
 	}
-	if !restoreHarvestNodesInRoom(exp, 0) {
+	if !restoreHarvestNodesInRoom(exp, nodeID) {
 		t.Fatalf("restore should report changes")
 	}
 	table := loadHarvestTable(exp)
-	got := table[""]["0"]
+	got := table[""][nodeID]
 	for _, n := range got {
 		if n.CurrentCharges != n.MaxCharges {
 			t.Errorf("node %s: charges=%d max=%d (expected restored)", n.ResourceID, n.CurrentCharges, n.MaxCharges)
@@ -173,8 +174,8 @@ func TestRestoreHarvestNodesInRoom(t *testing.T) {
 
 func TestRestoreHarvestNodesInRoom_NoOpEmpty(t *testing.T) {
 	exp := &Expedition{ZoneID: ZoneFeywildCrossing, RegionState: map[string]any{}}
-	if got := restoreHarvestNodesInRoom(exp, -1); got {
-		t.Errorf("negative roomIdx should no-op")
+	if got := restoreHarvestNodesInRoom(exp, ""); got {
+		t.Errorf("empty nodeID should no-op")
 	}
 }
 
