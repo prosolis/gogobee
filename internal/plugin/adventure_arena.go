@@ -250,8 +250,9 @@ func (p *AdventurePlugin) resolveArenaRound(ctx MessageContext, run *ArenaRun, c
 		return p.resolveArenaDeath(ctx, run, char, tier, monster, result, bossNarr)
 	}
 
-	// Misty condition repair (post-combat). Boss-flow path runs through
-	// runZoneCombat which doesn't surface condRepair; skip it there.
+	// Misty condition repair (post-combat) for the legacy path. Boss flow
+	// runs through runZoneCombat, which calls npcRepairMostDamaged
+	// internally — no surfaced return value needed.
 	if condRepair > 0 {
 		npcRepairMostDamaged(ctx.Sender, equip, condRepair)
 	}
