@@ -1,5 +1,7 @@
 package plugin
 
+import "fmt"
+
 // ── Arena Tier & Monster Definitions ────────────────────────────────────────
 //
 // Five tiers, four monsters each. Death chance, rewards, and XP scale with tier.
@@ -188,6 +190,93 @@ func arenaGetMonster(tier, round int) *ArenaMonster {
 		return nil
 	}
 	return &t.Monsters[round-1]
+}
+
+// ── Adv 2.0 boss-flow bestiary (Phase L2 step 3) ────────────────────────────
+//
+// arenaBosses re-shapes the legacy arenaTiers data into boss-shaped
+// DnDMonsterTemplate entries so resolveArenaBoss (Phase L2 step 4) can
+// run an arena fight through the same runZoneCombat → renderBossOutcome
+// flow that zone bosses use. Keyed by arenaBossID(tier, round) — IDs
+// are namespaced "arena_t<tier>_r<round>" so they don't collide with
+// dndBestiary keys.
+//
+// HP/AC/Attack are first-pass tier-banded values; BaseLethality biases
+// each monster up or down within its tier band so round-1 is the
+// weakest fight and round-4 is the cap. Final tuning happens during
+// the ARENA_BOSS_FLOW flag soak (gogobee_legacy_migration.md §4 Risk).
+var arenaBosses = map[string]DnDMonsterTemplate{}
+
+// arenaBossID composes the canonical arena bestiary key.
+func arenaBossID(tier, round int) string {
+	return fmt.Sprintf("arena_t%d_r%d", tier, round)
+}
+
+// arenaBossPhaseTwoAt returns the PhaseTwoAt fraction (of MaxHP) for an
+// arena fight at the given tier. T1–T2 = no phase two; T3+ = 50% HP.
+// The T4–T5 flavor barb piggybacks on the standard phase-two narration
+// path through ZoneArena's bossPhaseTwoPool (populated alongside arena
+// flavor when those lines land).
+func arenaBossPhaseTwoAt(tier int) float64 {
+	if tier >= 3 {
+		return 0.5
+	}
+	return 0
+}
+
+// arenaTierBaseStats returns the (HP, AC, Attack, AttackBonus, CR)
+// baseline for a given arena tier. arenaMonsterToTemplate then biases
+// HP/Attack by BaseLethality so within-tier ordering matches the legacy
+// difficulty curve.
+func arenaTierBaseStats(tier int) (hp, ac, atk, ab int, cr float32) {
+	switch tier {
+	case 1:
+		return 30, 13, 8, 4, 1
+	case 2:
+		return 80, 14, 14, 6, 4
+	case 3:
+		return 160, 15, 22, 7, 8
+	case 4:
+		return 260, 16, 32, 8, 13
+	case 5:
+		return 400, 18, 45, 10, 18
+	}
+	return 30, 13, 8, 4, 1
+}
+
+// arenaMonsterToTemplate maps a legacy ArenaMonster onto a
+// DnDMonsterTemplate. HP/AC/Attack scale with tier; within a tier,
+// BaseLethality biases the curve via a ±30% band so round-1 sits at
+// the bottom of the tier and round-4 at the top.
+func arenaMonsterToTemplate(id string, m ArenaMonster, tier int) DnDMonsterTemplate {
+	hp, ac, atk, ab, cr := arenaTierBaseStats(tier)
+	bias := (m.BaseLethality - 0.5) * 0.6 // ≈ -0.24 .. +0.29
+	hp = int(float64(hp) * (1 + bias))
+	atk = int(float64(atk) * (1 + bias))
+	if hp < 1 {
+		hp = 1
+	}
+	if atk < 1 {
+		atk = 1
+	}
+	return DnDMonsterTemplate{
+		ID: id, Name: m.Name, CR: cr,
+		HP: hp, AC: ac, Attack: atk, AttackBonus: ab, Speed: 12,
+		BlockRate: 0.05,
+		Ability:   m.Ability,
+		XPValue:   arenaTiers[tier-1].BattleXP * 4,
+		Notes:     m.Flavor,
+	}
+}
+
+func init() {
+	for ti, t := range arenaTiers {
+		tier := ti + 1
+		for ri, m := range t.Monsters {
+			id := arenaBossID(tier, ri+1)
+			arenaBosses[id] = arenaMonsterToTemplate(id, m, tier)
+		}
+	}
 }
 
 // ── Arena Death Flavor Text ─────────────────────────────────────────────────
