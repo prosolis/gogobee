@@ -230,7 +230,7 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 9. Drop AdvCharacter imports from arena files. **DEFERRED (2026-05-09):** blocked on DisplayName migration (L4f-prep, see §7) plus L4 hospital/pets/XP work. Arena code still needs `char.DisplayName` (stats DM, T5/helm announces, render), `char.PetName` (pet-recovery game-room msg), `char.DeathReprieveLast`, `char.CombatXP`, `char.Alive`/`transitionDeath`. Counter dual-writes to `char.ArenaWins/Losses/InvasionScore` could be dropped now (player_meta is source of truth post-step 6), but the surrounding `loadAdvCharacter`/`saveAdvCharacter` calls stay for the other fields, so step 9's exit grep can't pass at L2 time. Revisit after DisplayName migration ships and L4 (hospital/pets/render) lands.
 10. `go test ./... && go vet`.
 
-**Feature flag.** Ship behind `ARENA_BOSS_FLOW=1` for one week of soak. Inside the flag the new flow runs; outside it falls back to the legacy path. Flip to default-on after the soak; remove the flag in the same commit that lands L4f (twinbee).
+**Feature flag.** ~~Originally planned an `ARENA_BOSS_FLOW=1` soak.~~ Cancelled 2026-05-09: shipped no-flag, no legacy fallback. The legacy `runArenaCombat` / `RenderCombatLogArena` / `renderArenaCombatFinalMessage` / `renderArenaOutcome` / `arenaWin/LoseCloser` paths were deleted in the same commit. Boss-flow errors surface to the player and abort the round rather than falling back.
 
 **Exit criteria:**
 - ~~`grep -l 'AdventureCharacter\|CombatLevel\|combat_engine' internal/plugin/adventure_arena*.go` empty.~~ **Deferred** with step 9 — see note above. The grep will only clear once DisplayName migration + L4 (hospital/pets/XP/render) ship; L2 closes without it.
@@ -239,7 +239,7 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 - Existing arena DB rows readable; ArenaWins backfill from AdvCharacter into `player_meta` (§8).
 
 **Risk:**
-- D&D combat is swingier than legacy CombatPower; pace by tuning HP/AC tables against legacy win-rate logs during the flag soak.
+- D&D combat is swingier than legacy CombatPower; tune HP/AC tables against in-flight playtest data (no flag soak — legacy path is gone).
 - Refactoring `resolveBossRoom` to extract `renderBossOutcome` could regress zone bosses. Mitigate: do the extraction in step 1 alone, ship it, run a full zone-boss test pass before continuing to step 2.
 
 ---

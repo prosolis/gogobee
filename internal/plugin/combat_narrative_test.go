@@ -106,27 +106,6 @@ func TestRenderCombatLog_LossPhaseMessages(t *testing.T) {
 	}
 }
 
-func TestRenderCombatLogArena_ProducesPhaseMessages(t *testing.T) {
-	result := CombatResult{
-		PlayerWon:     true,
-		PlayerStartHP: 100,
-		EnemyStartHP:  60,
-		PlayerEndHP:   70,
-		EnemyEndHP:    0,
-		TotalRounds:   3,
-		Closeness:     0.3,
-		Events: []CombatEvent{
-			{Round: 1, Phase: "opening", Actor: "player", Action: "hit", Damage: 30, EnemyHP: 30, PlayerHP: 100},
-			{Round: 2, Phase: "clash", Actor: "player", Action: "hit", Damage: 30, EnemyHP: 0, PlayerHP: 70},
-		},
-	}
-
-	msgs := RenderCombatLogArena(result, "Hero", "Ratticus")
-	if len(msgs) < 1 {
-		t.Fatalf("expected at least 1 phase message, got %d", len(msgs))
-	}
-}
-
 func TestRenderCombatLog_ConsumableEvents(t *testing.T) {
 	result := CombatResult{
 		PlayerWon:     true,

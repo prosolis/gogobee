@@ -84,30 +84,6 @@ func TestArenaBossPhaseTwoAt(t *testing.T) {
 	}
 }
 
-// Phase L2 step 4b — flag gate. Empty / "0" / "false" disable the new
-// boss-flow path; anything else (including "1") enables it.
-func TestArenaBossFlowEnabled(t *testing.T) {
-	cases := []struct {
-		val  string
-		want bool
-	}{
-		{"", false},
-		{"0", false},
-		{"false", false},
-		{"FALSE", false},
-		{"False", false},
-		{"1", true},
-		{"true", true},
-		{"on", true},
-	}
-	for _, c := range cases {
-		t.Setenv("ARENA_BOSS_FLOW", c.val)
-		if got := arenaBossFlowEnabled(); got != c.want {
-			t.Errorf("arenaBossFlowEnabled with %q = %v want %v", c.val, got, c.want)
-		}
-	}
-}
-
 // Phase L2 step 4b — staged-narration assembly. The intro line leads,
 // followed by the combat-log phases, mirroring streamOrSend's
 // intro+phases pattern in dnd_zone_cmd.go.

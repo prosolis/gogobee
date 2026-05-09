@@ -70,11 +70,6 @@ func RenderCombatLog(result CombatResult, playerName, enemyName string) []string
 	return msgs
 }
 
-// RenderCombatLogArena is RenderCombatLog for arena fights.
-func RenderCombatLogArena(result CombatResult, playerName, enemyName string) []string {
-	return RenderCombatLog(result, playerName, enemyName)
-}
-
 type phaseGroup struct {
 	Name   string
 	Events []CombatEvent
@@ -292,35 +287,6 @@ func renderOutcome(result CombatResult, playerName, enemyName string, reward int
 			sb.WriteString(pickRand(narrativeCloseLoss) + "\n")
 		}
 		sb.WriteString(fmt.Sprintf("+%d XP (participation)", xp))
-	}
-
-	return sb.String()
-}
-
-func renderArenaOutcome(result CombatResult, playerName, enemyName string, reward int64, xp int, tier, round int) string {
-	var sb strings.Builder
-
-	if result.PlayerWon {
-		sb.WriteString(fmt.Sprintf("💀 **%s** has been defeated.\n", enemyName))
-		closer := arenaWinCloser(enemyName, round)
-		sb.WriteString(closer + "\n")
-		sb.WriteString(fmt.Sprintf("🏆 +%d XP | €%d earned", xp, reward))
-	} else {
-		sb.WriteString("The healers are already moving.\n")
-		sb.WriteString("💀 **Defeated.**\n")
-		closer := arenaLoseCloser(enemyName, round)
-		sb.WriteString(closer + "\n")
-		sb.WriteString(fmt.Sprintf("+%d XP (participation) | Back tomorrow.", arenaParticipationXP))
-	}
-
-	if result.SniperKilled {
-		sb.WriteString("\n" + pickRand(narrativeSniperKill))
-	}
-	if result.MistyHealed {
-		sb.WriteString("\n🌿 Misty's healing made the difference.")
-	}
-	if result.PetAttacked {
-		sb.WriteString("\n🐾 Your pet contributed to the fight.")
 	}
 
 	return sb.String()

@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"math"
 	"math/rand/v2"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -193,46 +192,30 @@ func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext) error {
 }
 
 // arenaBossNarration carries the staged-narration trio produced by
-// resolveArenaBoss (Phase L2 step 4b). When non-nil it tells the
-// survival/death handlers to skip the legacy RenderCombatLogArena +
-// dnd opening/closing/roll-summary stack and instead use the
-// pre-rendered boss-flow intro/phases/outcome.
+// resolveArenaBoss: an intro line, the per-phase combat log, and the
+// outcome block (TwinBee mood + headline + dice summary).
 type arenaBossNarration struct {
 	intro   string
 	phases  []string
 	outcome string
 }
 
-// resolveArenaRound runs a single arena round through the combat engine and
-// dispatches to survival or death handlers. When ARENA_BOSS_FLOW is set, the
-// round is routed through resolveArenaBoss (zone-boss combat + staged
-// narration) and the resulting CombatResult / narration are threaded into
-// the existing economic glue.
+// resolveArenaRound runs a single arena round through resolveArenaBoss
+// (zone-boss combat + staged narration) and threads the result into the
+// surrounding economic glue. There is no legacy fallback — a boss-flow
+// error surfaces to the player and aborts the round.
 func (p *AdventurePlugin) resolveArenaRound(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, tier *ArenaTier, monster *ArenaMonster) error {
-	var (
-		result     CombatResult
-		condRepair int
-		bossNarr   *arenaBossNarration
-	)
-
-	if arenaBossFlowEnabled() {
-		intro, phases, outcome, res, err := p.resolveArenaBoss(ctx.Sender, ArenaBossEncounter{
-			Tier:        run.Tier,
-			Round:       run.Round,
-			DisplayName: char.DisplayName,
-		})
-		if err != nil {
-			slog.Error("arena: boss flow failed, falling back to legacy", "user", ctx.Sender, "err", err)
-		} else {
-			result = res
-			bossNarr = &arenaBossNarration{intro: intro, phases: phases, outcome: outcome}
-		}
+	intro, phases, outcome, result, err := p.resolveArenaBoss(ctx.Sender, ArenaBossEncounter{
+		Tier:        run.Tier,
+		Round:       run.Round,
+		DisplayName: char.DisplayName,
+	})
+	if err != nil {
+		slog.Error("arena: boss flow failed", "user", ctx.Sender, "err", err)
+		return p.SendDM(ctx.Sender, "Arena combat encountered an error. Try again in a moment.")
 	}
-	if bossNarr == nil {
-		result, condRepair = p.runArenaCombat(ctx.Sender, char, equip, monster, run.Round, run.Tier)
-	}
+	bossNarr := &arenaBossNarration{intro: intro, phases: phases, outcome: outcome}
 
-	// Apply event-based equipment degradation
 	degradation := combatDegradation(result, equip)
 	for slot, eq := range equip {
 		if d, ok := degradation[slot]; ok && d > 0 {
@@ -240,9 +223,7 @@ func (p *AdventurePlugin) resolveArenaRound(ctx MessageContext, run *ArenaRun, c
 		}
 	}
 
-	deathSaved := checkDeathSaveEvent(result.Events)
-
-	if deathSaved {
+	if checkDeathSaveEvent(result.Events) {
 		now := time.Now().UTC()
 		char.DeathReprieveLast = &now
 		if err := saveAdvCharacter(char); err != nil {
@@ -253,14 +234,6 @@ func (p *AdventurePlugin) resolveArenaRound(ctx MessageContext, run *ArenaRun, c
 	if !result.PlayerWon {
 		return p.resolveArenaDeath(ctx, run, char, tier, monster, result, bossNarr)
 	}
-
-	// Misty condition repair (post-combat) for the legacy path. Boss flow
-	// runs through runZoneCombat, which calls npcRepairMostDamaged
-	// internally — no surfaced return value needed.
-	if condRepair > 0 {
-		npcRepairMostDamaged(ctx.Sender, equip, condRepair)
-	}
-
 	return p.resolveArenaSurvival(ctx, run, char, tier, monster, result, bossNarr)
 }
 
@@ -366,30 +339,9 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 	}
 	run.XPAccumulated += battleXP
 
-	// Render combat log as phased messages + final outcome. Boss-flow path
-	// uses pre-rendered intro/phases/outcome; legacy path builds them here.
-	var (
-		phaseMessages []string
-		finalMessage  string
-	)
-	if bossNarr != nil {
-		phaseMessages = bossFlowPhaseMessages(bossNarr)
-		phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
-		finalMessage = bossNarr.outcome + fmt.Sprintf("\n🏆 +%d XP | €%d earned", battleXP, reward)
-	} else {
-		phaseMessages = RenderCombatLogArena(result, char.DisplayName, monster.Name)
-		phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
-		if open := dndCombatOpeningLine(); open != "" && len(phaseMessages) > 0 {
-			phaseMessages[0] = "_" + open + "_\n\n" + phaseMessages[0]
-		}
-		finalMessage = renderArenaCombatFinalMessage(result, monster, reward, battleXP, run.Round)
-		// Boss = T5 final round. Use BossDeath flavor for that fight's win.
-		isBoss := run.Tier == 5
-		finalMessage += dndItalicize(dndCombatClosingLine(true, isBoss))
-		if rollLine := dndRollSummaryLine(result); rollLine != "" {
-			finalMessage += "\n" + rollLine
-		}
-	}
+	phaseMessages := bossFlowPhaseMessages(bossNarr)
+	phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
+	finalMessage := bossNarr.outcome + fmt.Sprintf("\n🏆 +%d XP | €%d earned", battleXP, reward)
 
 	// Suppress the "(at risk)" line on the tier-completing round — those earnings
 	// are about to be locked in by the tier-complete branch below, so labelling
@@ -433,7 +385,7 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 			finalMessage += fmt.Sprintf("\n🏆 **Tier %d cleared!** Round earnings: €%d + completion bonus: €%d (×%.1f streak)\n",
 				tier.Number, tierRaw, tier.CompletionBonus, multiplier)
 
-			done := p.sendArenaCombatMessages(ctx.Sender, phaseMessages, finalMessage, bossNarr != nil)
+			done := p.sendZoneCombatMessages(ctx.Sender, phaseMessages, finalMessage)
 			<-done
 			return p.arenaCompleteSession(ctx.Sender, run, char, "")
 		}
@@ -452,7 +404,7 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 			p.postArenaDropAnnouncement(char.DisplayName, dropped)
 		}
 
-		done := p.sendArenaCombatMessages(ctx.Sender, phaseMessages, finalMessage, bossNarr != nil)
+		done := p.sendZoneCombatMessages(ctx.Sender, phaseMessages, finalMessage)
 		go func() {
 			<-done
 			p.arenaCountdown(ctx.Sender, run)
@@ -474,17 +426,8 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 		finalMessage += "`!arena fight` — Face this opponent"
 	}
 
-	p.sendArenaCombatMessages(ctx.Sender, phaseMessages, finalMessage, bossNarr != nil)
+	p.sendZoneCombatMessages(ctx.Sender, phaseMessages, finalMessage)
 	return nil
-}
-
-// sendArenaCombatMessages dispatches arena phase narration. Boss-flow uses
-// the tighter zone-combat pacing (2–3s); legacy uses arena pacing (5–8s).
-func (p *AdventurePlugin) sendArenaCombatMessages(userID id.UserID, phases []string, final string, bossFlow bool) <-chan struct{} {
-	if bossFlow {
-		return p.sendZoneCombatMessages(userID, phases, final)
-	}
-	return p.sendCombatMessages(userID, phases, final)
 }
 
 // bossFlowPhaseMessages prepends the resolveArenaBoss intro line to the
@@ -504,15 +447,7 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	run.LastMonster = monster.Name
 	lostEarnings := run.Earnings + run.TierEarnings
 
-	var phaseMessages []string
-	if bossNarr != nil {
-		phaseMessages = bossFlowPhaseMessages(bossNarr)
-	} else {
-		phaseMessages = RenderCombatLogArena(result, char.DisplayName, monster.Name)
-		if open := dndCombatOpeningLine(); open != "" && len(phaseMessages) > 0 {
-			phaseMessages[0] = "_" + open + "_\n\n" + phaseMessages[0]
-		}
-	}
+	phaseMessages := bossFlowPhaseMessages(bossNarr)
 
 	dt := transitionDeath(DeathTransitionParams{
 		Char:          char,
@@ -545,16 +480,7 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	insertArenaHistory(run.UserID, run.StartTier, run.Tier, run.RoundsSurvived, 0, "dead", monster.Name)
 	upsertArenaStats(run.UserID, 0, true, run.Tier)
 
-	var finalMsg string
-	if bossNarr != nil {
-		finalMsg = bossNarr.outcome + fmt.Sprintf("\n+%d XP (participation) | Back tomorrow.", arenaParticipationXP)
-	} else {
-		finalMsg = renderArenaCombatFinalMessage(result, monster, 0, arenaParticipationXP, run.Round)
-		finalMsg += dndItalicize(dndCombatClosingLine(false, false))
-		if rollLine := dndRollSummaryLine(result); rollLine != "" {
-			finalMsg += "\n" + rollLine
-		}
-	}
+	finalMsg := bossNarr.outcome + fmt.Sprintf("\n+%d XP (participation) | Back tomorrow.", arenaParticipationXP)
 	if dt.PetRecovered {
 		finalMsg += fmt.Sprintf("\n\nYour pet dragged you out of the arena. Death timer reduced. All session earnings forfeited.")
 	} else {
@@ -567,7 +493,7 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 		}
 	}
 
-	done := p.sendArenaCombatMessages(ctx.Sender, phaseMessages, finalMsg, bossNarr != nil)
+	done := p.sendZoneCombatMessages(ctx.Sender, phaseMessages, finalMsg)
 
 	if dt.PetRecovered {
 		gr := gamesRoom()
@@ -1301,25 +1227,12 @@ func (p *AdventurePlugin) arenaRollGladiatorHelm(userID id.UserID, maxTierCleare
 	return "The Gladiator's Helm"
 }
 
-// ── Adv 2.0 boss-flow round resolver (Phase L2 step 4) ──────────────────────
+// ── Arena boss-flow round resolver ──────────────────────────────────────────
 //
-// resolveArenaBoss is the future arena combat path: a single arena
-// round routed through runZoneCombat + renderBossOutcome so the player
-// sees the same staged narration that zone bosses use (Nat20/Nat1 mood
-// lines, phase-two barb on T3+, BossDeath/PlayerDeath flavor, dice
-// summary). The legacy CombatPower-vs-Lethality flow stays in place
-// until ARENA_BOSS_FLOW soak completes — wiring lands in the next step.
-
-// arenaBossFlowEnabled gates the new path on the ARENA_BOSS_FLOW env
-// var so the legacy code path remains the default until soak passes.
-// Empty string and "0" / "false" disable; anything else enables.
-func arenaBossFlowEnabled() bool {
-	switch os.Getenv("ARENA_BOSS_FLOW") {
-	case "", "0", "false", "FALSE", "False":
-		return false
-	}
-	return true
-}
+// resolveArenaBoss is the arena combat path: a single arena round
+// routed through runZoneCombat + renderBossOutcome so the player sees
+// the same staged narration zone bosses use (Nat20/Nat1 mood lines,
+// phase-two barb on T3+, BossDeath/PlayerDeath flavor, dice summary).
 
 // ArenaBossEncounter is the single-round input for resolveArenaBoss.
 // Tier and Round identify the arenaBosses entry; DisplayName is the

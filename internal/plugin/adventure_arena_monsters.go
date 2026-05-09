@@ -203,8 +203,8 @@ func arenaGetMonster(tier, round int) *ArenaMonster {
 //
 // HP/AC/Attack are first-pass tier-banded values; BaseLethality biases
 // each monster up or down within its tier band so round-1 is the
-// weakest fight and round-4 is the cap. Final tuning happens during
-// the ARENA_BOSS_FLOW flag soak (gogobee_legacy_migration.md §4 Risk).
+// weakest fight and round-4 is the cap. Tuning is ongoing against
+// playtest data (gogobee_legacy_migration.md §4 Risk).
 var arenaBosses = map[string]DnDMonsterTemplate{}
 
 // arenaBossID composes the canonical arena bestiary key.
