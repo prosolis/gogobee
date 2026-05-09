@@ -107,35 +107,40 @@ func (p *AdventurePlugin) mortgageTicker() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now().UTC()
-		// Run on Mondays only (FRED updates Thursdays, we process Mondays)
-		if now.Weekday() != time.Monday {
-			continue
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
+			// Run on Mondays only (FRED updates Thursdays, we process Mondays)
+			if now.Weekday() != time.Monday {
+				continue
+			}
+
+			_, week := now.ISOWeek()
+			dateKey := fmt.Sprintf("%d-W%02d", now.Year(), week)
+			jobName := "mortgage_weekly"
+			if db.JobCompleted(jobName, dateKey) {
+				continue
+			}
+
+			slog.Info("mortgage: running weekly payment processing")
+
+			// Fetch fresh rate and compare with previous
+			newRate := getCurrentMortgageRate()
+			oldRate := p.getLastKnownRate()
+
+			if oldRate > 0 && oldRate != newRate {
+				p.sendMortgageRateChangeDMs(oldRate, newRate)
+			}
+			p.setLastKnownRate(newRate)
+
+			// Process payments
+			p.processMortgagePayments()
+
+			db.MarkJobCompleted(jobName, dateKey)
 		}
-
-		_, week := now.ISOWeek()
-		dateKey := fmt.Sprintf("%d-W%02d", now.Year(), week)
-		jobName := "mortgage_weekly"
-		if db.JobCompleted(jobName, dateKey) {
-			continue
-		}
-
-		slog.Info("mortgage: running weekly payment processing")
-
-		// Fetch fresh rate and compare with previous
-		newRate := getCurrentMortgageRate()
-		oldRate := p.getLastKnownRate()
-
-		if oldRate > 0 && oldRate != newRate {
-			p.sendMortgageRateChangeDMs(oldRate, newRate)
-		}
-		p.setLastKnownRate(newRate)
-
-		// Process payments
-		p.processMortgagePayments()
-
-		db.MarkJobCompleted(jobName, dateKey)
 	}
 }
 

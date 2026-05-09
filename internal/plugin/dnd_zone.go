@@ -1,6 +1,9 @@
 package plugin
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+)
 
 // Phase 11 D1a — zone registry. Implements `gogobee_dungeon_zones.md` §5.
 //
@@ -125,6 +128,25 @@ func init() {
 func getZone(id ZoneID) (ZoneDefinition, bool) {
 	z, ok := dndZoneRegistry[id]
 	return z, ok
+}
+
+// zoneOrFallback returns the registered ZoneDefinition or, if the id
+// is unknown (corrupted DB row, dropped registration), a safe
+// placeholder so display strings don't panic. Use this at non-fatal
+// callsites that just need a Display/Hook/Atmosphere to print.
+func zoneOrFallback(id ZoneID) ZoneDefinition {
+	if z, ok := dndZoneRegistry[id]; ok {
+		return z
+	}
+	return ZoneDefinition{
+		ID:         id,
+		Display:    fmt.Sprintf("(unknown zone %q)", string(id)),
+		Hook:       "",
+		Atmosphere: "",
+		Tier:       1,
+		LevelMin:   1,
+		LevelMax:   1,
+	}
 }
 
 // zonesForLevel returns all zones a player at dndLevel may enter.

@@ -31,29 +31,34 @@ func (p *AdventurePlugin) robbieTicker() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now().UTC()
-		dateKey := now.Format("2006-01-02")
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
+			dateKey := now.Format("2006-01-02")
 
-		// At midnight (or first tick of the day), pick today's target hour.
-		if robbieTargetDay != dateKey {
-			robbieTargetHour = 8 + rand.IntN(14) // 8–21 inclusive
-			robbieTargetDay = dateKey
-			slog.Info("adventure: robbie target hour set", "hour", robbieTargetHour, "date", dateKey)
+			// At midnight (or first tick of the day), pick today's target hour.
+			if robbieTargetDay != dateKey {
+				robbieTargetHour = 8 + rand.IntN(14) // 8–21 inclusive
+				robbieTargetDay = dateKey
+				slog.Info("adventure: robbie target hour set", "hour", robbieTargetHour, "date", dateKey)
+			}
+
+			if now.Hour() < robbieTargetHour {
+				continue
+			}
+
+			jobName := "adventure_robbie"
+			if db.JobCompleted(jobName, dateKey) {
+				continue
+			}
+
+			slog.Info("adventure: robbie sweep starting")
+			p.robbieVisitAll()
+			db.MarkJobCompleted(jobName, dateKey)
 		}
-
-		if now.Hour() < robbieTargetHour {
-			continue
-		}
-
-		jobName := "adventure_robbie"
-		if db.JobCompleted(jobName, dateKey) {
-			continue
-		}
-
-		slog.Info("adventure: robbie sweep starting")
-		p.robbieVisitAll()
-		db.MarkJobCompleted(jobName, dateKey)
 	}
 }
 

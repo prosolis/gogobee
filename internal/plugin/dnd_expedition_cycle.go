@@ -38,12 +38,17 @@ const (
 func (p *AdventurePlugin) expeditionBriefingTicker() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now().UTC()
-		if now.Hour() != expeditionBriefingHour || now.Minute() != 0 {
-			continue
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
+			if now.Hour() != expeditionBriefingHour || now.Minute() != 0 {
+				continue
+			}
+			p.fireExpeditionBriefings(now)
 		}
-		p.fireExpeditionBriefings(now)
 	}
 }
 
@@ -51,12 +56,17 @@ func (p *AdventurePlugin) expeditionBriefingTicker() {
 func (p *AdventurePlugin) expeditionRecapTicker() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now().UTC()
-		if now.Hour() != expeditionRecapHour || now.Minute() != 0 {
-			continue
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
+			if now.Hour() != expeditionRecapHour || now.Minute() != 0 {
+				continue
+			}
+			p.fireExpeditionRecaps(now)
 		}
-		p.fireExpeditionRecaps(now)
 	}
 }
 
@@ -149,7 +159,29 @@ func scanExpeditionRows(rows *sql.Rows) ([]*Expedition, error) {
 
 // deliverBriefing rolls a day forward, applies supply burn, posts the
 // morning briefing DM, appends a log entry, and stamps last_briefing_at.
+//
+// Idempotency: the first thing we do is an atomic compare-and-set on
+// last_briefing_at. If another invocation (clock skew, restart, double
+// fire) already claimed today's rollover, rowsAffected == 0 and we bail
+// without re-applying supply burn / day++ / threat drift.
 func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
+	threshold := time.Date(now.Year(), now.Month(), now.Day(),
+		expeditionBriefingHour, 0, 0, 0, time.UTC)
+	res, err := db.Get().Exec(`
+		UPDATE dnd_expedition
+		   SET last_briefing_at = ?,
+		       last_activity = ?
+		 WHERE expedition_id = ?
+		   AND status = 'active'
+		   AND (last_briefing_at IS NULL OR last_briefing_at < ?)`,
+		now, now, e.ID, threshold)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil // already delivered for this day
+	}
+
 	// E3: zone-specific temporal events fire BEFORE applyDailyBurn and
 	// can override the entire burn calculation with a fixed multiplier
 	// (Sunken Temple tidal 2.0×, Feywild half-day 0.5×, etc.).
@@ -202,7 +234,19 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	// has advanced, so e.CurrentDay reflects the new day).
 	temporalLines := applyZoneTemporalPostRollover(e)
 
-	// E5b: if a temporal event forced extraction (abyss collapse, etc.),
+	// §4.3: starvation triggers forced extraction. With no CON tracking
+	// in this layer, the briefing-time check is the practical equivalent
+	// of "CON reaches 0" — a starvation morning means the player can't
+	// reasonably press on. Apply the §10.2 coin tax and flip status.
+	if supplyDepletion(e.Supplies) == SupplyStarvation && e.Status == ExpeditionStatusActive {
+		_, _, _ = forcedExtractExpedition(e.ID, "starvation")
+		e.Status = ExpeditionStatusAbandoned
+		line := flavor.Pick(flavor.ExtractionForced)
+		_ = appendExpeditionLog(e.ID, e.CurrentDay, "narrative",
+			"forced extraction: starvation", line)
+	}
+
+	// E5b: if a temporal event (or starvation above) forced extraction,
 	// apply the §10.2 coin tax. The temporal layer flips the row to
 	// 'abandoned'; the cycle holds the euro handle to do the debit.
 	if e.Status == ExpeditionStatusAbandoned && p.euro != nil {
@@ -240,17 +284,30 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 		fmt.Sprintf("morning briefing — %.1f SU consumed overnight", burn), line); err != nil {
 		return err
 	}
-	_, err := db.Get().Exec(`
-		UPDATE dnd_expedition
-		   SET last_briefing_at = ?,
-		       last_activity = ?
-		 WHERE expedition_id = ?`, now, now, e.ID)
-	return err
+	return nil
 }
 
 // deliverRecap posts the evening recap DM, appends a log entry, and stamps
 // last_recap_at. No supply burn here — that's the briefing's job.
+// Idempotency: same pattern as deliverBriefing — claim last_recap_at first.
 func (p *AdventurePlugin) deliverRecap(e *Expedition, now time.Time) error {
+	threshold := time.Date(now.Year(), now.Month(), now.Day(),
+		expeditionRecapHour, 0, 0, 0, time.UTC)
+	res, err := db.Get().Exec(`
+		UPDATE dnd_expedition
+		   SET last_recap_at = ?,
+		       last_activity = ?
+		 WHERE expedition_id = ?
+		   AND status = 'active'
+		   AND (last_recap_at IS NULL OR last_recap_at < ?)`,
+		now, now, e.ID, threshold)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil
+	}
+
 	// E2b: night phase wandering check fires before the recap so its
 	// outcome is part of today's log when the recap renders.
 	var night *NightCheck
@@ -300,12 +357,7 @@ func (p *AdventurePlugin) deliverRecap(e *Expedition, now time.Time) error {
 		fmt.Sprintf("evening recap — %d log entries today", len(dayEntries)), line); err != nil {
 		return err
 	}
-	_, err = db.Get().Exec(`
-		UPDATE dnd_expedition
-		   SET last_recap_at = ?,
-		       last_activity = ?
-		 WHERE expedition_id = ?`, now, now, e.ID)
-	return err
+	return nil
 }
 
 // pickMorningBriefing returns a flavor line based on day-band: Day 1, 3, 7,

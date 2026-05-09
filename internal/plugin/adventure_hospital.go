@@ -248,36 +248,41 @@ func (p *AdventurePlugin) hospitalNudgeTicker() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now().UTC()
-		p.hospitalNudges.Range(func(key, val any) bool {
-			uid := key.(string)
-			nudgeAt := val.(time.Time)
-			if now.Before(nudgeAt) {
-				return true
-			}
-
-			// Due — remove regardless of outcome
-			p.hospitalNudges.Delete(uid)
-
-			userID := id.UserID(uid)
-			char, err := loadAdvCharacter(userID)
-			if err != nil || char.Alive {
-				return true
-			}
-
-			// Don't nudge if already in hospital flow
-			if v, ok := p.pending.Load(uid); ok {
-				if pi, ok := v.(*advPendingInteraction); ok && pi.Type == "hospital_pay" {
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
+			p.hospitalNudges.Range(func(key, val any) bool {
+				uid := key.(string)
+				nudgeAt := val.(time.Time)
+				if now.Before(nudgeAt) {
 					return true
 				}
-			}
 
-			text, _ := advPickFlavor(nurseJoyNudge, userID, "hospital_nudge")
-			if err := p.SendDM(userID, text); err != nil {
-				slog.Error("hospital: failed to send nudge", "user", userID, "err", err)
-			}
-			return true
-		})
+				// Due — remove regardless of outcome
+				p.hospitalNudges.Delete(uid)
+
+				userID := id.UserID(uid)
+				char, err := loadAdvCharacter(userID)
+				if err != nil || char.Alive {
+					return true
+				}
+
+				// Don't nudge if already in hospital flow
+				if v, ok := p.pending.Load(uid); ok {
+					if pi, ok := v.(*advPendingInteraction); ok && pi.Type == "hospital_pay" {
+						return true
+					}
+				}
+
+				text, _ := advPickFlavor(nurseJoyNudge, userID, "hospital_nudge")
+				if err := p.SendDM(userID, text); err != nil {
+					slog.Error("hospital: failed to send nudge", "user", userID, "err", err)
+				}
+				return true
+			})
+		}
 	}
 }

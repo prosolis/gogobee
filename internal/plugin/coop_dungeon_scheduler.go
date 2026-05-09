@@ -26,28 +26,33 @@ func (p *AdventurePlugin) coopTicker() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		// Locks: every minute.
-		p.coopProcessLocks()
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			// Locks: every minute.
+			p.coopProcessLocks()
 
-		// Gift expiries: every minute. Resolves any gift whose individual
-		// 6h voting window has elapsed. Modifier sits on the run until the
-		// next floor resolution merges it.
-		p.coopProcessGiftExpiries()
+			// Gift expiries: every minute. Resolves any gift whose individual
+			// 6h voting window has elapsed. Modifier sits on the run until the
+			// next floor resolution merges it.
+			p.coopProcessGiftExpiries()
 
-		// Resolutions: once per day at morningHour:00 UTC.
-		now := time.Now().UTC()
-		if now.Hour() != p.morningHour || now.Minute() != 0 {
-			continue
+			// Resolutions: once per day at morningHour:00 UTC.
+			now := time.Now().UTC()
+			if now.Hour() != p.morningHour || now.Minute() != 0 {
+				continue
+			}
+			dateKey := now.Format("2006-01-02")
+			jobName := "coop_dungeon_daily"
+			if db.JobCompleted(jobName, dateKey) {
+				continue
+			}
+			slog.Info("coop: daily tick — resolving active runs")
+			p.coopProcessActiveRuns()
+			db.MarkJobCompleted(jobName, dateKey)
 		}
-		dateKey := now.Format("2006-01-02")
-		jobName := "coop_dungeon_daily"
-		if db.JobCompleted(jobName, dateKey) {
-			continue
-		}
-		slog.Info("coop: daily tick — resolving active runs")
-		p.coopProcessActiveRuns()
-		db.MarkJobCompleted(jobName, dateKey)
 	}
 }
 

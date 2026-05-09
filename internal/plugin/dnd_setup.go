@@ -406,6 +406,15 @@ func (p *AdventurePlugin) handleDnDRespecCmd(ctx MessageContext) error {
 	if err := wipeSpellsForUser(ctx.Sender); err != nil {
 		slog.Error("dnd: respec spell wipe", "user", ctx.Sender, "err", err)
 	}
+	// Phase R hardening: a respec also abandons any active zone-run /
+	// expedition keyed to the wiped character so they don't orphan with
+	// pointers to a stat sheet that no longer exists.
+	if err := abandonZoneRun(ctx.Sender); err != nil && err != ErrNoActiveRun {
+		slog.Warn("dnd: respec zone-run cleanup", "user", ctx.Sender, "err", err)
+	}
+	if err := abandonExpedition(ctx.Sender); err != nil && err != ErrNoActiveExpedition {
+		slog.Warn("dnd: respec expedition cleanup", "user", ctx.Sender, "err", err)
+	}
 	// Debit last. If this fails (rare race — euros spent elsewhere between
 	// the pre-check and now), the player got a free respec. Strictly better
 	// than the alternative of euros-lost-with-wipe-not-applied.
@@ -452,6 +461,14 @@ func loadOrInitDraft(userID id.UserID) (*DnDCharacter, error) {
 				`DELETE FROM dnd_character WHERE user_id = ?`, string(userID),
 			); err != nil {
 				return nil, fmt.Errorf("clear auto-migrated row: %w", err)
+			}
+			// Auto-migrated wipe: also abandon active zone-run /
+			// expedition so they don't orphan against the deleted row.
+			if err := abandonZoneRun(userID); err != nil && err != ErrNoActiveRun {
+				slog.Warn("dnd: auto-migrated wipe zone-run cleanup", "user", userID, "err", err)
+			}
+			if err := abandonExpedition(userID); err != nil && err != ErrNoActiveExpedition {
+				slog.Warn("dnd: auto-migrated wipe expedition cleanup", "user", userID, "err", err)
 			}
 			// fall through to fresh draft
 		} else if !c.PendingSetup {

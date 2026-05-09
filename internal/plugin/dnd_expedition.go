@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"gogobee/internal/db"
@@ -264,7 +265,10 @@ func scanExpedition(row scanner) (*Expedition, error) {
 		e.ThreatEvents = []ThreatEvent{}
 	}
 	if regionJSON != "" {
-		_ = json.Unmarshal([]byte(regionJSON), &e.RegionState)
+		if err := json.Unmarshal([]byte(regionJSON), &e.RegionState); err != nil {
+			slog.Warn("expedition: region_state decode failed; falling back to empty",
+				"expedition", e.ID, "err", err)
+		}
 	}
 	if e.RegionState == nil {
 		e.RegionState = map[string]any{}
@@ -369,6 +373,8 @@ func applyThreatDelta(expID string, delta int, reason string) error {
 	if level > 100 {
 		level = 100
 	}
+	// Spec §8.3: Siege Mode is one-way — the OR keeps siege sticky
+	// even if a subsequent negative delta drops the underlying level.
 	siege := e.SiegeMode || level >= 100
 	events := append(e.ThreatEvents, ThreatEvent{
 		Timestamp: time.Now().UTC(),

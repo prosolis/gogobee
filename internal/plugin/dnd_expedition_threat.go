@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"gogobee/internal/flavor"
+	"maunium.net/go/mautrix/id"
 )
 
 // Phase 12 E2a — Threat Clock state machine.
@@ -134,9 +135,19 @@ func applyDailyThreatDrift(e *Expedition) (int, string, error) {
 	if newBand != prevBand && newBand > prevBand {
 		_ = appendThreatTransitionLog(e, newBand)
 	}
-	// E2c: §8.3 — one-time warning when crossing 70.
+	// E2c: §8.3 — one-time-per-expedition warning when crossing 70.
+	// Track in RegionState so a drop-and-recross (e.g. fortified-camp
+	// -5 followed by daily +3 drift) doesn't re-fire the beat.
 	if prevLevel < 70 && e.ThreatLevel >= 70 {
-		_ = appendApproachingSiegeLog(e)
+		warned, _ := e.RegionState["siege_warning_fired"].(bool)
+		if !warned {
+			_ = appendApproachingSiegeLog(e)
+			if e.RegionState == nil {
+				e.RegionState = map[string]any{}
+			}
+			e.RegionState["siege_warning_fired"] = true
+			_ = persistRegionState(e)
+		}
 	}
 	return delta, reason, nil
 }
@@ -245,4 +256,19 @@ func threatBandEffectsBlock(info ThreatBandInfo) string {
 // expedition combat is hooked up.
 func applyBossDefeatThreat(expID string) error {
 	return applyThreatDelta(expID, -20, "boss defeated")
+}
+
+// applyRoomCombatThreat records the +5 threat bump per §8.1 when the
+// player resolves combat in a new (non-boss) room. Silent no-op for
+// standalone zone runs (no active expedition).
+func applyRoomCombatThreatForUser(userID id.UserID, elite bool) {
+	exp, err := getActiveExpedition(userID)
+	if err != nil || exp == nil {
+		return
+	}
+	delta := 5
+	if elite {
+		delta = 8 // elite encounters are louder
+	}
+	_ = applyThreatDelta(exp.ID, delta, "combat in new room")
 }

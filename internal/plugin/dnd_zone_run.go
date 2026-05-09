@@ -202,7 +202,15 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 	return run, nil
 }
 
-// getActiveZoneRun returns the player's in-flight run, or (nil, nil) if none.
+// zoneRunInactivityTimeout is the §4.3 stale-run threshold: a run that
+// has gone untouched for this long is auto-abandoned the next time
+// anyone looks at it.
+const zoneRunInactivityTimeout = 24 * time.Hour
+
+// getActiveZoneRun returns the player's in-flight run, or (nil, nil) if
+// none. If the most-recent active run has been idle longer than
+// zoneRunInactivityTimeout, it's auto-abandoned (§4.3) and the
+// function returns (nil, nil) — the caller sees a clean slate.
 func getActiveZoneRun(userID id.UserID) (*DungeonRun, error) {
 	row := db.Get().QueryRow(`
 		SELECT run_id, user_id, zone_id, current_room, total_rooms,
@@ -220,7 +228,14 @@ func getActiveZoneRun(userID id.UserID) (*DungeonRun, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
-	return r, err
+	if err != nil {
+		return nil, err
+	}
+	if time.Since(r.LastActionAt) > zoneRunInactivityTimeout {
+		_ = abandonZoneRunByID(r.RunID)
+		return nil, nil
+	}
+	return r, nil
 }
 
 // getZoneRun fetches by RunID regardless of completion state. Test/admin use.

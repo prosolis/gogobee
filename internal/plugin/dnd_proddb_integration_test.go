@@ -46,7 +46,9 @@ func TestProdDB_DnDLayer(t *testing.T) {
 	t.Logf("loaded %d real adventure characters", len(chars))
 
 	// 2. For each, verify they have NO dnd_character row yet, then auto-migrate
-	//    and verify the resulting row is sensible.
+	//    and verify the resulting row is sensible. Track which chars we
+	//    actually migrated so steps 3+ can target one of those.
+	migrated := make(map[id.UserID]bool)
 	for i := range chars {
 		char := &chars[i]
 		uid := char.UserID
@@ -57,7 +59,10 @@ func TestProdDB_DnDLayer(t *testing.T) {
 			continue
 		}
 		if existing != nil {
-			t.Errorf("user=%s: had dnd_character row pre-migrate (should be empty)", uid)
+			// Real prod DB has accumulated rows from live bot use.
+			// Skip these — the auto-migrate path is exercised by
+			// other characters in the loop.
+			t.Logf("user=%s: skipping (already has dnd_character row)", uid)
 			continue
 		}
 
@@ -110,14 +115,22 @@ func TestProdDB_DnDLayer(t *testing.T) {
 			}
 		}
 
+		migrated[uid] = true
 		t.Logf("auto-migrated user=%s → L%d %s %s  HP=%d  AC=%d  STR/DEX/CON/INT/WIS/CHA=%d/%d/%d/%d/%d/%d",
 			uid, dnd.Level, dnd.Race, dnd.Class, dnd.HPMax, dnd.ArmorClass,
 			dnd.STR, dnd.DEX, dnd.CON, dnd.INT, dnd.WIS, dnd.CHA)
 	}
 
+	if len(migrated) == 0 {
+		t.Skip("no characters available for auto-migrate (all pre-existing); steps 3+ require a fresh migrate")
+	}
+
 	// 3. Re-load each auto-migrated char — round-trip integrity.
 	for i := range chars {
 		uid := chars[i].UserID
+		if !migrated[uid] {
+			continue
+		}
 		dnd, err := LoadDnDCharacter(uid)
 		if err != nil {
 			t.Errorf("user=%s: re-load failed: %v", uid, err)
@@ -134,10 +147,17 @@ func TestProdDB_DnDLayer(t *testing.T) {
 	}
 
 	// 4. ensureDnDCharacterForCombat is idempotent — second call returns the
-	//    same row, doesn't create a duplicate.
-	uid := chars[0].UserID
+	//    same row, doesn't create a duplicate. Pick the first migrated char.
+	var idemIdx int
+	for i := range chars {
+		if migrated[chars[i].UserID] {
+			idemIdx = i
+			break
+		}
+	}
+	uid := chars[idemIdx].UserID
 	first, _ := LoadDnDCharacter(uid)
-	second, freshAgain, err := ensureDnDCharacterForCombat(uid, &chars[0])
+	second, freshAgain, err := ensureDnDCharacterForCombat(uid, &chars[idemIdx])
 	if err != nil {
 		t.Errorf("idempotent ensure failed: %v", err)
 	}

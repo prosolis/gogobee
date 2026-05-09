@@ -110,7 +110,7 @@ func (p *AdventurePlugin) zoneCmdList(ctx MessageContext, c *DnDCharacter) error
 		b.WriteString(fmt.Sprintf("    %s\n", z.Atmosphere))
 	}
 	if active, _ := getActiveZoneRun(ctx.Sender); active != nil {
-		zone, _ := getZone(active.ZoneID)
+		zone := zoneOrFallback(active.ZoneID)
 		b.WriteString(fmt.Sprintf("\n_⚠ Active run: **%s**, room %d/%d. Use `!zone status` or `!zone abandon`._",
 			zone.Display, active.CurrentRoom+1, active.TotalRooms))
 	}
@@ -180,7 +180,7 @@ func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest
 		switch err {
 		case ErrRunAlreadyActive:
 			active, _ := getActiveZoneRun(ctx.Sender)
-			zone, _ := getZone(active.ZoneID)
+			zone := zoneOrFallback(active.ZoneID)
 			return p.SendDM(ctx.Sender, fmt.Sprintf(
 				"You're already in **%s** (room %d/%d). Finish it or `!zone abandon` first.",
 				zone.Display, active.CurrentRoom+1, active.TotalRooms))
@@ -193,7 +193,7 @@ func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest
 			return p.SendDM(ctx.Sender, "Couldn't start zone run: "+err.Error())
 		}
 	}
-	zone, _ := getZone(run.ZoneID)
+	zone := zoneOrFallback(run.ZoneID)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🗝 **Entering %s** _(T%d, %d rooms)_\n\n", zone.Display, int(zone.Tier), run.TotalRooms))
 	b.WriteString("_" + zone.Hook + "_\n\n")
@@ -221,7 +221,7 @@ func (p *AdventurePlugin) zoneCmdStatus(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone list` then `!zone enter <id>`.")
 	}
 	_ = applyMoodDecayIfStale(run)
-	zone, _ := getZone(run.ZoneID)
+	zone := zoneOrFallback(run.ZoneID)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("**%s** — room %d/%d (%s)\n",
 		zone.Display, run.CurrentRoom+1, run.TotalRooms, prettyRoomType(run.CurrentRoomType())))
@@ -279,7 +279,7 @@ func (p *AdventurePlugin) zoneCmdMap(ctx MessageContext) error {
 	if run == nil {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
-	zone, _ := getZone(run.ZoneID)
+	zone := zoneOrFallback(run.ZoneID)
 	cleared := map[int]bool{}
 	for _, r := range run.RoomsCleared {
 		cleared[r] = true
@@ -354,7 +354,7 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
 	_ = applyMoodDecayIfStale(run)
-	zone, _ := getZone(run.ZoneID)
+	zone := zoneOrFallback(run.ZoneID)
 	prev := run.CurrentRoomType()
 	prevIdx := run.CurrentRoom
 
@@ -479,7 +479,7 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	if err != nil {
 		return "", false, err
 	}
-	scanMoodEventsFromCombat(run.RunID, result)
+	nat20s, nat1s := scanMoodEventsFromCombat(run.RunID, result)
 
 	var b strings.Builder
 	if elite {
@@ -491,6 +491,20 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	if line := twinBeeLine(zone.ID, GMCombatStart, run.RunID, run.CurrentRoom); line != "" {
 		b.WriteString(line)
 		b.WriteString("\n")
+	}
+	// Surface the most-impactful crit/fumble as TwinBee narration. A run
+	// with both gets the nat-20 line — players already see the fumble in
+	// the combat log, but the gloat lands harder than the pity.
+	if nat20s > 0 {
+		if line := twinBeeLine(zone.ID, GMNat20, run.RunID, run.CurrentRoom); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	} else if nat1s > 0 {
+		if line := twinBeeLine(zone.ID, GMNat1, run.RunID, run.CurrentRoom); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
 	}
 	if elite {
 		b.WriteString(fmt.Sprintf("⚔️ **Elite encounter — %s** (HP %d, AC %d)\n", monster.Name, monster.HP, monster.AC))
@@ -513,6 +527,7 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	}
 	b.WriteString(fmt.Sprintf("✅ **%s** down (HP %d→%d).", monster.Name, result.PlayerStartHP, result.PlayerEndHP))
 	recordZoneKillForUser(userID, monster.ID)
+	applyRoomCombatThreatForUser(userID, elite)
 	if drop := p.dropZoneLoot(userID, zone.ID, monster, false); drop != "" {
 		b.WriteString("\n")
 		b.WriteString(drop)
@@ -531,10 +546,21 @@ func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zon
 	if err != nil {
 		return "", false, err
 	}
-	scanMoodEventsFromCombat(run.RunID, result)
+	nat20s, nat1s := scanMoodEventsFromCombat(run.RunID, result)
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("👑 **Boss — %s** (HP %d, AC %d)\n", monster.Name, monster.HP, monster.AC))
+	if nat20s > 0 {
+		if line := twinBeeLine(zone.ID, GMNat20, run.RunID, run.CurrentRoom); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	} else if nat1s > 0 {
+		if line := twinBeeLine(zone.ID, GMNat1, run.RunID, run.CurrentRoom); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
 	if phaseTwoCrossedInEvents(result.Events, result.EnemyStartHP, zone.Boss.PhaseTwoAt) {
 		if line := bossPhaseTwoLine(zone.ID, run.RunID, run.CurrentRoom); line != "" {
 			b.WriteString(line)
@@ -557,6 +583,11 @@ func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zon
 	}
 	b.WriteString(fmt.Sprintf("🏆 **%s** falls (HP %d→%d).", monster.Name, result.PlayerStartHP, result.PlayerEndHP))
 	recordZoneKillForUser(userID, monster.ID)
+	// §8.1: zone boss defeat drops expedition threat by 20. Silent
+	// no-op for standalone zone runs (no active expedition).
+	if exp, err := getActiveExpedition(userID); err == nil && exp != nil {
+		_ = applyBossDefeatThreat(exp.ID)
+	}
 	if drop := p.dropZoneLoot(userID, zone.ID, monster, true); drop != "" {
 		b.WriteString("\n")
 		b.WriteString(drop)
@@ -627,7 +658,7 @@ func (p *AdventurePlugin) zoneCmdLore(ctx MessageContext) error {
 	if run == nil {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
-	zone, _ := getZone(run.ZoneID)
+	zone := zoneOrFallback(run.ZoneID)
 	line := twinBeeLine(zone.ID, GMLore, run.RunID, run.CurrentRoom)
 	if line == "" {
 		return p.SendDM(ctx.Sender, "TwinBee has nothing to say about this place.")
@@ -648,7 +679,7 @@ func (p *AdventurePlugin) zoneCmdAbandon(ctx MessageContext) error {
 	if run == nil {
 		return p.SendDM(ctx.Sender, "Run abandoned.")
 	}
-	zone, _ := getZone(run.ZoneID)
+	zone := zoneOrFallback(run.ZoneID)
 	return p.SendDM(ctx.Sender, fmt.Sprintf(
 		"🚪 Abandoned **%s** at room %d/%d. No rewards.",
 		zone.Display, run.CurrentRoom+1, run.TotalRooms))

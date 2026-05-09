@@ -18,21 +18,26 @@ func (p *AdventurePlugin) morningTicker() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now().UTC()
-		if now.Hour() != p.morningHour || now.Minute() != 0 {
-			continue
-		}
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
+			if now.Hour() != p.morningHour || now.Minute() != 0 {
+				continue
+			}
 
-		dateKey := now.Format("2006-01-02")
-		jobName := "adventure_morning"
-		if db.JobCompleted(jobName, dateKey) {
-			continue
-		}
+			dateKey := now.Format("2006-01-02")
+			jobName := "adventure_morning"
+			if db.JobCompleted(jobName, dateKey) {
+				continue
+			}
 
-		slog.Info("adventure: sending morning DMs")
-		p.sendMorningDMs()
-		db.MarkJobCompleted(jobName, dateKey)
+			slog.Info("adventure: sending morning DMs")
+			p.sendMorningDMs()
+			db.MarkJobCompleted(jobName, dateKey)
+		}
 	}
 }
 
@@ -154,21 +159,26 @@ func (p *AdventurePlugin) summaryTicker() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now().UTC()
-		if now.Hour() != p.summaryHour || now.Minute() != 0 {
-			continue
-		}
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
+			if now.Hour() != p.summaryHour || now.Minute() != 0 {
+				continue
+			}
 
-		dateKey := now.Format("2006-01-02")
-		jobName := "adventure_summary"
-		if db.JobCompleted(jobName, dateKey) {
-			continue
-		}
+			dateKey := now.Format("2006-01-02")
+			jobName := "adventure_summary"
+			if db.JobCompleted(jobName, dateKey) {
+				continue
+			}
 
-		slog.Info("adventure: posting daily summary")
-		p.postDailySummary()
-		db.MarkJobCompleted(jobName, dateKey)
+			slog.Info("adventure: posting daily summary")
+			p.postDailySummary()
+			db.MarkJobCompleted(jobName, dateKey)
+		}
 	}
 }
 
@@ -303,26 +313,31 @@ func (p *AdventurePlugin) midnightTicker() {
 
 	lastRanDate := ""
 
-	for range ticker.C {
-		dateKey := time.Now().UTC().Format("2006-01-02")
-		if dateKey == lastRanDate {
-			continue
-		}
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			dateKey := time.Now().UTC().Format("2006-01-02")
+			if dateKey == lastRanDate {
+				continue
+			}
 
-		// New UTC day — check DB in case we already ran (e.g. bot restart).
-		jobName := "adventure_midnight"
-		if db.JobCompleted(jobName, dateKey) {
+			// New UTC day — check DB in case we already ran (e.g. bot restart).
+			jobName := "adventure_midnight"
+			if db.JobCompleted(jobName, dateKey) {
+				lastRanDate = dateKey
+				continue
+			}
+
+			slog.Info("adventure: midnight reset")
+			if err := p.midnightReset(); err != nil {
+				slog.Error("adventure: midnight reset failed, will retry next tick", "err", err)
+				continue
+			}
+			db.MarkJobCompleted(jobName, dateKey)
 			lastRanDate = dateKey
-			continue
 		}
-
-		slog.Info("adventure: midnight reset")
-		if err := p.midnightReset(); err != nil {
-			slog.Error("adventure: midnight reset failed, will retry next tick", "err", err)
-			continue
-		}
-		db.MarkJobCompleted(jobName, dateKey)
-		lastRanDate = dateKey
 	}
 }
 

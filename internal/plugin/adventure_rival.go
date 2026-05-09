@@ -778,40 +778,45 @@ func (p *AdventurePlugin) rivalChallengeTicker() {
 	// Roll the next challenge interval once. Re-roll after each issued challenge.
 	nextIntervalHours := rivalMinIntervalHours + rand.IntN(rivalMaxIntervalHours-rivalMinIntervalHours+1)
 
-	for range ticker.C {
-		now := time.Now().UTC()
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			now := time.Now().UTC()
 
-		// Only fire on the hour.
-		if now.Minute() != 0 {
-			continue
-		}
+			// Only fire on the hour.
+			if now.Minute() != 0 {
+				continue
+			}
 
-		// Only issue challenges between 08:00 and 22:00 UTC.
-		if now.Hour() < 8 || now.Hour() >= 22 {
-			// Still check for expiry outside challenge hours.
+			// Only issue challenges between 08:00 and 22:00 UTC.
+			if now.Hour() < 8 || now.Hour() >= 22 {
+				// Still check for expiry outside challenge hours.
+				p.expireRivalChallenges()
+				continue
+			}
+
+			// Expire old challenges first.
 			p.expireRivalChallenges()
-			continue
+
+			// Check if enough time has passed since last challenge.
+			last := lastRivalChallengeTime()
+			if !last.IsZero() && now.Sub(last) < time.Duration(nextIntervalHours)*time.Hour {
+				continue
+			}
+
+			// Try to issue a challenge.
+			challenger, challenged := p.selectRivalPair()
+			if challenger == nil || challenged == nil {
+				continue
+			}
+
+			p.issueRivalChallenge(challenger, challenged)
+
+			// Roll a fresh interval for the next challenge.
+			nextIntervalHours = rivalMinIntervalHours + rand.IntN(rivalMaxIntervalHours-rivalMinIntervalHours+1)
 		}
-
-		// Expire old challenges first.
-		p.expireRivalChallenges()
-
-		// Check if enough time has passed since last challenge.
-		last := lastRivalChallengeTime()
-		if !last.IsZero() && now.Sub(last) < time.Duration(nextIntervalHours)*time.Hour {
-			continue
-		}
-
-		// Try to issue a challenge.
-		challenger, challenged := p.selectRivalPair()
-		if challenger == nil || challenged == nil {
-			continue
-		}
-
-		p.issueRivalChallenge(challenger, challenged)
-
-		// Roll a fresh interval for the next challenge.
-		nextIntervalHours = rivalMinIntervalHours + rand.IntN(rivalMaxIntervalHours-rivalMinIntervalHours+1)
 	}
 }
 

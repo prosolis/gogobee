@@ -1,5 +1,7 @@
 package plugin
 
+import "math"
+
 // Phase 10 SUB2a — subclass combat hooks.
 //
 // applySubclassPassives layers subclass-driven flags onto CombatModifiers
@@ -427,6 +429,46 @@ func init() {
 				base = 5
 			}
 			mods.HealItem += base + abilityModifier(c.CHA)
+		},
+	}
+	// Three more maneuvers using existing CombatModifiers fields. The
+	// remaining four spec maneuvers (Pushing, Goading, Riposte, Commander's
+	// Strike) need ally-targeting / reaction mechanics that the one-shot
+	// engine doesn't model — they're omitted rather than approximated
+	// inaccurately.
+	dndActiveAbilities["disarming_attack"] = DnDAbility{
+		ID:          "disarming_attack",
+		Name:        "Disarming Attack",
+		Class:       ClassFighter,
+		Subclass:    SubclassBattleMaster,
+		Resource:    "superiority",
+		Description: "Knock the enemy's weapon aside: their damage is reduced for the rest of the fight (consumes 1 superiority die).",
+		Apply: func(c *DnDCharacter, mods *CombatModifiers) {
+			// 25% incoming-damage cut models a fighter who is now
+			// swinging an improvised weapon at -d4-ish.
+			mods.DamageReduct = math.Max(mods.DamageReduct, 0.25)
+		},
+	}
+	dndActiveAbilities["menacing_attack"] = DnDAbility{
+		ID:          "menacing_attack",
+		Name:        "Menacing Attack",
+		Class:       ClassFighter,
+		Subclass:    SubclassBattleMaster,
+		Resource:    "superiority",
+		Description: "Snarl as you swing — the enemy hesitates and skips its first attack (consumes 1 superiority die).",
+		Apply: func(c *DnDCharacter, mods *CombatModifiers) {
+			mods.SpellEnemySkipFirst = true
+		},
+	}
+	dndActiveAbilities["parry"] = DnDAbility{
+		ID:          "parry",
+		Name:        "Parry",
+		Class:       ClassFighter,
+		Subclass:    SubclassBattleMaster,
+		Resource:    "superiority",
+		Description: "Set yourself for incoming blows — physical damage taken is sharply reduced (consumes 1 superiority die).",
+		Apply: func(c *DnDCharacter, mods *CombatModifiers) {
+			mods.DamageReduct = math.Max(mods.DamageReduct, 0.40)
 		},
 	}
 

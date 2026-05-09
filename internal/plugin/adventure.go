@@ -39,6 +39,29 @@ type AdventurePlugin struct {
 	treasureUndo   sync.Map // userID string -> *advTreasureUndoToken (10-min auto-swap reversal)
 	morningHour int
 	summaryHour int
+
+	// stopCh is closed by Stop() to signal all background tickers
+	// (morning/summary/midnight/event/rival/robbie/hospital/mortgage/
+	// coop/expedition briefing+recap) to exit. Each ticker selects
+	// on its time.Ticker channel and stopCh; the second branch returns.
+	stopCh chan struct{}
+}
+
+// Stop signals all background tickers to exit and waits for them via
+// the closed channel. Idempotent — closing a closed channel would
+// panic, so we guard with a sync.Once-style nil check.
+func (p *AdventurePlugin) Stop() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.stopCh == nil {
+		return
+	}
+	select {
+	case <-p.stopCh:
+		// already closed
+	default:
+		close(p.stopCh)
+	}
 }
 
 // advUserLock returns a per-user mutex to prevent concurrent action resolution.
@@ -180,7 +203,10 @@ func (p *AdventurePlugin) Init() error {
 	// Revive any characters whose DeadUntil has expired
 	p.catchUpRespawns(chars)
 
-	// Start schedulers
+	// Start schedulers — single shared stopCh allows graceful shutdown.
+	if p.stopCh == nil {
+		p.stopCh = make(chan struct{})
+	}
 	go p.morningTicker()
 	go p.summaryTicker()
 	go p.midnightTicker()
@@ -1092,13 +1118,11 @@ func (p *AdventurePlugin) checkTreasureDrop(userID id.UserID, char *AdventureCha
 	announceDef := *drop.Def
 	announceLoc := *loc
 	announceTimer := time.AfterFunc(advTreasureUndoWindow, func() {
-		// Token is deleted on undo, so only fire when it's still present.
-		// The map entry also gets cleared lazily below by future undo
-		// attempts; firing once based on Timer presence is enough.
-		if _, ok := p.treasureUndo.Load(string(userID)); !ok {
+		// Atomically claim the token so a concurrent `undo` reply
+		// can't also fire the announcement (or vice-versa).
+		if _, ok := p.treasureUndo.LoadAndDelete(string(userID)); !ok {
 			return
 		}
-		p.treasureUndo.Delete(string(userID))
 		p.announceTreasureToRoom(&announceChar, &announceDef, &announceLoc)
 	})
 
@@ -1120,12 +1144,13 @@ func (p *AdventurePlugin) checkTreasureDrop(userID id.UserID, char *AdventureCha
 // was applied. Stale or missing tokens return false so the caller falls
 // through to the regular DM dispatch.
 func (p *AdventurePlugin) tryTreasureUndo(userID id.UserID) bool {
-	val, ok := p.treasureUndo.Load(string(userID))
+	// LoadAndDelete races against the announce timer's claim — only
+	// one side wins, the other no-ops.
+	val, ok := p.treasureUndo.LoadAndDelete(string(userID))
 	if !ok {
 		return false
 	}
 	tok := val.(*advTreasureUndoToken)
-	p.treasureUndo.Delete(string(userID))
 	// Cancel the deferred room announcement — a reversed swap shouldn't
 	// produce a public "X recovered Y" line.
 	if tok.AnnounceTimer != nil {

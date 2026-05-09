@@ -3,6 +3,7 @@ package plugin
 import (
 	"fmt"
 	"hash/fnv"
+	"math"
 	"time"
 
 	"gogobee/internal/db"
@@ -465,12 +466,18 @@ func applyMoodEvent(runID string, ev GMMoodEvent) (int, error) {
 // Design doc §3.2: "Mood decays toward 50 at a rate of ±2 per hour
 // (passive rebalancing)." Long-idle runs reset toward neutral.
 func passiveDecayMood(score int, lastTouched, now time.Time) int {
-	hours := int(now.Sub(lastTouched).Hours())
-	if hours <= 0 {
+	elapsedHours := now.Sub(lastTouched).Hours()
+	if elapsedHours <= 0 {
 		return clampMood(score)
 	}
-	const ratePerHour = 2
-	drift := hours * ratePerHour
+	const ratePerHour = 2.0
+	// Round to nearest unit so a 30-minute gap decays 1, a 12-minute
+	// gap decays 0. Avoids the truncation bug where any sub-hour gap
+	// produced no decay.
+	drift := int(math.Round(elapsedHours * ratePerHour))
+	if drift <= 0 {
+		return clampMood(score)
+	}
 	switch {
 	case score > 50:
 		score -= drift
