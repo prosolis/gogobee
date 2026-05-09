@@ -141,7 +141,7 @@ func TestIndexDDL_ContainsNewIndexes(t *testing.T) {
 		Earnings:     500,
 		TierEarnings: 100,
 	}
-	status := renderArenaStatus(run, &AdventureCharacter{})
+	status := renderArenaStatus(run)
 	if !strings.Contains(status, "Tier: 2") {
 		t.Error("renderArenaStatus should show tier")
 	}
@@ -151,7 +151,7 @@ func TestIndexDDL_ContainsNewIndexes(t *testing.T) {
 
 	// Awaiting state
 	run.Status = "awaiting"
-	status = renderArenaStatus(run, &AdventureCharacter{})
+	status = renderArenaStatus(run)
 	if !strings.Contains(status, "bail") {
 		t.Error("renderArenaStatus should show bail command for awaiting runs")
 	}
@@ -225,7 +225,7 @@ func TestRenderArenaStatus_NoInternalLeak(t *testing.T) {
 		Earnings:     0,
 		TierEarnings: 50,
 	}
-	msg := renderArenaStatus(run, &AdventureCharacter{})
+	msg := renderArenaStatus(run)
 
 	for _, bad := range []string{"panic", "goroutine", "runtime.", "err="} {
 		if strings.Contains(msg, bad) {

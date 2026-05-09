@@ -8,18 +8,18 @@ import (
 
 // ── Arena Tier Menu ─────────────────────────────────────────────────────────
 
-func renderArenaStreakEntry(char *AdventureCharacter, stats *ArenaPersonalStats, tier *ArenaTier, firstMonster *ArenaMonster) string {
+func renderArenaStreakEntry(c *DnDCharacter, stats *ArenaPersonalStats, tier *ArenaTier, firstMonster *ArenaMonster) string {
 	var b strings.Builder
 	b.WriteString("⚔️ **THE ARENA**\n\n")
 	b.WriteString("The Arena is a streak. You start at Tier 1 and fight your way down.\n")
 	b.WriteString("After each tier, you have 30 seconds to bail or you auto-advance.\n")
 	b.WriteString("Death forfeits all accumulated rewards.\n\n")
 
-	b.WriteString(fmt.Sprintf("Combat Level: %d\n\n", char.CombatLevel))
+	b.WriteString(fmt.Sprintf("Level: %d\n\n", c.Level))
 
 	for i := range arenaTiers {
 		t := &arenaTiers[i]
-		eligible := char.CombatLevel >= t.MinLevel
+		eligible := c.Level >= t.MinLevel
 		icon := "🔒"
 		if eligible {
 			icon = "⬚"
@@ -91,7 +91,7 @@ func renderArenaDeath(tier *ArenaTier, round int, monster *ArenaMonster, lostEar
 
 // ── Status ──────────────────────────────────────────────────────────────────
 
-func renderArenaStatus(run *ArenaRun, char *AdventureCharacter) string {
+func renderArenaStatus(run *ArenaRun) string {
 	tier := arenaGetTier(run.Tier)
 	if tier == nil {
 		return "No active arena run."

@@ -274,7 +274,7 @@ func TestArenaDeathChance_Components(t *testing.T) {
 // ── Render Tests ────────────────────────────────────────────────────────────
 
 func TestRenderArenaStreakEntry(t *testing.T) {
-	char := &AdventureCharacter{CombatLevel: 30}
+	char := &DnDCharacter{Level: 30}
 	tier := arenaGetTier(1)
 	monster := arenaGetMonster(1, 1)
 
@@ -576,7 +576,7 @@ func TestArenaGearDropRates_Decreasing(t *testing.T) {
 // ── Render Tests (New/Updated) ─────────────────────────────────────────────
 
 func TestRenderArenaStreakEntry_ShowsMultipliers(t *testing.T) {
-	char := &AdventureCharacter{CombatLevel: 50}
+	char := &DnDCharacter{Level: 50}
 	tier := arenaGetTier(1)
 	monster := arenaGetMonster(1, 1)
 
@@ -604,7 +604,7 @@ func TestRenderArenaStreakEntry_ShowsMultipliers(t *testing.T) {
 
 func TestRenderArenaStreakEntry_HighLevel_AllEligible(t *testing.T) {
 	// T5 requires level 70, so use level 70+ to unlock everything
-	char := &AdventureCharacter{CombatLevel: 70}
+	char := &DnDCharacter{Level: 70}
 	tier := arenaGetTier(1)
 	monster := arenaGetMonster(1, 1)
 
@@ -641,9 +641,8 @@ func TestRenderArenaRoundStart_ZeroEarnings(t *testing.T) {
 
 func TestRenderArenaStatus_Active(t *testing.T) {
 	run := &ArenaRun{Tier: 2, Round: 3, Status: "active", Earnings: 8000, TierEarnings: 1500, RoundsSurvived: 6}
-	char := &AdventureCharacter{CombatLevel: 20}
 
-	text := renderArenaStatus(run, char)
+	text := renderArenaStatus(run)
 	if !strings.Contains(text, "Streak") {
 		t.Error("status should say Arena Streak")
 	}
@@ -660,9 +659,8 @@ func TestRenderArenaStatus_Active(t *testing.T) {
 
 func TestRenderArenaStatus_Awaiting(t *testing.T) {
 	run := &ArenaRun{Tier: 3, Status: "awaiting", Earnings: 20000, TierEarnings: 0, RoundsSurvived: 12}
-	char := &AdventureCharacter{CombatLevel: 30}
 
-	text := renderArenaStatus(run, char)
+	text := renderArenaStatus(run)
 	if !strings.Contains(text, "advancing shortly") {
 		t.Error("awaiting status should mention advancing")
 	}
@@ -793,9 +791,8 @@ func TestRenderArenaLevelGate(t *testing.T) {
 
 func TestRenderArenaStatus(t *testing.T) {
 	run := &ArenaRun{Tier: 3, Round: 2, Status: "active", Earnings: 5000, RoundsSurvived: 5}
-	char := &AdventureCharacter{CombatLevel: 30}
 
-	text := renderArenaStatus(run, char)
+	text := renderArenaStatus(run)
 	if !strings.Contains(text, "Tier: 3") {
 		t.Error("status should show tier")
 	}
@@ -1054,7 +1051,7 @@ func TestArenaStreakEuroMultiplier_Exact(t *testing.T) {
 // ── Streak Entry Shows Brim & Battle Sponsorship ──────────────────────────
 
 func TestArenaStreakEntry_Sponsorship(t *testing.T) {
-	char := &AdventureCharacter{CombatLevel: 1}
+	char := &DnDCharacter{Level: 1}
 	tier := arenaGetTier(1)
 	monster := arenaGetMonster(1, 1)
 

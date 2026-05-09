@@ -101,7 +101,11 @@ func (p *AdventurePlugin) handleArenaMenu(ctx MessageContext) error {
 
 	stats := loadArenaPersonalStats(ctx.Sender)
 	monster := arenaGetMonster(1, 1)
-	text := renderArenaStreakEntry(char, stats, tier, monster)
+	dndChar, err := p.ensureCharForDnDCmd(ctx.Sender, char)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Failed to load character sheet.")
+	}
+	text := renderArenaStreakEntry(dndChar, stats, tier, monster)
 	return p.SendDM(ctx.Sender, text)
 }
 
@@ -297,8 +301,7 @@ func (p *AdventurePlugin) handleArenaBail(ctx MessageContext) error {
 }
 
 func (p *AdventurePlugin) handleArenaStatus(ctx MessageContext) error {
-	char, err := loadAdvCharacter(ctx.Sender)
-	if err != nil {
+	if _, err := loadAdvCharacter(ctx.Sender); err != nil {
 		return p.SendDM(ctx.Sender, "No adventurer found.")
 	}
 
@@ -307,7 +310,7 @@ func (p *AdventurePlugin) handleArenaStatus(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "No active arena run. Start one with `!arena`.")
 	}
 
-	return p.SendDM(ctx.Sender, renderArenaStatus(run, char))
+	return p.SendDM(ctx.Sender, renderArenaStatus(run))
 }
 
 func (p *AdventurePlugin) handleArenaStats(ctx MessageContext) error {
