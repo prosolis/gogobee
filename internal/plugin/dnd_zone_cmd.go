@@ -46,8 +46,13 @@ func (p *AdventurePlugin) handleDnDZoneCmd(ctx MessageContext, args string) erro
 	switch strings.ToLower(sub) {
 	case "", "list", "ls":
 		return p.zoneCmdList(ctx, c)
-	case "enter", "go", "start":
+	case "enter", "start":
 		return p.zoneCmdEnter(ctx, c, rest)
+	case "go", "choose":
+		// Graph-mode fork commit. Outside the POC gate (or with no
+		// fork pending) the handler short-circuits with a friendly
+		// message — see zoneCmdGo for the full surface.
+		return p.zoneCmdGo(ctx, rest)
 	case "status", "info":
 		return p.zoneCmdStatus(ctx)
 	case "map", "m":
@@ -75,6 +80,7 @@ func zoneHelpText() string {
 	b.WriteString("`!zone status` — show your current run\n")
 	b.WriteString("`!zone map` — show the room layout\n")
 	b.WriteString("`!zone advance` — resolve the current room and move on\n")
+	b.WriteString("`!zone go <n>` — at a fork, take path #n\n")
 	b.WriteString("`!zone abandon` — end the active run (no rewards)\n")
 	b.WriteString("`!zone taunt` — poke TwinBee (mood −10)\n")
 	b.WriteString("`!zone compliment` — flatter TwinBee (mood +5)\n")
@@ -401,6 +407,55 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 		return p.streamOrSend(ctx.Sender, preStream, intro, phases, outcome)
 	}
 
+	// Graph-mode (POC gate): clear the current room, then either auto-advance
+	// down a single edge, surface a fork prompt for 2+ edges, or complete the
+	// run when there are 0 outgoing edges. Legacy linear path stays on
+	// markRoomCleared so non-gated deployments are bit-identical to G4.
+	if branchingZonesEnabled() {
+		c, cerr := LoadDnDCharacter(ctx.Sender)
+		if cerr != nil {
+			return p.SendDM(ctx.Sender, "Couldn't load character: "+cerr.Error())
+		}
+		next, forkMsg, complete, gerr := p.advanceTransitionGraph(run, zone, c)
+		if gerr != nil {
+			return p.SendDM(ctx.Sender, "Couldn't advance: "+gerr.Error())
+		}
+		if complete {
+			_, _ = applyMoodEvent(run.RunID, MoodEventZoneComplete)
+			var b strings.Builder
+			if outcome != "" {
+				b.WriteString(outcome)
+				b.WriteString("\n\n")
+			}
+			b.WriteString(fmt.Sprintf("🏆 **Cleared %s.** Run complete.\n\n", zone.Display))
+			if line := twinBeeLine(zone.ID, DMZoneComplete, run.RunID, prevIdx); line != "" {
+				b.WriteString(line)
+				b.WriteString("\n\n")
+			}
+			if granted := p.rollZoneLoot(ctx.Sender, run, zone); len(granted) > 0 {
+				b.WriteString("**Loot:**\n")
+				for _, id := range granted {
+					b.WriteString("• " + id + "\n")
+				}
+			}
+			return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
+		}
+		if forkMsg != "" {
+			var b strings.Builder
+			if outcome != "" {
+				b.WriteString(outcome)
+				b.WriteString("\n\n")
+			}
+			b.WriteString(fmt.Sprintf("✓ Cleared room %d (%s).\n\n", prevIdx+1, prettyRoomType(prev)))
+			b.WriteString(forkMsg)
+			return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
+		}
+		// Single-edge auto-advance — fall through to the shared next-room
+		// teaser using the resolved next room type.
+		return p.streamOrSend(ctx.Sender, preStream, intro, phases,
+			p.formatNextRoomMessage(run, zone, prev, prevIdx, outcome, next))
+	}
+
 	next, err := markRoomCleared(run.RunID)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't advance: "+err.Error())
@@ -426,7 +481,17 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 		return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
 	}
 
-	nextIdx := run.CurrentRoom + 1
+	return p.streamOrSend(ctx.Sender, preStream, intro, phases,
+		p.formatNextRoomMessage(run, zone, prev, prevIdx, outcome, next))
+}
+
+// formatNextRoomMessage builds the "✓ Cleared room X. ... Room Y/N —
+// TYPE." block used by both the legacy linear advance and graph-mode
+// single-edge auto-advance. nextIdx is derived from the live run row
+// — markRoomCleared / advanceZoneRunNode have already bumped it by the
+// time this is called.
+func (p *AdventurePlugin) formatNextRoomMessage(run *DungeonRun, zone ZoneDefinition, prev RoomType, prevIdx int, outcome string, next RoomType) string {
+	nextIdx := prevIdx + 1
 	var b strings.Builder
 	if outcome != "" {
 		b.WriteString(outcome)
@@ -456,7 +521,7 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	}
 	b.WriteString(fmt.Sprintf("**Room %d/%d — %s.** ", nextIdx+1, run.TotalRooms, prettyRoomType(next)))
 	b.WriteString("`!zone advance` to continue.")
-	return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
+	return b.String()
 }
 
 // streamOrSend dispatches a staged room resolution. When the room produced
