@@ -199,6 +199,10 @@ func runMigrations(d *sql.DB) error {
 		// columns keep dual-writing during soak (gogobee_legacy_migration.md §6.2).
 		`ALTER TABLE player_meta ADD COLUMN rival_pool INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN rival_unlocked_notified INTEGER NOT NULL DEFAULT 0`,
+		// Adv 2.0 Phase L4c — Masterwork migration off AdvCharacter.
+		// MasterworkDropsReceived moves to player_meta; AdvCharacter column
+		// keeps dual-writing during soak (gogobee_legacy_migration.md §6.3).
+		`ALTER TABLE player_meta ADD COLUMN masterwork_drops_received INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

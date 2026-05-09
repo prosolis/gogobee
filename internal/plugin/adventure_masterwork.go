@@ -158,7 +158,7 @@ func masterworkDropFlavorText(activity AdvActivityType, tier int) string {
 
 // ── Drop Logic ─────────────────────────────────────────────────────────────
 
-func (p *AdventurePlugin) checkMasterworkDrop(userID id.UserID, char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, loc *AdvLocation, outcome AdvOutcomeType) {
+func (p *AdventurePlugin) checkMasterworkDrop(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment, loc *AdvLocation, outcome AdvOutcomeType) {
 	// Only full-success outcomes drop masterwork (success or exceptional)
 	if outcome != AdvOutcomeSuccess && outcome != AdvOutcomeExceptional {
 		return
@@ -193,11 +193,25 @@ func (p *AdventurePlugin) checkMasterworkDrop(userID id.UserID, char *AdventureC
 		autoEquip = true // genuinely better than what they have
 	}
 
-	// First-drop detection
-	isFirstDrop := char.MasterworkDropsReceived == 0
-	char.MasterworkDropsReceived++
-	if err := saveAdvCharacter(char); err != nil {
-		slog.Error("adventure: failed to save masterwork counter", "user", userID, "err", err)
+	// First-drop detection. Read via player_meta (L4c migration); during
+	// soak it falls back to AdvCharacter for users whose row hasn't been
+	// dual-written yet.
+	priorDrops, err := loadMasterworkDrops(userID)
+	if err != nil {
+		slog.Error("adventure: failed to load masterwork counter", "user", userID, "err", err)
+	}
+	isFirstDrop := priorDrops == 0
+	newDrops := priorDrops + 1
+	if err := upsertPlayerMetaMasterworkDrops(userID, newDrops); err != nil {
+		slog.Error("adventure: failed to save masterwork counter (player_meta)", "user", userID, "err", err)
+	}
+	// Dual-write to AdvCharacter during soak. Best-effort: if the row is
+	// missing the player_meta write above is canonical.
+	if char, lerr := loadAdvCharacter(userID); lerr == nil {
+		char.MasterworkDropsReceived = newDrops
+		if err := saveAdvCharacter(char); err != nil {
+			slog.Error("adventure: failed to save masterwork counter (legacy)", "user", userID, "err", err)
+		}
 	}
 
 	if autoEquip {

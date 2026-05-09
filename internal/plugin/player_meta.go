@@ -17,12 +17,13 @@ import (
 // fields a phase has migrated are meaningful; unmigrated fields stay
 // zero-valued and are sourced from AdvCharacter.
 type PlayerMeta struct {
-	UserID         id.UserID
-	ArenaWins      int
-	ArenaLosses    int
-	InvasionScore  int
-	DisplayName    string
-	HospitalVisits int
+	UserID                  id.UserID
+	ArenaWins               int
+	ArenaLosses             int
+	InvasionScore           int
+	DisplayName             string
+	HospitalVisits          int
+	MasterworkDropsReceived int
 }
 
 // loadPlayerMeta reads the player_meta row for a user. Returns a
@@ -32,9 +33,9 @@ type PlayerMeta struct {
 func loadPlayerMeta(userID id.UserID) (*PlayerMeta, error) {
 	m := &PlayerMeta{UserID: userID}
 	err := db.Get().QueryRow(
-		`SELECT arena_wins, arena_losses, invasion_score, display_name, hospital_visits FROM player_meta WHERE user_id = ?`,
+		`SELECT arena_wins, arena_losses, invasion_score, display_name, hospital_visits, masterwork_drops_received FROM player_meta WHERE user_id = ?`,
 		string(userID),
-	).Scan(&m.ArenaWins, &m.ArenaLosses, &m.InvasionScore, &m.DisplayName, &m.HospitalVisits)
+	).Scan(&m.ArenaWins, &m.ArenaLosses, &m.InvasionScore, &m.DisplayName, &m.HospitalVisits, &m.MasterworkDropsReceived)
 	if err == sql.ErrNoRows {
 		return m, nil
 	}
@@ -299,6 +300,86 @@ func backfillPlayerMetaRivalState() error {
 	}
 	n, _ := res.RowsAffected()
 	slog.Info("player_meta: rival state backfilled", "rows", n)
+	return nil
+}
+
+// upsertPlayerMetaMasterworkDrops writes masterwork_drops_received for a user,
+// leaving other columns untouched. Used by the dual-write path during the
+// L4c Masterwork migration: every increment on AdvCharacter.MasterworkDropsReceived
+// also calls this so player_meta stays in sync until soak completes
+// (gogobee_legacy_migration.md §6.3, §11).
+func upsertPlayerMetaMasterworkDrops(userID id.UserID, drops int) error {
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (user_id, masterwork_drops_received) VALUES (?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET masterwork_drops_received = excluded.masterwork_drops_received`,
+		string(userID), drops,
+	)
+	return err
+}
+
+// loadMasterworkDrops returns the player's masterwork drop count from
+// player_meta when populated, falling back to adventure_characters during
+// the L4c soak window. Zero if the user has no row in either table. Mirrors
+// loadHospitalVisits: the legacy column only ever moves up, so taking the
+// higher of the two values is safe across the dual-write window.
+func loadMasterworkDrops(userID id.UserID) (int, error) {
+	var drops int
+	err := db.Get().QueryRow(
+		`SELECT masterwork_drops_received FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&drops)
+	if err == nil && drops > 0 {
+		return drops, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return 0, err
+	}
+	var legacy int
+	err = db.Get().QueryRow(
+		`SELECT masterwork_drops_received FROM adventure_characters WHERE user_id = ?`,
+		string(userID),
+	).Scan(&legacy)
+	if err == sql.ErrNoRows {
+		return drops, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if legacy > drops {
+		return legacy, nil
+	}
+	return drops, nil
+}
+
+// backfillPlayerMetaMasterworkDrops copies adventure_characters.masterwork_drops_received
+// into player_meta.masterwork_drops_received for any row whose value is still
+// the default zero. Idempotent: only updates rows that haven't been populated
+// yet (via backfill or dual-write).
+func backfillPlayerMetaMasterworkDrops() error {
+	if _, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO player_meta (user_id)
+		SELECT user_id FROM adventure_characters
+	`); err != nil {
+		return err
+	}
+	res, err := db.Get().Exec(`
+		UPDATE player_meta
+		SET masterwork_drops_received = (
+			SELECT masterwork_drops_received FROM adventure_characters
+			WHERE adventure_characters.user_id = player_meta.user_id
+		)
+		WHERE masterwork_drops_received = 0
+		  AND EXISTS (
+			SELECT 1 FROM adventure_characters
+			WHERE adventure_characters.user_id = player_meta.user_id
+			  AND adventure_characters.masterwork_drops_received > 0
+		  )
+	`)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	slog.Info("player_meta: masterwork_drops_received backfilled", "rows", n)
 	return nil
 }
 

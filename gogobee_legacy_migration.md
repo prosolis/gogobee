@@ -298,7 +298,17 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 - `go vet ./...` + `go test ./...` clean.
 
 ### 6.3 L4c — Masterwork
-- `adventure_masterwork.go`: no AdvCharacter mutations today; only equipment reads. Port `advMasterworkSkillBonus` to take `*DnDCharacter` (skill fields added in §2.2). MasterworkDropsReceived → `player_meta`.
+- `adventure_masterwork.go`: no AdvCharacter mutations today; only equipment reads. ~~Port `advMasterworkSkillBonus` to take `*DnDCharacter` (skill fields added in §2.2).~~ **Correction (2026-05-09):** `advMasterworkSkillBonus` already takes `(equip, activity)` — no char param to port. MasterworkDropsReceived → `player_meta`.
+
+**Status (2026-05-09):** SHIPPED on `adv-2.0`.
+- `player_meta.masterwork_drops_received` column added via columnMigration in `internal/db/db.go`.
+- `checkMasterworkDrop` signature dropped its `char *AdventureCharacter` param. First-drop detection now reads via `loadMasterworkDrops(userID)`; counter writes go through `upsertPlayerMetaMasterworkDrops` and dual-write to `AdvCharacter.MasterworkDropsReceived` via `loadAdvCharacter` + `saveAdvCharacter` during soak.
+- `loadMasterworkDrops(userID)` reads `player_meta` → falls back to `adventure_characters.masterwork_drops_received` during soak (mirrors `loadHospitalVisits` shape).
+- `backfillPlayerMetaMasterworkDrops()` runs on every Init; idempotent (only fills rows whose `masterwork_drops_received` is still zero).
+- Note: `checkMasterworkDrop` itself is currently dead code (Phase R deprecated its only caller, the legacy daily-loop). The migration still ports the field so the column moves cleanly when future zone integration re-wires the drop hook.
+- Tests: `TestPlayerMetaMasterworkDropsBackfill_Idempotent`, `TestLoadMasterworkDrops_FallsBackToAdvCharacter`, `TestUpsertPlayerMetaMasterworkDrops_RoundTrip`.
+- `go vet ./...` + `go test ./...` clean.
+- Exit criterion: `grep 'AdventureCharacter\|CombatLevel' internal/plugin/adventure_masterwork.go` is empty.
 
 ### 6.4 L4d — Pets
 - `adventure_pets.go`: pet fields move from AdvCharacter to `player_meta` (see §2.1 `pet_*` columns). Pet combat hooks (PetMorningDefense, pet damage rolls) target DnDCharacter HP.

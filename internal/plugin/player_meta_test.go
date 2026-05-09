@@ -423,3 +423,113 @@ func TestCreateAdvCharacter_DualWritesDisplayName(t *testing.T) {
 		t.Errorf("create dual-write: got %q want %q", got, "FreshName")
 	}
 }
+
+// Phase L4c — Masterwork migration. Backfill is idempotent and only touches
+// zero-valued rows; the upsert helper round-trips; loadMasterworkDrops falls
+// back to AdvCharacter when player_meta hasn't been populated yet.
+
+func TestPlayerMetaMasterworkDropsBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-mw-bf:example")
+	if err := createAdvCharacter(uid, "Dropper"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters SET masterwork_drops_received = ? WHERE user_id = ?`,
+		3, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET masterwork_drops_received = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaMasterworkDrops(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	got, err := loadMasterworkDrops(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != 3 {
+		t.Errorf("after backfill: got %d want 3", got)
+	}
+
+	// Layer a dual-write increment. Backfill re-run must NOT clobber it
+	// back (only touches rows whose masterwork_drops_received is still zero).
+	if err := upsertPlayerMetaMasterworkDrops(uid, 4); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaMasterworkDrops(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	got2, _ := loadMasterworkDrops(uid)
+	if got2 != 4 {
+		t.Errorf("backfill clobbered dual-write: got %d want 4", got2)
+	}
+}
+
+func TestLoadMasterworkDrops_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-mw-fb:example")
+	if err := createAdvCharacter(uid, "MWFallback"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters SET masterwork_drops_received = ? WHERE user_id = ?`,
+		2, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET masterwork_drops_received = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	got, err := loadMasterworkDrops(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != 2 {
+		t.Errorf("fallback: got %d want 2", got)
+	}
+
+	// Unknown user → 0, no error.
+	got2, err := loadMasterworkDrops(id.UserID("@meta-mw-nobody:example"))
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if got2 != 0 {
+		t.Errorf("missing user: got %d want 0", got2)
+	}
+}
+
+func TestUpsertPlayerMetaMasterworkDrops_RoundTrip(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-mw-rt:example")
+	if err := upsertPlayerMetaMasterworkDrops(uid, 1); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	got, err := loadMasterworkDrops(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != 1 {
+		t.Errorf("round-trip: got %d want 1", got)
+	}
+	if err := upsertPlayerMetaMasterworkDrops(uid, 9); err != nil {
+		t.Fatalf("upsert update: %v", err)
+	}
+	got2, _ := loadMasterworkDrops(uid)
+	if got2 != 9 {
+		t.Errorf("update: got %d want 9", got2)
+	}
+}
