@@ -353,20 +353,6 @@ func renderRivalNudge(char *AdventureCharacter) string {
 		rivalName, c.Round, c.Stake, hours)
 }
 
-// writeAdvLocationLines renders the eligible-location bullets shown in the
-// morning DM. Each line surfaces both the downside (death %) and upside
-// (exceptional %) so the menu teaches risk/reward, not just risk.
-func writeAdvLocationLines(sb *strings.Builder, locs []AdvEligibleLocation) {
-	for _, el := range locs {
-		warn := ""
-		if el.InPenaltyZone {
-			warn = " ⚠️"
-		}
-		sb.WriteString(fmt.Sprintf("  • %s (Tier %d, ~%.0f%% death · ~%.0f%% exceptional%s)\n",
-			el.Location.Name, el.Location.Tier, el.DeathPct, el.ExceptionalPct, warn))
-	}
-}
-
 func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, balance float64, bonuses *AdvBonusSummary, holidayName string) string {
 	var sb strings.Builder
 
@@ -456,38 +442,26 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 		sb.WriteString("\n")
 	}
 
-	// Location choices
+	// Phase R1 — the daily activity loop (dungeon/mine/forage/fish) has been
+	// retired in favor of the expedition system. The menu now shows the new
+	// entry points for adventuring and keeps the still-active town services.
+	sb.WriteString("**🗺️ Adventure** — head into a zone:\n")
+	sb.WriteString("• `!expedition` — overview & open expeditions\n")
+	sb.WriteString("• `!expedition start <zone>` — begin a new run\n")
+	sb.WriteString("• `!forage` · `!mine` · `!scavenge` · `!fish` · `!essence` · `!commune` — harvest in cleared rooms\n")
 	if inCoop {
-		sb.WriteString("**1️⃣ Dungeon:** _(off in the Co-op, no solo combat — `!coop status` for run state)_\n")
-	} else if char.CanDoCombat(isHol) {
-		sb.WriteString("**1️⃣ Dungeon:**\n")
-		writeAdvLocationLines(&sb, advEligibleLocations(char, equip, AdvActivityDungeon, bonuses))
-	} else {
-		sb.WriteString("**1️⃣ Dungeon:** _(no combat actions remaining)_\n")
+		sb.WriteString(fmt.Sprintf("_(combat is locked while you're in Co-op #%d — `!coop status` for run state)_\n", coopRun.ID))
 	}
+	sb.WriteString("\n")
 
-	if char.CanDoHarvest(isHol) {
-		sb.WriteString("**2️⃣ Mine:**\n")
-		writeAdvLocationLines(&sb, advEligibleLocations(char, equip, AdvActivityMining, bonuses))
+	sb.WriteString("**🏘️ In town:**\n")
+	sb.WriteString("• `5` / `shop` — buy/sell gear and loot\n")
+	sb.WriteString("• `6` / `blacksmith` — repair damaged equipment\n")
+	sb.WriteString("• `7` / `rest` — skip today, bank your luck\n")
+	sb.WriteString("• `!thom` — visit Krooke Realty 🏠\n\n")
 
-		sb.WriteString("**3️⃣ Forage:**\n")
-		writeAdvLocationLines(&sb, advEligibleLocations(char, equip, AdvActivityForaging, bonuses))
-
-		sb.WriteString("**4️⃣ Fish:**\n")
-		writeAdvLocationLines(&sb, advEligibleLocations(char, equip, AdvActivityFishing, bonuses))
-	} else {
-		sb.WriteString("**2️⃣ Mine:** _(no harvest actions remaining)_\n")
-		sb.WriteString("**3️⃣ Forage:** _(no harvest actions remaining)_\n")
-		sb.WriteString("**4️⃣ Fish:** _(no harvest actions remaining)_\n")
-	}
-
-	sb.WriteString("**5️⃣ Shop** — buy/sell gear and loot\n")
-	sb.WriteString("**6️⃣ Blacksmith** — repair damaged equipment\n")
-	sb.WriteString("**7️⃣ Rest** — skip today, bank your luck\n")
-	sb.WriteString("**8️⃣ Thom** — `!thom` visit Krooke Realty 🏠\n\n")
-
-	sb.WriteString("Reply with the number and location, e.g: `1 Soggy Cellar`\n")
-	sb.WriteString("You have until midnight UTC to choose.")
+	sb.WriteString("Reply with a number for in-town services, or run an expedition command directly.\n")
+	sb.WriteString("You have until midnight UTC to rest.")
 
 	return sb.String()
 }

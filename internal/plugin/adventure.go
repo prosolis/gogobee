@@ -117,7 +117,7 @@ func (p *AdventurePlugin) SetAchievements(ach *AchievementsPlugin) {
 
 func (p *AdventurePlugin) Commands() []CommandDef {
 	return []CommandDef{
-		{Name: "adventure", Description: "Daily adventure game — dungeon, mine, forage, or rest", Usage: "!adventure", Category: "Games"},
+		{Name: "adventure", Description: "Town services menu (expeditions: see !expedition)", Usage: "!adventure", Category: "Games"},
 		{Name: "arena", Description: "Arena combat — fight through 5 tiers of increasingly deadly monsters", Usage: "!arena", Category: "Games"},
 		{Name: "thom", Description: "Visit Thom Krooke — housing and loans", Usage: "!thom", Category: "Games"},
 		{Name: "setup", Description: "Create or continue your Adv 2.0 character (race, class, stats)", Usage: "!setup", Category: "Games"},
@@ -168,6 +168,14 @@ func (p *AdventurePlugin) Init() error {
 	}
 	if err := lockCoopCombatActions(); err != nil {
 		slog.Error("adventure: startup coop combat lock failed", "err", err)
+	}
+	// Phase R1 — archive any active dnd_zone_run rows that aren't linked to
+	// an active expedition. Idempotent: re-running it does nothing once the
+	// orphan set is empty.
+	if n, err := archiveOrphanZoneRuns(); err != nil {
+		slog.Error("adventure: R1 orphan zone-run archive failed", "err", err)
+	} else if n > 0 {
+		slog.Info("adventure: R1 archived orphan zone runs", "count", n)
 	}
 	// Revive any characters whose DeadUntil has expired
 	p.catchUpRespawns(chars)
@@ -418,8 +426,9 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 
 const advHelpText = `**Adventure Commands**
 
-` + "`!adventure`" + ` — Show today's activity menu
+` + "`!adventure`" + ` — Show town services menu (expeditions are run via ` + "`!expedition`" + `)
 ` + "`!adventure status`" + ` — View your character sheet
+` + "`!expedition`" + ` — Adventure: pick a zone, advance through rooms, harvest as you go
 ` + "`!adventure shop`" + ` — Browse equipment categories
 ` + "`!adventure shop <category>`" + ` — View a category (weapon, armor, helmet, boots, tool)
 ` + "`!adventure buy <item>`" + ` — Buy equipment (e.g. ` + "`buy Enchanted Blade`" + ` or ` + "`buy 4 sword`" + `)
@@ -872,345 +881,55 @@ func (p *AdventurePlugin) parseAndResolveChoice(ctx MessageContext, body string)
 		return p.handleShopCmd(ctx, "")
 	}
 
-	// Parse activity + location
-	activity, loc := p.parseActivityLocation(lower, char)
-	if loc == nil {
-		return p.SendDM(ctx.Sender, "I didn't understand that. Reply with a number and location, e.g: `1 Soggy Cellar`, or just `1` for the first available.")
+	// Phase R1 — legacy activity loop (1/dungeon, 2/mine, 3/forage, 4/fish + tier-or-name) is
+	// deprecated. The new path is the expedition system. Anything that parses as a legacy
+	// activity is intercepted here and routed to a deprecation notice; non-matches still
+	// fall through to the unknown-command response so other plugins can pick it up.
+	if isLegacyActivityInput(lower, char) {
+		return p.SendDM(ctx.Sender, renderLegacyActivityDeprecation(char))
 	}
 
-	return p.resolveActivity(ctx, char, activity, loc)
+	return p.SendDM(ctx.Sender, "I didn't understand that. Type `!adventure help` for commands, or `!expedition` to head into a zone.")
 }
 
-func (p *AdventurePlugin) parseActivityLocation(input string, char *AdventureCharacter) (AdvActivityType, *AdvLocation) {
+// isLegacyActivityInput reports whether `input` looks like a legacy activity-loop
+// dispatch (1/dungeon, 2/mine, 3/forage, 4/fish, with or without tier/location).
+// Used by the Phase R1 deprecation gate to redirect the player to !expedition
+// without swallowing arbitrary unrelated DMs.
+func isLegacyActivityInput(input string, char *AdventureCharacter) bool {
+	if input == "" {
+		return false
+	}
 	parts := strings.SplitN(input, " ", 2)
-	if len(parts) == 0 {
-		return "", nil
-	}
-
 	first := parts[0]
-	rest := ""
-	if len(parts) > 1 {
-		rest = strings.TrimSpace(parts[1])
-	}
-
-	var activity AdvActivityType
-
-	// Parse activity from number or word
 	switch first {
-	case "1", "dungeon", "d":
-		activity = AdvActivityDungeon
-	case "2", "mine", "m":
-		activity = AdvActivityMining
-	case "3", "forage", "f", "forest":
-		activity = AdvActivityForaging
-	case "4", "fish", "fishing":
-		activity = AdvActivityFishing
-	default:
-		// Try matching location name directly
-		for _, act := range []AdvActivityType{AdvActivityDungeon, AdvActivityMining, AdvActivityForaging, AdvActivityFishing} {
-			if loc := findAdvLocation(act, input); loc != nil {
-				return act, loc
-			}
-		}
-		return "", nil
+	case "1", "2", "3", "4",
+		"d", "m", "f",
+		"dungeon", "mine", "forage", "forest", "fish", "fishing":
+		return true
 	}
-
-	// If no location specified, pick first eligible
-	if rest == "" {
-		equip, _ := loadAdvEquipment(char.UserID)
-		treasures, _ := loadAdvTreasureBonuses(char.UserID)
-		buffs, _ := loadAdvActiveBuffs(char.UserID)
-		bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, false)
-		eligible := advEligibleLocations(char, equip, activity, bonuses)
-		if len(eligible) == 0 {
-			return activity, nil
-		}
-		return activity, eligible[0].Location
-	}
-
-	// Try to parse tier number
-	if tier, err := strconv.Atoi(rest); err == nil {
-		loc := findAdvLocationByTier(activity, tier)
-		if loc != nil {
-			return activity, loc
+	for _, act := range []AdvActivityType{AdvActivityDungeon, AdvActivityMining, AdvActivityForaging, AdvActivityFishing} {
+		if findAdvLocation(act, input) != nil {
+			return true
 		}
 	}
-
-	// Fuzzy match location name
-	loc := findAdvLocation(activity, rest)
-	return activity, loc
+	return false
 }
 
-// ── Activity Resolution ──────────────────────────────────────────────────────
-
-func (p *AdventurePlugin) resolveActivity(ctx MessageContext, char *AdventureCharacter, activity AdvActivityType, loc *AdvLocation) error {
-	isHol, _ := isHolidayToday()
-	if isCombatActivity(activity) && !char.CanDoCombat(isHol) {
-		return p.SendDM(ctx.Sender, "You've used your combat action for the day. Try a harvest activity (mining, fishing, foraging) or rest.")
-	}
-	if isHarvestActivity(activity) && !char.CanDoHarvest(isHol) {
-		return p.SendDM(ctx.Sender, "You've used all your harvest actions for the day. Try combat (dungeon) or rest.")
-	}
-
-	equip, err := loadAdvEquipment(char.UserID)
-	if err != nil {
-		return p.SendDM(ctx.Sender, "Failed to load your equipment.")
-	}
-
-	treasures, _ := loadAdvTreasureBonuses(char.UserID)
-	buffs, _ := loadAdvActiveBuffs(char.UserID)
-
-	// Check grudge
-	hasGrudge := char.GrudgeLocation == loc.Name
-	bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, hasGrudge)
-
-	// Check eligibility
-	eligible, inPenaltyZone := advIsEligible(char, equip, loc, bonuses)
-	if !eligible {
-		return p.SendDM(ctx.Sender, fmt.Sprintf("You are not eligible for %s. Your level or equipment tier is too low.", loc.Name))
-	}
-
-	// Per-location cooldown: 3 hours after a successful run
-	if remaining := advLocationCooldown(char.UserID, loc.Name); remaining > 0 {
-		mins := int(remaining.Minutes())
-		if mins < 1 {
-			return p.SendDM(ctx.Sender, fmt.Sprintf("🕐 %s is still being cleared out. Try again in less than a minute, or pick a different location.", loc.Name))
-		}
-		h, m := mins/60, mins%60
-		if h > 0 {
-			return p.SendDM(ctx.Sender, fmt.Sprintf("🕐 %s is still being cleared out. Try again in %dh %dm, or pick a different location.", loc.Name, h, m))
-		}
-		return p.SendDM(ctx.Sender, fmt.Sprintf("🕐 %s is still being cleared out. Try again in %d minutes, or pick a different location.", loc.Name, m))
-	}
-
-	// Resolve the action — dungeon uses combat engine, others use probability bands
-	var result *AdvActionResult
-	if loc.Activity == AdvActivityDungeon {
-		result = p.resolveDungeonAction(char, equip, loc, bonuses, inPenaltyZone)
-	} else {
-		result = resolveAdvAction(char, equip, loc, bonuses, inPenaltyZone)
-	}
-
-	// Select flavor text
-	result.FlavorText, result.FlavorKey = p.selectFlavorText(char, result)
-
-	// Chat level XP bonus
-	if bonus := chatLevelXPBonus(p.chatLevel(char.UserID)); bonus > 0 {
-		result.XPGained = int(float64(result.XPGained) * (1.0 + bonus))
-	}
-
-	// Double XP/money boost
-	advApplyBoost(result)
-
-	// Apply XP
-	switch result.XPSkill {
-	case "combat":
-		char.CombatXP += result.XPGained
-	case "mining":
-		char.MiningXP += result.XPGained
-	case "foraging":
-		char.ForagingXP += result.XPGained
-	case "fishing":
-		char.FishingXP += result.XPGained
-	}
-
-	// Check level up
-	result.LeveledUp, result.NewLevel = checkAdvLevelUp(char, result.XPSkill)
-	if result.LeveledUp && result.XPSkill == "combat" {
-		p.checkRivalPoolUnlock(char)
-	}
-
-	engineDeathSaved := result.CombatLog != nil && checkDeathSaveEvent(result.CombatLog.Events)
-
-	// Handle death
-	deathReprieved := false
-	pardonFired := false
-	petRecovered := false
-	if result.Outcome == AdvOutcomeDeath {
-		dt := transitionDeath(DeathTransitionParams{
-			Char:           char,
-			Equip:          equip,
-			ChatLevel:      p.chatLevel(char.UserID),
-			Location:       loc.Name,
-			Source:         "adventure",
-			DeathLocation:  loc.Name,
-			AllowPardon:    true,
-			AllowSovereign: true,
-			EngineSaved:    engineDeathSaved,
-		})
-		pardonFired = dt.Pardoned
-		deathReprieved = dt.Pardoned || dt.Reprieved
-		petRecovered = dt.PetRecovered
-		if dt.Pardoned {
-			result.Outcome = AdvOutcomeEmpty
-		}
-		if dt.Reprieved {
-			nextWindow := time.Now().UTC().Add(168 * time.Hour)
-			gr := gamesRoom()
-			if gr != "" {
-				p.SendMessage(gr, renderArenaDeathReprieve(char.DisplayName, loc.Name, nextWindow))
-			}
-		}
-	} else if hasGrudge && (result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional) {
-		// Clear grudge on successful return
-		char.GrudgeLocation = ""
-	}
-
-	// Add loot to inventory
-	for _, item := range result.LootItems {
-		_ = addAdvInventoryItem(char.UserID, item)
-	}
-
-	// Roll for consumable drop on success/exceptional at T2+
-	if (result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional) && loc.Tier >= 2 {
-		if drop := RollConsumableDrop(loc.Activity, loc.Tier); drop != nil {
-			_ = addAdvInventoryItem(char.UserID, *drop)
-			result.LootItems = append(result.LootItems, *drop)
-		}
-	}
-
-	// Mark action consumed in the correct bucket
-	if isCombatActivity(activity) {
-		char.CombatActionsUsed++
-	} else if isHarvestActivity(activity) {
-		char.HarvestActionsUsed++
-	}
-	char.ActionTakenToday = true
-	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
-
-	// Update streak info
-	result.StreakBonus = char.CurrentStreak
-
-	// Save character
-	if err := saveAdvCharacter(char); err != nil {
-		slog.Error("adventure: failed to save character", "user", char.UserID, "err", err)
-		return p.SendDM(ctx.Sender, "Something went wrong saving your progress. Your action was not recorded. Try again.")
-	}
-
-	// Pet XP
-	if char.HasPet() && result.Outcome != AdvOutcomeDeath {
-		if petGrantXP(char) {
-			_ = saveAdvCharacter(char)
-			_ = p.SendDM(char.UserID, fmt.Sprintf("🐾 %s leveled up to **Level %d**!", char.PetName, char.PetLevel))
-		} else {
-			_ = saveAdvCharacter(char)
-		}
-	}
-
-	// Save equipment changes
-	for _, slot := range allSlots {
-		if eq, ok := equip[slot]; ok {
-			if err := saveAdvEquipment(char.UserID, eq); err != nil {
-				slog.Error("adventure: failed to save equipment", "user", char.UserID, "slot", slot, "err", err)
-			}
-		}
-	}
-
-	// Log activity BEFORE party bonus check so both visitors can see each other
-	logAdvActivity(char.UserID, string(activity), loc.Name, string(result.Outcome),
-		result.TotalLootValue, result.XPGained, result.FlavorKey)
-
-	// Party bonus: check if someone else visited the same location today
-	if result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional {
-		if advCheckPartyBonus(char.UserID, loc.Name) {
-			// Apply party bonus: +10% loot value
-			partyBonus := int64(float64(result.TotalLootValue) * 0.10)
-			if partyBonus > 0 {
-				result.TotalLootValue += partyBonus
-				net, _ := communityTax(char.UserID, float64(partyBonus), 0.05)
-				p.euro.Credit(char.UserID, net, "adventure_party_bonus")
-			}
-		}
-	}
-
-	// Send resolution DM with closing block
-	text := renderAdvResolutionDM(result, char)
-	if result.CombatLog != nil {
-		// Combat closing narrative — victory or death depending on outcome.
-		text += dndItalicize(dndCombatClosingLine(result.CombatLog.PlayerWon, false))
-		if rollLine := dndRollSummaryLine(*result.CombatLog); rollLine != "" {
-			text += "\n" + rollLine
-		}
-	}
-	if deathReprieved {
-		nextWindow := char.DeathReprieveLast.Add(168 * time.Hour)
-		text += fmt.Sprintf("\n\n⚔️ **Death's Reprieve activated.** Your Sovereign gear absorbed the killing blow. "+
-			"You survived — barely. All equipment took heavy damage.\n"+
-			"Next reprieve window: %s", nextWindow.Format("2006-01-02 15:04 UTC"))
-	}
-	closing := advClosingBlock(result.Outcome, char.UserID, loc.Name, p.morningHour, p.summaryHour)
-	if closing != "" {
-		text += "\n" + closing
-	}
-
-	// Dungeon combat: send phased combat messages with delays, then resolution DM
-	if result.CombatLog != nil {
-		phaseMessages := RenderCombatLog(*result.CombatLog, char.DisplayName, loc.Denizens)
-		phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
-		if open := dndCombatOpeningLine(); open != "" && len(phaseMessages) > 0 {
-			phaseMessages[0] = "_" + open + "_\n\n" + phaseMessages[0]
-		}
-		done := p.sendCombatMessages(ctx.Sender, phaseMessages, text)
-
-		go func() {
-			<-done
-			if pardonFired {
-				p.SendDM(ctx.Sender, "The crowd intervened. A healer pulled you back at the last second. Don't count on this again — 7-day cooldown.")
-			}
-			if petRecovered && char.PetName != "" {
-				p.SendDM(ctx.Sender, fmt.Sprintf("Your pet %s dragged you to safety. Death timer reduced.", char.PetName))
-			}
-			if result.Outcome == AdvOutcomeDeath && !deathReprieved {
-				p.sendHospitalAd(ctx.Sender, char)
-			}
-		}()
-	} else {
-		if err := p.SendDM(ctx.Sender, text); err != nil {
-			slog.Error("adventure: failed to send resolution DM", "user", ctx.Sender, "err", err)
-		}
-		if pardonFired {
-			p.SendDM(ctx.Sender, "The crowd intervened. A healer pulled you back at the last second. Don't count on this again — 7-day cooldown.")
-		}
-		if petRecovered && char.PetName != "" {
-			p.SendDM(ctx.Sender, fmt.Sprintf("Your pet %s dragged you to safety. Death timer reduced.", char.PetName))
-		}
-		if result.Outcome == AdvOutcomeDeath && !deathReprieved {
-			p.sendHospitalAd(ctx.Sender, char)
-		}
-	}
-
-	// Check for treasure drop
-	if result.Outcome == AdvOutcomeSuccess || result.Outcome == AdvOutcomeExceptional {
-		p.checkTreasureDrop(ctx.Sender, char, loc)
-		p.checkMasterworkDrop(ctx.Sender, char, equip, loc, result.Outcome)
-	}
-
-	// Equipment mastery — celebrate threshold crossings so the silent
-	// per-slot counter becomes visible to the player.
-	for _, mc := range result.MasteryCrossings {
-		p.SendDM(ctx.Sender, fmt.Sprintf(
-			"🛠️ **Mastery: %s — %d uses!** Your %s is paying it back: +1%% loot quality from this slot.",
-			mc.ItemName, mc.Threshold, mc.Slot))
-	}
-
-	// If the player still has actions remaining, nudge them
-	if !char.AllActionsUsed(isHol) && (result.Outcome != AdvOutcomeDeath || deathReprieved) {
-		remaining := []string{}
-		if char.CanDoCombat(isHol) {
-			remaining = append(remaining, "combat")
-		}
-		if char.CanDoHarvest(isHol) {
-			harvestMax := maxHarvestActions
-			if isHol {
-				harvestMax++
-			}
-			harvestLeft := harvestMax - char.HarvestActionsUsed
-			remaining = append(remaining, fmt.Sprintf("%d harvest", harvestLeft))
-		}
-		p.SendDM(ctx.Sender, fmt.Sprintf("Actions remaining today: %s. Type `!adv` for the menu.", strings.Join(remaining, ", ")))
-	}
-
-	return nil
+// renderLegacyActivityDeprecation is the Phase R1 deprecation DM. The standalone
+// daily activity loop is gone; players now run expeditions and harvest inside
+// rooms instead.
+func renderLegacyActivityDeprecation(char *AdventureCharacter) string {
+	var sb strings.Builder
+	sb.WriteString("⚠️ **The daily adventure loop has retired.**\n\n")
+	sb.WriteString("Solo dungeon runs, mining, foraging, and fishing are now part of the **expedition system** — pick a zone, advance through rooms, harvest as you go.\n\n")
+	sb.WriteString("Get started:\n")
+	sb.WriteString("• `!expedition` — overview & open expeditions\n")
+	sb.WriteString("• `!expedition start <zone>` — begin a new run\n")
+	sb.WriteString("• `!forage` · `!mine` · `!scavenge` · `!fish` · `!essence` · `!commune` — harvest in cleared rooms\n")
+	sb.WriteString("• `!resources` — list nodes in your current room\n\n")
+	sb.WriteString("Shop, blacksmith, rest, and Thom Krooke are still here on `!adventure`.")
+	return sb.String()
 }
 
 func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharacter) error {

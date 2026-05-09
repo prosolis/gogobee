@@ -199,7 +199,18 @@ func TestPickEveningRecap_BossOverridesAll(t *testing.T) {
 	if got == "" {
 		t.Fatal("expected boss-killed flavor")
 	}
-	if !strings.Contains(strings.ToLower(got), "boss") {
+	// Boss-killed pool entries reference the kill in varied ways — "boss",
+	// "thing in the chamber", "vacancy", etc. Match any of the recurring
+	// motifs rather than the literal word.
+	low := strings.ToLower(got)
+	matched := false
+	for _, marker := range []string{"boss", "thing in the chamber", "vacancy"} {
+		if strings.Contains(low, marker) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
 		t.Errorf("expected boss-killed pool, got %q", got)
 	}
 }
