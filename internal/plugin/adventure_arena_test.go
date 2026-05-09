@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"math"
 	"strings"
 	"testing"
 	"time"
@@ -107,96 +106,6 @@ func TestArenaMinLevel_Increasing(t *testing.T) {
 	}
 }
 
-// ── Death Chance Formula Tests ──────────────────────────────────────────────
-
-func TestArenaDeathChance_Clamped(t *testing.T) {
-	// Min-level player with tier 0 gear vs easiest monster
-	char := &AdventureCharacter{CombatLevel: 1}
-	equip := map[EquipmentSlot]*AdvEquipment{
-		SlotWeapon: {Tier: 0}, SlotArmor: {Tier: 0}, SlotHelmet: {Tier: 0},
-		SlotBoots: {Tier: 0}, SlotTool: {Tier: 0},
-	}
-	monster := arenaGetMonster(1, 1)
-	dc := arenaDeathChance(monster, char, equip)
-	if dc < 0.01 || dc > 0.98 {
-		t.Errorf("death chance %f out of [0.01, 0.98] bounds", dc)
-	}
-}
-
-func TestArenaDeathChance_MaxGearReduces(t *testing.T) {
-	// Use a mid-tier monster where gear difference is visible above the floor
-	char := &AdventureCharacter{CombatLevel: 25}
-	monster := arenaGetMonster(3, 3) // Behemoth Adjacent (0.73 lethality)
-
-	noGear := map[EquipmentSlot]*AdvEquipment{
-		SlotWeapon: {Tier: 0}, SlotArmor: {Tier: 0}, SlotHelmet: {Tier: 0},
-		SlotBoots: {Tier: 0}, SlotTool: {Tier: 0},
-	}
-	maxGear := map[EquipmentSlot]*AdvEquipment{
-		SlotWeapon: {Tier: 5}, SlotArmor: {Tier: 5}, SlotHelmet: {Tier: 5},
-		SlotBoots: {Tier: 5}, SlotTool: {Tier: 5},
-	}
-
-	dcNoGear := arenaDeathChance(monster, char, noGear)
-	dcMaxGear := arenaDeathChance(monster, char, maxGear)
-
-	if dcMaxGear >= dcNoGear {
-		t.Errorf("max gear (%f) should reduce death chance vs no gear (%f)", dcMaxGear, dcNoGear)
-	}
-}
-
-func TestArenaDeathChance_HighLevelReduces(t *testing.T) {
-	equip := map[EquipmentSlot]*AdvEquipment{
-		SlotWeapon: {Tier: 3}, SlotArmor: {Tier: 3}, SlotHelmet: {Tier: 3},
-		SlotBoots: {Tier: 3}, SlotTool: {Tier: 3},
-	}
-	monster := arenaGetMonster(3, 4) // The Inevitable
-
-	lowLevel := &AdventureCharacter{CombatLevel: 25}
-	highLevel := &AdventureCharacter{CombatLevel: 50}
-
-	dcLow := arenaDeathChance(monster, lowLevel, equip)
-	dcHigh := arenaDeathChance(monster, highLevel, equip)
-
-	if dcHigh >= dcLow {
-		t.Errorf("high level (%f) should have lower death chance than low level (%f)", dcHigh, dcLow)
-	}
-}
-
-func TestArenaDeathChance_T5R4_AlwaysTerrifying(t *testing.T) {
-	// Even max-everything player faces high death at T5R4
-	char := &AdventureCharacter{CombatLevel: 50}
-	equip := map[EquipmentSlot]*AdvEquipment{
-		SlotWeapon: {Tier: 5}, SlotArmor: {Tier: 5}, SlotHelmet: {Tier: 5},
-		SlotBoots: {Tier: 5}, SlotTool: {Tier: 5},
-	}
-	monster := arenaGetMonster(5, 4) // That Which Has Always Been
-
-	dc := arenaDeathChance(monster, char, equip)
-	if dc < 0.30 {
-		t.Errorf("T5R4 death chance for max player (%f) should be >= 0.30", dc)
-	}
-	// Should hit the 0.98 ceiling
-	if dc > 0.98 {
-		t.Errorf("T5R4 death chance (%f) exceeds ceiling 0.98", dc)
-	}
-}
-
-func TestArenaDeathChance_Floor(t *testing.T) {
-	// Even with absurd stats, floor is 0.01
-	char := &AdventureCharacter{CombatLevel: 50}
-	equip := map[EquipmentSlot]*AdvEquipment{
-		SlotWeapon: {Tier: 5}, SlotArmor: {Tier: 5}, SlotHelmet: {Tier: 5},
-		SlotBoots: {Tier: 5}, SlotTool: {Tier: 5},
-	}
-	monster := &ArenaMonster{BaseLethality: 0.01, ThreatLevel: 1}
-
-	dc := arenaDeathChance(monster, char, equip)
-	if dc < 0.01 {
-		t.Errorf("death chance %f below floor 0.01", dc)
-	}
-}
-
 // ── Reward Formula Tests ────────────────────────────────────────────────────
 
 func TestArenaRoundReward(t *testing.T) {
@@ -243,38 +152,11 @@ func TestArenaRewardScaling(t *testing.T) {
 	}
 }
 
-// ── Death Chance Formula Component Tests ────────────────────────────────────
-
-func TestArenaDeathChance_Components(t *testing.T) {
-	// Verify formula components individually
-	// death_chance = base + level_mod - equip_mod + skill_mod
-
-	// Level 1, tier 0 gear, T1R1 monster (lethality=0.10, threat=2)
-	char := &AdventureCharacter{CombatLevel: 1}
-	equip := map[EquipmentSlot]*AdvEquipment{
-		SlotWeapon: {Tier: 0}, SlotArmor: {Tier: 0}, SlotHelmet: {Tier: 0},
-		SlotBoots: {Tier: 0}, SlotTool: {Tier: 0},
-	}
-	monster := &ArenaMonster{BaseLethality: 0.10, ThreatLevel: 2}
-
-	dc := arenaDeathChance(monster, char, equip)
-
-	// Manual calculation:
-	// base = 0.10
-	// level_mod = (2-1) * 0.015 = 0.015
-	// skill_mod = max(0, 0.25 - 1*0.008) = 0.242
-	// equip_mod = 0 * 0.03 = 0 (tier 0 gives no equipment bonus)
-	// death_chance = 0.10 + 0.015 - 0 + 0.242 = 0.357
-	expected := 0.10 + 0.015 + 0.242
-	if math.Abs(dc-expected) > 0.001 {
-		t.Errorf("T1R1 components: got %f, expected ~%f", dc, expected)
-	}
-}
-
 // ── Render Tests ────────────────────────────────────────────────────────────
 
 func TestRenderArenaStreakEntry(t *testing.T) {
-	char := &DnDCharacter{Level: 30}
+	// Level 5 unlocks T1+T2 only (post-L2 brackets: 1/4/8/13/18); T3-T5 locked.
+	char := &DnDCharacter{Level: 5}
 	tier := arenaGetTier(1)
 	monster := arenaGetMonster(1, 1)
 
@@ -603,8 +485,8 @@ func TestRenderArenaStreakEntry_ShowsMultipliers(t *testing.T) {
 }
 
 func TestRenderArenaStreakEntry_HighLevel_AllEligible(t *testing.T) {
-	// T5 requires level 70, so use level 70+ to unlock everything
-	char := &DnDCharacter{Level: 70}
+	// T5 requires level 18 (post-L2 D&D scale); level 20 unlocks everything.
+	char := &DnDCharacter{Level: 20}
 	tier := arenaGetTier(1)
 	monster := arenaGetMonster(1, 1)
 
@@ -780,11 +662,11 @@ func TestRenderArenaLeaderboard_WithEntries(t *testing.T) {
 
 func TestRenderArenaLevelGate(t *testing.T) {
 	tier := arenaGetTier(3)
-	text := renderArenaLevelGate(tier, 10)
-	if !strings.Contains(text, "Level 25") {
+	text := renderArenaLevelGate(tier, 5)
+	if !strings.Contains(text, "Level 8") {
 		t.Error("gate message should show required level")
 	}
-	if !strings.Contains(text, "Level 10") {
+	if !strings.Contains(text, "Level 5") {
 		t.Error("gate message should show player level")
 	}
 }

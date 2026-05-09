@@ -346,8 +346,11 @@ var arenaStreakEuroMultiplier = [6]float64{0, 1.0, 1.5, 2.0, 2.75, 4.0} // index
 var arenaStreakXPMultiplier = [6]float64{0, 1.0, 1.2, 1.5, 1.85, 2.5}   // index = tiers won
 
 func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, result CombatResult, bossNarr *arenaBossNarration) error {
-	// Calculate reward — accumulate in tier earnings, not credited yet
-	reward := arenaRoundReward(tier, run.Round, char.CombatLevel)
+	// Calculate reward — accumulate in tier earnings, not credited yet.
+	// Skill bonus scales off DnDCharacter.Level (post-L2: arena is on the
+	// D&D level scale, not the legacy CombatLevel).
+	skillLevel := arenaDnDLevelOrZero(ctx.Sender)
+	reward := arenaRoundReward(tier, run.Round, skillLevel)
 	run.TierEarnings += reward
 	run.RoundsSurvived++
 	run.LastMonster = monster.Name
@@ -712,37 +715,15 @@ func (p *AdventurePlugin) arenaProcessBail(userID id.UserID, run *ArenaRun) erro
 
 // ── Combat Math ─────────────────────────────────────────────────────────────
 
-func arenaDeathChance(monster *ArenaMonster, char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment) float64 {
-	baseDeath := monster.BaseLethality
-	levelMod := float64(monster.ThreatLevel-char.CombatLevel) * 0.015
-	skillMod := math.Max(0, 0.25-float64(char.CombatLevel)*0.008)
-
-	// Average equipment tier → up to 15% reduction at max gear (tier 5 avg = 0.15)
-	var totalTier float64
-	count := 0
-	for _, slot := range allSlots {
-		if eq, ok := equip[slot]; ok {
-			totalTier += float64(eq.Tier)
-			count++
-		}
+// arenaDnDLevelOrZero returns the player's DnDCharacter.Level, or 0 if no
+// sheet exists. Arena enters this path after combat (which migrates), so a
+// zero return is rare and the caller's MinLevel gate handles it correctly.
+func arenaDnDLevelOrZero(userID id.UserID) int {
+	c, err := LoadDnDCharacter(userID)
+	if err != nil || c == nil {
+		return 0
 	}
-	avgTier := 0.0
-	if count > 0 {
-		avgTier = totalTier / float64(count)
-	}
-	equipMod := avgTier * 0.03 // 0 at tier 0, 0.15 at tier 5
-
-	// Housing HP bonus reduces death chance
-	houseMod := char.HouseHPBonus() // 0-20% based on house tier
-
-	// Pet morning defense buff (cat offering / dog smothering)
-	petDefMod := 0.0
-	if char.PetMorningDefense {
-		petDefMod = 0.05
-	}
-
-	deathChance := baseDeath + levelMod - equipMod + skillMod - houseMod - petDefMod
-	return math.Max(0.01, math.Min(0.98, deathChance))
+	return c.Level
 }
 
 func arenaRoundReward(tier *ArenaTier, round int, battleSkill int) int64 {
@@ -860,16 +841,11 @@ func (p *AdventurePlugin) arenaCountdown(userID id.UserID, run *ArenaRun) {
 		return
 	}
 
-	char, err := loadAdvCharacter(userID)
-	if err != nil {
-		slog.Error("arena: failed to load character for auto-advance", "user", userID, "err", err)
-		p.arenaProcessBail(userID, freshRun)
-		return
-	}
-
-	// Level gate for next tier
-	if char.CombatLevel < nextTier.MinLevel {
-		p.SendDM(userID, renderArenaLevelGate(nextTier, char.CombatLevel)+"\n\nYour accumulated rewards have been paid out.")
+	// Level gate for next tier — uses DnDCharacter.Level (post-L2 arena
+	// is on the D&D level scale).
+	playerLevel := arenaDnDLevelOrZero(userID)
+	if playerLevel < nextTier.MinLevel {
+		p.SendDM(userID, renderArenaLevelGate(nextTier, playerLevel)+"\n\nYour accumulated rewards have been paid out.")
 		p.arenaProcessBail(userID, freshRun)
 		return
 	}

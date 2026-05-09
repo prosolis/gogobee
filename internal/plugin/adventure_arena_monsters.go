@@ -29,7 +29,7 @@ type ArenaMonster struct {
 var arenaTiers = [5]ArenaTier{
 	// Tier 1 — Scrubs
 	{
-		Number: 1, Name: "Scrubs", MinLevel: 1,
+		Number: 1, Name: "Scrubs", MinLevel: 1, // DnD Level 1–3
 		BasePayout: 150, SkillMultiplier: 1.0, CompletionBonus: 2500, BattleXP: 10,
 		Monsters: [4]ArenaMonster{
 			{
@@ -56,7 +56,7 @@ var arenaTiers = [5]ArenaTier{
 	},
 	// Tier 2 — Thugs
 	{
-		Number: 2, Name: "Thugs", MinLevel: 10,
+		Number: 2, Name: "Thugs", MinLevel: 4, // DnD Level 4–7
 		BasePayout: 500, SkillMultiplier: 2.5, CompletionBonus: 10000, BattleXP: 25,
 		Monsters: [4]ArenaMonster{
 			{
@@ -84,7 +84,7 @@ var arenaTiers = [5]ArenaTier{
 	},
 	// Tier 3 — Brutes
 	{
-		Number: 3, Name: "Brutes", MinLevel: 25,
+		Number: 3, Name: "Brutes", MinLevel: 8, // DnD Level 8–12
 		BasePayout: 1500, SkillMultiplier: 6.0, CompletionBonus: 30000, BattleXP: 60,
 		Monsters: [4]ArenaMonster{
 			{
@@ -113,7 +113,7 @@ var arenaTiers = [5]ArenaTier{
 	},
 	// Tier 4 — Horrors
 	{
-		Number: 4, Name: "Horrors", MinLevel: 45,
+		Number: 4, Name: "Horrors", MinLevel: 13, // DnD Level 13–17
 		BasePayout: 5000, SkillMultiplier: 12.0, CompletionBonus: 100000, BattleXP: 120,
 		Monsters: [4]ArenaMonster{
 			{
@@ -143,7 +143,7 @@ var arenaTiers = [5]ArenaTier{
 	},
 	// Tier 5 — World Eaters
 	{
-		Number: 5, Name: "World Eaters", MinLevel: 70,
+		Number: 5, Name: "World Eaters", MinLevel: 18, // DnD Level 18–20
 		BasePayout: 15000, SkillMultiplier: 25.0, CompletionBonus: 500000, BattleXP: 250,
 		Monsters: [4]ArenaMonster{
 			{
