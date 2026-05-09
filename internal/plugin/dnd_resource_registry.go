@@ -68,6 +68,10 @@ var zoneResources = map[ZoneID][]ZoneResource{
 		{ID: "owlbear_feather", Name: "Owlbear Feather", Action: HarvestScavenge, DC: 12, Rarity: RarityUncommon, Type: "material", SellValue: 35, MaxCharges: 1, RequiresKill: "owlbear"},
 		{ID: "dryads_tears", Name: "Dryad's Tears", Action: HarvestEssence, DC: 18, Rarity: RarityRare, Type: "material", SellValue: 220, MaxCharges: 1},
 		{ID: "biolum_fungi", Name: "Bioluminescent Fungi", Action: HarvestForage, DC: 17, Rarity: RarityRare, Type: "material", SellValue: 200, MaxCharges: 1},
+		// §6.1 fish — Forest streams (outdoor exploration rooms).
+		{ID: "shadow_trout", Name: "Shadow Trout", Action: HarvestFish, DC: 11, Rarity: RarityCommon, Type: "fish", SellValue: 10, MaxCharges: 2},
+		{ID: "gloomfin", Name: "Gloomfin", Action: HarvestFish, DC: 15, Rarity: RarityUncommon, Type: "fish", SellValue: 45, MaxCharges: 1},
+		{ID: "phantom_carp", Name: "Phantom Carp", Action: HarvestFish, DC: 20, Rarity: RarityRare, Type: "fish", SellValue: 220, MaxCharges: 1},
 	},
 	ZoneSunkenTemple: {
 		{ID: "sea_glass", Name: "Sea Glass Shard", Action: HarvestScavenge, DC: 9, Rarity: RarityCommon, Type: "material", SellValue: 7, MaxCharges: 2},
@@ -77,6 +81,11 @@ var zoneResources = map[ZoneID][]ZoneResource{
 		{ID: "aboleth_mucus", Name: "Aboleth Mucus (refined)", Action: HarvestEssence, DC: 18, Rarity: RarityRare, Type: "material", SellValue: 230, MaxCharges: 1, ClassRestrict: ClassMage},
 		{ID: "temple_relic", Name: "Ancient Temple Relic", Action: HarvestScavenge, DC: 20, Rarity: RarityRare, Type: "item", SellValue: 250, MaxCharges: 1},
 		{ID: "tidal_crystal", Name: "Tidal Crystal", Action: HarvestMine, DC: 17, Rarity: RarityRare, Type: "material", SellValue: 200, MaxCharges: 1, ConditionalEvent: "tidal_event"},
+		// §6.1 fish — flooded rooms; bonus during Tidal Event handled in R6.
+		{ID: "blind_cave_fish", Name: "Blind Cave Fish", Action: HarvestFish, DC: 10, Rarity: RarityCommon, Type: "fish", SellValue: 8, MaxCharges: 2},
+		{ID: "merrow_eel", Name: "Merrow Eel", Action: HarvestFish, DC: 14, Rarity: RarityUncommon, Type: "fish", SellValue: 45, MaxCharges: 1},
+		{ID: "dareth_lanternfish", Name: "Dar'eth Lanternfish", Action: HarvestFish, DC: 19, Rarity: RarityRare, Type: "fish", SellValue: 230, MaxCharges: 1},
+		{ID: "aboleth_spawn", Name: "Aboleth Spawn (juvenile)", Action: HarvestFish, DC: 23, Rarity: RarityVeryRare, Type: "fish", SellValue: 800, MaxCharges: 1, ClassRestrict: ClassRanger},
 	},
 	ZoneManorBlackspire: {
 		{ID: "spectral_grave_dust", Name: "Grave Dust (spectral)", Action: HarvestScavenge, DC: 10, Rarity: RarityCommon, Type: "material", SellValue: 12, MaxCharges: 2},
@@ -104,6 +113,11 @@ var zoneResources = map[ZoneID][]ZoneResource{
 		{ID: "mind_flayer_brain", Name: "Mind Flayer Brain Matter", Action: HarvestEssence, DC: 19, Rarity: RarityRare, Type: "material", SellValue: 250, MaxCharges: 1, ClassRestrict: ClassMage, RequiresKill: "illithid"},
 		{ID: "drow_adamantine", Name: "Drow Adamantine", Action: HarvestMine, DC: 21, Rarity: RarityRare, Type: "material", SellValue: 290, MaxCharges: 1},
 		{ID: "deep_dragon_chip", Name: "Deep Dragon Scale Chip", Action: HarvestScavenge, DC: 23, Rarity: RarityVeryRare, Type: "material", SellValue: 800, MaxCharges: 1},
+		// §6.1 fish — Underdark river rooms (TwinBee marks them; for now any room in zone).
+		{ID: "blind_albino_bass", Name: "Blind Albino Bass", Action: HarvestFish, DC: 11, Rarity: RarityCommon, Type: "fish", SellValue: 10, MaxCharges: 2},
+		{ID: "glowing_cave_eel", Name: "Glowing Cave Eel", Action: HarvestFish, DC: 15, Rarity: RarityUncommon, Type: "fish", SellValue: 50, MaxCharges: 1},
+		{ID: "underdark_shark", Name: "Underdark Shark", Action: HarvestFish, DC: 20, Rarity: RarityRare, Type: "fish", SellValue: 240, MaxCharges: 1},
+		{ID: "eyeless_king", Name: "The Eyeless King", Action: HarvestFish, DC: 26, Rarity: RarityLegendary, Type: "fish", SellValue: 5000, MaxCharges: 1, ClassRestrict: ClassRanger},
 	},
 	ZoneFeywildCrossing: {
 		{ID: "fey_dust", Name: "Fey Dust", Action: HarvestForage, DC: 11, Rarity: RarityCommon, Type: "material", SellValue: 12, MaxCharges: 2},
@@ -113,6 +127,10 @@ var zoneResources = map[ZoneID][]ZoneResource{
 		{ID: "hag_hair", Name: "Hag Hair", Action: HarvestCommune, DC: 18, Rarity: RarityRare, Type: "material", SellValue: 220, MaxCharges: 1, ClassRestrict: ClassCleric, RequiresKill: "hag"},
 		{ID: "timelock_amber", Name: "Timelock Amber", Action: HarvestForage, DC: 21, Rarity: RarityRare, Type: "material", SellValue: 290, MaxCharges: 1},
 		{ID: "thornmother_thorn", Name: "Thornmother's Thorn", Action: HarvestScavenge, DC: 25, Rarity: RarityVeryRare, Type: "material", SellValue: 1000, MaxCharges: 1, RequiresKill: "thornmother"},
+		// §6.1 fish — fey streams; time-distortion event hook fires in handleHarvestCmd.
+		{ID: "moonlit_minnow", Name: "Moonlit Minnow", Action: HarvestFish, DC: 12, Rarity: RarityCommon, Type: "fish", SellValue: 12, MaxCharges: 2},
+		{ID: "dreaming_pike", Name: "Dreaming Pike", Action: HarvestFish, DC: 16, Rarity: RarityUncommon, Type: "fish", SellValue: 55, MaxCharges: 1},
+		{ID: "timeworn_koi", Name: "Timeworn Koi", Action: HarvestFish, DC: 21, Rarity: RarityRare, Type: "fish", SellValue: 280, MaxCharges: 1},
 	},
 	ZoneDragonsLair: {
 		{ID: "ancient_gold", Name: "Ancient Gold Coin", Action: HarvestScavenge, DC: 10, Rarity: RarityCommon, Type: "material", SellValue: 12, MaxCharges: 2},

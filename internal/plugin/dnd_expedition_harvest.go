@@ -350,6 +350,9 @@ func (p *AdventurePlugin) handleHarvestCmd(ctx MessageContext, action HarvestAct
 	if err != nil || char == nil {
 		return p.SendDM(ctx.Sender, "No D&D character found. Run `!setup` first.")
 	}
+	if action == HarvestFish && !isFishingZone(exp.ZoneID) {
+		return p.SendDM(ctx.Sender, "There's no water to fish in here. `!fish` works only in Forest of Shadows, Sunken Temple, Underdark, or Feywild Crossing.")
+	}
 	if exp.RunID == "" {
 		return p.SendDM(ctx.Sender, "No active region run. Try `!region` to refresh, or restart the expedition.")
 	}
@@ -372,12 +375,56 @@ func (p *AdventurePlugin) handleHarvestCmd(ctx MessageContext, action HarvestAct
 	}
 
 	res, _ := FindZoneResource(exp.ZoneID, nodes[idx].ResourceID)
+
+	// §4.2 Combat Interrupt roll — gates the harvest attempt.
+	zone, _ := getZone(exp.ZoneID)
+	interrupt, intTotal := resolveCombatInterrupt(
+		exp.ThreatLevel, int(zone.Tier), char.Class, exp.ZoneID, nil)
+	var interruptHeader string
+	switch interrupt {
+	case InterruptNoise:
+		_ = applyThreatDelta(exp.ID, 2, "harvest noise (§4.2)")
+		interruptHeader = fmt.Sprintf(
+			"_⚠ Noise drifts through the corridors (interrupt roll %d). Threat +2._\n\n",
+			intTotal)
+	case InterruptStandard, InterruptElite, InterruptPatrol:
+		var pre strings.Builder
+		pre.WriteString(fmt.Sprintf(
+			"**%s · %s** — interrupted before the roll (interrupt %d).\n\n",
+			strings.ToTitle(string(action)[:1])+string(action)[1:], res.Name, intTotal))
+		body, ended := p.runHarvestInterrupt(ctx.Sender, exp, run, zone, interrupt)
+		pre.WriteString(body)
+		if interrupt == InterruptElite && !ended {
+			pre.WriteString("\n\n_The node is still here — you dropped the harvest mid-strike._")
+		}
+		if interrupt == InterruptPatrol && !ended {
+			pre.WriteString("\n\n_The harvest is forfeit._")
+		}
+		// Persist node state untouched (no charge spent).
+		_ = saveHarvestNodes(exp, roomIdx, nodes)
+		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
+			fmt.Sprintf("%s %s kind=%d total=%d", string(action), res.ID, int(interrupt), intTotal), "")
+		return p.SendDM(ctx.Sender, pre.String())
+	}
+
 	roll := rand.IntN(20) + 1
 	mod := harvestActionAbility(char, action) + classHarvestBonus(char.Class, action)
+	if action == HarvestFish {
+		if adv, _ := loadAdvCharacter(ctx.Sender); adv != nil {
+			mod += fishingSkillBonus(adv.FishingSkill)
+		}
+	}
 	total := roll + mod
 	outcome := resolveHarvestOutcome(total, res.DC)
+	outcome = rangerRareCatchUpgrade(char.Class, action, outcome, nil)
 
 	var b strings.Builder
+	if interruptHeader != "" {
+		b.WriteString(interruptHeader)
+	}
+	if dist := feywildFishDistortion(exp.ZoneID, action, nil); dist != "" {
+		b.WriteString(dist)
+	}
 	verb := strings.ToTitle(string(action)[:1]) + string(action)[1:]
 	b.WriteString(fmt.Sprintf("**%s · %s** — d20=%d + %d = **%d** vs DC %d\n\n",
 		verb, res.Name, roll, mod, total, res.DC))

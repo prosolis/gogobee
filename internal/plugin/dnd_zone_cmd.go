@@ -358,6 +358,17 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	prev := run.CurrentRoomType()
 	prevIdx := run.CurrentRoom
 
+	// §4.1 Patrol Encounter: at Threat-Clock Alert+, patrols may move
+	// through cleared rooms. Roll on `!advance` *before* the next room's
+	// own resolution. Player KO ends the run.
+	patrolNarr, patrolEnded, perr := p.tryPatrolEncounter(ctx.Sender, run, zone)
+	if perr != nil {
+		return p.SendDM(ctx.Sender, "Couldn't resolve patrol: "+perr.Error())
+	}
+	if patrolEnded {
+		return p.SendDM(ctx.Sender, patrolNarr)
+	}
+
 	// Resolve the current room *before* clearing it, so combat results
 	// can decide whether the player advances or the run ends.
 	resolution, ended, err := p.resolveRoom(ctx.Sender, run, zone)
@@ -375,6 +386,10 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	if next == "" {
 		_, _ = applyMoodEvent(run.RunID, MoodEventZoneComplete)
 		var b strings.Builder
+		if patrolNarr != "" {
+			b.WriteString(patrolNarr)
+			b.WriteString("\n\n")
+		}
 		if resolution != "" {
 			b.WriteString(resolution)
 			b.WriteString("\n\n")
@@ -396,6 +411,10 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 
 	nextIdx := run.CurrentRoom + 1
 	var b strings.Builder
+	if patrolNarr != "" {
+		b.WriteString(patrolNarr)
+		b.WriteString("\n\n")
+	}
 	if resolution != "" {
 		b.WriteString(resolution)
 		b.WriteString("\n\n")
@@ -493,6 +512,11 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		b.WriteString("\n")
 	}
 	b.WriteString(fmt.Sprintf("✅ **%s** down (HP %d→%d).", monster.Name, result.PlayerStartHP, result.PlayerEndHP))
+	recordZoneKillForUser(userID, monster.ID)
+	if drop := p.dropZoneLoot(userID, zone.ID, monster, false); drop != "" {
+		b.WriteString("\n")
+		b.WriteString(drop)
+	}
 	return b.String(), false, nil
 }
 
@@ -532,6 +556,11 @@ func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zon
 		b.WriteString("\n")
 	}
 	b.WriteString(fmt.Sprintf("🏆 **%s** falls (HP %d→%d).", monster.Name, result.PlayerStartHP, result.PlayerEndHP))
+	recordZoneKillForUser(userID, monster.ID)
+	if drop := p.dropZoneLoot(userID, zone.ID, monster, true); drop != "" {
+		b.WriteString("\n")
+		b.WriteString(drop)
+	}
 	return b.String(), false, nil
 }
 

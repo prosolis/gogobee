@@ -1684,6 +1684,16 @@ CREATE TABLE IF NOT EXISTS dnd_expedition_log (
 );
 CREATE INDEX IF NOT EXISTS idx_expedition_log_recent
     ON dnd_expedition_log(expedition_id, timestamp DESC);
+
+-- One row per (user_id, recipe_id) once the player has discovered a Thom
+-- Krooke crafting recipe via !lore (Phase R5). Recipes are otherwise hidden
+-- from !craft list output until discovered.
+CREATE TABLE IF NOT EXISTS dnd_known_recipe (
+    user_id       TEXT NOT NULL,
+    recipe_id     TEXT NOT NULL,
+    discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, recipe_id)
+);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

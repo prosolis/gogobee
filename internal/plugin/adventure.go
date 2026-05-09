@@ -139,7 +139,11 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "scavenge", Description: "Scavenge in your current expedition region (INT / Investigation)", Usage: "!scavenge", Category: "Games"},
 		{Name: "essence", Description: "Harvest magical essence in your current expedition region (INT / Arcana)", Usage: "!essence", Category: "Games"},
 		{Name: "commune", Description: "Commune with spiritual energy in your current expedition region (Cleric primary)", Usage: "!commune", Category: "Games"},
+		{Name: "fish", Description: "Fish in your current expedition region (DEX / Sleight of Hand; water zones only)", Usage: "!fish", Category: "Games"},
 		{Name: "resources", Description: "List harvestable resources in your current expedition region", Usage: "!resources", Category: "Games"},
+		{Name: "sell", Description: "Sell harvested materials/fish/items to Thom Krooke (post-expedition; CHA Persuasion DC 17 = +15%)", Usage: "!sell [list|all|<item>]", Category: "Games"},
+		{Name: "craft", Description: "Craft a discovered recipe at Thom Krooke (consumes ingredients)", Usage: "!craft [list|<recipe>]", Category: "Games"},
+		{Name: "lore", Description: "Dig through Thom Krooke's lore stacks for an undiscovered recipe (INT/Arcana DC 15)", Usage: "!lore", Category: "Games"},
 	}
 }
 
@@ -294,8 +298,20 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "commune") {
 		return p.handleHarvestCmd(ctx, HarvestCommune)
 	}
+	if p.IsCommand(ctx.Body, "fish") {
+		return p.handleHarvestCmd(ctx, HarvestFish)
+	}
 	if p.IsCommand(ctx.Body, "resources") {
 		return p.handleResourcesCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "sell") {
+		return p.handleResourceSellCmd(ctx, p.GetArgs(ctx.Body, "sell"))
+	}
+	if p.IsCommand(ctx.Body, "craft") {
+		return p.handleCraftCmd(ctx, p.GetArgs(ctx.Body, "craft"))
+	}
+	if p.IsCommand(ctx.Body, "lore") {
+		return p.handleLoreCmd(ctx)
 	}
 
 	// 1. Arena commands (work in rooms and DMs)
