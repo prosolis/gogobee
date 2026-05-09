@@ -182,6 +182,10 @@ func runMigrations(d *sql.DB) error {
 		// this after each rage'd combat. Cleared on long rest. Reused by
 		// other classes once exhaustion-inducing mechanics arrive in SUB3+.
 		`ALTER TABLE dnd_character ADD COLUMN exhaustion INTEGER NOT NULL DEFAULT 0`,
+		// Standalone-zone-run harvest: stores a per-room HarvestNode map for
+		// !zone enter sessions that aren't tied to an expedition. Expedition
+		// runs continue to use expedition.region_state for the same data.
+		`ALTER TABLE dnd_zone_run ADD COLUMN harvest_nodes_json TEXT NOT NULL DEFAULT '{}'`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
