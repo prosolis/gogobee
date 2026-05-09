@@ -250,6 +250,23 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE player_meta ADD COLUMN babysit_skill_focus TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE player_meta ADD COLUMN auto_babysit INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN auto_babysit_focus TEXT NOT NULL DEFAULT ''`,
+		// Adv 2.0 Phase L5c — NPC counters & debuff timestamps off AdvCharacter.
+		// Misty/Arina/Robbie/Thom counters and buff/debuff expiry times move
+		// to player_meta (gogobee_legacy_migration.md §7.3 L5c). Hidden
+		// discovery mechanics — never surface in player-facing output.
+		`ALTER TABLE player_meta ADD COLUMN misty_last_seen DATETIME`,
+		`ALTER TABLE player_meta ADD COLUMN arina_last_seen DATETIME`,
+		`ALTER TABLE player_meta ADD COLUMN misty_buff_expires DATETIME`,
+		`ALTER TABLE player_meta ADD COLUMN misty_debuff_expires DATETIME`,
+		`ALTER TABLE player_meta ADD COLUMN arina_buff_expires DATETIME`,
+		`ALTER TABLE player_meta ADD COLUMN npc_msg_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN npc_msg_count_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE player_meta ADD COLUMN misty_roll_target INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN arina_roll_target INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN misty_encounter_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN misty_donated_count INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN thom_animal_line_fired INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN robbie_visit_count INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

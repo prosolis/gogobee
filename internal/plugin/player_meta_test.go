@@ -1041,6 +1041,139 @@ func TestUpsertPlayerMetaBabysitState_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestPlayerMetaNPCStateBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-npc-bf:example")
+	if err := createAdvCharacter(uid, "NPCer"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	mistyLast := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Second)
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET misty_last_seen = ?, npc_msg_count = ?, npc_msg_count_date = ?,
+		        misty_encounter_count = ?, misty_donated_count = ?,
+		        thom_animal_line_fired = ?, robbie_visit_count = ?
+		  WHERE user_id = ?`,
+		mistyLast, 4, "2026-05-09", 3, 1, 1, 2, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET misty_last_seen = NULL, arina_last_seen = NULL,
+		        misty_buff_expires = NULL, misty_debuff_expires = NULL, arina_buff_expires = NULL,
+		        npc_msg_count = 0, npc_msg_count_date = '',
+		        misty_roll_target = 0, arina_roll_target = 0,
+		        misty_encounter_count = 0, misty_donated_count = 0,
+		        thom_animal_line_fired = 0, robbie_visit_count = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaNPCState(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	got, err := loadNPCState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.NPCMsgCount != 4 || got.NPCMsgCountDate != "2026-05-09" ||
+		got.MistyEncounterCount != 3 || got.MistyDonatedCount != 1 ||
+		!got.ThomAnimalLineFired || got.RobbieVisitCount != 2 {
+		t.Errorf("after backfill: got %+v", got)
+	}
+	if got.MistyLastSeen == nil || !got.MistyLastSeen.Equal(mistyLast) {
+		t.Errorf("misty_last_seen: got %v want %v", got.MistyLastSeen, mistyLast)
+	}
+
+	// Layer a dual-write: bump robbie visits.
+	got.RobbieVisitCount = 5
+	if err := upsertPlayerMetaNPCState(uid, got); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaNPCState(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	got2, _ := loadNPCState(uid)
+	if got2.RobbieVisitCount != 5 {
+		t.Errorf("backfill clobbered dual-write: got %+v", got2)
+	}
+}
+
+func TestLoadNPCState_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-npc-fb:example")
+	if err := createAdvCharacter(uid, "Faller"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET misty_encounter_count = ?, robbie_visit_count = ?
+		  WHERE user_id = ?`,
+		7, 3, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET misty_encounter_count = 0, robbie_visit_count = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	got, err := loadNPCState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.MistyEncounterCount != 7 || got.RobbieVisitCount != 3 {
+		t.Errorf("fallback: got %+v", got)
+	}
+
+	got2, err := loadNPCState(id.UserID("@meta-npc-nobody:example"))
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if got2.HasNPCActivity() {
+		t.Errorf("missing user: got %+v", got2)
+	}
+}
+
+func TestUpsertPlayerMetaNPCState_RoundTrip(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-npc-rt:example")
+	mistyBuff := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Second)
+	in := NPCState{
+		MistyBuffExpires:    &mistyBuff,
+		NPCMsgCount:         12,
+		NPCMsgCountDate:     "2026-05-09",
+		MistyRollTarget:     8,
+		ArinaRollTarget:     6,
+		MistyEncounterCount: 2,
+		MistyDonatedCount:   1,
+		ThomAnimalLineFired: true,
+		RobbieVisitCount:    4,
+	}
+	if err := upsertPlayerMetaNPCState(uid, in); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	got, err := loadNPCState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.NPCMsgCount != 12 || got.NPCMsgCountDate != "2026-05-09" ||
+		got.MistyRollTarget != 8 || got.ArinaRollTarget != 6 ||
+		got.MistyEncounterCount != 2 || got.MistyDonatedCount != 1 ||
+		!got.ThomAnimalLineFired || got.RobbieVisitCount != 4 {
+		t.Errorf("round-trip mismatch: got %+v", got)
+	}
+	if got.MistyBuffExpires == nil || !got.MistyBuffExpires.Equal(mistyBuff) {
+		t.Errorf("misty_buff_expires: got %v want %v", got.MistyBuffExpires, mistyBuff)
+	}
+}
+
 func TestUpsertPlayerMetaHouseState_RoundTrip(t *testing.T) {
 	setupAuditTestDB(t)
 

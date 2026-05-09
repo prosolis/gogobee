@@ -86,6 +86,9 @@ func (p *AdventurePlugin) npcTrackMessage(userID id.UserID) {
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("npc: failed to save msg count", "user", userID, "err", err)
 	}
+	if err := upsertPlayerMetaNPCState(userID, npcStateFromAdvChar(char)); err != nil {
+		slog.Error("player_meta: npc msg count dual-write failed", "user", userID, "err", err)
+	}
 
 	// Release lock BEFORE firing encounter (npcFireEncounter re-acquires it)
 	userMu.Unlock()
@@ -152,6 +155,9 @@ func (p *AdventurePlugin) npcFireEncounter(userID id.UserID, npc string) {
 		slog.Error("npc: failed to save last_seen", "user", userID, "npc", npc, "err", err)
 		return
 	}
+	if err := upsertPlayerMetaNPCState(userID, npcStateFromAdvChar(char)); err != nil {
+		slog.Error("player_meta: npc last_seen dual-write failed", "user", userID, "npc", npc, "err", err)
+	}
 
 	// Don't overwrite an existing pending interaction (shop, treasure, etc.)
 	if _, occupied := p.pending.Load(string(userID)); occupied {
@@ -217,6 +223,7 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 			if err := saveAdvCharacter(char); err != nil {
 				slog.Error("npc: failed to save misty debuff", "user", ctx.Sender, "err", err)
 			}
+			_ = upsertPlayerMetaNPCState(char.UserID, npcStateFromAdvChar(char))
 			return p.SendDM(ctx.Sender, "You reach for your gold but there isn't enough. She sees this. She doesn't say anything.\n\n_"+mistyDeclineLine+"_")
 		}
 
@@ -225,6 +232,7 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 			if err := saveAdvCharacter(char); err != nil {
 				slog.Error("npc: failed to save misty debuff", "user", ctx.Sender, "err", err)
 			}
+			_ = upsertPlayerMetaNPCState(char.UserID, npcStateFromAdvChar(char))
 			return p.SendDM(ctx.Sender, "You reach for your gold but there isn't enough. She sees this. She doesn't say anything.\n\n_"+mistyDeclineLine+"_")
 		}
 		// D&D Insight check — passing refunds the donation. Renders flavor on
@@ -243,6 +251,7 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 			slog.Error("npc: failed to save misty buff", "user", ctx.Sender, "err", err)
 		}
 		_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(char))
+		_ = upsertPlayerMetaNPCState(char.UserID, npcStateFromAdvChar(char))
 
 		reply := mistyAcceptLines[rand.IntN(len(mistyAcceptLines))]
 
@@ -275,6 +284,7 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("npc: failed to save misty debuff", "user", ctx.Sender, "err", err)
 	}
+	_ = upsertPlayerMetaNPCState(char.UserID, npcStateFromAdvChar(char))
 	return p.SendDM(ctx.Sender, fmt.Sprintf("_%s_", mistyDeclineLine))
 }
 
@@ -296,6 +306,7 @@ func (p *AdventurePlugin) resolveArina(ctx MessageContext, char *AdventureCharac
 		if err := saveAdvCharacter(char); err != nil {
 			slog.Error("npc: failed to save arina buff", "user", ctx.Sender, "err", err)
 		}
+		_ = upsertPlayerMetaNPCState(char.UserID, npcStateFromAdvChar(char))
 		extra := ""
 		if arcanaCheck.Attempted {
 			if arcanaCheck.Succeeded {

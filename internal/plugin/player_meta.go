@@ -1087,6 +1087,272 @@ func babysitStateFromAdvChar(c *AdventureCharacter) BabysitState {
 	}
 }
 
+// NPCState mirrors player_meta's NPC counter/timestamp columns. Phase
+// L5c ports Misty/Arina/Robbie/Thom counters + buff/debuff expiries off
+// AdvCharacter (gogobee_legacy_migration.md §7.3 L5c). Hidden discovery
+// mechanics — never surface in player-facing output.
+type NPCState struct {
+	MistyLastSeen       *time.Time
+	ArinaLastSeen       *time.Time
+	MistyBuffExpires    *time.Time
+	MistyDebuffExpires  *time.Time
+	ArinaBuffExpires    *time.Time
+	NPCMsgCount         int
+	NPCMsgCountDate     string
+	MistyRollTarget     int
+	ArinaRollTarget     int
+	MistyEncounterCount int
+	MistyDonatedCount   int
+	ThomAnimalLineFired bool
+	RobbieVisitCount    int
+}
+
+// HasNPCActivity returns true when any counter or timestamp is non-zero —
+// the "row is migrated" marker for the loadNPCState fallback path.
+func (s NPCState) HasNPCActivity() bool {
+	return s.MistyLastSeen != nil || s.ArinaLastSeen != nil ||
+		s.MistyBuffExpires != nil || s.MistyDebuffExpires != nil ||
+		s.ArinaBuffExpires != nil ||
+		s.NPCMsgCount > 0 || s.NPCMsgCountDate != "" ||
+		s.MistyRollTarget > 0 || s.ArinaRollTarget > 0 ||
+		s.MistyEncounterCount > 0 || s.MistyDonatedCount > 0 ||
+		s.ThomAnimalLineFired || s.RobbieVisitCount > 0
+}
+
+// upsertPlayerMetaNPCState writes the full NPC column set for a user.
+// Used by the dual-write path during the L5c soak window.
+func upsertPlayerMetaNPCState(userID id.UserID, s NPCState) error {
+	thom := 0
+	if s.ThomAnimalLineFired {
+		thom = 1
+	}
+	var (
+		mistyLast, arinaLast, mistyBuff, mistyDebuff, arinaBuff interface{}
+	)
+	if s.MistyLastSeen != nil {
+		mistyLast = s.MistyLastSeen.UTC()
+	}
+	if s.ArinaLastSeen != nil {
+		arinaLast = s.ArinaLastSeen.UTC()
+	}
+	if s.MistyBuffExpires != nil {
+		mistyBuff = s.MistyBuffExpires.UTC()
+	}
+	if s.MistyDebuffExpires != nil {
+		mistyDebuff = s.MistyDebuffExpires.UTC()
+	}
+	if s.ArinaBuffExpires != nil {
+		arinaBuff = s.ArinaBuffExpires.UTC()
+	}
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (
+		   user_id, misty_last_seen, arina_last_seen,
+		   misty_buff_expires, misty_debuff_expires, arina_buff_expires,
+		   npc_msg_count, npc_msg_count_date,
+		   misty_roll_target, arina_roll_target,
+		   misty_encounter_count, misty_donated_count,
+		   thom_animal_line_fired, robbie_visit_count
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   misty_last_seen = excluded.misty_last_seen,
+		   arina_last_seen = excluded.arina_last_seen,
+		   misty_buff_expires = excluded.misty_buff_expires,
+		   misty_debuff_expires = excluded.misty_debuff_expires,
+		   arina_buff_expires = excluded.arina_buff_expires,
+		   npc_msg_count = excluded.npc_msg_count,
+		   npc_msg_count_date = excluded.npc_msg_count_date,
+		   misty_roll_target = excluded.misty_roll_target,
+		   arina_roll_target = excluded.arina_roll_target,
+		   misty_encounter_count = excluded.misty_encounter_count,
+		   misty_donated_count = excluded.misty_donated_count,
+		   thom_animal_line_fired = excluded.thom_animal_line_fired,
+		   robbie_visit_count = excluded.robbie_visit_count`,
+		string(userID), mistyLast, arinaLast, mistyBuff, mistyDebuff, arinaBuff,
+		s.NPCMsgCount, s.NPCMsgCountDate,
+		s.MistyRollTarget, s.ArinaRollTarget,
+		s.MistyEncounterCount, s.MistyDonatedCount,
+		thom, s.RobbieVisitCount,
+	)
+	return err
+}
+
+// loadNPCState returns the NPC state from player_meta when populated,
+// otherwise falls back to adventure_characters during the L5c soak window.
+func loadNPCState(userID id.UserID) (NPCState, error) {
+	var (
+		s                                                       NPCState
+		mistyLast, arinaLast, mistyBuff, mistyDebuff, arinaBuff sql.NullTime
+		thomInt                                                 int
+	)
+	err := db.Get().QueryRow(
+		`SELECT misty_last_seen, arina_last_seen,
+		        misty_buff_expires, misty_debuff_expires, arina_buff_expires,
+		        npc_msg_count, npc_msg_count_date,
+		        misty_roll_target, arina_roll_target,
+		        misty_encounter_count, misty_donated_count,
+		        thom_animal_line_fired, robbie_visit_count
+		   FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(
+		&mistyLast, &arinaLast, &mistyBuff, &mistyDebuff, &arinaBuff,
+		&s.NPCMsgCount, &s.NPCMsgCountDate,
+		&s.MistyRollTarget, &s.ArinaRollTarget,
+		&s.MistyEncounterCount, &s.MistyDonatedCount,
+		&thomInt, &s.RobbieVisitCount,
+	)
+	if err == nil {
+		s.ThomAnimalLineFired = thomInt == 1
+		if mistyLast.Valid {
+			t := mistyLast.Time.UTC()
+			s.MistyLastSeen = &t
+		}
+		if arinaLast.Valid {
+			t := arinaLast.Time.UTC()
+			s.ArinaLastSeen = &t
+		}
+		if mistyBuff.Valid {
+			t := mistyBuff.Time.UTC()
+			s.MistyBuffExpires = &t
+		}
+		if mistyDebuff.Valid {
+			t := mistyDebuff.Time.UTC()
+			s.MistyDebuffExpires = &t
+		}
+		if arinaBuff.Valid {
+			t := arinaBuff.Time.UTC()
+			s.ArinaBuffExpires = &t
+		}
+		if s.HasNPCActivity() {
+			return s, nil
+		}
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return NPCState{}, err
+	}
+	// Fallback to AdvCharacter during soak.
+	var (
+		legacy                                                                    NPCState
+		legacyMisty, legacyArinaLast, legacyMBuff, legacyMDebuff, legacyABuff     sql.NullTime
+		legacyThom                                                                int
+	)
+	err = db.Get().QueryRow(
+		`SELECT misty_last_seen, arina_last_seen,
+		        misty_buff_expires, misty_debuff_expires, arina_buff_expires,
+		        npc_msg_count, npc_msg_count_date,
+		        misty_roll_target, arina_roll_target,
+		        misty_encounter_count, misty_donated_count,
+		        thom_animal_line_fired, robbie_visit_count
+		   FROM adventure_characters WHERE user_id = ?`,
+		string(userID),
+	).Scan(
+		&legacyMisty, &legacyArinaLast, &legacyMBuff, &legacyMDebuff, &legacyABuff,
+		&legacy.NPCMsgCount, &legacy.NPCMsgCountDate,
+		&legacy.MistyRollTarget, &legacy.ArinaRollTarget,
+		&legacy.MistyEncounterCount, &legacy.MistyDonatedCount,
+		&legacyThom, &legacy.RobbieVisitCount,
+	)
+	if err == sql.ErrNoRows {
+		return NPCState{}, nil
+	}
+	if err != nil {
+		return NPCState{}, err
+	}
+	legacy.ThomAnimalLineFired = legacyThom == 1
+	if legacyMisty.Valid {
+		t := legacyMisty.Time.UTC()
+		legacy.MistyLastSeen = &t
+	}
+	if legacyArinaLast.Valid {
+		t := legacyArinaLast.Time.UTC()
+		legacy.ArinaLastSeen = &t
+	}
+	if legacyMBuff.Valid {
+		t := legacyMBuff.Time.UTC()
+		legacy.MistyBuffExpires = &t
+	}
+	if legacyMDebuff.Valid {
+		t := legacyMDebuff.Time.UTC()
+		legacy.MistyDebuffExpires = &t
+	}
+	if legacyABuff.Valid {
+		t := legacyABuff.Time.UTC()
+		legacy.ArinaBuffExpires = &t
+	}
+	return legacy, nil
+}
+
+// backfillPlayerMetaNPCState copies NPC columns from adventure_characters
+// into player_meta for any row where every NPC field is still zero AND
+// the legacy row has any non-zero NPC field. Idempotent.
+func backfillPlayerMetaNPCState() error {
+	if _, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO player_meta (user_id)
+		SELECT user_id FROM adventure_characters
+	`); err != nil {
+		return err
+	}
+	res, err := db.Get().Exec(`
+		UPDATE player_meta
+		SET misty_last_seen        = (SELECT misty_last_seen        FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    arina_last_seen        = (SELECT arina_last_seen        FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    misty_buff_expires     = (SELECT misty_buff_expires     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    misty_debuff_expires   = (SELECT misty_debuff_expires   FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    arina_buff_expires     = (SELECT arina_buff_expires     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    npc_msg_count          = (SELECT npc_msg_count          FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    npc_msg_count_date     = (SELECT npc_msg_count_date     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    misty_roll_target      = (SELECT misty_roll_target      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    arina_roll_target      = (SELECT arina_roll_target      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    misty_encounter_count  = (SELECT misty_encounter_count  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    misty_donated_count    = (SELECT misty_donated_count    FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    thom_animal_line_fired = (SELECT thom_animal_line_fired FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    robbie_visit_count     = (SELECT robbie_visit_count     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
+		WHERE misty_last_seen IS NULL AND arina_last_seen IS NULL
+		  AND misty_buff_expires IS NULL AND misty_debuff_expires IS NULL
+		  AND arina_buff_expires IS NULL
+		  AND npc_msg_count = 0 AND npc_msg_count_date = ''
+		  AND misty_roll_target = 0 AND arina_roll_target = 0
+		  AND misty_encounter_count = 0 AND misty_donated_count = 0
+		  AND thom_animal_line_fired = 0 AND robbie_visit_count = 0
+		  AND EXISTS (
+			SELECT 1 FROM adventure_characters ac
+			WHERE ac.user_id = player_meta.user_id
+			  AND (ac.misty_last_seen IS NOT NULL OR ac.arina_last_seen IS NOT NULL
+			       OR ac.misty_buff_expires IS NOT NULL OR ac.misty_debuff_expires IS NOT NULL
+			       OR ac.arina_buff_expires IS NOT NULL
+			       OR ac.npc_msg_count > 0 OR ac.npc_msg_count_date <> ''
+			       OR ac.misty_roll_target > 0 OR ac.arina_roll_target > 0
+			       OR ac.misty_encounter_count > 0 OR ac.misty_donated_count > 0
+			       OR ac.thom_animal_line_fired = 1 OR ac.robbie_visit_count > 0)
+		  )
+	`)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	slog.Info("player_meta: NPC state backfilled", "rows", n)
+	return nil
+}
+
+// npcStateFromAdvChar projects NPC fields off an AdventureCharacter into
+// an NPCState. Used by the dual-write path during L5c soak.
+func npcStateFromAdvChar(c *AdventureCharacter) NPCState {
+	return NPCState{
+		MistyLastSeen:       c.MistyLastSeen,
+		ArinaLastSeen:       c.ArinaLastSeen,
+		MistyBuffExpires:    c.MistyBuffExpires,
+		MistyDebuffExpires:  c.MistyDebuffExpires,
+		ArinaBuffExpires:    c.ArinaBuffExpires,
+		NPCMsgCount:         c.NPCMsgCount,
+		NPCMsgCountDate:     c.NPCMsgCountDate,
+		MistyRollTarget:     c.MistyRollTarget,
+		ArinaRollTarget:     c.ArinaRollTarget,
+		MistyEncounterCount: c.MistyEncounterCount,
+		MistyDonatedCount:   c.MistyDonatedCount,
+		ThomAnimalLineFired: c.ThomAnimalLineFired,
+		RobbieVisitCount:    c.RobbieVisitCount,
+	}
+}
+
 // backfillPlayerMetaDisplayName copies adventure_characters.display_name
 // into player_meta.display_name for any row whose display_name is still
 // the empty default. Idempotent: safe to re-run; only updates rows that

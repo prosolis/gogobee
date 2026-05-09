@@ -235,6 +235,11 @@ func (p *AdventurePlugin) Init() error {
 	if err := backfillPlayerMetaBabysitState(); err != nil {
 		slog.Error("player_meta: babysit state backfill failed", "err", err)
 	}
+	// Adv 2.0 Phase L5c — one-shot NPC state backfill into player_meta.
+	// Idempotent (only fills rows where every NPC field is still zero).
+	if err := backfillPlayerMetaNPCState(); err != nil {
+		slog.Error("player_meta: NPC state backfill failed", "err", err)
+	}
 	// Phase L3 — cancel any open/active legacy coop dungeon runs and
 	// refund member contributions + unsettled bets. Idempotent.
 	closeAndRefundLegacyCoopRuns(p.euro)

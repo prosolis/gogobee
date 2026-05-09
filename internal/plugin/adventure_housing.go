@@ -253,6 +253,7 @@ func (p *AdventurePlugin) handleThomCmd(ctx MessageContext) error {
 			userMu.Lock()
 			char.ThomAnimalLineFired = true
 			_ = saveAdvCharacter(char)
+			_ = upsertPlayerMetaNPCState(char.UserID, npcStateFromAdvChar(char))
 			userMu.Unlock()
 		}
 		return p.SendDM(ctx.Sender, text)

@@ -169,6 +169,7 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 	if err == nil {
 		char.RobbieVisitCount++
 		_ = saveAdvCharacter(char)
+		_ = upsertPlayerMetaNPCState(userID, npcStateFromAdvChar(char))
 	}
 
 	// Send DM
