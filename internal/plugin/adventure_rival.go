@@ -29,13 +29,14 @@ const (
 )
 
 // rivalLevelForUser returns the player's D&D level for rival gating + stake
-// math, falling back to a CombatLevel-derived level when no D&D row exists
-// yet. Mirrors hospitalCostsForUser's fallback pattern.
+// math. Post-L5g every legacy player has a DnDCharacter row, so the
+// CombatLevel-derived fallback has been retired. Returns 1 as a safe floor
+// (filtered out by rivalMinLevel anyway).
 func rivalLevelForUser(char *AdventureCharacter) int {
 	if dnd, err := LoadDnDCharacter(char.UserID); err == nil && dnd != nil && dnd.Level > 0 {
 		return dnd.Level
 	}
-	return dndLevelFromCombatLevel(char.CombatLevel)
+	return 1
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────

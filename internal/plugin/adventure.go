@@ -255,6 +255,14 @@ func (p *AdventurePlugin) Init() error {
 	if err := backfillPlayerMetaMiscState(); err != nil {
 		slog.Error("player_meta: misc state backfill failed", "err", err)
 	}
+	// Adv 2.0 Phase L5g — one-shot DnDCharacter mass-backfill. Every legacy
+	// player without a D&D row gets an auto-migrated character seeded from
+	// their CombatLevel, retiring the dndLevelFromCombatLevel fallbacks in
+	// dndLevelForUser / rivalLevelForUser / hospitalCostsForUser. Idempotent
+	// (skips users who already have any dnd_character row).
+	if err := backfillDnDCharactersFromAdv(); err != nil {
+		slog.Error("dnd: L5g character backfill failed", "err", err)
+	}
 	// Phase L3 — cancel any open/active legacy coop dungeon runs and
 	// refund member contributions + unsettled bets. Idempotent.
 	closeAndRefundLegacyCoopRuns(p.euro)

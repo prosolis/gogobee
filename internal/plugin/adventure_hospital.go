@@ -19,15 +19,12 @@ type advPendingHospitalPay struct {
 // hospitalCostsForUser returns (beforeInsurance, afterInsurance) for the
 // hospital revival bill. Phase L4a switches the formula off CombatLevel
 // onto DnDCharacter.Level: `Level × 50_000` after insurance, 5× that
-// before. Falls back to the legacy combat-level mapping when no D&D
-// character row exists yet (createDnDCharacterFromAdv hasn't run).
+// before. Post-L5g every legacy player has a DnDCharacter row, so the
+// CombatLevel-derived fallback has been retired. Floors at level 1.
 func hospitalCostsForUser(char *AdventureCharacter) (int64, int64) {
-	level := 0
-	if dnd, err := LoadDnDCharacter(char.UserID); err == nil && dnd != nil {
+	level := 1
+	if dnd, err := LoadDnDCharacter(char.UserID); err == nil && dnd != nil && dnd.Level > 0 {
 		level = dnd.Level
-	}
-	if level <= 0 {
-		level = dndLevelFromCombatLevel(char.CombatLevel)
 	}
 	after := int64(level) * 50_000
 	before := after * 5

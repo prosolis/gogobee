@@ -286,6 +286,58 @@ func autoBuildCharacter(userID id.UserID, char *AdventureCharacter) *DnDCharacte
 	return c
 }
 
+// backfillDnDCharactersFromAdv is the L5g one-shot mass-backfill: for every
+// adventure_characters row that has no corresponding dnd_character row, build
+// an auto-migrated D&D character (same shape as ensureDnDCharacterForCombat's
+// fresh path) and persist it. After this lands, every legacy player has a
+// D&D row, so dndLevelForUser / rivalLevelForUser / hospitalCostsForUser can
+// drop their dndLevelFromCombatLevel fallbacks.
+//
+// Idempotent: skips users who already have any dnd_character row (including
+// pending-setup drafts — those finish via !setup confirm and shouldn't be
+// overwritten by the backfill).
+func backfillDnDCharactersFromAdv() error {
+	rows, err := db.Get().Query(`
+		SELECT a.user_id
+		FROM adventure_characters a
+		LEFT JOIN dnd_character d ON d.user_id = a.user_id
+		WHERE d.user_id IS NULL
+	`)
+	if err != nil {
+		return err
+	}
+	var userIDs []id.UserID
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			rows.Close()
+			return err
+		}
+		userIDs = append(userIDs, id.UserID(uid))
+	}
+	rows.Close()
+
+	created := 0
+	for _, uid := range userIDs {
+		char, err := loadAdvCharacter(uid)
+		if err != nil || char == nil {
+			continue
+		}
+		c := autoBuildCharacter(uid, char)
+		c.AutoMigrated = true
+		c.PendingSetup = false
+		if err := SaveDnDCharacter(c); err != nil {
+			slog.Error("dnd: L5g backfill save failed", "user", uid, "err", err)
+			continue
+		}
+		_ = initResources(uid, c.Class)
+		_ = ensureSpellsForCharacter(c)
+		created++
+	}
+	slog.Info("dnd: L5g backfill complete", "rows", created)
+	return nil
+}
+
 // ── Roll summary line ────────────────────────────────────────────────────────
 
 // dndRollSummaryLine scans a CombatResult's events for d20 rolls and returns
