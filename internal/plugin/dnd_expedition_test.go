@@ -53,8 +53,8 @@ func TestStartExpedition_RoundTrip(t *testing.T) {
 	if got.Supplies.Current != 10 || got.Supplies.DailyBurn != 1 {
 		t.Errorf("supplies round-trip wrong: %+v", got.Supplies)
 	}
-	if got.GMMood != 50 {
-		t.Errorf("gm_mood = %d", got.GMMood)
+	if got.DMMood != 50 {
+		t.Errorf("gm_mood = %d", got.DMMood)
 	}
 	if got.Camp != nil {
 		t.Errorf("expected no camp at start")

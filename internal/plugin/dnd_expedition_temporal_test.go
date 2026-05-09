@@ -553,7 +553,7 @@ func TestDragonsLair_AwarenessPulseFiresEveryThreeDays(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := getExpedition(exp.ID)
-	// +10 awareness pulse + ~3 daily threat drift = 13 (mod GMMood 50 = neutral).
+	// +10 awareness pulse + ~3 daily threat drift = 13 (mod DMMood 50 = neutral).
 	if got.ThreatLevel < prevThreat+10 {
 		t.Errorf("threat = %d, want ≥ %d (awareness pulse +10)", got.ThreatLevel, prevThreat+10)
 	}

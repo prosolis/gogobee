@@ -57,7 +57,7 @@ type DnDClassInfo struct {
 }
 
 var dndRaces = []DnDRaceInfo{
-	{RaceHuman, "Human", [6]int{0, 0, 0, 0, 0, 0}, "Versatile (floating +1 bonus deferred to Phase 2)"},
+	{RaceHuman, "Human", [6]int{0, 0, 0, 0, 0, 0}, "Versatile (floating +1 bonus not yet implemented)"},
 	{RaceElf, "Elf", [6]int{0, 2, -1, 1, 1, 0}, "Darkvision; immune to sleep effects"},
 	{RaceDwarf, "Dwarf", [6]int{1, -1, 2, 0, 1, -1}, "Poison resistance; bonus vs. underground enemies"},
 	{RaceHalfling, "Halfling", [6]int{0, 2, 0, 0, 1, 0}, "Lucky: once per combat, reroll a natural 1"},

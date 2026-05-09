@@ -328,12 +328,27 @@ func (p *AdventurePlugin) prependCraftNarrative(userID id.UserID, messages []str
 // Runs in a goroutine so it doesn't block the message handler.
 // Returns a channel that is closed when all messages have been sent.
 func (p *AdventurePlugin) sendCombatMessages(userID id.UserID, phaseMessages []string, finalMessage string) <-chan struct{} {
+	return p.sendCombatMessagesWithDelay(userID, phaseMessages, finalMessage, 5, 4) // 5–8s
+}
+
+// sendZoneCombatMessages is the zone/expedition variant — same staging as
+// arena, but tighter pacing (2–3s) so dungeon advances feel snappier.
+func (p *AdventurePlugin) sendZoneCombatMessages(userID id.UserID, phaseMessages []string, finalMessage string) <-chan struct{} {
+	return p.sendCombatMessagesWithDelay(userID, phaseMessages, finalMessage, 2, 2) // 2–3s
+}
+
+// sendCombatMessagesWithDelay is the shared streamer. base/jitter define
+// the per-message delay window in seconds: delay = base + rand.IntN(jitter).
+func (p *AdventurePlugin) sendCombatMessagesWithDelay(userID id.UserID, phaseMessages []string, finalMessage string, base, jitter int) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		for _, msg := range phaseMessages {
 			_ = p.SendDM(userID, msg)
-			delay := 5 + rand.IntN(4) // 5-8 seconds
+			delay := base
+			if jitter > 0 {
+				delay += rand.IntN(jitter)
+			}
 			time.Sleep(time.Duration(delay) * time.Second)
 		}
 		_ = p.SendDM(userID, finalMessage)

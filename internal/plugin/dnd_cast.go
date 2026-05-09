@@ -145,10 +145,12 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 		}
 	}
 
-	// Reaction spells deferred.
+	// Reaction spells deferred — combat is one-shot SimulateCombat, no
+	// per-turn windows where a reaction could trigger. Will land alongside
+	// turn-based combat when that arrives.
 	if spell.Effect == EffectReaction {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"%s is a reaction spell — those land in Phase 11 alongside turn-based boss combat.", spell.Name))
+			"%s is a reaction spell — those aren't usable yet (combat resolves in one beat, no reaction window). Pick a different spell.", spell.Name))
 	}
 
 	// Known + prepared check.

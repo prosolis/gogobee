@@ -31,7 +31,7 @@ func TestMoodBand_Boundaries(t *testing.T) {
 }
 
 func TestMoodEventDelta_DesignDocTable(t *testing.T) {
-	want := map[GMMoodEvent]int{
+	want := map[DMMoodEvent]int{
 		MoodEventZoneComplete:       +10,
 		MoodEventPlayerDeath:        -5,
 		MoodEventNat20:              +3,
@@ -75,8 +75,8 @@ func TestPassiveDecayMood_DriftsTowardFifty(t *testing.T) {
 }
 
 func TestTwinBeeLine_DeterministicAcrossCalls(t *testing.T) {
-	a := twinBeeLine(ZoneGoblinWarrens, GMRoomEntry, "abc123", 2)
-	b := twinBeeLine(ZoneGoblinWarrens, GMRoomEntry, "abc123", 2)
+	a := twinBeeLine(ZoneGoblinWarrens, DMRoomEntry, "abc123", 2)
+	b := twinBeeLine(ZoneGoblinWarrens, DMRoomEntry, "abc123", 2)
 	if a != b {
 		t.Errorf("non-deterministic:\n  a=%q\n  b=%q", a, b)
 	}
@@ -86,7 +86,7 @@ func TestTwinBeeLine_DeterministicAcrossCalls(t *testing.T) {
 	// Different room index should typically yield a different line
 	// (chance of accidental collision is 1/N; with the Goblin+Generic
 	// pool that's tiny but theoretically possible — only assert prefix).
-	c := twinBeeLine(ZoneGoblinWarrens, GMRoomEntry, "abc123", 3)
+	c := twinBeeLine(ZoneGoblinWarrens, DMRoomEntry, "abc123", 3)
 	if !strings.HasPrefix(c, "🎭 **TwinBee:**") {
 		t.Errorf("missing prefix on alt salt: %q", c)
 	}
@@ -94,18 +94,18 @@ func TestTwinBeeLine_DeterministicAcrossCalls(t *testing.T) {
 
 func TestTwinBeeLine_BossEntryUsesNamedPool(t *testing.T) {
 	// Grol's pool is a single hand-crafted line.
-	got := twinBeeLine(ZoneGoblinWarrens, GMBossEntry, "any", 0)
+	got := twinBeeLine(ZoneGoblinWarrens, DMBossEntry, "any", 0)
 	if !strings.Contains(got, "Grol") {
 		t.Errorf("Goblin Warrens boss entry should mention Grol; got %q", got)
 	}
-	got = twinBeeLine(ZoneCryptValdris, GMBossEntry, "any", 0)
+	got = twinBeeLine(ZoneCryptValdris, DMBossEntry, "any", 0)
 	if !strings.Contains(got, "Valdris") {
 		t.Errorf("Crypt boss entry should mention Valdris; got %q", got)
 	}
 }
 
 func TestTwinBeeLine_UnknownKindReturnsEmpty(t *testing.T) {
-	if got := twinBeeLine(ZoneGoblinWarrens, GMNarrationType("not_a_real_kind"), "x", 0); got != "" {
+	if got := twinBeeLine(ZoneGoblinWarrens, DMNarrationType("not_a_real_kind"), "x", 0); got != "" {
 		t.Errorf("expected empty for unknown kind, got %q", got)
 	}
 }
@@ -120,8 +120,8 @@ func TestApplyMoodEvent_PersistsClampedDelta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if run.GMMood != 50 {
-		t.Fatalf("starting mood = %d, want 50", run.GMMood)
+	if run.DMMood != 50 {
+		t.Fatalf("starting mood = %d, want 50", run.DMMood)
 	}
 
 	// +10 → 60
@@ -144,8 +144,8 @@ func TestApplyMoodEvent_PersistsClampedDelta(t *testing.T) {
 		_, _ = applyMoodEvent(run.RunID, MoodEventDowntime)
 	}
 	r, _ := getZoneRun(run.RunID)
-	if r.GMMood != 0 {
-		t.Errorf("after extreme negative stack: mood = %d, want 0 (clamped)", r.GMMood)
+	if r.DMMood != 0 {
+		t.Errorf("after extreme negative stack: mood = %d, want 0 (clamped)", r.DMMood)
 	}
 
 	// Clamp upward
@@ -153,13 +153,13 @@ func TestApplyMoodEvent_PersistsClampedDelta(t *testing.T) {
 		_, _ = applyMoodEvent(run.RunID, MoodEventCommunityMilestone)
 	}
 	r, _ = getZoneRun(run.RunID)
-	if r.GMMood != 100 {
-		t.Errorf("after extreme positive stack: mood = %d, want 100 (clamped)", r.GMMood)
+	if r.DMMood != 100 {
+		t.Errorf("after extreme positive stack: mood = %d, want 100 (clamped)", r.DMMood)
 	}
 }
 
 func TestApplyMoodEvent_UnknownEventErrors(t *testing.T) {
-	if _, err := applyMoodEvent("fake-run", GMMoodEvent("ghosts")); err == nil {
+	if _, err := applyMoodEvent("fake-run", DMMoodEvent("ghosts")); err == nil {
 		t.Error("expected error on unknown mood event")
 	}
 }
@@ -363,8 +363,8 @@ func TestZoneCmd_AdvanceFinalRoomBumpsMood(t *testing.T) {
 	if !final.BossDefeated {
 		t.Error("boss should be defeated after final markRoomCleared")
 	}
-	if final.GMMood != 60 {
-		t.Errorf("post-completion mood = %d, want 60 (50 + zone_complete +10)", final.GMMood)
+	if final.DMMood != 60 {
+		t.Errorf("post-completion mood = %d, want 60 (50 + zone_complete +10)", final.DMMood)
 	}
 }
 

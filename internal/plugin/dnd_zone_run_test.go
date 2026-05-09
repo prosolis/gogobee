@@ -83,8 +83,8 @@ func TestStartZoneRun_HappyPath(t *testing.T) {
 	if run.CurrentRoom != 0 {
 		t.Errorf("current room = %d", run.CurrentRoom)
 	}
-	if run.GMMood != 50 {
-		t.Errorf("gm mood = %d", run.GMMood)
+	if run.DMMood != 50 {
+		t.Errorf("gm mood = %d", run.DMMood)
 	}
 	if !run.IsActive() {
 		t.Error("expected run active")
@@ -201,15 +201,15 @@ func TestAdjustGMMoodClampsBounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, _ := getZoneRun(run.RunID)
-	if r.GMMood != 100 {
-		t.Errorf("upper clamp: mood = %d", r.GMMood)
+	if r.DMMood != 100 {
+		t.Errorf("upper clamp: mood = %d", r.DMMood)
 	}
 	if err := adjustGMMood(run.RunID, -250); err != nil {
 		t.Fatal(err)
 	}
 	r, _ = getZoneRun(run.RunID)
-	if r.GMMood != 0 {
-		t.Errorf("lower clamp: mood = %d", r.GMMood)
+	if r.DMMood != 0 {
+		t.Errorf("lower clamp: mood = %d", r.DMMood)
 	}
 }
 

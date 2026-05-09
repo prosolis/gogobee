@@ -1,7 +1,7 @@
 // DO NOT REWRITE, SUMMARIZE, OR SHORTEN ANY ENTRIES IN THIS FILE
 // twinbee_gm_flavor.go
 // TwinBee GM Dialogue — All narration lines for the GogoBee dungeon system.
-// Organized by GMNarrationType. Each slice is randomly sampled at runtime.
+// Organized by DMNarrationType. Each slice is randomly sampled at runtime.
 // Add new entries freely. Never remove or alter existing entries.
 
 package flavor

@@ -339,16 +339,24 @@ func currentRoomCleared(run *DungeonRun) bool {
 // handleHarvestCmd is the shared dispatcher for !forage/!mine/!scavenge/
 // !essence/!commune. Resolves a single attempt and DMs the outcome.
 func (p *AdventurePlugin) handleHarvestCmd(ctx MessageContext, action HarvestAction) error {
+	char, err := LoadDnDCharacter(ctx.Sender)
+	if err != nil || char == nil {
+		return p.SendDM(ctx.Sender, "No D&D character found. Run `!setup` first.")
+	}
 	exp, err := getActiveExpedition(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't load expedition state.")
 	}
 	if exp == nil {
-		return p.SendDM(ctx.Sender, "You're not on an expedition. Start one with `!expedition start <zone>`.")
-	}
-	char, err := LoadDnDCharacter(ctx.Sender)
-	if err != nil || char == nil {
-		return p.SendDM(ctx.Sender, "No D&D character found. Run `!setup` first.")
+		// No expedition: fall through to single-session harvest if the
+		// player has an active !zone enter run. Single-session harvest
+		// lives in dnd_zone_harvest.go and stores nodes per-run rather
+		// than per-region.
+		run, _ := getActiveZoneRun(ctx.Sender)
+		if run == nil {
+			return p.SendDM(ctx.Sender, "You're not in a zone or expedition. Use `!zone enter <id>` or `!expedition start <zone>`.")
+		}
+		return p.handleStandaloneHarvest(ctx, char, action, run)
 	}
 	if action == HarvestFish && !isFishingZone(exp.ZoneID) {
 		return p.SendDM(ctx.Sender, "There's no water to fish in here. `!fish` works only in Forest of Shadows, Sunken Temple, Underdark, or Feywild Crossing.")
@@ -581,6 +589,9 @@ func pickRichBonus(zoneID ZoneID, baseID string) *ZoneResource {
 func grantHarvestYield(userID id.UserID, res ZoneResource, qty int) error {
 	if qty <= 0 {
 		return nil
+	}
+	if isHol, _ := isHolidayToday(); isHol {
+		qty++
 	}
 	tier := zoneTierFromID(res.ZoneID)
 	for i := 0; i < qty; i++ {

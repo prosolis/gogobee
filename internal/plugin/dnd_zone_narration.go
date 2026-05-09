@@ -10,7 +10,7 @@ import (
 	"gogobee/internal/flavor"
 )
 
-// Phase 11 D1d — TwinBee narration + GM mood triggers. Implements
+// Phase 11 D1d — TwinBee narration + DM mood triggers. Implements
 // `gogobee_dungeon_zones.md` §3 (TwinBee GM System) on top of the D1b
 // state machine.
 //
@@ -23,22 +23,22 @@ import (
 // surfaces as the human label in `!zone status` and gates downstream
 // generosity (loot rolls, hint drops) once those land.
 
-// GMNarrationType — see design doc §7.
-type GMNarrationType string
+// DMNarrationType — see design doc §7.
+type DMNarrationType string
 
 const (
-	GMRoomEntry    GMNarrationType = "room_entry"
-	GMCombatStart  GMNarrationType = "combat_start"
-	GMCombatEnd    GMNarrationType = "combat_end"
-	GMNat20        GMNarrationType = "nat_20"
-	GMNat1         GMNarrationType = "nat_1"
-	GMBossEntry    GMNarrationType = "boss_entry"
-	GMBossDeath    GMNarrationType = "boss_death"
-	GMPlayerDeath  GMNarrationType = "player_death"
-	GMZoneComplete GMNarrationType = "zone_complete"
-	GMTrapDetected GMNarrationType = "trap_detected"
-	GMTrapTripped  GMNarrationType = "trap_tripped"
-	GMLore         GMNarrationType = "lore"
+	DMRoomEntry    DMNarrationType = "room_entry"
+	DMCombatStart  DMNarrationType = "combat_start"
+	DMCombatEnd    DMNarrationType = "combat_end"
+	DMNat20        DMNarrationType = "nat_20"
+	DMNat1         DMNarrationType = "nat_1"
+	DMBossEntry    DMNarrationType = "boss_entry"
+	DMBossDeath    DMNarrationType = "boss_death"
+	DMPlayerDeath  DMNarrationType = "player_death"
+	DMZoneComplete DMNarrationType = "zone_complete"
+	DMTrapDetected DMNarrationType = "trap_detected"
+	DMTrapTripped  DMNarrationType = "trap_tripped"
+	DMLore         DMNarrationType = "lore"
 )
 
 // MoodBand — five-state band derived from the 0–100 score.
@@ -127,31 +127,31 @@ func bossEntryPool(zoneID ZoneID) []string {
 // pickPool routes a narration type to the right []string pool from
 // internal/flavor. Returns nil for kinds that have no pool yet (caller
 // is expected to skip rendering or fall back to a static line).
-func pickPool(zoneID ZoneID, kind GMNarrationType) []string {
+func pickPool(zoneID ZoneID, kind DMNarrationType) []string {
 	switch kind {
-	case GMRoomEntry:
+	case DMRoomEntry:
 		return zoneRoomEntryPool(zoneID)
-	case GMBossEntry:
+	case DMBossEntry:
 		return bossEntryPool(zoneID)
-	case GMCombatStart:
+	case DMCombatStart:
 		return flavor.CombatStart
-	case GMCombatEnd:
+	case DMCombatEnd:
 		return flavor.CombatVictory
-	case GMNat20:
+	case DMNat20:
 		return flavor.Nat20
-	case GMNat1:
+	case DMNat1:
 		return flavor.Nat1
-	case GMBossDeath:
+	case DMBossDeath:
 		return flavor.BossDeath
-	case GMPlayerDeath:
+	case DMPlayerDeath:
 		return flavor.PlayerDeath
-	case GMZoneComplete:
+	case DMZoneComplete:
 		return flavor.ZoneComplete
-	case GMTrapDetected:
+	case DMTrapDetected:
 		return flavor.TrapDetected
-	case GMTrapTripped:
+	case DMTrapTripped:
 		return flavor.TrapTriggered
-	case GMLore:
+	case DMLore:
 		return zoneLorePool(zoneID)
 	}
 	return nil
@@ -302,7 +302,7 @@ func eliteRoomEntryPool(zoneID ZoneID) []string {
 // has a signature pool, a single ability callout on the line below.
 // Falls back to the bare boss-entry line when no signature pool exists.
 func composeBossEntry(zoneID ZoneID, runID string, roomIdx int) string {
-	entry := twinBeeLine(zoneID, GMBossEntry, runID, roomIdx)
+	entry := twinBeeLine(zoneID, DMBossEntry, runID, roomIdx)
 	pool := bossSignaturePool(zoneID)
 	if entry == "" || len(pool) == 0 {
 		return entry
@@ -352,7 +352,7 @@ func pickLineDeterministic(lines []string, runID string, salt int) string {
 //
 // roomIdx is folded into the deterministic selector so the same room
 // in the same run always renders the same prose (idempotent reads).
-func twinBeeLine(zoneID ZoneID, kind GMNarrationType, runID string, roomIdx int) string {
+func twinBeeLine(zoneID ZoneID, kind DMNarrationType, runID string, roomIdx int) string {
 	pool := pickPool(zoneID, kind)
 	line := pickLineDeterministic(pool, runID, roomIdx)
 	if line == "" {
@@ -414,22 +414,22 @@ func moodAsideLine(mood int, runID string, roomIdx int) string {
 
 // ── Mood event table & application ───────────────────────────────────────────
 
-// GMMoodEvent enumerates the mood-modifier triggers from design doc §3.2.
-type GMMoodEvent string
+// DMMoodEvent enumerates the mood-modifier triggers from design doc §3.2.
+type DMMoodEvent string
 
 const (
-	MoodEventZoneComplete       GMMoodEvent = "zone_complete"
-	MoodEventPlayerDeath        GMMoodEvent = "player_death"
-	MoodEventNat20              GMMoodEvent = "nat_20"
-	MoodEventNat1               GMMoodEvent = "nat_1"
-	MoodEventCommunityMilestone GMMoodEvent = "community_milestone"
-	MoodEventDowntime           GMMoodEvent = "downtime"
-	MoodEventTaunt              GMMoodEvent = "taunt"
-	MoodEventCompliment         GMMoodEvent = "compliment"
+	MoodEventZoneComplete       DMMoodEvent = "zone_complete"
+	MoodEventPlayerDeath        DMMoodEvent = "player_death"
+	MoodEventNat20              DMMoodEvent = "nat_20"
+	MoodEventNat1               DMMoodEvent = "nat_1"
+	MoodEventCommunityMilestone DMMoodEvent = "community_milestone"
+	MoodEventDowntime           DMMoodEvent = "downtime"
+	MoodEventTaunt              DMMoodEvent = "taunt"
+	MoodEventCompliment         DMMoodEvent = "compliment"
 )
 
 // moodEventDelta — design doc §3.2 mood-modifier table.
-var moodEventDelta = map[GMMoodEvent]int{
+var moodEventDelta = map[DMMoodEvent]int{
 	MoodEventZoneComplete:       +10,
 	MoodEventPlayerDeath:        -5,
 	MoodEventNat20:              +3,
@@ -441,11 +441,11 @@ var moodEventDelta = map[GMMoodEvent]int{
 }
 
 // MoodEventDelta exposes the static delta for an event (test use).
-func MoodEventDelta(ev GMMoodEvent) int { return moodEventDelta[ev] }
+func MoodEventDelta(ev DMMoodEvent) int { return moodEventDelta[ev] }
 
 // applyMoodEvent updates the run's mood by the event's delta. Returns
 // the new mood score after clamping.
-func applyMoodEvent(runID string, ev GMMoodEvent) (int, error) {
+func applyMoodEvent(runID string, ev DMMoodEvent) (int, error) {
 	delta, ok := moodEventDelta[ev]
 	if !ok {
 		return 0, fmt.Errorf("unknown mood event: %s", ev)
@@ -457,7 +457,7 @@ func applyMoodEvent(runID string, ev GMMoodEvent) (int, error) {
 	if err != nil || r == nil {
 		return 0, err
 	}
-	return r.GMMood, nil
+	return r.DMMood, nil
 }
 
 // passiveDecayMood drifts the mood toward 50 at ±2/hour, scaled by
@@ -509,8 +509,8 @@ func applyMoodDecayIfStale(r *DungeonRun) error {
 	if r == nil {
 		return nil
 	}
-	newMood := passiveDecayMood(r.GMMood, r.LastActionAt, time.Now().UTC())
-	if newMood == r.GMMood {
+	newMood := passiveDecayMood(r.DMMood, r.LastActionAt, time.Now().UTC())
+	if newMood == r.DMMood {
 		return nil
 	}
 	if _, err := db.Get().Exec(`
@@ -518,6 +518,6 @@ func applyMoodDecayIfStale(r *DungeonRun) error {
 		newMood, r.RunID); err != nil {
 		return err
 	}
-	r.GMMood = newMood
+	r.DMMood = newMood
 	return nil
 }

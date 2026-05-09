@@ -81,18 +81,18 @@ func threatBandInfo(b ThreatBand) ThreatBandInfo {
 	return ThreatBandInfo{Band: ThreatBandQuiet, Label: "Quiet", SupplyMult: 1}
 }
 
-// dailyThreatDrift is the +3/day base (§8.1) plus the GMMood-driven mod
+// dailyThreatDrift is the +3/day base (§8.1) plus the DMMood-driven mod
 // (Wrathful +5, Elated -3). Mood bands map: effusive (≥80) → Elated,
 // hostile (<20) → Wrathful, the middle three are neutral.
-func dailyThreatDrift(gmMood int) (int, string) {
+func dailyThreatDrift(dmMood int) (int, string) {
 	base := 3
 	mod := 0
 	tag := ""
 	switch {
-	case gmMood >= 80:
+	case dmMood >= 80:
 		mod = -3
 		tag = "elated"
-	case gmMood < 20:
+	case dmMood < 20:
 		mod = 5
 		tag = "wrathful"
 	}
@@ -111,7 +111,7 @@ func applyDailyThreatDrift(e *Expedition) (int, string, error) {
 	if e.BossDefeated {
 		return 0, "", nil
 	}
-	delta, reason := dailyThreatDrift(e.GMMood)
+	delta, reason := dailyThreatDrift(e.DMMood)
 	if delta == 0 {
 		return 0, reason, nil
 	}

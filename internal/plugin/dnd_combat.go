@@ -487,3 +487,36 @@ func persistDnDHPAfterCombat(userID id.UserID, legacyStartHP, legacyEndHP int) {
 		slog.Error("dnd: persist hp after combat", "user", userID, "err", err)
 	}
 }
+
+// dndHPSnapshot returns the user's D&D-scale (current, max) HP. Caller
+// captures pre-combat values via this helper, runs combat (which calls
+// persistDnDHPAfterCombat internally), then re-snapshots for the post
+// values. Used so combat outcome narration shows sheet HP rather than
+// the legacy combat-engine HP scale.
+func dndHPSnapshot(userID id.UserID) (cur, max int) {
+	c, err := LoadDnDCharacter(userID)
+	if err != nil || c == nil {
+		return 0, 0
+	}
+	return c.HPCurrent, c.HPMax
+}
+
+// markAdventureDead flips the legacy adventure_characters.alive flag and
+// starts the 6h respawn timer for a player who went down in a D&D-layer
+// combat. Without this, hp_current persists as 0 but the legacy alive
+// flag stays true — the "zombie" state where !hospital says "you're
+// alive!" while the sheet shows 0/33. Idempotent: bails if already dead.
+//
+// source is "zone" / "expedition" / "patrol"; location is human-readable
+// (e.g. "Forest of Shadows") and surfaces in the daily report and
+// standout-loss flavor.
+func markAdventureDead(userID id.UserID, source, location string) {
+	char, err := loadAdvCharacter(userID)
+	if err != nil || char == nil || !char.Alive {
+		return
+	}
+	char.Kill(source, location)
+	if err := saveAdvCharacter(char); err != nil {
+		slog.Error("dnd: kill on combat loss", "user", userID, "err", err)
+	}
+}

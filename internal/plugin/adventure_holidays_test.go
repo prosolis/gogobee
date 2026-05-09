@@ -258,9 +258,9 @@ func TestFixedHolidays_NoDuplicateMonthDay(t *testing.T) {
 
 func TestDailySummary_HolidayBlock(t *testing.T) {
 	players := []AdvPlayerDaySummary{
-		{DisplayName: "Alice", Activity: "dungeon", Location: "Cellar", Outcome: "success", LootValue: 500, HolidayActions: 2},
-		{DisplayName: "Bob", Activity: "mine", Location: "Quarry", Outcome: "success", LootValue: 300, HolidayActions: 1},
-		{DisplayName: "Carol", IsDead: true, DeadUntil: "14:00 UTC", Activity: "dungeon", Location: "Cave", Outcome: "death", HolidayActions: 1},
+		{DisplayName: "Alice", Activity: "dungeon", Location: "Cellar", Outcome: "success", LootValue: 500},
+		{DisplayName: "Bob", Activity: "mine", Location: "Quarry", Outcome: "success", LootValue: 300},
+		{DisplayName: "Carol", IsDead: true, DeadUntil: "14:00 UTC", Activity: "dungeon", Location: "Cave", Outcome: "death"},
 	}
 
 	text := renderAdvDailySummary("2026-12-25", nil, TwinBeeRewardSummary{}, players, "Christmas")
@@ -268,17 +268,19 @@ func TestDailySummary_HolidayBlock(t *testing.T) {
 	if !strings.Contains(text, "Christmas") {
 		t.Error("summary should contain holiday name")
 	}
-	if !strings.Contains(text, "two actions today") {
-		t.Error("summary should mention two actions on holidays")
+	// Adv 2.0 — holiday recap now advertises the +5 mood / free pack /
+	// +1 yield perks instead of the retired double-action mechanic.
+	if !strings.Contains(text, "TwinBee's blessing") {
+		t.Error("summary should mention TwinBee's blessing on holidays")
 	}
-	if !strings.Contains(text, "before their second action") {
-		t.Error("summary should note Carol died before second action")
+	if !strings.Contains(text, "free standard pack") {
+		t.Error("summary should mention the complimentary standard pack")
 	}
 
 	// Without holiday
 	textNoHol := renderAdvDailySummary("2026-12-26", nil, TwinBeeRewardSummary{}, players, "")
-	if strings.Contains(textNoHol, "two actions") {
-		t.Error("non-holiday summary should NOT mention two actions")
+	if strings.Contains(textNoHol, "TwinBee's blessing") {
+		t.Error("non-holiday summary should NOT mention TwinBee's blessing")
 	}
 }
 

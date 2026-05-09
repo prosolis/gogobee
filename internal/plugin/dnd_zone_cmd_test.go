@@ -239,8 +239,8 @@ func TestGMMoodLabel_Bands(t *testing.T) {
 		0:   "hostile",
 	}
 	for mood, want := range cases {
-		if got := gmMoodLabel(mood); got != want {
-			t.Errorf("gmMoodLabel(%d) = %s, want %s", mood, got, want)
+		if got := dmMoodLabel(mood); got != want {
+			t.Errorf("dmMoodLabel(%d) = %s, want %s", mood, got, want)
 		}
 	}
 }
@@ -260,7 +260,7 @@ func TestZoneCmd_TauntAppliesMoodPenalty(t *testing.T) {
 	if err != nil || before == nil {
 		t.Fatalf("active run after enter: %v", err)
 	}
-	startMood := before.GMMood
+	startMood := before.DMMood
 	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "taunt"); err != nil {
 		t.Fatalf("taunt: %v", err)
 	}
@@ -269,9 +269,9 @@ func TestZoneCmd_TauntAppliesMoodPenalty(t *testing.T) {
 		t.Fatalf("active run after taunt: %v", err)
 	}
 	want := clampMood(startMood + MoodEventDelta(MoodEventTaunt))
-	if after.GMMood != want {
+	if after.DMMood != want {
 		t.Errorf("mood after taunt = %d, want %d (start %d, delta %d)",
-			after.GMMood, want, startMood, MoodEventDelta(MoodEventTaunt))
+			after.DMMood, want, startMood, MoodEventDelta(MoodEventTaunt))
 	}
 }
 
@@ -288,7 +288,7 @@ func TestZoneCmd_ComplimentAppliesMoodBonus(t *testing.T) {
 	if err != nil || before == nil {
 		t.Fatalf("active run after enter: %v", err)
 	}
-	startMood := before.GMMood
+	startMood := before.DMMood
 	if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "compliment"); err != nil {
 		t.Fatalf("compliment: %v", err)
 	}
@@ -297,9 +297,9 @@ func TestZoneCmd_ComplimentAppliesMoodBonus(t *testing.T) {
 		t.Fatalf("active run after compliment: %v", err)
 	}
 	want := clampMood(startMood + MoodEventDelta(MoodEventCompliment))
-	if after.GMMood != want {
+	if after.DMMood != want {
 		t.Errorf("mood after compliment = %d, want %d (start %d, delta %d)",
-			after.GMMood, want, startMood, MoodEventDelta(MoodEventCompliment))
+			after.DMMood, want, startMood, MoodEventDelta(MoodEventCompliment))
 	}
 }
 
@@ -351,8 +351,8 @@ func TestZoneCmd_LoreWithActiveRunNoSideEffects(t *testing.T) {
 	if err != nil || after == nil {
 		t.Fatalf("active run after lore: %v", err)
 	}
-	if after.GMMood != before.GMMood {
-		t.Errorf("lore should not move mood: before %d, after %d", before.GMMood, after.GMMood)
+	if after.DMMood != before.DMMood {
+		t.Errorf("lore should not move mood: before %d, after %d", before.DMMood, after.DMMood)
 	}
 	if after.CurrentRoom != before.CurrentRoom {
 		t.Errorf("lore should not advance room: before %d, after %d", before.CurrentRoom, after.CurrentRoom)
@@ -393,14 +393,14 @@ func TestRenderZoneMap_Empty(t *testing.T) {
 }
 
 // TestNarrationCoverage_AllZonesAllTypes — D6 polish guarantee. Locks in
-// that every GMNarrationType resolves to a non-empty pool for every
-// registered zone. Adding a new zone or new GMNarrationType without
+// that every DMNarrationType resolves to a non-empty pool for every
+// registered zone. Adding a new zone or new DMNarrationType without
 // wiring its pool will fail this test.
 func TestNarrationCoverage_AllZonesAllTypes(t *testing.T) {
-	types := []GMNarrationType{
-		GMRoomEntry, GMCombatStart, GMCombatEnd, GMNat20, GMNat1,
-		GMBossEntry, GMBossDeath, GMPlayerDeath, GMZoneComplete,
-		GMTrapDetected, GMTrapTripped, GMLore,
+	types := []DMNarrationType{
+		DMRoomEntry, DMCombatStart, DMCombatEnd, DMNat20, DMNat1,
+		DMBossEntry, DMBossDeath, DMPlayerDeath, DMZoneComplete,
+		DMTrapDetected, DMTrapTripped, DMLore,
 	}
 	for _, z := range allZones() {
 		for _, k := range types {

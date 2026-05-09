@@ -150,7 +150,6 @@ func (p *AdventurePlugin) applySubclassChoice(
 		b.WriteString(fmt.Sprintf("_%d euros spent. Cooldown: %dd before next change._\n\n",
 			dndSubclassRespecCost, int(dndSubclassRespecCooldown/(24*time.Hour))))
 	}
-	b.WriteString("_" + info.Flavor + "_\n\n")
-	b.WriteString("_(Mechanical L5/7/10/15 subclass abilities land in upcoming phases.)_")
+	b.WriteString("_" + info.Flavor + "_")
 	return p.SendDM(ctx.Sender, b.String())
 }

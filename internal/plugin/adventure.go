@@ -192,14 +192,14 @@ func (p *AdventurePlugin) Init() error {
 	if err := lockCoopCombatActions(); err != nil {
 		slog.Error("adventure: startup coop combat lock failed", "err", err)
 	}
-	// Phase R1 — archive any active dnd_zone_run rows that aren't linked to
-	// an active expedition. Idempotent: re-running it does nothing once the
-	// orphan set is empty.
-	if n, err := archiveOrphanZoneRuns(); err != nil {
-		slog.Error("adventure: R1 orphan zone-run archive failed", "err", err)
-	} else if n > 0 {
-		slog.Info("adventure: R1 archived orphan zone runs", "count", n)
-	}
+	// Phase R1 orphan-archive used to run here on every Init, but it
+	// over-archived: it treats any active dnd_zone_run row not linked to
+	// an active expedition as a legacy `!adventure dungeon` orphan, which
+	// also kills legitimate `!zone enter` single-session runs every time
+	// the bot restarts. That migration's job was done on its first
+	// execution; leaving it on Init was eating live runs. The function is
+	// preserved for one-off invocation if a future schema change ever
+	// needs it again.
 	// Revive any characters whose DeadUntil has expired
 	p.catchUpRespawns(chars)
 

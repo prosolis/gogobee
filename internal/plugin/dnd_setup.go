@@ -632,7 +632,7 @@ func renderSetupComplete(c *DnDCharacter) string {
 			"  HP %d/%d   AC %d\n"+
 			"  STR %d  DEX %d  CON %d  INT %d  WIS %d  CHA %d\n\n"+
 			"_%s_\n\n"+
-			"Use `!sheet` anytime to review. Combat, abilities, and rest mechanics arrive in the next phases.",
+			"Use `!sheet` anytime to review. `!zone list` to head out, or `!expedition list` for a longer run.",
 		c.Level, ri.Display, ci.Display,
 		c.HPCurrent, c.HPMax, c.ArmorClass,
 		c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA,

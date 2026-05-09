@@ -361,7 +361,7 @@ type Expedition struct {
     Log             []ExpeditionEntry `json:"log"`
     LootCollected   []string          `json:"loot_collected"`
     XPEarned        int               `json:"xp_earned"`
-    GMMood          int               `json:"gm_mood"`
+    DMMood          int               `json:"gm_mood"`
     LastActivity    time.Time         `json:"last_activity"`
 }
 

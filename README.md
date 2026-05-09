@@ -30,7 +30,7 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 - **E2EE that actually works** - mautrix-go with goolm (pure Go). Crypto state lives in SQLite so device keys survive restarts. Cross-signing bootstraps on first run — the bot self-verifies its own device.
 - **No CGo, no system deps** - builds to a single static binary. Cross-compile to whatever you want.
 - **50 plugins** with dependency injection and ordered registration
-- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict, difficulty tier display), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-20 letter words, guess persistence across restarts, midnight expiry announcements, video game themed bonus words with category hints, dupe prevention across last 500 puzzles, earnings tracked in stats), Adventure (daily idle RPG via DMs — dungeon, mine, forage, fish, shop, or rest with TwinBee NPC distributing level-scaled rewards, mid-day random events, tier shorthand buying, holiday double actions, hospital revival system, Robbie the Friendly Bandit automated inventory cleaner), Arena (5-tier combat gauntlet with 20 unique monsters, risk-reward cashout system, death lockout, leaderboard), Co-op Dungeons (2–7 day party runs with funding tiers, TwinBee-narrated floor events with voting, spectator parimutuel betting, basket/mimic gift system, weighted-roll item distribution including masterworks at T4–T5), all with channel restriction
+- **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict, difficulty tier display), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-20 letter words, guess persistence across restarts, midnight expiry announcements, video game themed bonus words with category hints, dupe prevention across last 500 puzzles, earnings tracked in stats), Adventure 2.0 (D&D-layered RPG: 7 races, 5 classes with 3 subclasses each through L15, real spell slots and forward-simulating combat engine, 10 hand-tuned dungeon zones across 5 tiers, multi-day expeditions with supply burn / threat clock / day cycle / multi-region travel / extract-and-resume / per-zone temporal events, harvest nodes per room, TwinBee as a mood-driven DM with ten zone-specific narration pools, all on top of the existing economy/housing/pets/Misty/Arina/blacksmith/hospital/rivals systems), Arena (5-tier combat gauntlet with 20 unique monsters, streak-based payouts, death lockout, leaderboard), Co-op Dungeons (2–7 day party runs with funding tiers, TwinBee-narrated floor events with voting, spectator parimutuel betting, basket/mimic gift system, weighted-roll item distribution including masterworks at T4–T5), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - Palavra do Dia (Portuguese WOTD with en/fr translations and etymology), holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
@@ -473,44 +473,150 @@ Daily cooperative Wordle — one puzzle per day, the community works together wi
 
 Economy rewards are tracked per player — `!wordle stats` shows total earnings.
 
-### Adventure (DM-based idle RPG)
+### Adventure (DM-based RPG)
 
-A daily DM-driven idle RPG where each player takes one action per day — dungeon, mine, fish, forage, visit the shop, blacksmith, or rest. Outcomes resolve with flavor text and loot is credited to your euro balance. An evening summary posts to the games room. TwinBee is a permanent NPC adventurer who distributes rewards to active players.
+A layered RPG. **Adventure 2.0** grafts a full D&D-style character system on top of the existing adventure economy, then builds two endgame loops on top of that: single-session dungeon zones and multi-day expeditions. The legacy systems — housing/Thom Krooke, pets, Misty/Arina, blacksmith, hospital, rivals, Robbie, arena, co-op dungeons — all keep working unchanged. Players who don't opt into 2.0 keep the legacy adventure shape; players who run `!setup` get the full D&D layer on top.
 
-Characters auto-create on first `!adventure` (or `!adv`) command. All gameplay happens in DMs — reply to the bot's morning prompt with your choice. DM replies are only interpreted as adventure choices for 15 minutes after a menu is sent, so other DM-based games (UNO, Hold'em) won't conflict.
+Characters auto-create on first interaction. Most gameplay happens in DMs — the morning prompt routes to zones/expeditions for the active flow plus in-town services (shop, blacksmith, rest, hospital, Thom Krooke) for the rest.
+
+#### Adventure 2.0 — D&D Layer
+
+`!setup` once. Pick a race + class. Your existing `combat_level` becomes your D&D level, treasures become attunements, equipment slots carry forward 1:1. Every fight, harvest, arena run, and co-op dungeon is then resolved through D&D mechanics — STR/DEX/CON/INT/WIS/CHA, HP, AC, ability checks, saving throws, all the rest.
+
+**Races (7) — at race choice, fixed stat mods + a passive:**
+
+| Race | Mods (S/D/C/I/W/Ch) | Passive |
+|---|---|---|
+| Human | 0/0/0/0/0/0 | Versatile (floating +1 not yet wired) |
+| Elf | 0/+2/-1/+1/+1/0 | Darkvision; immune to sleep effects |
+| Dwarf | +1/-1/+2/0/+1/-1 | Poison resistance; bonus vs. underground |
+| Halfling | 0/+2/0/0/+1/0 | Lucky: once per combat, reroll a nat 1 |
+| Orc | +3/-1/+2/-1/-1/-1 | Rage: once per combat, +50% damage for one turn |
+| Tiefling | 0/+1/0/+1/0/+2 | Fire resistance; bonus on CHA checks |
+| Half-Elf | 0/+1/0/+1/0/+2 | Two bonus skill proficiencies |
+
+**Classes (5):** Fighter (d10 HP, STR/CON), Rogue (d8, DEX/INT), Mage (d6, INT/WIS), Cleric (d8, WIS/CHA), Ranger (d8, DEX/WIS).
+
+**Subclasses** unlock at L3 via `!subclass`. Each class has 3 archetypes with mechanical features at L5/L7/L10/L15:
+
+| Class | Subclasses |
+|---|---|
+| Fighter | Champion, Battle Master, Berserker |
+| Rogue | Thief, Assassin, Arcane Trickster |
+| Mage | Evocation, Abjuration, Necromancy, Arcane Trickster |
+| Cleric | Life, War, Trickery |
+| Ranger | Hunter, Beast Master, Gloom Stalker |
+
+**Spells.** Mages, Clerics, and Rangers cast for real. Spell slots tracked, combat consumes them. Mages have a spellbook cap that grows with level — pick what to learn at level-up via `!learn`.
+
+**Combat engine.** Forward-simulating turn-by-turn — d20 vs AC for every attack, hit/crit/miss/fumble narration with surfaced roll values (`(🎲 14 vs AC 13)`), monster abilities, status effects, class resources, consumables. Outcomes stream over 2–3 second pacing for suspense, with a roll summary appended.
+
+**Dungeon zones (`!zone`)** — 10 hand-tuned zones, 5 tiers, level bands L1–L20:
+
+| Tier | Zones |
+|---|---|
+| T1 | Goblin Warrens, Crypt of Valdris |
+| T2 | Forest of Shadows, Sunken Temple |
+| T3 | Haunted Manor, Underforge |
+| T4 | Underdark Outpost, Feywild Crossing |
+| T5 | Dragon's Lair, Abyss Portal |
+
+Each run is procedurally laid out (entry → exploration → trap → elite → boss with exploration filler). TwinBee narrates as a mood-driven DM (0–100 mood, shifts on crits/deaths/taunts/zone completion). `!zone enter`, `!zone advance` to resolve the current room, `!zone status`, `!zone map` (ASCII layout `E──?──T──★──☠`), `!zone lore`, `!zone taunt` / `!zone compliment` to poke or flatter your DM.
+
+**Multi-day expeditions (`!expedition`)** — the long form:
+
+- **Outfitting:** buy supply packs at start (standard/deluxe), cost scales with zone tier
+- **Real-time day cycle:** 06:00 morning briefing, 21:00 evening recap (configurable)
+- **Supply burn:** rations tick down each day; harsh zones burn faster; running out triggers forced extraction
+- **Threat Clock (0–100):** every action is noticed. Crossing bands shifts monster density, patrol odds, night events: Quiet → Stirring → Alert → Hostile → Siege
+- **Patrol encounters** at Alert+ — fights interrupt traversal
+- **Night phase / wandering monsters** — checked at the recap
+- **Siege Mode (threat 80+):** fortified camp branches, special warnings
+- **Camp:** `!camp rough` (free, no protection) vs `!camp standard` (consumes supplies, grants overnight rest)
+- **Milestones:** First Night, Deep Dive, Long Haul, Survivalist, etc.
+- **Expedition log** (`!expedition log`) — every event recorded
+
+**Multi-region zones.** T4+ zones have multiple connected regions. `!region` shows where you are, where you can travel, and visited set. Inter-region travel consumes supplies and ticks threat. Base camp is a persistent waypoint per expedition. `!map` renders the full multi-region map.
+
+**Per-zone temporal events** (signature time-based effects on every T2+ zone):
+
+- **Sunken Temple** — tidal cycle floods/recedes rooms
+- **Haunted Manor** — nightly reset; cleared rooms come back
+- **Underforge** — heat accumulation; gear damage rises
+- **Feywild Crossing** — time distortion; days pass at non-uniform rates
+- **Dragon's Lair** — awareness pulses warn the dragon directly
+- **Abyss Portal** — destabilization stack threatens forced collapse
+
+**Extract & resume.** `!extract` bails safely from an expedition. Loot/XP/coins kept, expedition flips to `extracting` status, `!resume` within 7 days picks up from base camp.
+
+**Harvest.** `!forage` / `!mine` / `!fish` / `!scavenge` / `!essence` / `!commune` work in cleared rooms during expeditions, and (Phase R) in single-session `!zone enter` runs too — per-room nodes seeded from the zone resource pool, finite charges, class-specific yield bonuses (Ranger forage/fish, Fighter mine), `!resources` to see what's gatherable. Zone-condition events (tidal block, heat block, manor cursed trinket drops) layer on during expeditions.
+
+**Boss combat.** Every zone's boss is in the bestiary with its own stat block and phase-two narration crossing 50% HP. Win drops the per-zone loot table; T5 always drops a masterwork.
+
+**HP scale.** D&D HP is the source of truth (your sheet says, e.g., `33 max`). The combat engine internally uses a legacy HP scale (calibrated for the old `combat_level`-based curves, ~123 max for a high-level player), but combat outcomes are translated back to D&D scale before display: `HP 33→26 / 33` is what you see, never the engine's internal numbers.
+
+**Holidays.** On recognized holidays (~20/year, religious + cultural calendars), runs start with TwinBee mood +5, expedition outfitting includes a free standard pack, and harvest yields +1 per attempt. Hospital surcharge still applies on holiday deaths.
+
+**Player commands cheat sheet:**
+
+| Command | What it does |
+|---|---|
+| `!setup` | Opt into D&D — pick race + class, inherits your existing progress |
+| `!sheet` | Full character sheet |
+| `!learn` | Mages — pick a spell at level-up |
+| `!subclass` | Inspect / select subclass at L3 |
+| `!rest short` / `!rest long` | Recover HP between fights (1h / 24h cooldowns) |
+| `!check <skill> [dc]` | Roll a skill check |
+| `!zone` / `!zone list` | Zones available at your level |
+| `!zone enter <id>` | Start a single-session run |
+| `!zone advance` | Resolve current room |
+| `!zone status` / `!zone map` / `!zone lore` | Run inspection |
+| `!zone abandon` | End run, no rewards |
+| `!zone taunt` / `!zone compliment` | Poke the DM |
+| `!expedition list` | Zones available at your level |
+| `!expedition start <zone> [Ns] [Md]` | Outfit and begin |
+| `!expedition status` / `!expedition log` | Daily briefing + history |
+| `!expedition abandon` | End expedition (no rewards) |
+| `!camp rough` / `!camp standard` | Make camp |
+| `!region` | Multi-region inspection + travel |
+| `!map` | Full multi-region map |
+| `!forage` / `!mine` / `!scavenge` / `!fish` / `!essence` / `!commune` | Work the room |
+| `!resources` | Inventory of harvested materials |
+| `!threat` | Current threat clock |
+| `!extract` | Bail safely from an expedition |
+| `!resume` | Pick up an extracted expedition |
+| `!respec` | Wipe character (paid; cooldown gated) |
+
+**Compatibility.** Adv 2.0 is fully additive — every pre-2.0 column on `adventure_characters`, `adventure_equipment`, `adventure_inventory`, `adventure_treasures`, `arena_stats`, etc. is preserved with original semantics. Migrations are column-adds with defaults only. Players who haven't run `!setup` keep the legacy adventure shape. `combat_level` becomes the D&D level; treasures become attunements; equipment slots carry forward unchanged.
+
+#### Legacy adventure surface (still active)
+
+The pre-2.0 town economy and supporting systems still work alongside the D&D layer.
 
 | Command | Description |
 |---------|-------------|
-| `!adventure` / `!adv` | Open today's action menu (sent via DM) |
-| `!adventure status` | Character sheet (sent via DM) |
+| `!adventure` / `!adv` | Open today's menu (sent via DM) — now points at `!expedition` and town services |
+| `!adventure status` | Character sheet (legacy view; `!sheet` is the D&D-layer view) |
 | `!adventure shop` | Browse equipment for sale (sent via DM) |
 | `!adventure buy <item>` | Buy equipment by name or tier shorthand (`3 sword`, `t4 boots`) |
 | `!adventure sell <item>` | Sell an inventory item (credits euro balance) |
-| `!adventure sell all` | Sell entire inventory |
+| `!adventure sell all` | Sell entire inventory (consumables protected) |
 | `!adventure equip` | Equip masterwork gear from inventory |
 | `!adventure inventory` | List current inventory |
 | `!adventure leaderboard` | Top adventurers |
 | `!adventure revive @user` | Revive a dead player (admin) |
-| `!adventure respond <choice>` | Reply to today's action prompt (alternative to DM reply) |
 | `!adventure summary` | Force daily summary post (admin) |
 | `!adventure boost` | Double XP/money for all adventurers for a day (admin) |
-| `!adventure babysit [week\|month\|status\|cancel]` | Hire TwinBee to run your daily action (trains your weakest gathering skill) |
+| `!adventure babysit [week\|month\|status\|cancel]` | Hire TwinBee to harvest on your behalf (trains your weakest gathering skill) |
 | `!adventure blacksmith` | Show repair quotes for damaged gear |
 | `!adventure repair [all\|<slot>]` | Repair one slot or all damaged gear at the blacksmith |
 | `!adventure rivals` | Show the rival pool and any open challenges |
 | `!thom [shop\|buy\|pay\|payoff\|autopay\|petbuy]` | Thom Krooke — housing, mortgage, and pet adoption broker |
 | `!hospital` | Check in to St. Guildmore's Memorial Hospital for same-day revival (costs €25k × combat level) |
 
-**DM replies:** Reply to the morning prompt with a number (`1`–`7`) or activity name (`dungeon`, `mine`, `fish`, `forage`, `shop`, `blacksmith`, `rest`). You can specify a location: `1 Soggy Cellar`, `mine 3`, etc.
+#### Skill tracks
 
-#### Activities
-
-Four activity types across 5 tiers of locations. Higher tiers require higher character level and equipment.
-
-- **Dungeon** — combat XP, chance of death, best loot potential
-- **Mining** — mining XP, cave-in risk, ore and gem drops
-- **Fishing** — fishing XP, hazard risk, catch drops
-- **Foraging** — foraging XP, wildlife hazards, herb and reagent drops
+Four skills are tracked separately from D&D level: **Combat (legacy)**, **Mining**, **Foraging**, **Fishing**. They gain XP from harvesting in zones, arena fights, encounters, and (legacy) babysitter actions. Skill levels gate masterwork drops, fishing-zone proficiency bonuses, and crafting recipe unlocks.
 
 #### Mechanics
 
@@ -519,10 +625,9 @@ Four activity types across 5 tiers of locations. Higher tiers require higher cha
 - **Treasures** — rare collectibles (up to 3) that provide passive bonuses (XP multipliers, death chance reduction, loot quality). Prompted to discard when at cap.
 - **Streaks** — consecutive days of activity grant escalating bonuses (XP, loot quality, death chance reduction). Resting resets your streak. Dead players' streaks are frozen — you won't lose your streak to involuntary downtime.
 - **Grudge** — dying at a location marks it as your grudge. Returning there grants +10% success and +25% XP. Clears on success.
-- **Party bonus** — if two players independently visit the same location on the same day, both get +10% loot value.
 - **Death** — locked out for 6 hours. Natural respawn happens automatically when the timer expires. Use `!hospital` for immediate revival at a cost. Death's Reprieve (surviving a lethal roll) sets all equipment to 1 condition instead of destroying it. Dead players' streaks are preserved with a grace period — if you die and can't act on revival day, your streak won't reset.
-- **Holidays** — on recognized holidays (~20/year across religious and cultural calendars), you get a second daily action. Hebrew and Islamic calendar support for floating holidays.
-- **TwinBee NPC** — takes a daily action (location tier capped by best player's combined level), distributes loot share to active players scaled quadratically by level, and occasionally gifts random buffs.
+- **Holidays** — on recognized holidays (~20/year across religious and cultural calendars), runs start with TwinBee mood +5, expedition outfitting includes a free standard pack, and harvest yields +1 per attempt. Hebrew and Islamic calendar support for floating holidays.
+- **TwinBee** — narrates as a mood-driven DM during zone runs and expeditions (see Adv 2.0 above). The legacy daily activity loop is retired in favor of zones/expeditions; the babysitter (below) is the surviving "TwinBee runs an action for you" surface.
 - **Hospital** — St. Guildmore's Memorial Hospital offers same-day revival for dead players. The bill is comically inflated (€125k × combat level) but guild insurance covers 80%, leaving €25k × combat level. Players who can't afford it are discharged back to the natural respawn queue. Nurse Joy provides the bedside manner.
 - **Robbie the Friendly Bandit** — an automated NPC who visits at a random hour each day (8:00–21:00 UTC). Robbie takes sub-tier gear from your inventory (shop gear below your equipped tier, masterwork gear you've outgrown), leaves €50 per item as a "handling fee," and donates everything to the community pot. If he takes masterwork gear and you don't already have one, he drops a "Get Out of Medical Debt Free" card. No player command — Robbie comes to you.
 - **Mid-day events** — random events can trigger between actions, delivering bonus loot, buffs, or narrative encounters.
@@ -544,11 +649,11 @@ Max auto-crafts per combat scales with level: 1 at Foraging 10, 2 at 20, 3 at 30
 
 #### Blacksmith & Repair
 
-Equipment accumulates damage on bad outcomes and breaks at 0 condition. The blacksmith repairs gear for a per-point fee that scales with tier (base rates T0→T5: €1, €2, €5, €12, €30, €80; masterwork and arena gear use the next tier up). The cost has a mild convexity (`baseRate × damage × (1 + damage/200)`), so repairing earlier is slightly cheaper per point than letting gear sit at low condition — but not punitively so. `!adventure blacksmith` previews quotes; `!adventure repair all` or `!adventure repair <slot>` commits. Visiting the blacksmith counts as your daily action.
+Equipment accumulates damage on bad outcomes and breaks at 0 condition. The blacksmith repairs gear for a per-point fee that scales with tier (base rates T0→T5: €1, €2, €5, €12, €30, €80; masterwork and arena gear use the next tier up). The cost has a mild convexity (`baseRate × damage × (1 + damage/200)`), so repairing earlier is slightly cheaper per point than letting gear sit at low condition — but not punitively so. `!adventure blacksmith` previews quotes; `!adventure repair all` or `!adventure repair <slot>` commits.
 
 #### Babysitting Service
 
-Busy days? Hire TwinBee to run your daily action for you. Daily cost is `€100 + combatLevel × €20`. TwinBee trains your weakest gathering skill (mining/fishing/foraging) so the service doubles as catch-up for neglected tracks. Subscribe by the week or month, or check/cancel anytime: `!adventure babysit week|month|status|cancel`.
+Busy days? Hire TwinBee to harvest on your behalf. Daily cost is `€100 + combatLevel × €20`. TwinBee trains your weakest gathering skill (mining/fishing/foraging) each day, so the service doubles as catch-up for neglected tracks. Subscribe by the week or month, or check/cancel anytime: `!adventure babysit week|month|status|cancel`.
 
 #### Rival Duels
 

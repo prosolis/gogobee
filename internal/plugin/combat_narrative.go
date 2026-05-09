@@ -103,6 +103,9 @@ func renderPhaseBlock(pg phaseGroup, playerName, enemyName string, result Combat
 	for _, e := range pg.Events {
 		line := renderEvent(e, playerName, enemyName, result, picker)
 		if line != "" {
+			if roll := rollAnnotation(e); roll != "" {
+				line = line + " " + roll
+			}
 			sb.WriteString(line + "\n")
 		}
 	}
@@ -123,6 +126,26 @@ func clampHP(hp int) int {
 		return 0
 	}
 	return hp
+}
+
+// rollAnnotation returns a compact d20 tag for events that came from the
+// d20-vs-AC resolution path. Empty for ability/heal/consumable events
+// where Roll is unset. Format: "_(🎲 14 vs AC 13)_" — italicized so the
+// dice fact reads as a sidebar to the narrative line.
+func rollAnnotation(e CombatEvent) string {
+	if e.Roll <= 0 {
+		return ""
+	}
+	switch e.Action {
+	case "hit", "crit", "miss", "block":
+		// d20 contests — annotate with roll vs target AC.
+	default:
+		return ""
+	}
+	if e.RollAgainst > 0 {
+		return fmt.Sprintf("_(🎲 %d vs AC %d)_", e.Roll, e.RollAgainst)
+	}
+	return fmt.Sprintf("_(🎲 %d)_", e.Roll)
 }
 
 func phaseHeader(name string) string {

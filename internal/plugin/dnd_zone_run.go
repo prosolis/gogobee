@@ -56,7 +56,7 @@ type DungeonRun struct {
 	BossDefeated  bool
 	Abandoned     bool
 	LootCollected []string
-	GMMood        int
+	DMMood        int
 	StartedAt     time.Time
 	LastActionAt  time.Time
 	CompletedAt   *time.Time
@@ -178,6 +178,10 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 	seq := generateRoomSequence(zone, rng)
 	seqJSON, _ := json.Marshal(seq)
 
+	startMood := 50
+	if isHol, _ := isHolidayToday(); isHol {
+		startMood = 55
+	}
 	run := &DungeonRun{
 		RunID:        newRunID(),
 		UserID:       string(userID),
@@ -186,7 +190,7 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 		TotalRooms:   len(seq),
 		RoomSeq:      seq,
 		RoomsCleared: []int{},
-		GMMood:       50,
+		DMMood:       startMood,
 		StartedAt:    time.Now().UTC(),
 		LastActionAt: time.Now().UTC(),
 	}
@@ -194,8 +198,8 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 		INSERT INTO dnd_zone_run
 			(run_id, user_id, zone_id, current_room, total_rooms,
 			 room_seq_json, rooms_cleared, gm_mood)
-		VALUES (?, ?, ?, 0, ?, ?, '[]', 50)`,
-		run.RunID, run.UserID, string(zoneID), run.TotalRooms, string(seqJSON),
+		VALUES (?, ?, ?, 0, ?, ?, '[]', ?)`,
+		run.RunID, run.UserID, string(zoneID), run.TotalRooms, string(seqJSON), startMood,
 	); err != nil {
 		return nil, fmt.Errorf("insert zone run: %w", err)
 	}
@@ -271,7 +275,7 @@ func scanZoneRun(row scanner) (*DungeonRun, error) {
 	if err := row.Scan(
 		&r.RunID, &r.UserID, &zoneID, &r.CurrentRoom, &r.TotalRooms,
 		&seqJSON, &clearedJSON, &bossDefeatedI, &abandonedI,
-		&lootJSON, &r.GMMood, &r.StartedAt, &r.LastActionAt, &completedAtRaw,
+		&lootJSON, &r.DMMood, &r.StartedAt, &r.LastActionAt, &completedAtRaw,
 	); err != nil {
 		return nil, err
 	}

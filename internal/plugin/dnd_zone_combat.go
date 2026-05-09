@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"strings"
+	"time"
 
 	"maunium.net/go/mautrix/id"
 )
@@ -17,7 +18,7 @@ import (
 // into a fight" — spawning enemies from the zone roster, running them
 // through the existing combat engine with the player's full D&D layer,
 // awarding XP per kill and zone loot on boss defeat, and ending the run
-// (mood penalty + GMPlayerDeath narration) if the player goes down.
+// (mood penalty + DMPlayerDeath narration) if the player goes down.
 //
 // Per-room behavior:
 //   Entry        → no combat (already narrated on enter)
@@ -178,6 +179,15 @@ func (p *AdventurePlugin) runZoneCombat(
 
 	result := SimulateCombat(player, enemy, dungeonCombatPhases)
 
+	// Misty condition repair (post-combat, same 20% chance as arena/encounter
+	// paths in combat_bridge.go). Mirrors the buff's intent — gourmet food
+	// keeps her gear in shape on long expeditions, not just in the arena.
+	if char.MistyBuffExpires != nil && time.Now().UTC().Before(*char.MistyBuffExpires) {
+		if rand.Float64() < 0.20 {
+			npcRepairMostDamaged(userID, equip, 5)
+		}
+	}
+
 	p.grantCombatAchievements(userID, result)
 	persistDnDHPAfterCombat(userID, result.PlayerStartHP, result.PlayerEndHP)
 	if err := persistDnDPostCombatSubclass(dndChar, playerMods.BerserkerRage, result, playerMods); err != nil {
@@ -286,11 +296,15 @@ func (p *AdventurePlugin) applyTrapEffectWithDetect(
 	detect SkillCheckResult,
 ) (int, string) {
 	var b strings.Builder
-	if line := twinBeeLine(zone.ID, GMTrapDetected, run.RunID, run.CurrentRoom); line != "" {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
 	if detect.Success {
+		// Detected: the TwinBee "you spotted it" line only fires here, so a
+		// failed detection no longer contradicts the next line. The mismatch
+		// where "Perception roll pays off" preceded a tripped trap was
+		// caused by this line firing unconditionally.
+		if line := twinBeeLine(zone.ID, DMTrapDetected, run.RunID, run.CurrentRoom); line != "" {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
 		b.WriteString(trapSpottedHeader(trap, detect))
 		return 0, b.String()
 	}
@@ -308,10 +322,10 @@ func (p *AdventurePlugin) applyTrapEffectWithDetect(
 			slog.Error("zone: trap HP persist", "user", userID, "err", err)
 		}
 	}
-	if line := twinBeeLine(zone.ID, GMTrapTripped, run.RunID, run.CurrentRoom); line != "" {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
+	// Trip flavor lives in trap.Trigger (mechanism-specific) which the
+	// damage header now surfaces. The generic DMTrapTripped pool is no
+	// longer pulled here — it mixed dart/ceiling/pit/glyph lines that
+	// frequently mismatched the actual trap.
 	b.WriteString(trapDamageHeader(trap, dmg, dndChar.HPCurrent, dndChar.HPMax))
 	return dmg, b.String()
 }
@@ -336,15 +350,12 @@ func (p *AdventurePlugin) resolveTrapRoomLegacy(userID id.UserID, run *DungeonRu
 	if err := SaveDnDCharacter(dndChar); err != nil {
 		slog.Error("zone: trap HP persist (legacy)", "user", userID, "err", err)
 	}
+	// Legacy path always trips — no detection check. Drop the TwinBee pool
+	// picks here for the same reason as applyTrapEffectWithDetect: the
+	// detected line shouldn't fire when nothing was detected, and the
+	// generic tripped pool routinely mismatches the actual trap. Plain
+	// damage line carries the result.
 	var b strings.Builder
-	if line := twinBeeLine(zone.ID, GMTrapDetected, run.RunID, run.CurrentRoom); line != "" {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	if line := twinBeeLine(zone.ID, GMTrapTripped, run.RunID, run.CurrentRoom); line != "" {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
 	b.WriteString(fmt.Sprintf("💢 The trap takes **%d HP** (%d/%d remaining).", dmg, dndChar.HPCurrent, dndChar.HPMax))
 	return dmg, b.String()
 }

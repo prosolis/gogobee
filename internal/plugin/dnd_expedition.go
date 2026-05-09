@@ -82,7 +82,7 @@ type Expedition struct {
 	RegionState    map[string]any
 	XPEarned       int
 	CoinsEarned    int
-	GMMood         int
+	DMMood         int
 	LastBriefingAt *time.Time
 	LastRecapAt    *time.Time
 	LastActivity   time.Time
@@ -143,6 +143,10 @@ func startExpedition(userID id.UserID, zoneID ZoneID, runID string, supplies Exp
 	if currentRegion != "" {
 		regionState[regionStateVisitedKey] = []string{currentRegion}
 	}
+	startMood := 50
+	if isHol, _ := isHolidayToday(); isHol {
+		startMood = 55
+	}
 	exp := &Expedition{
 		ID:            newExpeditionID(),
 		UserID:        string(userID),
@@ -155,7 +159,7 @@ func startExpedition(userID id.UserID, zoneID ZoneID, runID string, supplies Exp
 		Supplies:      supplies,
 		ThreatEvents:  []ThreatEvent{},
 		RegionState:   regionState,
-		GMMood:        50,
+		DMMood:        startMood,
 		LastActivity:  now,
 	}
 	supJSON, _ := json.Marshal(supplies)
@@ -167,9 +171,9 @@ func startExpedition(userID id.UserID, zoneID ZoneID, runID string, supplies Exp
 			(expedition_id, user_id, zone_id, run_id, status,
 			 start_date, current_day, current_region, supplies_json,
 			 threat_events, region_state, gm_mood, last_activity)
-		VALUES (?, ?, ?, ?, 'active', ?, 1, ?, ?, ?, ?, 50, ?)`,
+		VALUES (?, ?, ?, ?, 'active', ?, 1, ?, ?, ?, ?, ?, ?)`,
 		exp.ID, exp.UserID, string(zoneID), nullableString(runID),
-		now, currentRegion, string(supJSON), string(threatJSON), string(regJSON), now,
+		now, currentRegion, string(supJSON), string(threatJSON), string(regJSON), startMood, now,
 	); err != nil {
 		return nil, fmt.Errorf("insert expedition: %w", err)
 	}
@@ -235,7 +239,7 @@ func scanExpedition(row scanner) (*Expedition, error) {
 		&e.StartDate, &e.CurrentDay, &e.CurrentRegion, &bossI,
 		&suppliesJSON, &campJSON, &e.ThreatLevel, &siegeI,
 		&threatJSON, &e.TemporalStack, &regionJSON,
-		&e.XPEarned, &e.CoinsEarned, &e.GMMood,
+		&e.XPEarned, &e.CoinsEarned, &e.DMMood,
 		&lastBriefingRaw, &lastRecapRaw, &e.LastActivity, &completedRaw,
 	); err != nil {
 		return nil, err

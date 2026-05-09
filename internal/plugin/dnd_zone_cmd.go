@@ -197,11 +197,11 @@ func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🗝 **Entering %s** _(T%d, %d rooms)_\n\n", zone.Display, int(zone.Tier), run.TotalRooms))
 	b.WriteString("_" + zone.Hook + "_\n\n")
-	if line := twinBeeLine(zone.ID, GMRoomEntry, run.RunID, run.CurrentRoom); line != "" {
+	if line := twinBeeLine(zone.ID, DMRoomEntry, run.RunID, run.CurrentRoom); line != "" {
 		b.WriteString(line)
 		b.WriteString("\n\n")
 	}
-	if aside := moodAsideLine(run.GMMood, run.RunID, run.CurrentRoom); aside != "" {
+	if aside := moodAsideLine(run.DMMood, run.RunID, run.CurrentRoom); aside != "" {
 		b.WriteString(aside)
 		b.WriteString("\n\n")
 	}
@@ -225,18 +225,18 @@ func (p *AdventurePlugin) zoneCmdStatus(ctx MessageContext) error {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("**%s** — room %d/%d (%s)\n",
 		zone.Display, run.CurrentRoom+1, run.TotalRooms, prettyRoomType(run.CurrentRoomType())))
-	b.WriteString(fmt.Sprintf("Cleared: %d   Loot: %d   GM mood: %d/100 (%s)\n",
-		len(run.RoomsCleared), len(run.LootCollected), run.GMMood, gmMoodLabel(run.GMMood)))
+	b.WriteString(fmt.Sprintf("Cleared: %d   Loot: %d   DM mood: %d/100 (%s)\n",
+		len(run.RoomsCleared), len(run.LootCollected), run.DMMood, dmMoodLabel(run.DMMood)))
 	b.WriteString(fmt.Sprintf("Started: %s   Last action: %s",
 		run.StartedAt.Format("2006-01-02 15:04"),
 		run.LastActionAt.Format("2006-01-02 15:04")))
 	return p.SendDM(ctx.Sender, b.String())
 }
 
-// gmMoodLabel returns a human-friendly label for the mood gauge per
+// dmMoodLabel returns a human-friendly label for the mood gauge per
 // design doc §3.2 mood bands (≥80 effusive, 60–79 friendly, 40–59 neutral,
 // 20–39 grumpy, <20 hostile).
-func gmMoodLabel(mood int) string {
+func dmMoodLabel(mood int) string {
 	switch {
 	case mood >= 80:
 		return "effusive"
@@ -361,22 +361,44 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	// §4.1 Patrol Encounter: at Threat-Clock Alert+, patrols may move
 	// through cleared rooms. Roll on `!advance` *before* the next room's
 	// own resolution. Player KO ends the run.
-	patrolNarr, patrolEnded, perr := p.tryPatrolEncounter(ctx.Sender, run, zone)
+	//
+	// Patrol-then-room is chained into a single 2–3s-paced stream so the
+	// player reads patrol → patrol play-by-play → patrol resolution →
+	// room intro → room play-by-play → final, in one continuous beat.
+	patrolIntro, patrolPhases, patrolOutcome, patrolEnded, perr := p.tryPatrolEncounter(ctx.Sender, run, zone)
 	if perr != nil {
 		return p.SendDM(ctx.Sender, "Couldn't resolve patrol: "+perr.Error())
 	}
+	var preStream []string
+	if patrolPhases != nil {
+		if patrolIntro != "" {
+			preStream = append(preStream, patrolIntro)
+		}
+		preStream = append(preStream, patrolPhases...)
+	}
 	if patrolEnded {
-		return p.SendDM(ctx.Sender, patrolNarr)
+		// Patrol dropped the player; run is over.
+		return p.streamFlow(ctx.Sender, preStream, patrolOutcome)
+	}
+	// Patrol survived (or didn't fire). If it fired, patrolOutcome becomes
+	// a streamed midpoint between the patrol fight and the room resolver.
+	if patrolPhases != nil && patrolOutcome != "" {
+		preStream = append(preStream, patrolOutcome)
 	}
 
 	// Resolve the current room *before* clearing it, so combat results
-	// can decide whether the player advances or the run ends.
-	resolution, ended, err := p.resolveRoom(ctx.Sender, run, zone)
+	// can decide whether the player advances or the run ends. Combat
+	// rooms return a non-nil phases slice — those get streamed with
+	// 2–3s delays for suspense; non-combat rooms collapse into a single
+	// SendDM as before.
+	intro, phases, outcome, ended, err := p.resolveRoom(ctx.Sender, run, zone)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't resolve room: "+err.Error())
 	}
 	if ended {
-		return p.SendDM(ctx.Sender, resolution)
+		// Death (combat or otherwise). Stream phases if present, then the
+		// death narration as the final message.
+		return p.streamOrSend(ctx.Sender, preStream, intro, phases, outcome)
 	}
 
 	next, err := markRoomCleared(run.RunID)
@@ -386,37 +408,28 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	if next == "" {
 		_, _ = applyMoodEvent(run.RunID, MoodEventZoneComplete)
 		var b strings.Builder
-		if patrolNarr != "" {
-			b.WriteString(patrolNarr)
-			b.WriteString("\n\n")
-		}
-		if resolution != "" {
-			b.WriteString(resolution)
+		if outcome != "" {
+			b.WriteString(outcome)
 			b.WriteString("\n\n")
 		}
 		b.WriteString(fmt.Sprintf("🏆 **Cleared %s.** Run complete.\n\n", zone.Display))
-		if line := twinBeeLine(zone.ID, GMZoneComplete, run.RunID, prevIdx); line != "" {
+		if line := twinBeeLine(zone.ID, DMZoneComplete, run.RunID, prevIdx); line != "" {
 			b.WriteString(line)
 			b.WriteString("\n\n")
 		}
-		// Drop the zone loot table on boss kill.
 		if granted := p.rollZoneLoot(ctx.Sender, run, zone); len(granted) > 0 {
 			b.WriteString("**Loot:**\n")
 			for _, id := range granted {
 				b.WriteString("• " + id + "\n")
 			}
 		}
-		return p.SendDM(ctx.Sender, b.String())
+		return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
 	}
 
 	nextIdx := run.CurrentRoom + 1
 	var b strings.Builder
-	if patrolNarr != "" {
-		b.WriteString(patrolNarr)
-		b.WriteString("\n\n")
-	}
-	if resolution != "" {
-		b.WriteString(resolution)
+	if outcome != "" {
+		b.WriteString(outcome)
 		b.WriteString("\n\n")
 	}
 	b.WriteString(fmt.Sprintf("✓ Cleared room %d (%s).\n\n", prevIdx+1, prettyRoomType(prev)))
@@ -426,16 +439,16 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 			b.WriteString("\n\n")
 		}
 	} else {
-		if line := twinBeeLine(zone.ID, GMRoomEntry, run.RunID, nextIdx); line != "" {
+		if line := twinBeeLine(zone.ID, DMRoomEntry, run.RunID, nextIdx); line != "" {
 			b.WriteString(line)
 			b.WriteString("\n\n")
 		}
 	}
 	// Reload mood — combat-event nat20/nat1 deltas have been persisted via
 	// scanMoodEventsFromCombat but not reflected on the in-memory run.
-	freshMood := run.GMMood
+	freshMood := run.DMMood
 	if fresh, _ := getZoneRun(run.RunID); fresh != nil {
-		freshMood = fresh.GMMood
+		freshMood = fresh.DMMood
 	}
 	if aside := moodAsideLine(freshMood, run.RunID, nextIdx); aside != "" {
 		b.WriteString(aside)
@@ -443,20 +456,58 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	}
 	b.WriteString(fmt.Sprintf("**Room %d/%d — %s.** ", nextIdx+1, run.TotalRooms, prettyRoomType(next)))
 	b.WriteString("`!zone advance` to continue.")
-	return p.SendDM(ctx.Sender, b.String())
+	return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
 }
 
-// resolveRoom dispatches to the per-room-type resolver. Returns the
-// resolution narration, an `ended` flag (true when the run ended due to
-// player death — caller should send the narration and stop), and any
-// error encountered. Entry rooms are pure flavor and resolve trivially.
-func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition) (string, bool, error) {
+// streamOrSend dispatches a staged room resolution. When the room produced
+// combat phases (or there was a paced patrol pre-stream), the messages get
+// streamed with 2–3s delays. Otherwise everything collapses into a single
+// SendDM. preStream is non-empty when a patrol fight ran ahead of the
+// current room and its play-by-play needs to lead the dispatch.
+func (p *AdventurePlugin) streamOrSend(userID id.UserID, preStream []string, intro string, phases []string, final string) error {
+	if phases == nil && len(preStream) == 0 {
+		var b strings.Builder
+		if intro != "" {
+			b.WriteString(intro)
+			b.WriteString("\n\n")
+		}
+		b.WriteString(final)
+		return p.SendDM(userID, b.String())
+	}
+	msgs := append([]string{}, preStream...)
+	if intro != "" {
+		msgs = append(msgs, intro)
+	}
+	if phases != nil {
+		msgs = append(msgs, phases...)
+	}
+	return p.streamFlow(userID, msgs, final)
+}
+
+// streamFlow ships a list of phase messages followed by a final message,
+// with the zone-combat 2–3s delay pacing. Single entry point for both the
+// patrol-and-die path and the patrol-leading-into-room path.
+func (p *AdventurePlugin) streamFlow(userID id.UserID, phaseMessages []string, finalMessage string) error {
+	if len(phaseMessages) == 0 {
+		return p.SendDM(userID, finalMessage)
+	}
+	p.sendZoneCombatMessages(userID, phaseMessages, finalMessage)
+	return nil
+}
+
+// resolveRoom dispatches to the per-room-type resolver. Returns staged
+// messages (intro, phases, outcome) so combat rooms can be paced with
+// inter-phase delays — see resolveCombatRoom for the contract. For
+// non-combat rooms (entry, trap), phases is nil and outcome carries the
+// resolution narration.
+func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition) (intro string, phases []string, outcome string, ended bool, err error) {
 	switch run.CurrentRoomType() {
 	case RoomEntry:
-		return "", false, nil
+		return
 	case RoomTrap:
 		_, narration := p.resolveTrapRoom(userID, run, zone)
-		return narration, false, nil
+		outcome = narration
+		return
 	case RoomExploration:
 		return p.resolveCombatRoom(userID, run, zone, false)
 	case RoomElite:
@@ -464,135 +515,197 @@ func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone Zo
 	case RoomBoss:
 		return p.resolveBossRoom(userID, run, zone)
 	}
-	return "", false, nil
+	return
 }
 
 // resolveCombatRoom spawns one roster enemy (elite filter optional),
 // runs combat, persists side effects, fires nat-1/nat-20 mood deltas,
-// and renders the narration block. Returns ended=true on player loss.
-func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition, elite bool) (string, bool, error) {
+// and renders the staged narration. Returns:
+//   intro   — pre-combat block (TwinBee combat-start + monster stat block)
+//   phases  — RenderCombatLog output, streamed with delays by the caller
+//   outcome — post-combat block: nat20/nat1 flavor, kill line, loot, d20 summary
+//   ended   — true when the player went down (caller skips next-room teaser)
+//
+// Phases will be nil only on a "no roster" skip — caller treats that as a
+// non-paced fallthrough.
+func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition, elite bool) (intro string, phases []string, outcome string, ended bool, err error) {
 	monster, ok := pickZoneEnemy(zone, run.RunID, run.CurrentRoom, elite)
 	if !ok {
-		return fmt.Sprintf("_(No %s roster entry — skipping.)_", map[bool]string{true: "elite", false: "exploration"}[elite]), false, nil
+		outcome = fmt.Sprintf("_(No %s roster entry — skipping.)_", map[bool]string{true: "elite", false: "exploration"}[elite])
+		return
 	}
-	result, err := p.runZoneCombat(userID, monster, int(zone.Tier))
-	if err != nil {
-		return "", false, err
+	// Capture D&D-scale HP before combat so the outcome line can show
+	// sheet HP rather than the engine's legacy-scale numbers.
+	preHP, _ := dndHPSnapshot(userID)
+	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier))
+	if rerr != nil {
+		err = rerr
+		return
 	}
+	postHP, maxHP := dndHPSnapshot(userID)
 	nat20s, nat1s := scanMoodEventsFromCombat(run.RunID, result)
 
-	var b strings.Builder
+	// Intro: pre-combat narration + creature stat block. This lands first,
+	// before the 5–8s phase pacing kicks in.
+	var ib strings.Builder
 	if elite {
 		if line := eliteRoomEntryLine(zone.ID, run.RunID, run.CurrentRoom); line != "" {
-			b.WriteString(line)
-			b.WriteString("\n")
+			ib.WriteString(line)
+			ib.WriteString("\n")
 		}
 	}
-	if line := twinBeeLine(zone.ID, GMCombatStart, run.RunID, run.CurrentRoom); line != "" {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	// Surface the most-impactful crit/fumble as TwinBee narration. A run
-	// with both gets the nat-20 line — players already see the fumble in
-	// the combat log, but the gloat lands harder than the pity.
-	if nat20s > 0 {
-		if line := twinBeeLine(zone.ID, GMNat20, run.RunID, run.CurrentRoom); line != "" {
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
-	} else if nat1s > 0 {
-		if line := twinBeeLine(zone.ID, GMNat1, run.RunID, run.CurrentRoom); line != "" {
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
+	if line := twinBeeLine(zone.ID, DMCombatStart, run.RunID, run.CurrentRoom); line != "" {
+		ib.WriteString(line)
+		ib.WriteString("\n")
 	}
 	if elite {
-		b.WriteString(fmt.Sprintf("⚔️ **Elite encounter — %s** (HP %d, AC %d)\n", monster.Name, monster.HP, monster.AC))
+		ib.WriteString(fmt.Sprintf("⚔️ **Elite encounter — %s** (HP %d, AC %d)", monster.Name, monster.HP, monster.AC))
 	} else {
-		b.WriteString(fmt.Sprintf("⚔️ **%s** (HP %d, AC %d)\n", monster.Name, monster.HP, monster.AC))
+		ib.WriteString(fmt.Sprintf("⚔️ **%s** (HP %d, AC %d)", monster.Name, monster.HP, monster.AC))
+	}
+	intro = ib.String()
+
+	// Phases: forward-simulating engine play-by-play. Use the player's
+	// display name when available so narrative lines read naturally.
+	playerName := "You"
+	if char, _ := loadAdvCharacter(userID); char != nil && char.DisplayName != "" {
+		playerName = char.DisplayName
+	}
+	phases = RenderCombatLog(result, playerName, monster.Name)
+
+	// Outcome: post-combat block. Nat20/nat1 narration goes here so it
+	// lands *after* the play-by-play, where it has dramatic context.
+	var ob strings.Builder
+	if nat20s > 0 {
+		if line := twinBeeLine(zone.ID, DMNat20, run.RunID, run.CurrentRoom); line != "" {
+			ob.WriteString(line)
+			ob.WriteString("\n")
+		}
+	} else if nat1s > 0 {
+		if line := twinBeeLine(zone.ID, DMNat1, run.RunID, run.CurrentRoom); line != "" {
+			ob.WriteString(line)
+			ob.WriteString("\n")
+		}
 	}
 	if !result.PlayerWon {
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
-		if line := twinBeeLine(zone.ID, GMPlayerDeath, run.RunID, run.CurrentRoom); line != "" {
-			b.WriteString(line)
-			b.WriteString("\n")
+		markAdventureDead(userID, "zone", zone.Display)
+		if line := twinBeeLine(zone.ID, DMPlayerDeath, run.RunID, run.CurrentRoom); line != "" {
+			ob.WriteString(line)
+			ob.WriteString("\n")
 		}
-		b.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
-		return b.String(), true, nil
+		ob.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
+		if rollLine := dndRollSummaryLine(result); rollLine != "" {
+			ob.WriteString("\n")
+			ob.WriteString(rollLine)
+		}
+		outcome = ob.String()
+		ended = true
+		return
 	}
-	if line := twinBeeLine(zone.ID, GMCombatEnd, run.RunID, run.CurrentRoom); line != "" {
-		b.WriteString(line)
-		b.WriteString("\n")
+	if line := twinBeeLine(zone.ID, DMCombatEnd, run.RunID, run.CurrentRoom); line != "" {
+		ob.WriteString(line)
+		ob.WriteString("\n")
 	}
-	b.WriteString(fmt.Sprintf("✅ **%s** down (HP %d→%d).", monster.Name, result.PlayerStartHP, result.PlayerEndHP))
+	ob.WriteString(fmt.Sprintf("✅ **%s** down (HP %d→%d / %d).", monster.Name, preHP, postHP, maxHP))
+	if rollLine := dndRollSummaryLine(result); rollLine != "" {
+		ob.WriteString("\n")
+		ob.WriteString(rollLine)
+	}
 	recordZoneKillForUser(userID, monster.ID)
 	applyRoomCombatThreatForUser(userID, elite)
 	if drop := p.dropZoneLoot(userID, zone.ID, monster, false); drop != "" {
-		b.WriteString("\n")
-		b.WriteString(drop)
+		ob.WriteString("\n")
+		ob.WriteString(drop)
 	}
-	return b.String(), false, nil
+	outcome = ob.String()
+	return
 }
 
 // resolveBossRoom runs the zone-boss bestiary entry through the same
 // combat path as room combat. Win → caller drops zone loot.
-func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition) (string, bool, error) {
+//
+// Returns staged messages — see resolveCombatRoom for the contract.
+func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition) (intro string, phases []string, outcome string, ended bool, err error) {
 	monster, ok := dndBestiary[zone.Boss.BestiaryID]
 	if !ok {
-		return fmt.Sprintf("_(Boss %s not in bestiary — skipping.)_", zone.Boss.Name), false, nil
+		outcome = fmt.Sprintf("_(Boss %s not in bestiary — skipping.)_", zone.Boss.Name)
+		return
 	}
-	result, err := p.runZoneCombat(userID, monster, int(zone.Tier))
-	if err != nil {
-		return "", false, err
+	preHP, _ := dndHPSnapshot(userID)
+	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier))
+	if rerr != nil {
+		err = rerr
+		return
 	}
+	postHP, maxHP := dndHPSnapshot(userID)
 	nat20s, nat1s := scanMoodEventsFromCombat(run.RunID, result)
 
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("👑 **Boss — %s** (HP %d, AC %d)\n", monster.Name, monster.HP, monster.AC))
+	intro = fmt.Sprintf("👑 **Boss — %s** (HP %d, AC %d)", monster.Name, monster.HP, monster.AC)
+
+	playerName := "You"
+	if char, _ := loadAdvCharacter(userID); char != nil && char.DisplayName != "" {
+		playerName = char.DisplayName
+	}
+	phases = RenderCombatLog(result, playerName, monster.Name)
+
+	var ob strings.Builder
 	if nat20s > 0 {
-		if line := twinBeeLine(zone.ID, GMNat20, run.RunID, run.CurrentRoom); line != "" {
-			b.WriteString(line)
-			b.WriteString("\n")
+		if line := twinBeeLine(zone.ID, DMNat20, run.RunID, run.CurrentRoom); line != "" {
+			ob.WriteString(line)
+			ob.WriteString("\n")
 		}
 	} else if nat1s > 0 {
-		if line := twinBeeLine(zone.ID, GMNat1, run.RunID, run.CurrentRoom); line != "" {
-			b.WriteString(line)
-			b.WriteString("\n")
+		if line := twinBeeLine(zone.ID, DMNat1, run.RunID, run.CurrentRoom); line != "" {
+			ob.WriteString(line)
+			ob.WriteString("\n")
 		}
 	}
 	if phaseTwoCrossedInEvents(result.Events, result.EnemyStartHP, zone.Boss.PhaseTwoAt) {
 		if line := bossPhaseTwoLine(zone.ID, run.RunID, run.CurrentRoom); line != "" {
-			b.WriteString(line)
-			b.WriteString("\n")
+			ob.WriteString(line)
+			ob.WriteString("\n")
 		}
 	}
 	if !result.PlayerWon {
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
-		if line := twinBeeLine(zone.ID, GMPlayerDeath, run.RunID, run.CurrentRoom); line != "" {
-			b.WriteString(line)
-			b.WriteString("\n")
+		markAdventureDead(userID, "zone", zone.Display)
+		if line := twinBeeLine(zone.ID, DMPlayerDeath, run.RunID, run.CurrentRoom); line != "" {
+			ob.WriteString(line)
+			ob.WriteString("\n")
 		}
-		b.WriteString(fmt.Sprintf("💀 **%s** stands over your body. Run ended.", monster.Name))
-		return b.String(), true, nil
+		ob.WriteString(fmt.Sprintf("💀 **%s** stands over your body. Run ended.", monster.Name))
+		if rollLine := dndRollSummaryLine(result); rollLine != "" {
+			ob.WriteString("\n")
+			ob.WriteString(rollLine)
+		}
+		outcome = ob.String()
+		ended = true
+		return
 	}
-	if line := twinBeeLine(zone.ID, GMBossDeath, run.RunID, run.CurrentRoom); line != "" {
-		b.WriteString(line)
-		b.WriteString("\n")
+	if line := twinBeeLine(zone.ID, DMBossDeath, run.RunID, run.CurrentRoom); line != "" {
+		ob.WriteString(line)
+		ob.WriteString("\n")
 	}
-	b.WriteString(fmt.Sprintf("🏆 **%s** falls (HP %d→%d).", monster.Name, result.PlayerStartHP, result.PlayerEndHP))
+	ob.WriteString(fmt.Sprintf("🏆 **%s** falls (HP %d→%d / %d).", monster.Name, preHP, postHP, maxHP))
+	if rollLine := dndRollSummaryLine(result); rollLine != "" {
+		ob.WriteString("\n")
+		ob.WriteString(rollLine)
+	}
 	recordZoneKillForUser(userID, monster.ID)
 	// §8.1: zone boss defeat drops expedition threat by 20. Silent
 	// no-op for standalone zone runs (no active expedition).
-	if exp, err := getActiveExpedition(userID); err == nil && exp != nil {
+	if exp, eerr := getActiveExpedition(userID); eerr == nil && exp != nil {
 		_ = applyBossDefeatThreat(exp.ID)
 	}
 	if drop := p.dropZoneLoot(userID, zone.ID, monster, true); drop != "" {
-		b.WriteString("\n")
-		b.WriteString(drop)
+		ob.WriteString("\n")
+		ob.WriteString(drop)
 	}
-	return b.String(), false, nil
+	outcome = ob.String()
+	return
 }
 
 // ── taunt / compliment ──────────────────────────────────────────────────────
@@ -610,7 +723,7 @@ func (p *AdventurePlugin) zoneCmdCompliment(ctx MessageContext) error {
 // from the prewritten pool, and report the new mood band.
 func (p *AdventurePlugin) zoneMoodInteraction(
 	ctx MessageContext,
-	ev GMMoodEvent,
+	ev DMMoodEvent,
 	render func(runID string, roomIdx int) string,
 	icon string,
 ) error {
@@ -637,8 +750,8 @@ func (p *AdventurePlugin) zoneMoodInteraction(
 		sign = "−"
 		delta = -delta
 	}
-	b.WriteString(fmt.Sprintf("%s GM mood: %d/100 (%s) _(%s%d)_",
-		icon, newMood, gmMoodLabel(newMood), sign, delta))
+	b.WriteString(fmt.Sprintf("%s DM mood: %d/100 (%s) _(%s%d)_",
+		icon, newMood, dmMoodLabel(newMood), sign, delta))
 	return p.SendDM(ctx.Sender, b.String())
 }
 
@@ -659,7 +772,7 @@ func (p *AdventurePlugin) zoneCmdLore(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
 	zone := zoneOrFallback(run.ZoneID)
-	line := twinBeeLine(zone.ID, GMLore, run.RunID, run.CurrentRoom)
+	line := twinBeeLine(zone.ID, DMLore, run.RunID, run.CurrentRoom)
 	if line == "" {
 		return p.SendDM(ctx.Sender, "TwinBee has nothing to say about this place.")
 	}

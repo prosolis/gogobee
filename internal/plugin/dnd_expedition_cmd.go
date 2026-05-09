@@ -182,7 +182,13 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	}
 
 	zone, _ := getZone(zoneID)
-	supplies := makeSupplies(zone.Tier, purchase)
+	// Holiday perk: a complimentary standard pack is added to the supplies
+	// snapshot without inflating the coin cost.
+	suppliesPurchase := purchase
+	if isHol, _ := isHolidayToday(); isHol {
+		suppliesPurchase.StandardPacks++
+	}
+	supplies := makeSupplies(zone.Tier, suppliesPurchase)
 
 	// Debit coins; bail on debit failure (race / cap).
 	if !p.euro.Debit(ctx.Sender, cost, "expedition outfitting: "+string(zoneID)) {

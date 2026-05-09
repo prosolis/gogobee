@@ -187,7 +187,7 @@ type DungeonRun struct {
     RoomsCleared []int         `json:"rooms_cleared"`
     BossDefeated bool          `json:"boss_defeated"`
     LootCollected []string     `json:"loot_collected"`  // item IDs
-    GMMood       int           `json:"gm_mood"`
+    DMMood       int           `json:"gm_mood"`
     StartedAt    time.Time     `json:"started_at"`
     CompletedAt  *time.Time    `json:"completed_at"`
     Abandoned    bool          `json:"abandoned"`
@@ -648,27 +648,27 @@ type TrapEntry struct {
     TierMin   int     `json:"tier_min"`
 }
 
-type GMState struct {
+type DMState struct {
     Mood         int       `json:"mood"`        // 0–100
     LastModified time.Time `json:"last_modified"`
 }
 
-// GMNarrationType classifies what kind of line TwinBee is generating.
-type GMNarrationType string
+// DMNarrationType classifies what kind of line TwinBee is generating.
+type DMNarrationType string
 
 const (
-    GMRoomEntry    GMNarrationType = "room_entry"
-    GMCombatStart  GMNarrationType = "combat_start"
-    GMCombatEnd    GMNarrationType = "combat_end"
-    GMNat20        GMNarrationType = "nat_20"
-    GMNat1         GMNarrationType = "nat_1"
-    GMBossEntry    GMNarrationType = "boss_entry"
-    GMBossDeath    GMNarrationType = "boss_death"
-    GMPlayerDeath  GMNarrationType = "player_death"
-    GMZoneComplete GMNarrationType = "zone_complete"
-    GMTrapDetected GMNarrationType = "trap_detected"
-    GMTrapTripped  GMNarrationType = "trap_tripped"
-    GMLore         GMNarrationType = "lore"
+    DMRoomEntry    DMNarrationType = "room_entry"
+    DMCombatStart  DMNarrationType = "combat_start"
+    DMCombatEnd    DMNarrationType = "combat_end"
+    DMNat20        DMNarrationType = "nat_20"
+    DMNat1         DMNarrationType = "nat_1"
+    DMBossEntry    DMNarrationType = "boss_entry"
+    DMBossDeath    DMNarrationType = "boss_death"
+    DMPlayerDeath  DMNarrationType = "player_death"
+    DMZoneComplete DMNarrationType = "zone_complete"
+    DMTrapDetected DMNarrationType = "trap_detected"
+    DMTrapTripped  DMNarrationType = "trap_tripped"
+    DMLore         DMNarrationType = "lore"
 )
 ```
 
@@ -712,7 +712,7 @@ const (
 - [ ] Corresponding flavor files
 
 ### Phase D6 — GM Polish
-- [ ] Full `GMNarrationType` flavor text pass (all types, all zones)
+- [ ] Full `DMNarrationType` flavor text pass (all types, all zones)
 - [ ] TwinBee `!taunt` / `!compliment` interaction lines
 - [ ] ASCII `!map` renderer
 - [ ] GM Mood community trigger hooks (Lemmy/Matrix activity integration)

@@ -10,7 +10,7 @@ import (
 // D1a (this file) ships zone *definitions* only — names, tiers, level
 // ranges, enemy rosters by bestiary ID, boss stat block, and loot stubs.
 // State machine (DungeonRun), commands (!zone enter/advance/etc), and
-// TwinBee GM mood land in subsequent D1 sub-phases (D1b–D1d).
+// TwinBee DM mood land in subsequent D1 sub-phases (D1b–D1d).
 //
 // Tier 1 ships first (Goblin Warrens, Crypt of Valdris). Tiers 2–5 are
 // added in D2/D3/D4/D5. Loot table item IDs reference equipment/treasure

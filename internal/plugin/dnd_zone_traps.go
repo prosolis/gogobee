@@ -285,8 +285,11 @@ func trapDamageHeader(tr zoneTrapDef, dmg int, hpCur, hpMax int) string {
 		return fmt.Sprintf("🚫 **%s** — %s. Spells fizzle and enchanted gear sleeps until you leave the room.", tr.Display, tr.Trigger)
 	}
 	dice := fmt.Sprintf("%dd%d", tr.DamageDiceN, tr.DamageDiceD)
-	return fmt.Sprintf("💢 **%s** (%s %s) — **%d HP** (%d/%d remaining).",
-		tr.Display, dice, tr.DamageType, dmg, hpCur, hpMax)
+	// Lead with the trap's own mechanism-specific Trigger so the narrative
+	// matches the trap kind (e.g. a Collapsing Ceiling no longer reads as
+	// a dart in the air). Trigger is required on every catalog entry.
+	return fmt.Sprintf("💢 **%s** — %s. (%s %s) — **%d HP** (%d/%d remaining).",
+		tr.Display, tr.Trigger, dice, tr.DamageType, dmg, hpCur, hpMax)
 }
 
 // trapSpottedHeader — narration for a successful detection roll. No

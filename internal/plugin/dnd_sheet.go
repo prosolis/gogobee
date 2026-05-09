@@ -174,6 +174,5 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, equip map[Equipmen
 		}
 	}
 
-	b.WriteString("\n_Combat, abilities, and rest mechanics arrive in upcoming phases._")
 	return b.String()
 }
