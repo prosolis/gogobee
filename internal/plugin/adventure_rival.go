@@ -18,12 +18,25 @@ import (
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const (
-	rivalMinCombatLevel   = 5
+	// Adv 2.0 Phase L4b — gate switched off CombatLevel onto DnDCharacter.Level.
+	// Legacy gate was CombatLevel >= 5; new gate is Level >= 3
+	// (gogobee_legacy_migration.md §2.3).
+	rivalMinLevel         = 3
 	rivalChallengeWindow  = 24 * time.Hour
 	rivalSamePairCooldown = 7 * 24 * time.Hour
 	rivalMinIntervalHours = 3 * 24 // 3 days in hours
 	rivalMaxIntervalHours = 4 * 24 // 4 days in hours
 )
+
+// rivalLevelForUser returns the player's D&D level for rival gating + stake
+// math, falling back to a CombatLevel-derived level when no D&D row exists
+// yet. Mirrors hospitalCostsForUser's fallback pattern.
+func rivalLevelForUser(char *AdventureCharacter) int {
+	if dnd, err := LoadDnDCharacter(char.UserID); err == nil && dnd != nil && dnd.Level > 0 {
+		return dnd.Level
+	}
+	return dndLevelFromCombatLevel(char.CombatLevel)
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,19 +65,38 @@ type advPendingRivalRPS struct {
 
 // ── Stake Calculation ────────────────────────────────────────────────────────
 
-func rivalStake(combatLevel int) int {
-	return (combatLevel / 5) * 1000
+// rivalStake returns the duel stake in € for a given D&D Level.
+// Adv 2.0 Phase L4b — previously `(combatLevel / 5) * 1000`. New formula
+// `(level / 3) * 1000` keeps the same magnitude at the unlock threshold
+// (Level 3 = €1000, matching legacy CombatLevel 5 = €1000) and tops out
+// around €6000 at Level 20. Players below `rivalMinLevel` produce stake 0,
+// which selectRivalPair already filters out.
+func rivalStake(level int) int {
+	return (level / 3) * 1000
 }
 
 // ── Rival Pool Unlock ────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) checkRivalPoolUnlock(char *AdventureCharacter) {
-	if char.CombatLevel >= rivalMinCombatLevel && char.RivalPool == 0 {
-		char.RivalPool = 1
-		if !char.RivalUnlockedNotified {
-			char.RivalUnlockedNotified = true
-			p.SendDM(char.UserID, rivalUnlockDM)
-		}
+	level := rivalLevelForUser(char)
+	if level < rivalMinLevel {
+		return
+	}
+	pool, notified, _ := loadRivalState(char.UserID)
+	if pool > 0 && notified {
+		// Already unlocked + notified; nothing to do.
+		return
+	}
+	// Promote to pool + send unlock DM if not yet announced.
+	char.RivalPool = 1
+	pool = 1
+	if !notified {
+		char.RivalUnlockedNotified = true
+		notified = true
+		p.SendDM(char.UserID, rivalUnlockDM)
+	}
+	if err := upsertPlayerMetaRivalState(char.UserID, pool, notified); err != nil {
+		slog.Error("player_meta: rival unlock dual-write failed", "user", char.UserID, "err", err)
 	}
 }
 
@@ -303,13 +335,17 @@ func (p *AdventurePlugin) selectRivalPair() (*AdventureCharacter, *AdventureChar
 	// Filter to eligible pool members.
 	var pool []AdventureCharacter
 	for _, c := range chars {
-		if c.RivalPool == 0 || !c.Alive || c.BabysitActive {
+		if !c.Alive || c.BabysitActive {
+			continue
+		}
+		poolFlag, _, _ := loadRivalState(c.UserID)
+		if poolFlag == 0 {
 			continue
 		}
 		if hasActiveChallenge(c.UserID) {
 			continue
 		}
-		stake := rivalStake(c.CombatLevel)
+		stake := rivalStake(rivalLevelForUser(&c))
 		if stake <= 0 {
 			continue
 		}
@@ -349,7 +385,7 @@ func (p *AdventurePlugin) selectRivalPair() (*AdventureCharacter, *AdventureChar
 // ── Challenge Issuance ───────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) issueRivalChallenge(challenger, challenged *AdventureCharacter) {
-	stake := rivalStake(challenged.CombatLevel)
+	stake := rivalStake(rivalLevelForUser(challenged))
 	challenge := &advRivalChallenge{
 		ChallengeID:  uuid.New().String()[:12],
 		ChallengerID: challenger.UserID,
@@ -828,10 +864,11 @@ func (p *AdventurePlugin) handleRivalsCmd(ctx MessageContext) error {
 		return err
 	}
 
-	if char.RivalPool == 0 {
+	pool, _, _ := loadRivalState(char.UserID)
+	if pool == 0 {
 		return p.SendReply(ctx.RoomID, ctx.EventID,
-			fmt.Sprintf("You need Combat Level %d to enter the rival pool. Currently: %d.",
-				rivalMinCombatLevel, char.CombatLevel))
+			fmt.Sprintf("You need Level %d to enter the rival pool. Currently: %d.",
+				rivalMinLevel, rivalLevelForUser(char)))
 	}
 
 	records, err := loadAllRivalRecords(char.UserID)

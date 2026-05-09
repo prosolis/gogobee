@@ -194,8 +194,9 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 		sb.WriteString(fmt.Sprintf("\n🍼 Babysitting: %s (focus: %s)\n", remaining, char.BabysitSkillFocus))
 	}
 
-	// Rival status
-	if char.RivalPool == 1 {
+	// Rival status — read from player_meta (Adv 2.0 Phase L4b).
+	rivalPoolFlag, _, _ := loadRivalState(char.UserID)
+	if rivalPoolFlag == 1 {
 		records, _ := loadAllRivalRecords(char.UserID)
 		sb.WriteString("\n⚔️ Rivals: Unlocked")
 		if len(records) > 0 {

@@ -194,6 +194,11 @@ func runMigrations(d *sql.DB) error {
 		// HospitalVisits moves to player_meta; AdvCharacter.hospital_visits
 		// keeps dual-writing during soak (gogobee_legacy_migration.md §6.1).
 		`ALTER TABLE player_meta ADD COLUMN hospital_visits INTEGER NOT NULL DEFAULT 0`,
+		// Adv 2.0 Phase L4b — Rival migration off AdvCharacter.
+		// RivalPool / RivalUnlockedNotified move to player_meta; AdvCharacter
+		// columns keep dual-writing during soak (gogobee_legacy_migration.md §6.2).
+		`ALTER TABLE player_meta ADD COLUMN rival_pool INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN rival_unlocked_notified INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

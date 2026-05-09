@@ -284,8 +284,18 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 - Tests: `TestPlayerMetaHospitalVisitsBackfill_Idempotent`, `TestLoadHospitalVisits_FallsBackToAdvCharacter`, `TestUpsertPlayerMetaHospitalVisits_RoundTrip` (skip without prod DB, matching the L2/L4f-prep pattern).
 
 ### 6.2 L4b — Rival
-- `adventure_rival.go`: unlock at Level ≥ 3 (was CombatLevel ≥ 5). RivalPool → `player_meta`. Duel combat already uses `combat_engine` — port to `simulateCombat` here too (small extra step).
+- `adventure_rival.go`: unlock at Level ≥ 3 (was CombatLevel ≥ 5). RivalPool → `player_meta`. ~~Duel combat already uses `combat_engine` — port to `simulateCombat` here too (small extra step).~~ **Correction (2026-05-09):** rival duel combat is RPS, not `combat_engine` — no combat-engine port needed.
 - Move rival flavor into existing `adventure_flavor_rival.go` — no new file.
+
+**Status (2026-05-09):** SHIPPED on `adv-2.0`.
+- `player_meta.rival_pool` + `player_meta.rival_unlocked_notified` columns added via columnMigration in `internal/db/db.go`.
+- New `rivalMinLevel = 3` (was `rivalMinCombatLevel = 5`). Stake formula `(level / 3) * 1000` (was `(combatLevel / 5) * 1000`) — same magnitude at the unlock threshold (Level 3 → €1000 mirrors legacy CL5 → €1000), tops out around €6000 at Level 20. Tunable later.
+- `rivalLevelForUser(char)` reads `DnDCharacter.Level` with `dndLevelFromCombatLevel(char.CombatLevel)` fallback when no D&D row exists yet — mirrors `hospitalCostsForUser` shape.
+- `checkRivalPoolUnlock` now reads D&D level, dual-writes `RivalPool` / `RivalUnlockedNotified` to player_meta via `upsertPlayerMetaRivalState`. Read sites flipped to `loadRivalState(userID)` in `selectRivalPair`, `handleRivalsCmd`, and the morning-DM rival status in `adventure_render.go`.
+- `loadRivalState(userID)` reads `player_meta` → falls back to `adventure_characters.rival_pool / rival_unlocked_notified` during soak.
+- `backfillPlayerMetaRivalState()` runs on every Init; idempotent (only fills rows whose rival columns are still zero, so dual-writes survive re-runs).
+- Tests: `TestPlayerMetaRivalStateBackfill_Idempotent`, `TestLoadRivalState_FallsBackToAdvCharacter`, `TestUpsertPlayerMetaRivalState_RoundTrip` (skip without prod DB, matching the L4a/L4f-prep pattern).
+- `go vet ./...` + `go test ./...` clean.
 
 ### 6.3 L4c — Masterwork
 - `adventure_masterwork.go`: no AdvCharacter mutations today; only equipment reads. Port `advMasterworkSkillBonus` to take `*DnDCharacter` (skill fields added in §2.2). MasterworkDropsReceived → `player_meta`.

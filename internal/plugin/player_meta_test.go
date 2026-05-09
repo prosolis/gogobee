@@ -297,6 +297,117 @@ func TestUpsertPlayerMetaHospitalVisits_RoundTrip(t *testing.T) {
 	}
 }
 
+// Phase L4b — Rival migration. Backfill is idempotent and only fills rows
+// whose rival columns are still default zero; the upsert helper round-trips;
+// loadRivalState falls back to AdvCharacter when player_meta hasn't been
+// populated yet.
+
+func TestPlayerMetaRivalStateBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-rv-bf:example")
+	if err := createAdvCharacter(uid, "Rivaler"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters SET rival_pool = ?, rival_unlocked_notified = ? WHERE user_id = ?`,
+		1, 1, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET rival_pool = 0, rival_unlocked_notified = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaRivalState(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	pool, notified, err := loadRivalState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if pool != 1 || !notified {
+		t.Errorf("after backfill: got pool=%d notified=%v want 1, true", pool, notified)
+	}
+
+	// Layer a dual-write update. Backfill re-run must NOT clobber it back
+	// (only touches rows whose rival columns are still both zero).
+	if err := upsertPlayerMetaRivalState(uid, 1, false); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaRivalState(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	pool2, notified2, _ := loadRivalState(uid)
+	if pool2 != 1 || notified2 {
+		t.Errorf("backfill clobbered dual-write: got pool=%d notified=%v want 1, false", pool2, notified2)
+	}
+}
+
+func TestLoadRivalState_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-rv-fb:example")
+	if err := createAdvCharacter(uid, "RivalFallback"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters SET rival_pool = ?, rival_unlocked_notified = ? WHERE user_id = ?`,
+		1, 1, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET rival_pool = 0, rival_unlocked_notified = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	pool, notified, err := loadRivalState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if pool != 1 || !notified {
+		t.Errorf("fallback: got pool=%d notified=%v want 1, true", pool, notified)
+	}
+
+	// Unknown user → zeros, no error.
+	pool2, notified2, err := loadRivalState(id.UserID("@meta-rv-nobody:example"))
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if pool2 != 0 || notified2 {
+		t.Errorf("missing user: got pool=%d notified=%v want 0, false", pool2, notified2)
+	}
+}
+
+func TestUpsertPlayerMetaRivalState_RoundTrip(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-rv-rt:example")
+	if err := upsertPlayerMetaRivalState(uid, 1, false); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	pool, notified, err := loadRivalState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if pool != 1 || notified {
+		t.Errorf("round-trip 1: got pool=%d notified=%v want 1, false", pool, notified)
+	}
+	if err := upsertPlayerMetaRivalState(uid, 1, true); err != nil {
+		t.Fatalf("upsert update: %v", err)
+	}
+	pool2, notified2, _ := loadRivalState(uid)
+	if pool2 != 1 || !notified2 {
+		t.Errorf("round-trip 2: got pool=%d notified=%v want 1, true", pool2, notified2)
+	}
+}
+
 func TestCreateAdvCharacter_DualWritesDisplayName(t *testing.T) {
 	setupAuditTestDB(t)
 

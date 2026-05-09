@@ -204,6 +204,104 @@ func backfillPlayerMetaHospitalVisits() error {
 	return nil
 }
 
+// upsertPlayerMetaRivalState writes rival_pool / rival_unlocked_notified for
+// a user, leaving other columns untouched. Used by the dual-write path during
+// the L4b Rival migration: every place that mutates AdvCharacter.RivalPool /
+// RivalUnlockedNotified also calls this so player_meta stays in sync until
+// soak completes (gogobee_legacy_migration.md §6.2, §11).
+func upsertPlayerMetaRivalState(userID id.UserID, pool int, notified bool) error {
+	notifiedInt := 0
+	if notified {
+		notifiedInt = 1
+	}
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (user_id, rival_pool, rival_unlocked_notified) VALUES (?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   rival_pool = excluded.rival_pool,
+		   rival_unlocked_notified = excluded.rival_unlocked_notified`,
+		string(userID), pool, notifiedInt,
+	)
+	return err
+}
+
+// loadRivalState returns rival_pool / rival_unlocked_notified for a user from
+// player_meta when populated, falling back to adventure_characters during the
+// L4b soak window. Treats a missing row as (0, false). The fallback returns
+// the AdvCharacter values whenever player_meta has the unmigrated default
+// (pool=0, notified=0) — a true "not yet in pool" state and the pre-backfill
+// state are indistinguishable at the column level, but the legacy column
+// only ever moves toward unlocked, so picking the higher of the two values
+// is safe.
+func loadRivalState(userID id.UserID) (pool int, notified bool, err error) {
+	var notifiedInt int
+	err = db.Get().QueryRow(
+		`SELECT rival_pool, rival_unlocked_notified FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&pool, &notifiedInt)
+	if err == nil && (pool > 0 || notifiedInt > 0) {
+		return pool, notifiedInt == 1, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return 0, false, err
+	}
+	// Fallback during soak.
+	var legacyPool, legacyNotified int
+	err = db.Get().QueryRow(
+		`SELECT rival_pool, rival_unlocked_notified FROM adventure_characters WHERE user_id = ?`,
+		string(userID),
+	).Scan(&legacyPool, &legacyNotified)
+	if err == sql.ErrNoRows {
+		return pool, notifiedInt == 1, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	if legacyPool > pool {
+		pool = legacyPool
+	}
+	if legacyNotified > notifiedInt {
+		notifiedInt = legacyNotified
+	}
+	return pool, notifiedInt == 1, nil
+}
+
+// backfillPlayerMetaRivalState copies rival_pool / rival_unlocked_notified
+// from adventure_characters into player_meta for any row whose values are
+// still the default zero. Idempotent: only updates rows that haven't been
+// populated yet (via backfill or dual-write).
+func backfillPlayerMetaRivalState() error {
+	if _, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO player_meta (user_id)
+		SELECT user_id FROM adventure_characters
+	`); err != nil {
+		return err
+	}
+	res, err := db.Get().Exec(`
+		UPDATE player_meta
+		SET rival_pool = (
+			SELECT rival_pool FROM adventure_characters
+			WHERE adventure_characters.user_id = player_meta.user_id
+		),
+		    rival_unlocked_notified = (
+			SELECT rival_unlocked_notified FROM adventure_characters
+			WHERE adventure_characters.user_id = player_meta.user_id
+		)
+		WHERE rival_pool = 0 AND rival_unlocked_notified = 0
+		  AND EXISTS (
+			SELECT 1 FROM adventure_characters
+			WHERE adventure_characters.user_id = player_meta.user_id
+			  AND (adventure_characters.rival_pool > 0
+			       OR adventure_characters.rival_unlocked_notified > 0)
+		  )
+	`)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	slog.Info("player_meta: rival state backfilled", "rows", n)
+	return nil
+}
+
 // backfillPlayerMetaDisplayName copies adventure_characters.display_name
 // into player_meta.display_name for any row whose display_name is still
 // the empty default. Idempotent: safe to re-run; only updates rows that

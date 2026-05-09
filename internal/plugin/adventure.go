@@ -204,6 +204,11 @@ func (p *AdventurePlugin) Init() error {
 	if err := backfillPlayerMetaHospitalVisits(); err != nil {
 		slog.Error("player_meta: hospital_visits backfill failed", "err", err)
 	}
+	// Adv 2.0 Phase L4b — one-shot rival state backfill into player_meta.
+	// Idempotent (only fills rows whose rival columns are still zero).
+	if err := backfillPlayerMetaRivalState(); err != nil {
+		slog.Error("player_meta: rival state backfill failed", "err", err)
+	}
 	// Phase L3 — cancel any open/active legacy coop dungeon runs and
 	// refund member contributions + unsettled bets. Idempotent.
 	closeAndRefundLegacyCoopRuns(p.euro)
