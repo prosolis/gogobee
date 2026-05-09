@@ -458,7 +458,7 @@ func TestArenaGearDropRates_Decreasing(t *testing.T) {
 // ── Render Tests (New/Updated) ─────────────────────────────────────────────
 
 func TestRenderArenaStreakEntry_ShowsMultipliers(t *testing.T) {
-	char := &DnDCharacter{Level: 50}
+	char := &DnDCharacter{Level: 20}
 	tier := arenaGetTier(1)
 	monster := arenaGetMonster(1, 1)
 
@@ -491,9 +491,9 @@ func TestRenderArenaStreakEntry_HighLevel_AllEligible(t *testing.T) {
 	monster := arenaGetMonster(1, 1)
 
 	text := renderArenaStreakEntry(char, nil, tier, monster)
-	// Level 70 should make all tiers eligible (no 🔒)
+	// Level 20 (D&D cap) should make all tiers eligible (no 🔒)
 	if strings.Contains(text, "🔒") {
-		t.Error("level 70 should have all tiers eligible (no locked icons)")
+		t.Error("level 20 should have all tiers eligible (no locked icons)")
 	}
 }
 
@@ -753,7 +753,7 @@ func TestArenaStreakSimulation_FullRun(t *testing.T) {
 		TierEarnings:  0,
 		XPAccumulated: 0,
 	}
-	combatLevel := 30
+	skillBonus := 20
 
 	for tierNum := 1; tierNum <= 5; tierNum++ {
 		tier := arenaGetTier(tierNum)
@@ -761,7 +761,7 @@ func TestArenaStreakSimulation_FullRun(t *testing.T) {
 
 		for round := 1; round <= 4; round++ {
 			run.Round = round
-			reward := arenaRoundReward(tier, round, combatLevel)
+			reward := arenaRoundReward(tier, round, skillBonus)
 			run.TierEarnings += reward
 			run.XPAccumulated += tier.BattleXP
 			run.RoundsSurvived++
@@ -791,7 +791,7 @@ func TestArenaStreakSimulation_FullRun(t *testing.T) {
 	for tierNum := 1; tierNum <= 5; tierNum++ {
 		tier := arenaGetTier(tierNum)
 		for round := 1; round <= 4; round++ {
-			rawTotal += arenaRoundReward(tier, round, combatLevel)
+			rawTotal += arenaRoundReward(tier, round, skillBonus)
 		}
 		rawTotal += tier.CompletionBonus
 	}

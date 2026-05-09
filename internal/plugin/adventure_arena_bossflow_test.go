@@ -135,6 +135,67 @@ func TestBossFlowPhaseMessages(t *testing.T) {
 	}
 }
 
+// Phase L2 step 8 — assert that an arena win surfaces both the staged
+// combat log (RenderCombatLog phases prepended by the arena intro) and a
+// TwinBee BossDeath flavor line in the outcome block. Drives
+// renderBossOutcome directly with a forced-win CombatResult so the
+// assertion is RNG-free; the resolveArenaBoss smoke test above already
+// exercises the live combat path end-to-end.
+func TestArenaBossOutcome_WinSurfacesStagedLogAndBossDeath(t *testing.T) {
+	monster := arenaBosses[arenaBossID(1, 1)]
+	result := CombatResult{
+		PlayerWon:     true,
+		PlayerStartHP: 60, PlayerEndHP: 42,
+		EnemyStartHP: monster.HP, EnemyEndHP: 0,
+		Events: []CombatEvent{
+			{Round: 1, Phase: "attack", Actor: "player", Action: "hit", Roll: 14, RollAgainst: monster.AC, Damage: 10, EnemyHP: monster.HP - 10, PlayerHP: 60},
+			{Round: 2, Phase: "attack", Actor: "player", Action: "crit", Roll: 20, RollAgainst: monster.AC, Damage: monster.HP - 10, EnemyHP: 0, PlayerHP: 42},
+		},
+		TotalRounds: 2,
+	}
+
+	// Staged combat log — same call resolveArenaBoss makes for `phases`.
+	phases := RenderCombatLog(result, "Champion", monster.Name)
+	if len(phases) == 0 {
+		t.Fatal("RenderCombatLog returned no phases for a winning result")
+	}
+
+	victoryHeadline := "🏆 **" + monster.Name + "** falls (HP " + "60" + "→" + "42" + " / 60)."
+	outcome := renderBossOutcome(BossOutcomeInputs{
+		ZoneID:          ZoneArena,
+		RunID:           "arena-stagedlog-test",
+		RoomIdx:         11,
+		Monster:         monster,
+		Result:          result,
+		PreHP:           60, PostHP: 42, MaxHP: 60,
+		PhaseTwoAt:      arenaBossPhaseTwoAt(1),
+		Nat20s:          1,
+		Nat1s:           0,
+		DefeatHeadline:  "unused",
+		VictoryHeadline: victoryHeadline,
+	})
+
+	if !strings.Contains(outcome, "🎭 **TwinBee:**") {
+		t.Errorf("outcome missing TwinBee narration line: %q", outcome)
+	}
+	if !strings.Contains(outcome, victoryHeadline) {
+		t.Errorf("outcome missing victory headline: %q", outcome)
+	}
+	if !strings.Contains(outcome, "🎲 d20 —") {
+		t.Errorf("outcome missing dice-roll summary: %q", outcome)
+	}
+	// BossDeath line must be present — the TwinBee line preceding the
+	// victory headline is sourced from flavor.BossDeath via twinBeeLine.
+	headlineIdx := strings.Index(outcome, victoryHeadline)
+	if headlineIdx <= 0 {
+		t.Fatalf("victory headline not after a TwinBee line: %q", outcome)
+	}
+	prefix := outcome[:headlineIdx]
+	if !strings.Contains(prefix, "🎭 **TwinBee:**") {
+		t.Errorf("BossDeath TwinBee line should precede victory headline; prefix=%q", prefix)
+	}
+}
+
 func TestArenaBosses_AllTiersPopulated(t *testing.T) {
 	for tier := 1; tier <= 5; tier++ {
 		for round := 1; round <= 4; round++ {
