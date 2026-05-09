@@ -199,6 +199,11 @@ func (p *AdventurePlugin) Init() error {
 	if err := backfillPlayerMetaDisplayName(); err != nil {
 		slog.Error("player_meta: display_name backfill failed", "err", err)
 	}
+	// Adv 2.0 Phase L4a — one-shot HospitalVisits backfill into
+	// player_meta. Idempotent (only fills zero rows).
+	if err := backfillPlayerMetaHospitalVisits(); err != nil {
+		slog.Error("player_meta: hospital_visits backfill failed", "err", err)
+	}
 	// Phase L3 — cancel any open/active legacy coop dungeon runs and
 	// refund member contributions + unsettled bets. Idempotent.
 	closeAndRefundLegacyCoopRuns(p.euro)

@@ -17,11 +17,12 @@ import (
 // fields a phase has migrated are meaningful; unmigrated fields stay
 // zero-valued and are sourced from AdvCharacter.
 type PlayerMeta struct {
-	UserID        id.UserID
-	ArenaWins     int
-	ArenaLosses   int
-	InvasionScore int
-	DisplayName   string
+	UserID         id.UserID
+	ArenaWins      int
+	ArenaLosses    int
+	InvasionScore  int
+	DisplayName    string
+	HospitalVisits int
 }
 
 // loadPlayerMeta reads the player_meta row for a user. Returns a
@@ -31,9 +32,9 @@ type PlayerMeta struct {
 func loadPlayerMeta(userID id.UserID) (*PlayerMeta, error) {
 	m := &PlayerMeta{UserID: userID}
 	err := db.Get().QueryRow(
-		`SELECT arena_wins, arena_losses, invasion_score, display_name FROM player_meta WHERE user_id = ?`,
+		`SELECT arena_wins, arena_losses, invasion_score, display_name, hospital_visits FROM player_meta WHERE user_id = ?`,
 		string(userID),
-	).Scan(&m.ArenaWins, &m.ArenaLosses, &m.InvasionScore, &m.DisplayName)
+	).Scan(&m.ArenaWins, &m.ArenaLosses, &m.InvasionScore, &m.DisplayName, &m.HospitalVisits)
 	if err == sql.ErrNoRows {
 		return m, nil
 	}
@@ -119,6 +120,88 @@ func loadDisplayName(userID id.UserID) (string, error) {
 		return "", nil
 	}
 	return name, err
+}
+
+// upsertPlayerMetaHospitalVisits writes hospital_visits for a user, leaving
+// other columns untouched. Used by the dual-write path during the L4a
+// Hospital migration: every increment on AdvCharacter.HospitalVisits also
+// calls this so player_meta.hospital_visits stays in sync until soak
+// completes (gogobee_legacy_migration.md §6.1, §11).
+func upsertPlayerMetaHospitalVisits(userID id.UserID, visits int) error {
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (user_id, hospital_visits) VALUES (?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET hospital_visits = excluded.hospital_visits`,
+		string(userID), visits,
+	)
+	return err
+}
+
+// loadHospitalVisits returns the player's hospital visit count from
+// player_meta when present, falling back to adventure_characters during
+// the L4a soak window. Zero if the user has no row in either table.
+func loadHospitalVisits(userID id.UserID) (int, error) {
+	var visits int
+	err := db.Get().QueryRow(
+		`SELECT hospital_visits FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&visits)
+	if err == nil && visits > 0 {
+		return visits, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return 0, err
+	}
+	// player_meta row missing or zero → fall back to AdvCharacter for the
+	// soak window. A zero value in player_meta could legitimately mean "no
+	// visits yet", but the fallback only returns non-zero if the legacy
+	// column has a higher value, so this is safe either way.
+	var legacy int
+	err = db.Get().QueryRow(
+		`SELECT hospital_visits FROM adventure_characters WHERE user_id = ?`,
+		string(userID),
+	).Scan(&legacy)
+	if err == sql.ErrNoRows {
+		return visits, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if legacy > visits {
+		return legacy, nil
+	}
+	return visits, nil
+}
+
+// backfillPlayerMetaHospitalVisits copies adventure_characters.hospital_visits
+// into player_meta.hospital_visits for any row whose value is still the
+// default zero. Idempotent: only updates rows that haven't been populated
+// yet (via backfill or dual-write).
+func backfillPlayerMetaHospitalVisits() error {
+	if _, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO player_meta (user_id)
+		SELECT user_id FROM adventure_characters
+	`); err != nil {
+		return err
+	}
+	res, err := db.Get().Exec(`
+		UPDATE player_meta
+		SET hospital_visits = (
+			SELECT hospital_visits FROM adventure_characters
+			WHERE adventure_characters.user_id = player_meta.user_id
+		)
+		WHERE hospital_visits = 0
+		  AND EXISTS (
+			SELECT 1 FROM adventure_characters
+			WHERE adventure_characters.user_id = player_meta.user_id
+			  AND adventure_characters.hospital_visits > 0
+		  )
+	`)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	slog.Info("player_meta: hospital_visits backfilled", "rows", n)
+	return nil
 }
 
 // backfillPlayerMetaDisplayName copies adventure_characters.display_name

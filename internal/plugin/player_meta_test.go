@@ -187,6 +187,116 @@ func TestLoadDisplayName_FallsBackToAdvCharacter(t *testing.T) {
 	}
 }
 
+// Phase L4a — Hospital migration. Backfill is idempotent and only touches
+// zero-valued rows; the upsert helper round-trips; loadHospitalVisits falls
+// back to AdvCharacter when player_meta hasn't been populated yet.
+
+func TestPlayerMetaHospitalVisitsBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-hv-bf:example")
+	if err := createAdvCharacter(uid, "HVisitor"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters SET hospital_visits = ? WHERE user_id = ?`,
+		4, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET hospital_visits = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaHospitalVisits(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	got, err := loadHospitalVisits(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != 4 {
+		t.Errorf("after backfill: got %d want 4", got)
+	}
+
+	// Layer a dual-write increment. Backfill re-run must NOT clobber it
+	// back (only touches rows whose hospital_visits is still zero).
+	if err := upsertPlayerMetaHospitalVisits(uid, 5); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaHospitalVisits(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	got2, _ := loadHospitalVisits(uid)
+	if got2 != 5 {
+		t.Errorf("backfill clobbered dual-write: got %d want 5", got2)
+	}
+}
+
+func TestLoadHospitalVisits_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-hv-fb:example")
+	if err := createAdvCharacter(uid, "Fallbacker"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters SET hospital_visits = ? WHERE user_id = ?`,
+		3, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET hospital_visits = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	got, err := loadHospitalVisits(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != 3 {
+		t.Errorf("fallback: got %d want 3", got)
+	}
+
+	// Unknown user → 0, no error.
+	got2, err := loadHospitalVisits(id.UserID("@meta-hv-nobody:example"))
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if got2 != 0 {
+		t.Errorf("missing user: got %d want 0", got2)
+	}
+}
+
+func TestUpsertPlayerMetaHospitalVisits_RoundTrip(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-hv-rt:example")
+	if err := upsertPlayerMetaHospitalVisits(uid, 2); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	got, err := loadHospitalVisits(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != 2 {
+		t.Errorf("round-trip: got %d want 2", got)
+	}
+	if err := upsertPlayerMetaHospitalVisits(uid, 7); err != nil {
+		t.Fatalf("upsert update: %v", err)
+	}
+	got2, _ := loadHospitalVisits(uid)
+	if got2 != 7 {
+		t.Errorf("update: got %d want 7", got2)
+	}
+}
+
 func TestCreateAdvCharacter_DualWritesDisplayName(t *testing.T) {
 	setupAuditTestDB(t)
 

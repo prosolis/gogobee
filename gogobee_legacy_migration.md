@@ -274,6 +274,15 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 ### 6.1 L4a — Hospital
 - `adventure_hospital.go`: cost formula `CombatLevel × 25k` → `Level × 50k`. `HospitalVisits` → `player_meta`. Revive flips DnDCharacter HP from 0 → full instead of `Alive=true`.
 
+**Status (2026-05-09):** SHIPPED on `adv-2.0`.
+- `player_meta.hospital_visits` column added via columnMigration in `internal/db/db.go`.
+- `hospitalCostsForUser(char)` returns `(before, after)` using DnDCharacter.Level × 50k (5× before insurance), with a `dndLevelFromCombatLevel` fallback when no D&D row exists yet. Replaces the inline `CombatLevel × {125k,25k}` math at all three sites (handleHospitalCmd, resolveHospitalPay, sendHospitalAd).
+- `loadHospitalVisits(userID)` reads `player_meta.hospital_visits` → falls back to `adventure_characters.hospital_visits` during soak.
+- `upsertPlayerMetaHospitalVisits(userID, visits)` dual-writes the post-revive count alongside `saveAdvCharacter`.
+- `backfillPlayerMetaHospitalVisits()` runs on every Init; idempotent (only fills zero rows so dual-writes survive re-runs).
+- Revive (paid + on-demand + race-after-timer-expired) now also restores `DnDCharacter.HPCurrent = HPMax` via `LoadDnDCharacter` / `SaveDnDCharacter`. `char.Alive=true` still flips during soak — other systems (arena, scheduler) still read `Alive` and migrate later.
+- Tests: `TestPlayerMetaHospitalVisitsBackfill_Idempotent`, `TestLoadHospitalVisits_FallsBackToAdvCharacter`, `TestUpsertPlayerMetaHospitalVisits_RoundTrip` (skip without prod DB, matching the L2/L4f-prep pattern).
+
 ### 6.2 L4b — Rival
 - `adventure_rival.go`: unlock at Level ≥ 3 (was CombatLevel ≥ 5). RivalPool → `player_meta`. Duel combat already uses `combat_engine` — port to `simulateCombat` here too (small extra step).
 - Move rival flavor into existing `adventure_flavor_rival.go` — no new file.

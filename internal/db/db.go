@@ -190,6 +190,10 @@ func runMigrations(d *sql.DB) error {
 		// player_meta gets the canonical column; AdvCharacter.display_name
 		// keeps dual-writing during soak (gogobee_legacy_migration.md §7).
 		`ALTER TABLE player_meta ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
+		// Adv 2.0 Phase L4a — Hospital migration off AdvCharacter.
+		// HospitalVisits moves to player_meta; AdvCharacter.hospital_visits
+		// keeps dual-writing during soak (gogobee_legacy_migration.md §6.1).
+		`ALTER TABLE player_meta ADD COLUMN hospital_visits INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1710,10 +1714,12 @@ CREATE TABLE IF NOT EXISTS dnd_known_recipe (
 -- counters. The dual-write rule (§11) applies: writes go to both this
 -- table and adventure_characters until a phase soaks clean for one week.
 CREATE TABLE IF NOT EXISTS player_meta (
-    user_id        TEXT PRIMARY KEY,
-    arena_wins     INTEGER NOT NULL DEFAULT 0,
-    arena_losses   INTEGER NOT NULL DEFAULT 0,
-    invasion_score INTEGER NOT NULL DEFAULT 0
+    user_id         TEXT PRIMARY KEY,
+    arena_wins      INTEGER NOT NULL DEFAULT 0,
+    arena_losses    INTEGER NOT NULL DEFAULT 0,
+    invasion_score  INTEGER NOT NULL DEFAULT 0,
+    display_name    TEXT NOT NULL DEFAULT '',
+    hospital_visits INTEGER NOT NULL DEFAULT 0
 );
 `
 

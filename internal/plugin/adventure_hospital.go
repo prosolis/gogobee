@@ -16,6 +16,24 @@ type advPendingHospitalPay struct {
 	Cost int64 // after-insurance amount (recomputed at confirm time for TOCTOU safety)
 }
 
+// hospitalCostsForUser returns (beforeInsurance, afterInsurance) for the
+// hospital revival bill. Phase L4a switches the formula off CombatLevel
+// onto DnDCharacter.Level: `Level × 50_000` after insurance, 5× that
+// before. Falls back to the legacy combat-level mapping when no D&D
+// character row exists yet (createDnDCharacterFromAdv hasn't run).
+func hospitalCostsForUser(char *AdventureCharacter) (int64, int64) {
+	level := 0
+	if dnd, err := LoadDnDCharacter(char.UserID); err == nil && dnd != nil {
+		level = dnd.Level
+	}
+	if level <= 0 {
+		level = dndLevelFromCombatLevel(char.CombatLevel)
+	}
+	after := int64(level) * 50_000
+	before := after * 5
+	return before, after
+}
+
 // ── Hospital Command ───────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
@@ -38,12 +56,17 @@ func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
 			slog.Error("hospital: on-demand revive failed", "user", char.UserID, "err", err)
 			return p.SendDM(ctx.Sender, "Something went wrong at the hospital. Try again in a moment.")
 		}
+		if dnd, err := LoadDnDCharacter(char.UserID); err == nil && dnd != nil {
+			dnd.HPCurrent = dnd.HPMax
+			if err := SaveDnDCharacter(dnd); err != nil {
+				slog.Error("hospital: failed to restore DnDCharacter HP on natural revive", "user", char.UserID, "err", err)
+			}
+		}
 		return p.SendDM(ctx.Sender, nurseJoyAlreadyRevived)
 	}
 
-	// Compute costs
-	beforeInsurance := int64(char.CombatLevel) * 125_000
-	afterInsurance := int64(char.CombatLevel) * 25_000
+	// Compute costs (Phase L4a: DnD level × 50k after insurance, 5× before)
+	beforeInsurance, afterInsurance := hospitalCostsForUser(char)
 
 	// Check balance
 	balance := p.euro.GetBalance(ctx.Sender)
@@ -67,8 +90,12 @@ func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
 	// Build the full multi-act DM
 	var sb strings.Builder
 
+	// Phase L4a: HospitalVisits sourced from player_meta (with AdvCharacter
+	// fallback during soak).
+	visits, _ := loadHospitalVisits(char.UserID)
+
 	// Act 1 — Admission
-	if char.HospitalVisits == 0 {
+	if visits == 0 {
 		sb.WriteString(nurseJoyFirstVisit)
 	}
 
@@ -77,7 +104,7 @@ func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
 	sb.WriteString("\n\n")
 
 	// Act 2 — The Bill
-	sb.WriteString(generateItemizedBill(beforeInsurance, afterInsurance, char.HospitalVisits, isHol))
+	sb.WriteString(generateItemizedBill(beforeInsurance, afterInsurance, visits, isHol))
 	sb.WriteString("\n\n")
 
 	delivery, _ := advPickFlavor(nurseJoyBillDelivery, ctx.Sender, "hospital_delivery")
@@ -139,11 +166,15 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 			char.Alive = true
 			char.DeadUntil = nil
 			_ = saveAdvCharacter(char)
+			if dnd, err := LoadDnDCharacter(char.UserID); err == nil && dnd != nil {
+				dnd.HPCurrent = dnd.HPMax
+				_ = SaveDnDCharacter(dnd)
+			}
 			return p.SendDM(ctx.Sender, nurseJoyAlreadyRevived)
 		}
 
-		// Recompute cost from current combat level (don't trust cached value)
-		cost := int64(char.CombatLevel) * 25_000
+		// Recompute cost from current DnD level (don't trust cached value)
+		_, cost := hospitalCostsForUser(char)
 
 		// Check balance
 		balance := p.euro.GetBalance(ctx.Sender)
@@ -171,7 +202,10 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 			trackTaxPaid(ctx.Sender, potCut)
 		}
 
-		// Revive
+		// Revive. Phase L4a: restore DnDCharacter HP to full (canonical
+		// post-L5 path) and keep flipping AdvCharacter.Alive during soak
+		// since other systems still read it. HospitalVisits dual-writes
+		// to player_meta + AdvCharacter (§11).
 		char.Alive = true
 		char.DeadUntil = nil
 		char.HospitalVisits++
@@ -180,6 +214,15 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 			// Refund on save failure
 			p.euro.Credit(ctx.Sender, float64(cost), "hospital_revival_refund")
 			return p.SendDM(ctx.Sender, "Something went wrong during recovery. Your payment has been refunded.")
+		}
+		if err := upsertPlayerMetaHospitalVisits(char.UserID, char.HospitalVisits); err != nil {
+			slog.Error("hospital: failed to dual-write hospital_visits to player_meta", "user", char.UserID, "err", err)
+		}
+		if dnd, err := LoadDnDCharacter(char.UserID); err == nil && dnd != nil {
+			dnd.HPCurrent = dnd.HPMax
+			if err := SaveDnDCharacter(dnd); err != nil {
+				slog.Error("hospital: failed to restore DnDCharacter HP", "user", char.UserID, "err", err)
+			}
 		}
 
 		// Discharge DM
@@ -220,8 +263,7 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 // ── Hospital Ad (sent after death) ─────────────────────────────────────────
 
 func (p *AdventurePlugin) sendHospitalAd(userID id.UserID, char *AdventureCharacter) {
-	beforeInsurance := int64(char.CombatLevel) * 125_000
-	afterInsurance := int64(char.CombatLevel) * 25_000
+	beforeInsurance, afterInsurance := hospitalCostsForUser(char)
 	respawnTime := "unknown"
 	if char.DeadUntil != nil {
 		respawnTime = char.DeadUntil.Format("15:04")
