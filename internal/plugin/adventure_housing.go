@@ -330,6 +330,8 @@ func (p *AdventurePlugin) handleThomBuy(ctx MessageContext, char *AdventureChara
 			p.euro.Credit(ctx.Sender, float64(totalCost), "house_purchase_refund")
 			return p.SendDM(ctx.Sender, "Failed to save. You've been refunded.")
 		}
+		// L4e dual-write: mirror house state into player_meta.
+		_ = upsertPlayerMetaHouseState(char.UserID, houseStateFromAdvChar(char))
 		return p.SendDM(ctx.Sender, fmt.Sprintf("🏠 **%s** purchased outright for €%d.\n\nNo loan. No weekly payments. Thom is visibly disappointed.", def.Name, totalCost))
 	}
 
@@ -361,6 +363,8 @@ func (p *AdventurePlugin) handleThomBuy(ctx MessageContext, char *AdventureChara
 		}
 		return p.SendDM(ctx.Sender, "Failed to save. You've been refunded.")
 	}
+	// L4e dual-write: mirror house state into player_meta.
+	_ = upsertPlayerMetaHouseState(char.UserID, houseStateFromAdvChar(char))
 
 	weekly := houseWeeklyPayment(loanAmount, rate)
 	var sb strings.Builder
@@ -409,6 +413,8 @@ func (p *AdventurePlugin) handleThomPayoff(ctx MessageContext, char *AdventureCh
 		p.euro.Credit(ctx.Sender, payoffAmount, "house_payoff_refund")
 		return p.SendDM(ctx.Sender, "Failed to save. Your money has been refunded.")
 	}
+	// L4e dual-write: mirror house state into player_meta.
+	_ = upsertPlayerMetaHouseState(char.UserID, houseStateFromAdvChar(char))
 
 	if char.HasPet() {
 		return p.SendDM(ctx.Sender, fmt.Sprintf("🏠 %s", fmt.Sprintf(thomPaidOffPet, char.PetName)))
@@ -462,6 +468,8 @@ func (p *AdventurePlugin) handleThomPay(ctx MessageContext, char *AdventureChara
 		p.euro.Credit(ctx.Sender, float64(amount), "house_extra_payment_refund")
 		return p.SendDM(ctx.Sender, "Failed to save. Your money has been refunded.")
 	}
+	// L4e dual-write: mirror house state into player_meta.
+	_ = upsertPlayerMetaHouseState(char.UserID, houseStateFromAdvChar(char))
 
 	if char.HouseLoanBalance == 0 {
 		if char.HasPet() {
@@ -493,6 +501,8 @@ func (p *AdventurePlugin) handleThomAutopay(ctx MessageContext, char *AdventureC
 	if err := saveAdvCharacter(char); err != nil {
 		return p.SendDM(ctx.Sender, "Failed to save.")
 	}
+	// L4e dual-write: mirror house state into player_meta.
+	_ = upsertPlayerMetaHouseState(char.UserID, houseStateFromAdvChar(char))
 
 	if char.HouseAutopay {
 		return p.SendDM(ctx.Sender, "✅ Autopay enabled. 2% discount on weekly payments. Thom calls this a favour. It is not.")
@@ -538,6 +548,7 @@ func (p *AdventurePlugin) processMortgagePayments() {
 				freshChar.HouseLoanBalance = 0
 				freshChar.HouseMissedPayments = 0
 				_ = saveAdvCharacter(freshChar)
+				_ = upsertPlayerMetaHouseState(freshChar.UserID, houseStateFromAdvChar(freshChar))
 				userMu.Unlock()
 				// Paid off!
 				if freshChar.HasPet() {
@@ -549,6 +560,7 @@ func (p *AdventurePlugin) processMortgagePayments() {
 			}
 			freshChar.HouseMissedPayments = 0
 			_ = saveAdvCharacter(freshChar)
+			_ = upsertPlayerMetaHouseState(freshChar.UserID, houseStateFromAdvChar(freshChar))
 			userMu.Unlock()
 		} else {
 			// Missed payment
@@ -559,6 +571,7 @@ func (p *AdventurePlugin) processMortgagePayments() {
 			if freshChar.HouseMissedPayments >= 10 {
 				freshChar.HouseLoanFrozen = true
 				_ = saveAdvCharacter(freshChar)
+				_ = upsertPlayerMetaHouseState(freshChar.UserID, houseStateFromAdvChar(freshChar))
 				userMu.Unlock()
 				if freshChar.HasPet() {
 					_ = p.SendDM(freshChar.UserID, fmt.Sprintf("🏠 %s", fmt.Sprintf(thomFreezePet, freshChar.PetName)))
@@ -567,6 +580,7 @@ func (p *AdventurePlugin) processMortgagePayments() {
 				}
 			} else {
 				_ = saveAdvCharacter(freshChar)
+				_ = upsertPlayerMetaHouseState(freshChar.UserID, houseStateFromAdvChar(freshChar))
 				userMu.Unlock()
 				if freshChar.HasPet() {
 					_ = p.SendDM(freshChar.UserID, fmt.Sprintf("🏠 %s", fmt.Sprintf(thomMissedPaymentPet, freshChar.HouseLoanBalance, freshChar.PetName)))
@@ -608,6 +622,7 @@ func (p *AdventurePlugin) sendMortgageRateChangeDMs(oldRate, newRate float64) {
 		}
 		freshChar.HouseCurrentRate = newRate
 		_ = saveAdvCharacter(freshChar)
+		_ = upsertPlayerMetaHouseState(freshChar.UserID, houseStateFromAdvChar(freshChar))
 		userMu.Unlock()
 
 		newWeekly := houseWeeklyPayment(freshChar.HouseLoanBalance, newRate)

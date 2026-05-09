@@ -219,6 +219,12 @@ func (p *AdventurePlugin) Init() error {
 	if err := backfillPlayerMetaPetState(); err != nil {
 		slog.Error("player_meta: pet state backfill failed", "err", err)
 	}
+	// Adv 2.0 Phase L4e — one-shot house state backfill into player_meta.
+	// Idempotent (only fills rows whose house_tier and house_loan_balance
+	// are still both the default zero).
+	if err := backfillPlayerMetaHouseState(); err != nil {
+		slog.Error("player_meta: house state backfill failed", "err", err)
+	}
 	// Phase L3 — cancel any open/active legacy coop dungeon runs and
 	// refund member contributions + unsettled bets. Idempotent.
 	closeAndRefundLegacyCoopRuns(p.euro)

@@ -676,3 +676,138 @@ func TestUpsertPlayerMetaPetState_RoundTrip(t *testing.T) {
 		t.Errorf("update mismatch:\n got=%+v\nwant=%+v", got2, in)
 	}
 }
+
+// Phase L4e — House state migration. Backfill is idempotent and only touches
+// rows that haven't been migrated yet (tier=0 AND loan_balance=0); the upsert
+// helper round-trips the full HouseState; loadHouseState falls back to
+// AdvCharacter when player_meta hasn't been populated yet.
+
+func TestPlayerMetaHouseStateBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-house-bf:example")
+	if err := createAdvCharacter(uid, "HouseOwner"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET house_tier = ?, house_loan_balance = ?, house_loan_frozen = ?,
+		        house_missed_payments = ?, house_autopay = ?, house_current_rate = ?
+		  WHERE user_id = ?`,
+		2, 50000, 0, 1, 1, 6.25, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET house_tier = 0, house_loan_balance = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaHouseState(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	got, err := loadHouseState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Tier != 2 || got.LoanBalance != 50000 || got.LoanFrozen ||
+		got.MissedPayments != 1 || !got.Autopay || got.CurrentRate != 6.25 {
+		t.Errorf("after backfill: got %+v", got)
+	}
+
+	// Layer a dual-write that pays down the loan and toggles autopay off.
+	got.LoanBalance = 25000
+	got.MissedPayments = 0
+	got.Autopay = false
+	if err := upsertPlayerMetaHouseState(uid, got); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaHouseState(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	got2, _ := loadHouseState(uid)
+	if got2.LoanBalance != 25000 || got2.Autopay || got2.MissedPayments != 0 {
+		t.Errorf("backfill clobbered dual-write: got %+v", got2)
+	}
+}
+
+func TestLoadHouseState_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-house-fb:example")
+	if err := createAdvCharacter(uid, "HouseFallback"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET house_tier = ?, house_loan_balance = ?, house_loan_frozen = ?,
+		        house_missed_payments = ?, house_autopay = ?, house_current_rate = ?
+		  WHERE user_id = ?`,
+		3, 75000, 1, 5, 0, 7.0, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET house_tier = 0, house_loan_balance = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	got, err := loadHouseState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Tier != 3 || got.LoanBalance != 75000 || !got.LoanFrozen ||
+		got.MissedPayments != 5 || got.Autopay || got.CurrentRate != 7.0 {
+		t.Errorf("fallback: got %+v", got)
+	}
+
+	// Unknown user → zero HouseState, no error.
+	got2, err := loadHouseState(id.UserID("@meta-house-nobody:example"))
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if got2.Tier != 0 || got2.LoanBalance != 0 {
+		t.Errorf("missing user: got %+v", got2)
+	}
+}
+
+func TestUpsertPlayerMetaHouseState_RoundTrip(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-house-rt:example")
+	in := HouseState{
+		Tier:           4,
+		LoanBalance:    120000,
+		LoanFrozen:     true,
+		MissedPayments: 7,
+		Autopay:        true,
+		CurrentRate:    5.875,
+	}
+	if err := upsertPlayerMetaHouseState(uid, in); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	got, err := loadHouseState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != in {
+		t.Errorf("round-trip mismatch:\n got=%+v\nwant=%+v", got, in)
+	}
+
+	// Pay-down updates the columns via the same upsert.
+	in.LoanBalance = 0
+	in.LoanFrozen = false
+	in.MissedPayments = 0
+	in.Autopay = false
+	if err := upsertPlayerMetaHouseState(uid, in); err != nil {
+		t.Fatalf("upsert update: %v", err)
+	}
+	got2, _ := loadHouseState(uid)
+	if got2 != in {
+		t.Errorf("update mismatch:\n got=%+v\nwant=%+v", got2, in)
+	}
+}

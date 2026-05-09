@@ -216,6 +216,16 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE player_meta ADD COLUMN pet_flags_json TEXT NOT NULL DEFAULT '{}'`,
 		`ALTER TABLE player_meta ADD COLUMN pet_supply_shop_unlocked INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN pet_level_10_date TEXT NOT NULL DEFAULT ''`,
+		// Adv 2.0 Phase L4e — Housing & mortgage migration off AdvCharacter.
+		// HouseTier / HouseLoanBalance / HouseLoanFrozen / HouseMissedPayments
+		// / HouseAutopay / HouseCurrentRate move to player_meta; AdvCharacter
+		// columns keep dual-writing during soak (gogobee_legacy_migration.md §6.5).
+		`ALTER TABLE player_meta ADD COLUMN house_tier INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN house_loan_balance INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN house_loan_frozen INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN house_missed_payments INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN house_autopay INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN house_current_rate REAL NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

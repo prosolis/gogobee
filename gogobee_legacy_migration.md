@@ -327,6 +327,15 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 - `adventure_housing.go`, `adventure_mortgage.go`: HouseTier/loan fields → `player_meta`. `houseHPBonus` → applied to `DnDCharacter.HPMax` calculation (already a parallel hook in `dnd_sheet.go`'s `recomputeHPMax`).
 - Mortgage scheduler tick stays — only the field source changes.
 
+**Status (2026-05-09):** SHIPPED on `adv-2.0` (column + dual-write only; reader flip deferred — see note).
+- `player_meta` gains `house_tier`, `house_loan_balance`, `house_loan_frozen`, `house_missed_payments`, `house_autopay`, `house_current_rate` via columnMigration in `internal/db/db.go`. Six columns (no JSON pack — bools and rate co-mutate with tier/balance at known sites).
+- New helpers in `player_meta.go`: `HouseState` struct + `HasHouse()`, `upsertPlayerMetaHouseState(userID, HouseState)`, `loadHouseState(userID)` (player_meta canonical when `tier > 0 || loan_balance > 0`, falls back to AdvCharacter otherwise), `backfillPlayerMetaHouseState()` (idempotent — only updates rows whose tier and loan_balance are both still zero), and `houseStateFromAdvChar(*AdventureCharacter)` for the dual-write projection.
+- Dual-writes wired at every house mutation site in `adventure_housing.go`: `handleThomBuy` (full purchase + loan purchase), `handleThomPayoff`, `handleThomPay` (extra payment), `handleThomAutopay`, the four `processMortgagePayments` save paths (paid-off, success, missed-payment-freeze, missed-payment), and `sendMortgageRateChangeDMs` rate refresh.
+- Backfill: `backfillPlayerMetaHouseState()` runs on every Init; idempotent (only fills rows whose `house_tier` and `house_loan_balance` are both still the default zero, and the legacy AdvCharacter row has either tier > 0 or loan > 0).
+- Tests: `TestPlayerMetaHouseStateBackfill_Idempotent`, `TestLoadHouseState_FallsBackToAdvCharacter`, `TestUpsertPlayerMetaHouseState_RoundTrip` in `player_meta_test.go` (skip without prod DB, matching the L4d pattern).
+- `go vet ./...` + `go test ./...` clean.
+- **Reader flip deferred.** Reads in `adventure_housing.go`, `dnd_rest.go`, `dnd_sheet.go`, `adventure_pets.go` still go through `*AdventureCharacter`. Flipping them to `loadHouseState(userID)` is a separate session; the DB-level migration (this step) is the prerequisite.
+
 ### 6.6 L4f — TwinBee/render
 - `adventure_render.go`: morning DM reads from DnDCharacter + `player_meta`. Coop teaser gating moves to DnDCharacter.Level.
 - `adventure_twinbee.go`: simulator already addressed in L1. Remaining usage is read-only stat display — port to DnDCharacter.

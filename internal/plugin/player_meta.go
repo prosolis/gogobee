@@ -601,6 +601,163 @@ func petStateFromAdvChar(c *AdventureCharacter) PetState {
 	}
 }
 
+// HouseState is the in-memory mirror of player_meta's house_* columns. Phase
+// L4e ports housing/mortgage off AdvCharacter (gogobee_legacy_migration.md
+// §6.5). All six fields mutate together at known sites (purchase, payoff,
+// payment, autopay toggle, weekly tick, rate refresh), so the helper takes
+// the whole struct rather than splitting per-field.
+type HouseState struct {
+	Tier            int
+	LoanBalance     int
+	LoanFrozen      bool
+	MissedPayments  int
+	Autopay         bool
+	CurrentRate     float64
+}
+
+// HasHouse mirrors AdventureCharacter.HasHouse: a player counts as housed
+// if they own any tier or carry an outstanding loan. Used as the "row is
+// migrated" marker in loadHouseState — a zero/zero/zero state is
+// indistinguishable from "no row yet" so it falls through to the legacy
+// table during the soak window.
+func (s HouseState) HasHouse() bool { return s.Tier > 0 || s.LoanBalance > 0 }
+
+// upsertPlayerMetaHouseState writes the full house column set for a user.
+// Used by the dual-write path during the L4e soak window.
+func upsertPlayerMetaHouseState(userID id.UserID, s HouseState) error {
+	frozen := 0
+	if s.LoanFrozen {
+		frozen = 1
+	}
+	autopay := 0
+	if s.Autopay {
+		autopay = 1
+	}
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (
+		   user_id, house_tier, house_loan_balance, house_loan_frozen,
+		   house_missed_payments, house_autopay, house_current_rate
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   house_tier = excluded.house_tier,
+		   house_loan_balance = excluded.house_loan_balance,
+		   house_loan_frozen = excluded.house_loan_frozen,
+		   house_missed_payments = excluded.house_missed_payments,
+		   house_autopay = excluded.house_autopay,
+		   house_current_rate = excluded.house_current_rate`,
+		string(userID), s.Tier, s.LoanBalance, frozen,
+		s.MissedPayments, autopay, s.CurrentRate,
+	)
+	return err
+}
+
+// loadHouseState returns the player's house state from player_meta when
+// populated (HasHouse true), falling back to adventure_characters during
+// the L4e soak window. A row with tier=0 and loan_balance=0 is treated as
+// unmigrated and falls through — matching the canonical "tier > 0 || loan
+// > 0" has-a-house marker used elsewhere.
+func loadHouseState(userID id.UserID) (HouseState, error) {
+	var (
+		s          HouseState
+		frozenInt  int
+		autopayInt int
+	)
+	err := db.Get().QueryRow(
+		`SELECT house_tier, house_loan_balance, house_loan_frozen,
+		        house_missed_payments, house_autopay, house_current_rate
+		   FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&s.Tier, &s.LoanBalance, &frozenInt,
+		&s.MissedPayments, &autopayInt, &s.CurrentRate)
+	if err == nil && (s.Tier > 0 || s.LoanBalance > 0) {
+		s.LoanFrozen = frozenInt == 1
+		s.Autopay = autopayInt == 1
+		return s, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return HouseState{}, err
+	}
+	// Fallback to AdvCharacter during soak.
+	var (
+		legacyTier, legacyBalance, legacyMissed int
+		legacyFrozen, legacyAutopay             int
+		legacyRate                              float64
+	)
+	err = db.Get().QueryRow(
+		`SELECT house_tier, house_loan_balance, house_loan_frozen,
+		        house_missed_payments, house_autopay, house_current_rate
+		   FROM adventure_characters WHERE user_id = ?`,
+		string(userID),
+	).Scan(&legacyTier, &legacyBalance, &legacyFrozen,
+		&legacyMissed, &legacyAutopay, &legacyRate)
+	if err == sql.ErrNoRows {
+		return HouseState{}, nil
+	}
+	if err != nil {
+		return HouseState{}, err
+	}
+	return HouseState{
+		Tier:           legacyTier,
+		LoanBalance:    legacyBalance,
+		LoanFrozen:     legacyFrozen == 1,
+		MissedPayments: legacyMissed,
+		Autopay:        legacyAutopay == 1,
+		CurrentRate:    legacyRate,
+	}, nil
+}
+
+// backfillPlayerMetaHouseState copies the house_* columns from
+// adventure_characters into player_meta for any row whose house_tier and
+// house_loan_balance are both still the default zero. Idempotent: only
+// updates rows that haven't been populated yet (via backfill or
+// dual-write).
+func backfillPlayerMetaHouseState() error {
+	if _, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO player_meta (user_id)
+		SELECT user_id FROM adventure_characters
+	`); err != nil {
+		return err
+	}
+	res, err := db.Get().Exec(`
+		UPDATE player_meta
+		SET house_tier = (SELECT house_tier FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    house_loan_balance = (SELECT house_loan_balance FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    house_loan_frozen = (SELECT house_loan_frozen FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    house_missed_payments = (SELECT house_missed_payments FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    house_autopay = (SELECT house_autopay FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    house_current_rate = (SELECT house_current_rate FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
+		WHERE house_tier = 0
+		  AND house_loan_balance = 0
+		  AND EXISTS (
+			SELECT 1 FROM adventure_characters ac
+			WHERE ac.user_id = player_meta.user_id
+			  AND (ac.house_tier > 0 OR ac.house_loan_balance > 0)
+		  )
+	`)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	slog.Info("player_meta: house state backfilled", "rows", n)
+	return nil
+}
+
+// houseStateFromAdvChar projects the housing-related fields off an
+// AdventureCharacter into a HouseState. Used by the dual-write path:
+// every site that mutates AdvCharacter house fields then calls
+// upsertPlayerMetaHouseState with this projection so the columns move
+// cleanly during the L4e soak window.
+func houseStateFromAdvChar(c *AdventureCharacter) HouseState {
+	return HouseState{
+		Tier:           c.HouseTier,
+		LoanBalance:    c.HouseLoanBalance,
+		LoanFrozen:     c.HouseLoanFrozen,
+		MissedPayments: c.HouseMissedPayments,
+		Autopay:        c.HouseAutopay,
+		CurrentRate:    c.HouseCurrentRate,
+	}
+}
+
 // backfillPlayerMetaDisplayName copies adventure_characters.display_name
 // into player_meta.display_name for any row whose display_name is still
 // the empty default. Idempotent: safe to re-run; only updates rows that
