@@ -711,11 +711,24 @@ func renderAdvOnboardingDM(userID id.UserID) string {
 // ── Daily Summary ────────────────────────────────────────────────────────────
 
 type AdvPlayerDaySummary struct {
-	DisplayName    string
-	Level          int
-	MiningSkill    int
-	ForagingSkill  int
-	FishingSkill   int
+	DisplayName string
+
+	// D&D layer (preferred render). HasDnDChar=false → fall back to legacy
+	// skill-line render and "needs !setup" hint.
+	HasDnDChar bool
+	DnDLevel   int
+	DnDRace    string
+	DnDClass   string
+	HPCurrent  int
+	HPMax      int
+
+	// Legacy AdventureCharacter skill levels (rendered as fallback when
+	// HasDnDChar is false).
+	Level         int // legacy combat level
+	MiningSkill   int
+	ForagingSkill int
+	FishingSkill  int
+
 	Activity       string
 	Location       string
 	Outcome        string
@@ -727,6 +740,36 @@ type AdvPlayerDaySummary struct {
 	HolidayActions int // 0 = not holiday or no action; 1 = took one; 2 = took both
 	DeathSource    string
 	DeathLocation  string
+}
+
+// advPlayerHeadline renders the per-player headline for the daily report.
+// D&D shape ("Lv.4 Half-Elf Cleric — HP 27/27") is preferred; falls back to
+// the legacy four-skill line for accounts that haven't run !setup yet.
+func advPlayerHeadline(p *AdvPlayerDaySummary) string {
+	if p.HasDnDChar {
+		race := titleizeDnDToken(p.DnDRace)
+		class := titleizeDnDToken(p.DnDClass)
+		return fmt.Sprintf("Lv.%d %s %s — HP %d/%d",
+			p.DnDLevel, race, class, p.HPCurrent, p.HPMax)
+	}
+	return fmt.Sprintf("Combat Lv.%d | Mining Lv.%d | Forage Lv.%d | Fishing Lv.%d _(no D&D sheet — run `!setup`)_",
+		p.Level, p.MiningSkill, p.ForagingSkill, p.FishingSkill)
+}
+
+// titleizeDnDToken converts a snake_case D&D enum token like "half_elf" into
+// a human-readable label like "Half-Elf". Single-word tokens just title-case.
+func titleizeDnDToken(s string) string {
+	if s == "" {
+		return ""
+	}
+	parts := strings.Split(s, "_")
+	for i, p := range parts {
+		if p == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(p[:1]) + p[1:]
+	}
+	return strings.Join(parts, "-")
 }
 
 func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewardSummary, players []AdvPlayerDaySummary, holidayName string) string {
@@ -809,8 +852,7 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 				if !diedOnAdventure {
 					icon = "⚔️"
 				}
-				sb.WriteString(fmt.Sprintf("%s **%s** — Combat Lv.%d | Mining Lv.%d | Forage Lv.%d | Fishing Lv.%d\n",
-					icon, p.DisplayName, p.Level, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
+				sb.WriteString(fmt.Sprintf("%s **%s** — %s\n", icon, p.DisplayName, advPlayerHeadline(p)))
 				sb.WriteString(fmt.Sprintf("   Went to: %s\n", p.Location))
 				sb.WriteString(fmt.Sprintf("   Outcome: %s\n", p.SummaryLine))
 				if !diedOnAdventure {
@@ -832,8 +874,7 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 			continue
 		}
 
-		sb.WriteString(fmt.Sprintf("⚔️ **%s** — Combat Lv.%d | Mining Lv.%d | Forage Lv.%d | Fishing Lv.%d\n",
-			p.DisplayName, p.Level, p.MiningSkill, p.ForagingSkill, p.FishingSkill))
+		sb.WriteString(fmt.Sprintf("⚔️ **%s** — %s\n", p.DisplayName, advPlayerHeadline(p)))
 		if p.Location != "" {
 			sb.WriteString(fmt.Sprintf("   Went to: %s\n", p.Location))
 			sb.WriteString(fmt.Sprintf("   Outcome: %s\n\n", p.SummaryLine))

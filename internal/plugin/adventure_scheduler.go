@@ -205,28 +205,25 @@ func (p *AdventurePlugin) postDailySummary() {
 		return
 	}
 
-	// Load logs for today and yesterday — players may act across the UTC boundary
+	// Load activity for today and yesterday — players may act across the UTC
+	// boundary. Activity unifies legacy adventure_activity_log + dnd_zone_run
+	// + dnd_expedition_log so the report sees every action regardless of
+	// which subsystem produced it.
 	now := time.Now().UTC()
-	todayLogs, _ := loadAdvLogsForDate(now.Format("2006-01-02"))
-	yesterdayLogs, _ := loadAdvLogsForDate(now.AddDate(0, 0, -1).Format("2006-01-02"))
-	todayLogs = append(todayLogs, yesterdayLogs...)
-	// Group logs per user — holiday days may produce 2 entries per user
-	logsPerUser := make(map[id.UserID][]*AdvDayLog)
-	for i := range todayLogs {
-		uid := todayLogs[i].UserID
-		logsPerUser[uid] = append(logsPerUser[uid], &todayLogs[i])
+	todayActs, _ := loadAdvDailyActivity(now.Format("2006-01-02"))
+	yesterdayActs, _ := loadAdvDailyActivity(now.AddDate(0, 0, -1).Format("2006-01-02"))
+	activityMap := make(map[id.UserID][]AdvDailyActivity)
+	for uid, e := range yesterdayActs {
+		activityMap[uid] = append(activityMap[uid], e...)
 	}
-	// logMap picks the last (most recent) log entry for summary display
-	// lootSums aggregates loot across all actions (relevant on holiday double-action days)
-	logMap := make(map[id.UserID]*AdvDayLog)
+	for uid, e := range todayActs {
+		activityMap[uid] = append(activityMap[uid], e...)
+	}
 	lootSums := make(map[id.UserID]int64)
-	for uid, logs := range logsPerUser {
-		logMap[uid] = logs[len(logs)-1]
-		var total int64
-		for _, l := range logs {
-			total += l.LootValue
+	for uid, acts := range activityMap {
+		for _, a := range acts {
+			lootSums[uid] += a.LootValue
 		}
-		lootSums[uid] = total
 	}
 
 	isHol, holName := isHolidayToday()
@@ -237,15 +234,25 @@ func (p *AdventurePlugin) postDailySummary() {
 		dispName, _ := loadDisplayName(c.UserID)
 		ps := AdvPlayerDaySummary{
 			DisplayName:   dispName,
-			Level:         dndLevelForUser(c.UserID),
+			Level:         c.CombatLevel,
 			MiningSkill:   c.MiningSkill,
 			ForagingSkill: c.ForagingSkill,
 			FishingSkill:  c.FishingSkill,
 		}
+		if dnd, _ := LoadDnDCharacter(c.UserID); dnd != nil {
+			ps.HasDnDChar = true
+			ps.DnDLevel = dnd.Level
+			ps.DnDRace = string(dnd.Race)
+			ps.DnDClass = string(dnd.Class)
+			ps.HPCurrent = dnd.HPCurrent
+			ps.HPMax = dnd.HPMax
+		}
 
-		// Holiday action count from log entries
+		acts := activityMap[c.UserID]
+
+		// Holiday action count from activity entries
 		if isHol {
-			ps.HolidayActions = len(logsPerUser[c.UserID])
+			ps.HolidayActions = len(acts)
 		}
 
 		if !c.Alive {
@@ -255,19 +262,19 @@ func (p *AdventurePlugin) postDailySummary() {
 			if c.DeadUntil != nil {
 				ps.DeadUntil = c.DeadUntil.Format("15:04") + " UTC"
 			}
-			// Check if they died today
-			if log, ok := logMap[c.UserID]; ok {
-				ps.Activity = log.ActivityType
-				ps.Location = log.Location
-				ps.Outcome = log.Outcome
-				ps.LootValue = lootSums[c.UserID] // aggregate across all actions
-				ps.SummaryLine = advSummaryOneLiner(c.UserID, AdvActivityType(log.ActivityType), AdvOutcomeType(log.Outcome), lootSums[c.UserID], log.Location)
+			if len(acts) > 0 {
+				last := acts[len(acts)-1]
+				ps.Activity = last.Activity
+				ps.Location = last.Location
+				ps.Outcome = last.Outcome
+				ps.LootValue = lootSums[c.UserID]
+				ps.SummaryLine = last.Summary
 			}
 			players = append(players, ps)
 			continue
 		}
 
-		if !c.HasActedToday() {
+		if len(acts) == 0 {
 			ps.IsResting = true
 			if len(SummaryResting) > 0 {
 				ps.SummaryLine = SummaryResting[time.Now().Nanosecond()%len(SummaryResting)]
@@ -276,14 +283,13 @@ func (p *AdventurePlugin) postDailySummary() {
 			continue
 		}
 
-		// Active player with today's log
-		if log, ok := logMap[c.UserID]; ok {
-			ps.Activity = log.ActivityType
-			ps.Location = log.Location
-			ps.Outcome = log.Outcome
-			ps.LootValue = lootSums[c.UserID] // aggregate across all actions
-			ps.SummaryLine = advSummaryOneLiner(c.UserID, AdvActivityType(log.ActivityType), AdvOutcomeType(log.Outcome), lootSums[c.UserID], log.Location)
-		}
+		// Active player — represent with most-recent activity row.
+		last := acts[len(acts)-1]
+		ps.Activity = last.Activity
+		ps.Location = last.Location
+		ps.Outcome = last.Outcome
+		ps.LootValue = lootSums[c.UserID]
+		ps.SummaryLine = last.Summary
 
 		players = append(players, ps)
 	}
