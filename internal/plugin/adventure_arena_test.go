@@ -730,20 +730,18 @@ func TestRenderArenaDeathReprieve(t *testing.T) {
 }
 
 func TestRenderArenaPersonalStats_NoStats(t *testing.T) {
-	char := &AdventureCharacter{DisplayName: "TestPlayer"}
-	text := renderArenaPersonalStats(char, nil)
+	text := renderArenaPersonalStats("TestPlayer", 0, 0, nil)
 	if !strings.Contains(text, "No arena runs") {
 		t.Error("empty stats should say no runs")
 	}
 }
 
 func TestRenderArenaPersonalStats_WithStats(t *testing.T) {
-	char := &AdventureCharacter{DisplayName: "Alice", ArenaWins: 8, ArenaLosses: 3}
 	stats := &ArenaPersonalStats{
 		TotalRuns: 11, TotalEarnings: 150000, TotalDeaths: 3,
 		HighestTier: 5, Tier5Completions: 2,
 	}
-	text := renderArenaPersonalStats(char, stats)
+	text := renderArenaPersonalStats("Alice", 8, 3, stats)
 	if !strings.Contains(text, "Alice") {
 		t.Error("stats should show player name")
 	}

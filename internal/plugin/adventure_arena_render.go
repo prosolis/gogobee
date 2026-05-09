@@ -171,9 +171,12 @@ type ArenaPersonalStats struct {
 	Tier5Completions int
 }
 
-func renderArenaPersonalStats(char *AdventureCharacter, stats *ArenaPersonalStats) string {
+// renderArenaPersonalStats renders the !arena stats DM. Wins/losses come
+// from player_meta post-Phase L2 step 5 (the caller is responsible for
+// loading them); displayName is sourced from the AdvCharacter.
+func renderArenaPersonalStats(displayName string, wins, losses int, stats *ArenaPersonalStats) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("⚔️ **%s's Arena Stats**\n\n", char.DisplayName))
+	b.WriteString(fmt.Sprintf("⚔️ **%s's Arena Stats**\n\n", displayName))
 
 	if stats == nil || stats.TotalRuns == 0 {
 		b.WriteString("No arena runs yet. Type `!arena` to begin.")
@@ -194,7 +197,7 @@ func renderArenaPersonalStats(char *AdventureCharacter, stats *ArenaPersonalStat
 		b.WriteString(fmt.Sprintf("Tier 5 completions: %d\n", stats.Tier5Completions))
 	}
 
-	b.WriteString(fmt.Sprintf("\nArena W/L: %d/%d", char.ArenaWins, char.ArenaLosses))
+	b.WriteString(fmt.Sprintf("\nArena W/L: %d/%d", wins, losses))
 	return b.String()
 }
 

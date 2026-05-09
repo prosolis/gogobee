@@ -308,7 +308,7 @@ func TestSheet_ShowsSubclassWhenChosen(t *testing.T) {
 		STR: 16, DEX: 12, CON: 14, INT: 8, WIS: 10, CHA: 10,
 		Subclass: SubclassBattleMaster,
 	}
-	out := renderDnDSheet(c, nil, nil, nil)
+	out := renderDnDSheet(c, nil, nil, nil, nil)
 	if !strings.Contains(out, "Battle Master") {
 		t.Errorf("sheet missing subclass name:\n%s", out)
 	}
@@ -320,7 +320,7 @@ func TestSheet_PromptsWhenUnchosenAtL5(t *testing.T) {
 		Level: 5, HPMax: 40, HPCurrent: 40, ArmorClass: 16,
 		STR: 16, DEX: 12, CON: 14, INT: 8, WIS: 10, CHA: 10,
 	}
-	out := renderDnDSheet(c, nil, nil, nil)
+	out := renderDnDSheet(c, nil, nil, nil, nil)
 	if !strings.Contains(out, "!subclass") {
 		t.Errorf("sheet should nudge `!subclass` when unchosen at L5:\n%s", out)
 	}

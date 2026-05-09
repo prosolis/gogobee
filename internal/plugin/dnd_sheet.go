@@ -62,11 +62,12 @@ func (p *AdventurePlugin) handleDnDSheetCmd(ctx MessageContext) error {
 	advChar, _ := loadAdvCharacter(ctx.Sender)
 	equip, _ := loadAdvEquipment(ctx.Sender)
 	treasures, _ := loadAdvTreasureBonuses(ctx.Sender)
+	meta, _ := loadPlayerMeta(ctx.Sender)
 
-	return p.SendDM(ctx.Sender, renderDnDSheet(c, advChar, equip, treasures))
+	return p.SendDM(ctx.Sender, renderDnDSheet(c, advChar, meta, equip, treasures))
 }
 
-func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, treasures []AdvTreasureBonus) string {
+func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, equip map[EquipmentSlot]*AdvEquipment, treasures []AdvTreasureBonus) string {
 	ri, _ := raceInfo(c.Race)
 	ci, _ := classInfo(c.Class)
 	mods := c.Modifiers()
@@ -164,8 +165,12 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, equip map[Equipmen
 		b.WriteString("\n**Adventure progress** _(preserved)_\n")
 		b.WriteString(fmt.Sprintf("  Mining %d  Foraging %d  Fishing %d   Combat (legacy) %d\n",
 			adv.MiningSkill, adv.ForagingSkill, adv.FishingSkill, adv.CombatLevel))
+		wins, losses := adv.ArenaWins, adv.ArenaLosses
+		if meta != nil {
+			wins, losses = meta.ArenaWins, meta.ArenaLosses
+		}
 		b.WriteString(fmt.Sprintf("  Arena %dW/%dL   Streak %d (best %d)\n",
-			adv.ArenaWins, adv.ArenaLosses, adv.CurrentStreak, adv.BestStreak))
+			wins, losses, adv.CurrentStreak, adv.BestStreak))
 		if adv.PetName != "" {
 			b.WriteString(fmt.Sprintf("  Pet: %s the %s (lv %d)\n", adv.PetName, adv.PetType, adv.PetLevel))
 		}

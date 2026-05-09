@@ -317,7 +317,13 @@ func (p *AdventurePlugin) handleArenaStats(ctx MessageContext) error {
 	}
 
 	stats := loadArenaPersonalStats(ctx.Sender)
-	return p.SendDM(ctx.Sender, renderArenaPersonalStats(char, stats))
+	wins, losses := char.ArenaWins, char.ArenaLosses
+	if meta, err := loadPlayerMeta(ctx.Sender); err == nil {
+		wins, losses = meta.ArenaWins, meta.ArenaLosses
+	} else {
+		slog.Error("player_meta: arena stats read failed, falling back to AdvCharacter", "user", ctx.Sender, "err", err)
+	}
+	return p.SendDM(ctx.Sender, renderArenaPersonalStats(char.DisplayName, wins, losses, stats))
 }
 
 func (p *AdventurePlugin) handleArenaLeaderboard(ctx MessageContext) error {
@@ -516,6 +522,10 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("arena: failed to save character after death", "user", ctx.Sender, "err", err)
 	}
+	// Dual-write to player_meta (Adv 2.0 Phase L2 step 5).
+	if err := upsertPlayerMetaArena(ctx.Sender, char.ArenaWins, char.ArenaLosses, char.InvasionScore); err != nil {
+		slog.Error("player_meta: arena loss dual-write failed", "user", ctx.Sender, "err", err)
+	}
 
 	now := time.Now().UTC()
 	run.Status = "dead"
@@ -598,6 +608,10 @@ func (p *AdventurePlugin) arenaCompleteSession(userID id.UserID, run *ArenaRun, 
 	}
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("arena: failed to save character after session complete", "user", userID, "err", err)
+	}
+	// Dual-write to player_meta (Adv 2.0 Phase L2 step 5).
+	if err := upsertPlayerMetaArena(userID, char.ArenaWins, char.ArenaLosses, char.InvasionScore); err != nil {
+		slog.Error("player_meta: arena win dual-write failed", "user", userID, "err", err)
 	}
 
 	// End run if not already ended

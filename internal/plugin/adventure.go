@@ -189,6 +189,11 @@ func (p *AdventurePlugin) Init() error {
 	if err := resetAllAdvDailyActions(); err != nil {
 		slog.Error("adventure: startup daily reset failed", "err", err)
 	}
+	// Adv 2.0 Phase L2 step 5 — one-shot arena counter backfill into
+	// player_meta. Idempotent (INSERT OR IGNORE).
+	if err := backfillPlayerMetaArena(); err != nil {
+		slog.Error("player_meta: arena backfill failed", "err", err)
+	}
 	if err := lockCoopCombatActions(); err != nil {
 		slog.Error("adventure: startup coop combat lock failed", "err", err)
 	}

@@ -1698,6 +1698,19 @@ CREATE TABLE IF NOT EXISTS dnd_known_recipe (
     discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, recipe_id)
 );
+
+-- ── Adv 2.0 Phase L2 step 5 — player_meta ──────────────────────────────────
+-- Holding pen for non-stat per-user state migrating off adventure_characters
+-- (gogobee_legacy_migration.md §2.1). Each L-phase ALTER TABLEs in the
+-- columns it needs; this initial CREATE only covers L2's three arena
+-- counters. The dual-write rule (§11) applies: writes go to both this
+-- table and adventure_characters until a phase soaks clean for one week.
+CREATE TABLE IF NOT EXISTS player_meta (
+    user_id        TEXT PRIMARY KEY,
+    arena_wins     INTEGER NOT NULL DEFAULT 0,
+    arena_losses   INTEGER NOT NULL DEFAULT 0,
+    invasion_score INTEGER NOT NULL DEFAULT 0
+);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.
