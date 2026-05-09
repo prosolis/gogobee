@@ -193,24 +193,17 @@ func (p *AdventurePlugin) checkMasterworkDrop(userID id.UserID, equip map[Equipm
 		autoEquip = true // genuinely better than what they have
 	}
 
-	// First-drop detection. Read via player_meta (L4c migration); during
-	// soak it falls back to AdvCharacter for users whose row hasn't been
-	// dual-written yet.
+	// First-drop detection. Counter persists via saveAdvCharacter fan-out.
 	priorDrops, err := loadMasterworkDrops(userID)
 	if err != nil {
 		slog.Error("adventure: failed to load masterwork counter", "user", userID, "err", err)
 	}
 	isFirstDrop := priorDrops == 0
 	newDrops := priorDrops + 1
-	if err := upsertPlayerMetaMasterworkDrops(userID, newDrops); err != nil {
-		slog.Error("adventure: failed to save masterwork counter (player_meta)", "user", userID, "err", err)
-	}
-	// Dual-write to AdvCharacter during soak. Best-effort: if the row is
-	// missing the player_meta write above is canonical.
 	if char, lerr := loadAdvCharacter(userID); lerr == nil {
 		char.MasterworkDropsReceived = newDrops
 		if err := saveAdvCharacter(char); err != nil {
-			slog.Error("adventure: failed to save masterwork counter (legacy)", "user", userID, "err", err)
+			slog.Error("adventure: failed to save masterwork counter", "user", userID, "err", err)
 		}
 	}
 

@@ -419,12 +419,7 @@ type SkillState struct {
 	FishingXP     int
 }
 
-// HasSkills returns true when any skill or XP field is non-zero. Used as
-// the "row is migrated" marker in loadSkillState — an all-zero row is
-// indistinguishable from "no row yet" so it falls through to the legacy
-// table during the soak window. CombatLevel starts at 1 for any created
-// character (see createAdvCharacter), so the only fully-zero state is a
-// truly unmigrated row.
+// HasSkills returns true when any skill or XP field is non-zero.
 func (s SkillState) HasSkills() bool {
 	return s.CombatLevel > 0 || s.MiningSkill > 0 || s.ForagingSkill > 0 || s.FishingSkill > 0 ||
 		s.CombatXP > 0 || s.MiningXP > 0 || s.ForagingXP > 0 || s.FishingXP > 0
@@ -458,9 +453,7 @@ func upsertPlayerMetaSkillState(userID id.UserID, s SkillState) error {
 	return err
 }
 
-// loadSkillState returns the player's skill state from player_meta when
-// populated (HasSkills true), falling back to adventure_characters during
-// the L5a soak window.
+// loadSkillState returns the player's skill state from player_meta.
 func loadSkillState(userID id.UserID) (SkillState, error) {
 	var s SkillState
 	err := db.Get().QueryRow(
@@ -483,10 +476,8 @@ func loadSkillState(userID id.UserID) (SkillState, error) {
 }
 
 // skillStateFromAdvChar projects the skill-related fields off an
-// AdventureCharacter into a SkillState. Used by the dual-write path: every
-// site that mutates AdvCharacter skill or XP fields then calls
-// upsertPlayerMetaSkillState with this projection so the columns move
-// cleanly during the L5a soak window.
+// AdventureCharacter into a SkillState. Used by saveAdvCharacter's fan-out
+// to mirror skill columns into player_meta.
 func skillStateFromAdvChar(c *AdventureCharacter) SkillState {
 	return SkillState{
 		CombatLevel:   c.CombatLevel,
@@ -683,8 +674,7 @@ func upsertPlayerMetaNPCState(userID id.UserID, s NPCState) error {
 	return err
 }
 
-// loadNPCState returns the NPC state from player_meta when populated,
-// otherwise falls back to adventure_characters during the L5c soak window.
+// loadNPCState returns the NPC state from player_meta.
 func loadNPCState(userID id.UserID) (NPCState, error) {
 	var (
 		s                                                       NPCState
@@ -837,9 +827,7 @@ func upsertPlayerMetaLifecycleState(userID id.UserID, s LifecycleState) error {
 	return err
 }
 
-// loadLifecycleState returns lifecycle state from player_meta when
-// populated, otherwise falls back to adventure_characters during the L5d
-// soak window.
+// loadLifecycleState returns lifecycle state from player_meta.
 func loadLifecycleState(userID id.UserID) (LifecycleState, error) {
 	var (
 		s                                 LifecycleState
@@ -1087,15 +1075,12 @@ func miscStateFromAdvChar(c *AdventureCharacter) MiscState {
 	}
 }
 
-// applyPlayerMetaOverlay overlays every player_meta-mirrored field onto an
-// AdventureCharacter struct that was just SELECTed from adventure_characters.
-// Phase L5h: saveAdvCharacter no longer writes the adventure_characters
-// columns, so the legacy row freezes at its pre-L5h state. The overlay
-// re-sources every migrated subsystem's value from player_meta (with
-// fallback-to-AdvCharacter inside each load helper for the fields where
-// player_meta is still empty), so callers continue to use char.X readers
-// transparently. Errors are logged and skipped — a partial overlay is safer
-// than a failed load.
+// applyPlayerMetaOverlay populates an AdventureCharacter from player_meta.
+// Post-L5 close-out: loadAdvCharacter no longer SELECTs from
+// adventure_characters — it default-inits the struct and overlays every
+// migrated subsystem's value from player_meta here. Errors are skipped — a
+// partial overlay is safer than a failed load (each field falls back to its
+// Go zero value, except Alive which is pre-set true).
 func applyPlayerMetaOverlay(c *AdventureCharacter) {
 	if c == nil {
 		return

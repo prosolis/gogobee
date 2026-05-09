@@ -89,15 +89,11 @@ func (p *AdventurePlugin) checkRivalPoolUnlock(char *AdventureCharacter) {
 		return
 	}
 	// Promote to pool + send unlock DM if not yet announced.
+	// Persistence rides the caller's saveAdvCharacter → fan-out.
 	char.RivalPool = 1
-	pool = 1
 	if !notified {
 		char.RivalUnlockedNotified = true
-		notified = true
 		p.SendDM(char.UserID, rivalUnlockDM)
-	}
-	if err := upsertPlayerMetaRivalState(char.UserID, pool, notified); err != nil {
-		slog.Error("player_meta: rival unlock dual-write failed", "user", char.UserID, "err", err)
 	}
 }
 

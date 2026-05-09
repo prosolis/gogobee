@@ -95,7 +95,6 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			if err := saveAdvCharacter(&char); err != nil {
 				slog.Error("babysit: failed to save after daily trickle", "user", char.UserID, "err", err)
 			}
-			_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(&char))
 			continue
 		}
 
@@ -127,7 +126,6 @@ func (p *AdventurePlugin) sendMorningDMs() {
 		if petEvent != "" {
 			char.PetMorningDefense = true
 			_ = saveAdvCharacter(&char)
-			_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(&char))
 		}
 
 		// Send morning DM with choices
@@ -388,7 +386,6 @@ func (p *AdventurePlugin) midnightReset() error {
 					text += " — not all is lost."
 				}
 				_ = saveAdvCharacter(&char)
-				_ = upsertPlayerMetaLifecycleState(char.UserID, lifecycleStateFromAdvChar(&char))
 			}
 			if err := p.SendDM(char.UserID, text); err != nil {
 				slog.Error("adventure: failed to send idle shame DM", "user", char.UserID, "err", err)
@@ -405,7 +402,6 @@ func (p *AdventurePlugin) midnightReset() error {
 				char.BestStreak = char.CurrentStreak
 			}
 			_ = saveAdvCharacter(&char)
-			_ = upsertPlayerMetaLifecycleState(char.UserID, lifecycleStateFromAdvChar(&char))
 		}
 	}
 

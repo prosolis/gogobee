@@ -126,9 +126,7 @@ func (p *AdventurePlugin) handleDnDLongRest(ctx MessageContext) error {
 		}
 	}
 
-	// Eligibility: housing OR pay inn fee. Housing read flips to
-	// player_meta via loadHouseState (L4e reader flip); falls back to
-	// adventure_characters during the soak window.
+	// Eligibility: housing OR pay inn fee.
 	house, _ := loadHouseState(ctx.Sender)
 	hasHousing := house.Tier > 0
 	innPaid := false

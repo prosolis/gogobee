@@ -497,11 +497,11 @@ func dndHPSnapshot(userID id.UserID) (cur, max int) {
 	return c.HPCurrent, c.HPMax
 }
 
-// markAdventureDead flips the legacy adventure_characters.alive flag and
-// starts the 6h respawn timer for a player who went down in a D&D-layer
-// combat. Without this, hp_current persists as 0 but the legacy alive
-// flag stays true — the "zombie" state where !hospital says "you're
-// alive!" while the sheet shows 0/33. Idempotent: bails if already dead.
+// markAdventureDead flips Alive=false in player_meta (via saveAdvCharacter
+// fan-out) and starts the 6h respawn timer for a player who went down in a
+// D&D-layer combat. Without this, hp_current persists as 0 but Alive stays
+// true — the "zombie" state where !hospital says "you're alive!" while the
+// sheet shows 0/33. Idempotent: bails if already dead.
 //
 // source is "zone" / "expedition" / "patrol"; location is human-readable
 // (e.g. "Forest of Shadows") and surfaces in the daily report and

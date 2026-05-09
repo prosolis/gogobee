@@ -42,10 +42,10 @@ func (p *AdventurePlugin) handleDnDAbilitiesCmd(ctx MessageContext) error {
 
 // !sheet — read-only D&D character sheet renderer.
 //
-// Joins:
+// Sources:
 //   dnd_character (D&D layer)
-//   adventure_characters (legacy skills, pet, housing — for at-a-glance context)
-//   adventure_equipment (current gear; renders with legacy fields until Phase 4)
+//   player_meta (skills, pet, housing — for at-a-glance context)
+//   adventure_equipment (current gear)
 //   adventure_treasures (= attunement substrate per v1.1 §7.4)
 
 func (p *AdventurePlugin) handleDnDSheetCmd(ctx MessageContext) error {

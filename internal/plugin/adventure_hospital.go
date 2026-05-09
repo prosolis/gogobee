@@ -199,10 +199,9 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 			trackTaxPaid(ctx.Sender, potCut)
 		}
 
-		// Revive. Phase L4a: restore DnDCharacter HP to full (canonical
-		// post-L5 path) and keep flipping AdvCharacter.Alive during soak
-		// since other systems still read it. HospitalVisits dual-writes
-		// to player_meta + AdvCharacter (§11).
+		// Revive. Restore DnDCharacter HP to full (canonical post-L5 path);
+		// AdvCharacter.Alive flip + HospitalVisits++ propagate through the
+		// saveAdvCharacter fan-out into player_meta.
 		char.Alive = true
 		char.DeadUntil = nil
 		char.HospitalVisits++
@@ -211,9 +210,6 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 			// Refund on save failure
 			p.euro.Credit(ctx.Sender, float64(cost), "hospital_revival_refund")
 			return p.SendDM(ctx.Sender, "Something went wrong during recovery. Your payment has been refunded.")
-		}
-		if err := upsertPlayerMetaHospitalVisits(char.UserID, char.HospitalVisits); err != nil {
-			slog.Error("hospital: failed to dual-write hospital_visits to player_meta", "user", char.UserID, "err", err)
 		}
 		if dnd, err := LoadDnDCharacter(char.UserID); err == nil && dnd != nil {
 			dnd.HPCurrent = dnd.HPMax

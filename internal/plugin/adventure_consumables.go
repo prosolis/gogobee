@@ -483,7 +483,6 @@ func autoCraftConsumables(userID id.UserID, items []AdvItem, foragingLevel int) 
 				char.CraftsSucceeded++
 				checkAdvLevelUp(char, "foraging")
 				_ = saveAdvCharacter(char)
-				_ = upsertPlayerMetaSkillState(userID, skillStateFromAdvChar(char))
 			}
 		} else {
 			// Failure: all ingredients destroyed
@@ -497,7 +496,6 @@ func autoCraftConsumables(userID id.UserID, items []AdvItem, foragingLevel int) 
 				char.ForagingXP += craftXPFailure[bestRecipe.Tier]
 				checkAdvLevelUp(char, "foraging")
 				_ = saveAdvCharacter(char)
-				_ = upsertPlayerMetaSkillState(userID, skillStateFromAdvChar(char))
 			}
 		}
 	}
