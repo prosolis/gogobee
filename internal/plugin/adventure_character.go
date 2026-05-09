@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"database/sql"
-	"log/slog"
 	"time"
 
 	"gogobee/internal/db"
@@ -540,6 +539,12 @@ func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	c.PetArrived = petArrived == 1
 	c.ThomAnimalLineFired = thomAnimalLine == 1
 	c.PetSupplyShopUnlocked = petSupplyUnlocked == 1
+
+	// Phase L5h: adventure_characters columns are no longer written by
+	// saveAdvCharacter, so the SELECT above returns the row's frozen-at-cut
+	// snapshot. Overlay every player_meta-mirrored subsystem so callers see
+	// canonical (live) values for migrated fields.
+	applyPlayerMetaOverlay(c)
 	return c, nil
 }
 
@@ -585,151 +590,15 @@ func createAdvCharacter(userID id.UserID, displayName string) error {
 	return tx.Commit()
 }
 
+// saveAdvCharacter persists every mutable AdventureCharacter field to
+// player_meta. Phase L5h: the legacy adventure_characters UPDATE has been
+// retired — the row is now read-only after createAdvCharacter seeds it,
+// and saveAdvCharacter routes the entire mutable state set through the
+// per-subsystem player_meta upserts. LastActiveAt is auto-bumped to mirror
+// the previous CURRENT_TIMESTAMP semantics on save.
 func saveAdvCharacter(char *AdventureCharacter) error {
-	d := db.Get()
-	alive := 0
-	if char.Alive {
-		alive = 1
-	}
-	actionTaken := 0
-	if char.ActionTakenToday {
-		actionTaken = 1
-	}
-	holidayTaken := 0
-	if char.HolidayActionTaken {
-		holidayTaken = 1
-	}
-	rivalUnlocked := 0
-	if char.RivalUnlockedNotified {
-		rivalUnlocked = 1
-	}
-	babysitAct := 0
-	if char.BabysitActive {
-		babysitAct = 1
-	}
-	houseFrozen := 0
-	if char.HouseLoanFrozen {
-		houseFrozen = 1
-	}
-	houseAutopay := 0
-	if char.HouseAutopay {
-		houseAutopay = 1
-	}
-	petChasedAway := 0
-	if char.PetChasedAway {
-		petChasedAway = 1
-	}
-	petReactivated := 0
-	if char.PetReactivated {
-		petReactivated = 1
-	}
-	petArrived := 0
-	if char.PetArrived {
-		petArrived = 1
-	}
-	thomAnimalLine := 0
-	if char.ThomAnimalLineFired {
-		thomAnimalLine = 1
-	}
-	petSupplyUnlocked := 0
-	if char.PetSupplyShopUnlocked {
-		petSupplyUnlocked = 1
-	}
-	petMorningDef := 0
-	if char.PetMorningDefense {
-		petMorningDef = 1
-	}
-	autoBabysit := 0
-	if char.AutoBabysit {
-		autoBabysit = 1
-	}
-	streakDecayed := 0
-	if char.StreakDecayed {
-		streakDecayed = 1
-	}
-
-	_, err := d.Exec(`
-		UPDATE adventure_characters SET
-			display_name = ?, combat_level = ?, mining_skill = ?, foraging_skill = ?, fishing_skill = ?,
-			combat_xp = ?, mining_xp = ?, foraging_xp = ?, fishing_xp = ?,
-			alive = ?, dead_until = ?, action_taken_today = ?, holiday_action_taken = ?,
-			arena_wins = ?, arena_losses = ?, invasion_score = ?, title = ?,
-			current_streak = ?, best_streak = ?, last_action_date = ?, grudge_location = ?,
-			last_active_at = CURRENT_TIMESTAMP, death_reprieve_last = ?,
-			masterwork_drops_received = ?,
-			rival_pool = ?, rival_unlocked_notified = ?,
-			babysit_active = ?, babysit_expires_at = ?, babysit_skill_focus = ?,
-			hospital_visits = ?, robbie_visit_count = ?, last_death_date = ?,
-			combat_actions_used = ?, harvest_actions_used = ?,
-			last_pardon_used = ?,
-			misty_last_seen = ?, arina_last_seen = ?,
-			misty_buff_expires = ?, misty_debuff_expires = ?, arina_buff_expires = ?,
-			npc_msg_count = ?, npc_msg_count_date = ?,
-			misty_roll_target = ?, arina_roll_target = ?,
-			house_tier = ?, house_loan_balance = ?, house_loan_frozen = ?, house_missed_payments = ?,
-			house_autopay = ?, house_current_rate = ?,
-			pet_type = ?, pet_name = ?, pet_xp = ?, pet_level = ?, pet_armor_tier = ?,
-			pet_chased_away = ?, pet_reactivated = ?, pet_arrived = ?,
-			misty_encounter_count = ?, misty_donated_count = ?,
-			thom_animal_line_fired = ?, pet_supply_shop_unlocked = ?, pet_level10_date = ?,
-			pet_morning_defense = ?,
-			auto_babysit = ?,
-			streak_decayed = ?,
-			crafts_succeeded = ?,
-			death_source = ?,
-			death_location = ?,
-			auto_babysit_focus = ?,
-			treasures_locked = ?
-		WHERE user_id = ?`,
-		char.DisplayName, char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill,
-		char.CombatXP, char.MiningXP, char.ForagingXP, char.FishingXP,
-		alive, char.DeadUntil, actionTaken, holidayTaken,
-		char.ArenaWins, char.ArenaLosses, char.InvasionScore, char.Title,
-		char.CurrentStreak, char.BestStreak, char.LastActionDate, char.GrudgeLocation,
-		char.DeathReprieveLast, char.MasterworkDropsReceived,
-		char.RivalPool, rivalUnlocked,
-		babysitAct, char.BabysitExpiresAt, char.BabysitSkillFocus,
-		char.HospitalVisits, char.RobbieVisitCount, char.LastDeathDate,
-		char.CombatActionsUsed, char.HarvestActionsUsed,
-		char.LastPardonUsed,
-		char.MistyLastSeen, char.ArinaLastSeen,
-		char.MistyBuffExpires, char.MistyDebuffExpires, char.ArinaBuffExpires,
-		char.NPCMsgCount, char.NPCMsgCountDate,
-		char.MistyRollTarget, char.ArinaRollTarget,
-		char.HouseTier, char.HouseLoanBalance, houseFrozen, char.HouseMissedPayments,
-		houseAutopay, char.HouseCurrentRate,
-		char.PetType, char.PetName, char.PetXP, char.PetLevel, char.PetArmorTier,
-		petChasedAway, petReactivated, petArrived,
-		char.MistyEncounterCount, char.MistyDonatedCount,
-		thomAnimalLine, petSupplyUnlocked, char.PetLevel10Date,
-		petMorningDef,
-		autoBabysit,
-		streakDecayed,
-		char.CraftsSucceeded,
-		char.DeathSource, char.DeathLocation,
-		char.AutoBabysitFocus,
-		boolToInt(char.TreasuresLocked),
-		string(char.UserID),
-	)
-	if err != nil {
-		return err
-	}
-	// Adv 2.0 Phase L4f-prep — dual-write display_name into player_meta.
-	if dnErr := upsertPlayerMetaDisplayName(char.UserID, char.DisplayName); dnErr != nil {
-		slog.Error("player_meta: display_name dual-write failed", "user", char.UserID, "err", dnErr)
-	}
-	// Adv 2.0 Phase L5e — dual-write death state into player_meta. Mutation
-	// surface is too wide for per-site upserts (~50 save sites), so the
-	// dual-write rides every saveAdvCharacter call.
-	if dsErr := upsertPlayerMetaDeathState(char.UserID, deathStateFromAdvChar(char)); dsErr != nil {
-		slog.Error("player_meta: death state dual-write failed", "user", char.UserID, "err", dsErr)
-	}
-	// Adv 2.0 Phase L5f — dual-write misc state (Title, TreasuresLocked,
-	// CraftsSucceeded). Same strategy as L5e — rides every save.
-	if msErr := upsertPlayerMetaMiscState(char.UserID, miscStateFromAdvChar(char)); msErr != nil {
-		slog.Error("player_meta: misc state dual-write failed", "user", char.UserID, "err", msErr)
-	}
-	return nil
+	char.LastActiveAt = time.Now().UTC()
+	return upsertAllPlayerMetaFromAdvChar(char)
 }
 
 func boolToInt(b bool) int {

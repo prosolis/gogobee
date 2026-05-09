@@ -1924,3 +1924,172 @@ func backfillPlayerMetaDisplayName() error {
 	slog.Info("player_meta: display_name backfilled", "rows", n)
 	return nil
 }
+
+// applyPlayerMetaOverlay overlays every player_meta-mirrored field onto an
+// AdventureCharacter struct that was just SELECTed from adventure_characters.
+// Phase L5h: saveAdvCharacter no longer writes the adventure_characters
+// columns, so the legacy row freezes at its pre-L5h state. The overlay
+// re-sources every migrated subsystem's value from player_meta (with
+// fallback-to-AdvCharacter inside each load helper for the fields where
+// player_meta is still empty), so callers continue to use char.X readers
+// transparently. Errors are logged and skipped — a partial overlay is safer
+// than a failed load.
+func applyPlayerMetaOverlay(c *AdventureCharacter) {
+	if c == nil {
+		return
+	}
+	uid := c.UserID
+
+	if name, err := loadDisplayName(uid); err == nil && name != "" {
+		c.DisplayName = name
+	}
+	if visits, err := loadHospitalVisits(uid); err == nil {
+		c.HospitalVisits = visits
+	}
+	if pm, err := loadPlayerMeta(uid); err == nil && pm != nil {
+		c.ArenaWins = pm.ArenaWins
+		c.ArenaLosses = pm.ArenaLosses
+		c.InvasionScore = pm.InvasionScore
+	}
+	if drops, err := loadMasterworkDrops(uid); err == nil {
+		c.MasterworkDropsReceived = drops
+	}
+	if pool, notified, err := loadRivalState(uid); err == nil {
+		c.RivalPool = pool
+		c.RivalUnlockedNotified = notified
+	}
+	if s, err := loadSkillState(uid); err == nil {
+		c.CombatLevel = s.CombatLevel
+		c.CombatXP = s.CombatXP
+		c.MiningSkill = s.MiningSkill
+		c.MiningXP = s.MiningXP
+		c.ForagingSkill = s.ForagingSkill
+		c.ForagingXP = s.ForagingXP
+		c.FishingSkill = s.FishingSkill
+		c.FishingXP = s.FishingXP
+	}
+	if s, err := loadBabysitState(uid); err == nil {
+		c.BabysitActive = s.Active
+		c.BabysitExpiresAt = s.ExpiresAt
+		c.BabysitSkillFocus = s.SkillFocus
+		c.AutoBabysit = s.AutoBabysit
+		c.AutoBabysitFocus = s.AutoBabysitFocus
+	}
+	if s, err := loadNPCState(uid); err == nil {
+		c.MistyLastSeen = s.MistyLastSeen
+		c.ArinaLastSeen = s.ArinaLastSeen
+		c.MistyBuffExpires = s.MistyBuffExpires
+		c.MistyDebuffExpires = s.MistyDebuffExpires
+		c.ArinaBuffExpires = s.ArinaBuffExpires
+		c.NPCMsgCount = s.NPCMsgCount
+		c.NPCMsgCountDate = s.NPCMsgCountDate
+		c.MistyRollTarget = s.MistyRollTarget
+		c.ArinaRollTarget = s.ArinaRollTarget
+		c.MistyEncounterCount = s.MistyEncounterCount
+		c.MistyDonatedCount = s.MistyDonatedCount
+		c.ThomAnimalLineFired = s.ThomAnimalLineFired
+		c.RobbieVisitCount = s.RobbieVisitCount
+	}
+	if s, err := loadLifecycleState(uid); err == nil {
+		c.CurrentStreak = s.CurrentStreak
+		c.BestStreak = s.BestStreak
+		c.LastActionDate = s.LastActionDate
+		c.StreakDecayed = s.StreakDecayed
+		c.ActionTakenToday = s.ActionTakenToday
+		c.HolidayActionTaken = s.HolidayActionTaken
+		c.CombatActionsUsed = s.CombatActionsUsed
+		c.HarvestActionsUsed = s.HarvestActionsUsed
+		if s.CreatedAt != nil {
+			c.CreatedAt = *s.CreatedAt
+		}
+		if s.LastActiveAt != nil {
+			c.LastActiveAt = *s.LastActiveAt
+		}
+	}
+	if s, err := loadDeathState(uid); err == nil {
+		c.Alive = s.Alive
+		c.DeadUntil = s.DeadUntil
+		c.DeathReprieveLast = s.DeathReprieveLast
+		c.LastDeathDate = s.LastDeathDate
+		c.LastPardonUsed = s.LastPardonUsed
+		c.GrudgeLocation = s.GrudgeLocation
+		c.DeathSource = s.DeathSource
+		c.DeathLocation = s.DeathLocation
+	}
+	if s, err := loadMiscState(uid); err == nil {
+		c.Title = s.Title
+		c.TreasuresLocked = s.TreasuresLocked
+		c.CraftsSucceeded = s.CraftsSucceeded
+	}
+	if s, err := loadPetState(uid); err == nil {
+		c.PetType = s.Type
+		c.PetName = s.Name
+		c.PetXP = s.XP
+		c.PetLevel = s.Level
+		c.PetArmorTier = s.ArmorTier
+		c.PetSupplyShopUnlocked = s.SupplyShopUnlocked
+		c.PetLevel10Date = s.Level10Date
+		c.PetArrived = s.Arrived
+		c.PetChasedAway = s.ChasedAway
+		c.PetReactivated = s.Reactivated
+		c.PetMorningDefense = s.MorningDefense
+	}
+	if s, err := loadHouseState(uid); err == nil {
+		c.HouseTier = s.Tier
+		c.HouseLoanBalance = s.LoanBalance
+		c.HouseLoanFrozen = s.LoanFrozen
+		c.HouseMissedPayments = s.MissedPayments
+		c.HouseAutopay = s.Autopay
+		c.HouseCurrentRate = s.CurrentRate
+	}
+}
+
+// upsertAllPlayerMetaFromAdvChar writes every player_meta-mirrored subsystem's
+// state in one shot from an AdventureCharacter. Phase L5h: saveAdvCharacter
+// stops writing adventure_characters and instead routes through this fan-out,
+// keeping every load helper's read path canonical against player_meta. Returns
+// the first error encountered; partial writes are possible and acceptable
+// since each upsert is its own atomic transaction.
+func upsertAllPlayerMetaFromAdvChar(c *AdventureCharacter) error {
+	uid := c.UserID
+	if err := upsertPlayerMetaDisplayName(uid, c.DisplayName); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaHospitalVisits(uid, c.HospitalVisits); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaArena(uid, c.ArenaWins, c.ArenaLosses, c.InvasionScore); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaMasterworkDrops(uid, c.MasterworkDropsReceived); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaRivalState(uid, c.RivalPool, c.RivalUnlockedNotified); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaSkillState(uid, skillStateFromAdvChar(c)); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaBabysitState(uid, babysitStateFromAdvChar(c)); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaNPCState(uid, npcStateFromAdvChar(c)); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaLifecycleState(uid, lifecycleStateFromAdvChar(c)); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaDeathState(uid, deathStateFromAdvChar(c)); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaMiscState(uid, miscStateFromAdvChar(c)); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaPetState(uid, petStateFromAdvChar(c)); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaHouseState(uid, houseStateFromAdvChar(c)); err != nil {
+		return err
+	}
+	return nil
+}
