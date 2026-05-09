@@ -215,6 +215,7 @@ func (p *AdventurePlugin) handleEventRespond(ctx MessageContext) error {
 			}
 			checkAdvLevelUp(char, xpSkill)
 			_ = saveAdvCharacter(char)
+			_ = upsertPlayerMetaSkillState(ctx.Sender, skillStateFromAdvChar(char))
 		}
 	}
 

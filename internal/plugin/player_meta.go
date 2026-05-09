@@ -765,6 +765,168 @@ func houseStateFromAdvChar(c *AdventureCharacter) HouseState {
 	}
 }
 
+// SkillState is the in-memory mirror of player_meta's skill columns. Phase
+// L5a ports CombatLevel/CombatXP and the three harvest skills + their XP
+// off AdvCharacter (gogobee_legacy_migration.md §7.3 L5a). CombatLevel and
+// CombatXP are transitional — they're dropped after L5g's DnDCharacter
+// mass-backfill retires the legacy CombatLevel-derived fallback in
+// hospital/rival/zone/sheet/onboarding.
+type SkillState struct {
+	CombatLevel   int
+	CombatXP      int
+	MiningSkill   int
+	MiningXP      int
+	ForagingSkill int
+	ForagingXP    int
+	FishingSkill  int
+	FishingXP     int
+}
+
+// HasSkills returns true when any skill or XP field is non-zero. Used as
+// the "row is migrated" marker in loadSkillState — an all-zero row is
+// indistinguishable from "no row yet" so it falls through to the legacy
+// table during the soak window. CombatLevel starts at 1 for any created
+// character (see createAdvCharacter), so the only fully-zero state is a
+// truly unmigrated row.
+func (s SkillState) HasSkills() bool {
+	return s.CombatLevel > 0 || s.MiningSkill > 0 || s.ForagingSkill > 0 || s.FishingSkill > 0 ||
+		s.CombatXP > 0 || s.MiningXP > 0 || s.ForagingXP > 0 || s.FishingXP > 0
+}
+
+// upsertPlayerMetaSkillState writes the full skill column set for a user.
+// Used by the dual-write path during the L5a soak window.
+func upsertPlayerMetaSkillState(userID id.UserID, s SkillState) error {
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (
+		   user_id, combat_level, combat_xp,
+		   mining_skill, mining_xp,
+		   foraging_skill, foraging_xp,
+		   fishing_skill, fishing_xp
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   combat_level = excluded.combat_level,
+		   combat_xp = excluded.combat_xp,
+		   mining_skill = excluded.mining_skill,
+		   mining_xp = excluded.mining_xp,
+		   foraging_skill = excluded.foraging_skill,
+		   foraging_xp = excluded.foraging_xp,
+		   fishing_skill = excluded.fishing_skill,
+		   fishing_xp = excluded.fishing_xp`,
+		string(userID),
+		s.CombatLevel, s.CombatXP,
+		s.MiningSkill, s.MiningXP,
+		s.ForagingSkill, s.ForagingXP,
+		s.FishingSkill, s.FishingXP,
+	)
+	return err
+}
+
+// loadSkillState returns the player's skill state from player_meta when
+// populated (HasSkills true), falling back to adventure_characters during
+// the L5a soak window.
+func loadSkillState(userID id.UserID) (SkillState, error) {
+	var s SkillState
+	err := db.Get().QueryRow(
+		`SELECT combat_level, combat_xp,
+		        mining_skill, mining_xp,
+		        foraging_skill, foraging_xp,
+		        fishing_skill, fishing_xp
+		   FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(
+		&s.CombatLevel, &s.CombatXP,
+		&s.MiningSkill, &s.MiningXP,
+		&s.ForagingSkill, &s.ForagingXP,
+		&s.FishingSkill, &s.FishingXP,
+	)
+	if err == nil && s.HasSkills() {
+		return s, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return SkillState{}, err
+	}
+	// Fallback to AdvCharacter during soak.
+	var legacy SkillState
+	err = db.Get().QueryRow(
+		`SELECT combat_level, combat_xp,
+		        mining_skill, mining_xp,
+		        foraging_skill, foraging_xp,
+		        fishing_skill, fishing_xp
+		   FROM adventure_characters WHERE user_id = ?`,
+		string(userID),
+	).Scan(
+		&legacy.CombatLevel, &legacy.CombatXP,
+		&legacy.MiningSkill, &legacy.MiningXP,
+		&legacy.ForagingSkill, &legacy.ForagingXP,
+		&legacy.FishingSkill, &legacy.FishingXP,
+	)
+	if err == sql.ErrNoRows {
+		return SkillState{}, nil
+	}
+	if err != nil {
+		return SkillState{}, err
+	}
+	return legacy, nil
+}
+
+// backfillPlayerMetaSkillState copies the skill columns from
+// adventure_characters into player_meta for any row whose skill columns
+// are all still zero. Idempotent: only updates rows that haven't been
+// populated yet (via backfill or dual-write).
+func backfillPlayerMetaSkillState() error {
+	if _, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO player_meta (user_id)
+		SELECT user_id FROM adventure_characters
+	`); err != nil {
+		return err
+	}
+	res, err := db.Get().Exec(`
+		UPDATE player_meta
+		SET combat_level   = (SELECT combat_level   FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    combat_xp      = (SELECT combat_xp      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    mining_skill   = (SELECT mining_skill   FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    mining_xp      = (SELECT mining_xp      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    foraging_skill = (SELECT foraging_skill FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    foraging_xp    = (SELECT foraging_xp    FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    fishing_skill  = (SELECT fishing_skill  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    fishing_xp     = (SELECT fishing_xp     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
+		WHERE combat_level = 0 AND combat_xp = 0
+		  AND mining_skill = 0 AND mining_xp = 0
+		  AND foraging_skill = 0 AND foraging_xp = 0
+		  AND fishing_skill = 0 AND fishing_xp = 0
+		  AND EXISTS (
+			SELECT 1 FROM adventure_characters ac
+			WHERE ac.user_id = player_meta.user_id
+			  AND (ac.combat_level > 0 OR ac.mining_skill > 0 OR ac.foraging_skill > 0 OR ac.fishing_skill > 0
+			       OR ac.combat_xp > 0 OR ac.mining_xp > 0 OR ac.foraging_xp > 0 OR ac.fishing_xp > 0)
+		  )
+	`)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	slog.Info("player_meta: skill state backfilled", "rows", n)
+	return nil
+}
+
+// skillStateFromAdvChar projects the skill-related fields off an
+// AdventureCharacter into a SkillState. Used by the dual-write path: every
+// site that mutates AdvCharacter skill or XP fields then calls
+// upsertPlayerMetaSkillState with this projection so the columns move
+// cleanly during the L5a soak window.
+func skillStateFromAdvChar(c *AdventureCharacter) SkillState {
+	return SkillState{
+		CombatLevel:   c.CombatLevel,
+		CombatXP:      c.CombatXP,
+		MiningSkill:   c.MiningSkill,
+		MiningXP:      c.MiningXP,
+		ForagingSkill: c.ForagingSkill,
+		ForagingXP:    c.ForagingXP,
+		FishingSkill:  c.FishingSkill,
+		FishingXP:     c.FishingXP,
+	}
+}
+
 // backfillPlayerMetaDisplayName copies adventure_characters.display_name
 // into player_meta.display_name for any row whose display_name is still
 // the empty default. Idempotent: safe to re-run; only updates rows that

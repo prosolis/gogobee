@@ -225,6 +225,11 @@ func (p *AdventurePlugin) Init() error {
 	if err := backfillPlayerMetaHouseState(); err != nil {
 		slog.Error("player_meta: house state backfill failed", "err", err)
 	}
+	// Adv 2.0 Phase L5a — one-shot skill state backfill into player_meta.
+	// Idempotent (only fills rows whose skill columns are all still zero).
+	if err := backfillPlayerMetaSkillState(); err != nil {
+		slog.Error("player_meta: skill state backfill failed", "err", err)
+	}
 	// Phase L3 — cancel any open/active legacy coop dungeon runs and
 	// refund member contributions + unsettled bets. Idempotent.
 	closeAndRefundLegacyCoopRuns(p.euro)

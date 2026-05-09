@@ -775,6 +775,131 @@ func TestLoadHouseState_FallsBackToAdvCharacter(t *testing.T) {
 	}
 }
 
+func TestPlayerMetaSkillStateBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-skill-bf:example")
+	if err := createAdvCharacter(uid, "Skiller"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET combat_level = ?, combat_xp = ?,
+		        mining_skill = ?, mining_xp = ?,
+		        foraging_skill = ?, foraging_xp = ?,
+		        fishing_skill = ?, fishing_xp = ?
+		  WHERE user_id = ?`,
+		7, 250, 4, 100, 3, 80, 2, 60, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET combat_level = 0, combat_xp = 0,
+		        mining_skill = 0, mining_xp = 0,
+		        foraging_skill = 0, foraging_xp = 0,
+		        fishing_skill = 0, fishing_xp = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaSkillState(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	got, err := loadSkillState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want := SkillState{CombatLevel: 7, CombatXP: 250, MiningSkill: 4, MiningXP: 100, ForagingSkill: 3, ForagingXP: 80, FishingSkill: 2, FishingXP: 60}
+	if got != want {
+		t.Errorf("after backfill: got %+v want %+v", got, want)
+	}
+
+	// Layer a dual-write (level-up bump combat to 8, drain xp).
+	got.CombatLevel = 8
+	got.CombatXP = 0
+	if err := upsertPlayerMetaSkillState(uid, got); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaSkillState(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	got2, _ := loadSkillState(uid)
+	if got2.CombatLevel != 8 || got2.CombatXP != 0 {
+		t.Errorf("backfill clobbered dual-write: got %+v", got2)
+	}
+}
+
+func TestLoadSkillState_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-skill-fb:example")
+	if err := createAdvCharacter(uid, "Faller"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET combat_level = ?, mining_skill = ?, foraging_skill = ?, fishing_skill = ?
+		  WHERE user_id = ?`,
+		5, 3, 2, 1, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET combat_level = 0, combat_xp = 0,
+		        mining_skill = 0, mining_xp = 0,
+		        foraging_skill = 0, foraging_xp = 0,
+		        fishing_skill = 0, fishing_xp = 0 WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	got, err := loadSkillState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.CombatLevel != 5 || got.MiningSkill != 3 || got.ForagingSkill != 2 || got.FishingSkill != 1 {
+		t.Errorf("fallback: got %+v", got)
+	}
+
+	// Unknown user → zero SkillState, no error.
+	got2, err := loadSkillState(id.UserID("@meta-skill-nobody:example"))
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if got2 != (SkillState{}) {
+		t.Errorf("missing user: got %+v", got2)
+	}
+}
+
+func TestUpsertPlayerMetaSkillState_RoundTrip(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-skill-rt:example")
+	in := SkillState{CombatLevel: 12, CombatXP: 450, MiningSkill: 8, MiningXP: 200, ForagingSkill: 6, ForagingXP: 150, FishingSkill: 5, FishingXP: 90}
+	if err := upsertPlayerMetaSkillState(uid, in); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	got, err := loadSkillState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != in {
+		t.Errorf("round-trip mismatch:\n got=%+v\nwant=%+v", got, in)
+	}
+
+	in.CombatLevel = 13
+	in.CombatXP = 0
+	if err := upsertPlayerMetaSkillState(uid, in); err != nil {
+		t.Fatalf("upsert update: %v", err)
+	}
+	got2, _ := loadSkillState(uid)
+	if got2 != in {
+		t.Errorf("update mismatch:\n got=%+v\nwant=%+v", got2, in)
+	}
+}
+
 func TestUpsertPlayerMetaHouseState_RoundTrip(t *testing.T) {
 	setupAuditTestDB(t)
 

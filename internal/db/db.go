@@ -226,6 +226,21 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE player_meta ADD COLUMN house_missed_payments INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN house_autopay INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN house_current_rate REAL NOT NULL DEFAULT 0`,
+		// Adv 2.0 Phase L5a — Skills migration off AdvCharacter.
+		// CombatLevel / MiningSkill / ForagingSkill / FishingSkill and their
+		// XP counters move to player_meta; AdvCharacter columns keep
+		// dual-writing during soak (gogobee_legacy_migration.md §7.3 L5a).
+		// CombatLevel/CombatXP are transitional — dropped after L5g's
+		// DnDCharacter mass-backfill retires the dndLevelFromCombatLevel
+		// fallback.
+		`ALTER TABLE player_meta ADD COLUMN combat_level INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN combat_xp INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN mining_skill INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN mining_xp INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN foraging_skill INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN foraging_xp INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN fishing_skill INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN fishing_xp INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
