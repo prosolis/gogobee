@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand/v2"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -1225,4 +1226,104 @@ func (p *AdventurePlugin) arenaRollGladiatorHelm(userID id.UserID, maxTierCleare
 	}
 
 	return "The Gladiator's Helm"
+}
+
+// ── Adv 2.0 boss-flow round resolver (Phase L2 step 4) ──────────────────────
+//
+// resolveArenaBoss is the future arena combat path: a single arena
+// round routed through runZoneCombat + renderBossOutcome so the player
+// sees the same staged narration that zone bosses use (Nat20/Nat1 mood
+// lines, phase-two barb on T3+, BossDeath/PlayerDeath flavor, dice
+// summary). The legacy CombatPower-vs-Lethality flow stays in place
+// until ARENA_BOSS_FLOW soak completes — wiring lands in the next step.
+
+// arenaBossFlowEnabled gates the new path on the ARENA_BOSS_FLOW env
+// var so the legacy code path remains the default until soak passes.
+// Empty string and "0" / "false" disable; anything else enables.
+func arenaBossFlowEnabled() bool {
+	switch os.Getenv("ARENA_BOSS_FLOW") {
+	case "", "0", "false", "FALSE", "False":
+		return false
+	}
+	return true
+}
+
+// ArenaBossEncounter is the single-round input for resolveArenaBoss.
+// Tier and Round identify the arenaBosses entry; DisplayName is the
+// player-facing combatant label, falling back to "You" when empty.
+type ArenaBossEncounter struct {
+	Tier        int
+	Round       int
+	DisplayName string
+}
+
+// resolveArenaBoss runs one arena round through the zone-boss combat +
+// narration stack. Returns the staged-narration trio that the caller
+// streams via sendZoneCombatMessages, plus the underlying CombatResult
+// so the surrounding economic glue (rewards, achievements, helmet
+// drops, death flag) can branch on PlayerWon and inspect events.
+//
+// Side effects belong to the caller: this helper does not touch
+// ArenaRun state, payout, or arena history rows.
+func (p *AdventurePlugin) resolveArenaBoss(userID id.UserID, enc ArenaBossEncounter) (intro string, phases []string, outcome string, result CombatResult, err error) {
+	monster, ok := arenaBosses[arenaBossID(enc.Tier, enc.Round)]
+	if !ok {
+		err = fmt.Errorf("arena: no bestiary entry for tier %d round %d", enc.Tier, enc.Round)
+		return
+	}
+
+	preHP, _ := dndHPSnapshot(userID)
+	result, err = p.runZoneCombat(userID, monster, enc.Tier)
+	if err != nil {
+		return
+	}
+	postHP, maxHP := dndHPSnapshot(userID)
+
+	// Synthetic run/room IDs so twinBeeLine seeds deterministically per
+	// fight without colliding with zone runs. Arena fights aren't tied
+	// to a DungeonRun so MoodEvents don't apply — the Nat20/Nat1 counts
+	// drive narration directly.
+	runID := fmt.Sprintf("arena-%s-t%d-r%d", string(userID), enc.Tier, enc.Round)
+	roomIdx := enc.Tier*10 + enc.Round
+	nat20s, nat1s := countNat20sAnd1s(result)
+
+	playerName := enc.DisplayName
+	if playerName == "" {
+		playerName = "You"
+	}
+
+	intro = fmt.Sprintf("🏟️ **Arena T%d R%d — %s** (HP %d, AC %d)",
+		enc.Tier, enc.Round, monster.Name, monster.HP, monster.AC)
+	phases = RenderCombatLog(result, playerName, monster.Name)
+
+	outcome = renderBossOutcome(BossOutcomeInputs{
+		ZoneID:          ZoneArena,
+		RunID:           runID,
+		RoomIdx:         roomIdx,
+		Monster:         monster,
+		Result:          result,
+		PreHP:           preHP,
+		PostHP:          postHP,
+		MaxHP:           maxHP,
+		PhaseTwoAt:      arenaBossPhaseTwoAt(enc.Tier),
+		Nat20s:          nat20s,
+		Nat1s:           nat1s,
+		DefeatHeadline:  fmt.Sprintf("💀 **%s** stands over your body. The arena collects its fee.", monster.Name),
+		VictoryHeadline: fmt.Sprintf("🏆 **%s** falls (HP %d→%d / %d).", monster.Name, preHP, postHP, maxHP),
+	})
+	return
+}
+
+// countNat20sAnd1s scans a CombatResult for d20 rolls and returns the
+// nat-20 / nat-1 counts. Mirrors scanMoodEventsFromCombat's tally but
+// without writing run-scoped mood events (arena has no DungeonRun).
+func countNat20sAnd1s(result CombatResult) (nat20s, nat1s int) {
+	for _, e := range result.Events {
+		if e.Roll == 20 {
+			nat20s++
+		} else if e.Roll == 1 {
+			nat1s++
+		}
+	}
+	return
 }
