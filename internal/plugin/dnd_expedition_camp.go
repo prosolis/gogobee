@@ -242,7 +242,16 @@ func processOvernightCamp(e *Expedition) string {
 		_ = updateCamp(e.ID, nil)
 		return ""
 	}
+	// Babysit safe-rest: an active subscription promotes a Standard camp
+	// to Fortified for rest purposes (no need for boss-cleared arrangements).
+	// Rough/Base are unchanged — Rough still implies no shelter, and Base
+	// already exceeds Fortified.
+	babysitUpgraded := false
 	kind := e.Camp.Type
+	if kind == CampTypeStandard && BabysitSafeRest(uid) {
+		kind = CampTypeFortified
+		babysitUpgraded = true
+	}
 	prevHP := c.HPCurrent
 	bonusHP := 0
 
@@ -304,8 +313,12 @@ func processOvernightCamp(e *Expedition) string {
 	case CampTypeStandard:
 		return fmt.Sprintf("Long rest: HP %d → %d, spell slots & resources refreshed.", prevHP, c.HPCurrent)
 	case CampTypeFortified, CampTypeBase:
-		summary := fmt.Sprintf("Fortified rest: HP %d → %d (+1d6 = %d bonus); threat clock −5; resources refreshed.",
-			prevHP, c.HPCurrent, bonusHP)
+		label := "Fortified rest"
+		if babysitUpgraded {
+			label = "Fortified rest (babysitter watching the camp)"
+		}
+		summary := fmt.Sprintf("%s: HP %d → %d (+1d6 = %d bonus); threat clock −5; resources refreshed.",
+			label, prevHP, c.HPCurrent, bonusHP)
 		if heatReduced > 0 {
 			summary += fmt.Sprintf(" Heat stacks −%d.", heatReduced)
 		}

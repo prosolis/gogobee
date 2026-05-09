@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"gogobee/internal/flavor"
+
+	"maunium.net/go/mautrix/id"
 )
 
 // Phase 12 E2b — Wandering monster system & night phase resolution.
@@ -74,8 +76,14 @@ func resolveWanderingCheck(e *Expedition, charClass DnDClass, roll1d20 func() in
 		threatMod = (e.ThreatLevel - 30) / 10
 	}
 
+	// Babysit safe-rest: an active subscription gives Standard camps the
+	// fortified-tier night-risk reduction (the babysitter is watching).
+	effectiveCamp := e.Camp.Type
+	if effectiveCamp == CampTypeStandard && BabysitSafeRest(id.UserID(e.UserID)) {
+		effectiveCamp = CampTypeFortified
+	}
 	campMod := 0
-	switch e.Camp.Type {
+	switch effectiveCamp {
 	case CampTypeRough:
 		campMod = 3
 	case CampTypeFortified:

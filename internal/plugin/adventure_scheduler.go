@@ -84,13 +84,17 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			}
 		}
 
-		// Babysitting: auto-resolve daily action, skip DM
+		// Babysitting: pet-care trickle (no harvest actions; safe-rest perk
+		// is consumed inside the expedition camp/rest path). Still skips the
+		// morning DM — the babysitter is handling things in the background.
 		if char.BabysitActive {
 			if !char.Alive {
-				// Dead and not yet ready to respawn — skip babysit action
 				continue
 			}
-			p.runBabysitDaily(&char)
+			p.runBabysitDailyTrickle(&char)
+			if err := saveAdvCharacter(&char); err != nil {
+				slog.Error("babysit: failed to save after daily trickle", "user", char.UserID, "err", err)
+			}
 			continue
 		}
 
@@ -384,40 +388,6 @@ func (p *AdventurePlugin) midnightReset() error {
 				continue
 			}
 
-			// Auto-babysit: if enabled, alive, and affordable, run a single babysit day instead of losing streak
-			autoBabysitShortfall := int64(0)
-			if char.AutoBabysit && char.Alive && !char.BabysitActive {
-				daily := babysitDailyCost(char.CombatLevel)
-				bal := p.euro.GetBalance(char.UserID)
-				if bal >= float64(daily) {
-					if p.euro.Debit(char.UserID, float64(daily), "auto_babysit") {
-						res := p.runAutoBabysitDay(&char)
-						if char.CurrentStreak > 0 {
-							char.CurrentStreak++
-							if char.CurrentStreak > char.BestStreak {
-								char.BestStreak = char.CurrentStreak
-							}
-						} else {
-							char.CurrentStreak = 1
-						}
-						_ = saveAdvCharacter(&char)
-
-						if p.achievements != nil {
-							p.achievements.GrantAchievement(char.UserID, "adv_auto_babysit")
-						}
-
-						if dmsSent > 0 {
-							time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
-						}
-						dmsSent++
-						p.SendDM(char.UserID, renderAutoBabysitDM(daily, char.CurrentStreak, res))
-						continue
-					}
-				} else {
-					autoBabysitShortfall = int64(float64(daily) - bal)
-				}
-			}
-
 			// Jitter between DMs to avoid Matrix rate limits
 			if dmsSent > 0 {
 				time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
@@ -426,9 +396,6 @@ func (p *AdventurePlugin) midnightReset() error {
 
 			// Idle shame DM
 			text := renderAdvIdleShameDM(&char)
-			if autoBabysitShortfall > 0 {
-				text += fmt.Sprintf("\n\n💸 Auto-babysit was on but couldn't cover today (€%d short). Top up the wallet and TwinBee can step in next time.", autoBabysitShortfall)
-			}
 			if char.CurrentStreak > 0 {
 				oldStreak := char.CurrentStreak
 				char.CurrentStreak /= 2

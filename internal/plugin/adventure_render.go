@@ -208,28 +208,6 @@ func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*
 		sb.WriteString(" — `!adventure rivals` for details\n")
 	}
 
-	// Today's actions
-	isHolSheet, _ := isHolidayToday()
-	combatMax := maxCombatActions
-	harvestMax := maxHarvestActions
-	if isHolSheet {
-		combatMax++
-		harvestMax++
-	}
-	combatRemaining := combatMax - char.CombatActionsUsed
-	if combatRemaining < 0 {
-		combatRemaining = 0
-	}
-	harvestRemaining := harvestMax - char.HarvestActionsUsed
-	if harvestRemaining < 0 {
-		harvestRemaining = 0
-	}
-	if char.HasActedToday() {
-		sb.WriteString(fmt.Sprintf("\n📅 Today: %d combat, %d harvest actions remaining", combatRemaining, harvestRemaining))
-	} else {
-		sb.WriteString(fmt.Sprintf("\n📅 Today: %d combat, %d harvest actions available", combatRemaining, harvestRemaining))
-	}
-
 	return sb.String()
 }
 
@@ -356,9 +334,11 @@ func renderRivalNudge(char *AdventureCharacter) string {
 func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, balance float64, bonuses *AdvBonusSummary, holidayName string) string {
 	var sb strings.Builder
 
-	// Holiday notice (before greeting)
+	// Holiday notice (before greeting). Today's perks: TwinBee starts new
+	// runs in a slightly better mood (+5), expedition outfitting includes a
+	// complimentary standard pack, and every harvest yields one extra unit.
 	if holidayName != "" {
-		sb.WriteString(fmt.Sprintf("🎉 Happy %s! In recognition of %s, you get an extra combat and harvest action today.\n\n", holidayName, holidayName))
+		sb.WriteString(fmt.Sprintf("🎉 Happy %s! In recognition of %s, today's adventures come with TwinBee's blessing — new zone & expedition runs start at +5 mood, expedition outfitting includes a complimentary standard pack, and every harvest yields one extra unit.\n\n", holidayName, holidayName))
 	}
 
 	// Pick a morning greeting
@@ -399,30 +379,17 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 		sb.WriteString("\n\n")
 	}
 
-	// Action budget
-	isHol := holidayName != ""
-	combatMax := maxCombatActions
-	harvestMax := maxHarvestActions
-	if isHol {
-		combatMax++
-		harvestMax++
-	}
-	combatLeft := combatMax - char.CombatActionsUsed
-	if combatLeft < 0 {
-		combatLeft = 0
-	}
-	harvestLeft := harvestMax - char.HarvestActionsUsed
-
 	// Co-op participants have combat locked for the duration of the run.
+	// Under Adv 2.0 the per-day combat/harvest action caps are no longer
+	// surfaced — harvesting is gated by per-room nodes, supplies, and the
+	// threat clock; combat is gated by zones/expeditions/arena themselves.
 	coopRun, _ := loadCoopRunForUser(char.UserID)
 	inCoop := coopRun != nil && coopRun.Status == "active"
 
 	if inCoop {
-		sb.WriteString(fmt.Sprintf("📋 **Actions:** combat locked (in Co-op #%d, day %d/%d) · %d/%d harvest\n\n",
-			coopRun.ID, coopRun.CurrentDay, coopRun.TotalDays, harvestLeft, harvestMax))
+		sb.WriteString(fmt.Sprintf("📋 **Co-op #%d** — day %d/%d, combat locked for the duration of the run\n\n",
+			coopRun.ID, coopRun.CurrentDay, coopRun.TotalDays))
 	} else {
-		sb.WriteString(fmt.Sprintf("📋 **Actions:** %d/%d combat · %d/%d harvest\n\n", combatLeft, combatMax, harvestLeft, harvestMax))
-
 		// Co-op teaser — show open runs the player could join.
 		if line := renderCoopTeaser(char); line != "" {
 			sb.WriteString(line)
@@ -758,31 +725,6 @@ func masteryBar(value, total int) string {
 	return strings.Repeat("▰", filled) + strings.Repeat("▱", 10-filled)
 }
 
-// ── Auto-Babysit DM ─────────────────────────────────────────────────────────
-
-// renderAutoBabysitDM builds the morning notification when auto-babysit
-// covered an idle day. Surfaces what the babysitter actually accomplished
-// (skill focus, gold/XP, items) plus a flavor highlight on lucky days, so
-// the system feels like an active companion instead of a silent debit.
-func renderAutoBabysitDM(daily int, streak int, res AutoBabysitDayResult) string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("🍼 **Auto-babysit activated** — €%d deducted. Your streak is safe at %d days.\n", daily, streak))
-	if res.Skill != "" {
-		sb.WriteString(fmt.Sprintf("Focus: %s · €%d earned · %d XP", res.Skill, res.Gold, res.XP))
-		if len(res.Items) > 0 {
-			sb.WriteString(fmt.Sprintf(" · items: %s", strings.Join(res.Items, ", ")))
-		}
-		sb.WriteString("\n")
-	}
-	if res.Highlight && res.Skill != "" {
-		line := pickBabysitFlavor(babysitHighlightLines)
-		if line != "" {
-			sb.WriteString("\n_" + fmt.Sprintf(line, res.Skill) + "_")
-		}
-	}
-	return strings.TrimRight(sb.String(), "\n")
-}
-
 // ── Idle Shame DM ────────────────────────────────────────────────────────────
 
 func renderAdvIdleShameDM(char *AdventureCharacter) string {
@@ -828,7 +770,7 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 	sb.WriteString(fmt.Sprintf("📜 **ADVENTURER DAILY REPORT**\n%s\n\n", date))
 
 	if holidayName != "" {
-		sb.WriteString(fmt.Sprintf("🎉 In recognition of **%s**, adventurers had two actions today.\n\n", holidayName))
+		sb.WriteString(fmt.Sprintf("🎉 In recognition of **%s**, adventurers ran with TwinBee's blessing today: +5 starting mood, a free standard pack at outfitting, and +1 to every harvest yield.\n\n", holidayName))
 	}
 
 	// TwinBee section
@@ -963,47 +905,6 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 		sb.WriteString("\n")
 	}
 
-	// Holiday stats
-	if holidayName != "" {
-		tookBoth := 0
-		totalActive := 0
-		for _, p := range players {
-			if p.IsDead || p.IsResting {
-				if p.HolidayActions > 0 {
-					totalActive++
-				}
-				if p.HolidayActions >= 2 {
-					tookBoth++
-				}
-				continue
-			}
-			if p.Activity != "" {
-				totalActive++
-			}
-			if p.HolidayActions >= 2 {
-				tookBoth++
-			}
-		}
-		if totalActive > 0 {
-			sb.WriteString(fmt.Sprintf("🎉 %s double-action day — %d of %d adventurers took both actions.\n\n", holidayName, tookBoth, totalActive))
-		}
-
-		// Note players who died before their second action
-		for _, d := range dead {
-			if d.HolidayActions == 1 {
-				sb.WriteString(fmt.Sprintf("• %s — died in %s before their second action. Rough holiday.\n", d.DisplayName, d.Location))
-			}
-		}
-		if len(dead) > 0 {
-			// Check if any had HolidayActions == 1
-			for _, d := range dead {
-				if d.HolidayActions == 1 {
-					sb.WriteString("\n")
-					break
-				}
-			}
-		}
-	}
 
 	// Standout
 	if bestPlayer != nil && bestPlayer.LootValue > 0 {

@@ -4,29 +4,12 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"gogobee/internal/db"
 	"maunium.net/go/mautrix/id"
 )
-
-// ── TwinBee Character (fixed stats) ──────────────────────────────────────────
-
-var twinBeeChar = AdventureCharacter{
-	DisplayName: "TwinBee 🐝",
-	CombatLevel: 35,
-	MiningSkill: 28,
-	ForagingSkill: 22,
-	Alive:       true,
-}
-
-var twinBeeEquip = map[EquipmentSlot]*AdvEquipment{
-	SlotWeapon: {Slot: SlotWeapon, Tier: 4, Condition: 100, Name: "The Spread Gun"},
-	SlotArmor:  {Slot: SlotArmor, Tier: 4, Condition: 100, Name: "Enchanted Plate"},
-	SlotHelmet: {Slot: SlotHelmet, Tier: 4, Condition: 100, Name: "Guardian's Helm"},
-	SlotBoots:  {Slot: SlotBoots, Tier: 4, Condition: 100, Name: "Ranger's Boots"},
-	SlotTool:   {Slot: SlotTool, Tier: 4, Condition: 100, Name: "Mithril Pickaxe"},
-}
 
 // ── TwinBee Action Selection ─────────────────────────────────────────────────
 
@@ -117,6 +100,65 @@ type TwinBeeResult struct {
 	FlavorText string
 }
 
+// simulateTwinBeeOutcome rolls a flat outcome distribution for TwinBee's
+// off-screen daily run. TwinBee never dies — death rolls become empty.
+// Distribution by tier roughly matches the legacy simulator's spread:
+// tier 3 → 60% success / 25% exceptional / 15% empty; tier 4 → 55/20/25;
+// tier 5 → 50/15/35 (deeper places are stingier even for TwinBee).
+func simulateTwinBeeOutcome(tier int) AdvOutcomeType {
+	roll := rand.IntN(100)
+	var emptyPct, successPct int
+	switch tier {
+	case 5:
+		emptyPct, successPct = 35, 50
+	case 4:
+		emptyPct, successPct = 25, 55
+	default:
+		emptyPct, successPct = 15, 60
+	}
+	switch {
+	case roll < emptyPct:
+		return AdvOutcomeEmpty
+	case roll < emptyPct+successPct:
+		return AdvOutcomeSuccess
+	default:
+		return AdvOutcomeExceptional
+	}
+}
+
+// simulateTwinBeeLoot returns gold value + 1–3 themed item names for the
+// rolled outcome. Empty → zero/no items. Exceptional ≈ 2.2× success base.
+func simulateTwinBeeLoot(loc *AdvLocation, outcome AdvOutcomeType) (int64, []string) {
+	if outcome == AdvOutcomeEmpty || loc == nil {
+		return 0, nil
+	}
+	tier := loc.Tier
+	if tier < 1 {
+		tier = 1
+	}
+	// Base loot scales as tier^2 * 75 with ±25% jitter.
+	base := int64(tier*tier*75) + int64(rand.IntN(tier*tier*40))
+	if outcome == AdvOutcomeExceptional {
+		base = base * 22 / 10
+	}
+	// Item names borrow from the location's denizens string for flavor; no
+	// inventory is actually deposited for TwinBee — these are display only.
+	names := strings.Split(loc.Denizens, ", ")
+	picks := 1 + rand.IntN(2)
+	if outcome == AdvOutcomeExceptional {
+		picks = 2 + rand.IntN(2)
+	}
+	if picks > len(names) {
+		picks = len(names)
+	}
+	chosen := make([]string, 0, picks)
+	rand.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
+	for i := 0; i < picks && i < len(names); i++ {
+		chosen = append(chosen, strings.TrimSpace(names[i]))
+	}
+	return base, chosen
+}
+
 func (p *AdventurePlugin) runTwinBeeDaily() *TwinBeeResult {
 	activity, loc := selectTwinBeeAction()
 	if loc == nil {
@@ -124,46 +166,19 @@ func (p *AdventurePlugin) runTwinBeeDaily() *TwinBeeResult {
 		return nil
 	}
 
-	// Copy equipment so mutations don't accumulate on the global template.
-	equip := make(map[EquipmentSlot]*AdvEquipment, len(twinBeeEquip))
-	for k, v := range twinBeeEquip {
-		copy := *v
-		equip[k] = &copy
-	}
+	outcome := simulateTwinBeeOutcome(loc.Tier)
+	value, items := simulateTwinBeeLoot(loc, outcome)
 
-	bonuses := &AdvBonusSummary{} // TwinBee has no treasures/buffs
-	result := resolveAdvAction(&twinBeeChar, equip, loc, bonuses, false)
-
-	// TwinBee never dies — reroll death to empty
-	if result.Outcome == AdvOutcomeDeath {
-		result.Outcome = AdvOutcomeEmpty
-		result.LootItems = nil
-		result.TotalLootValue = 0
-		result.EquipDamage = nil
-		result.EquipBroken = nil
-	}
-
-	// No treasure drops for TwinBee
-	result.TreasureFound = nil
-
-	// Select TwinBee-specific flavor text
 	tbResult := &TwinBeeResult{
 		Activity:  activity,
 		Location:  loc,
-		Outcome:   result.Outcome,
-		LootValue: result.TotalLootValue,
+		Outcome:   outcome,
+		LootValue: value,
+	}
+	if len(items) > 0 {
+		tbResult.LootDesc = joinAdvItems(items)
 	}
 
-	// Build loot description
-	if len(result.LootItems) > 0 {
-		names := make([]string, len(result.LootItems))
-		for i, item := range result.LootItems {
-			names[i] = item.Name
-		}
-		tbResult.LootDesc = joinAdvItems(names)
-	}
-
-	// Select flavor
 	tbResult.FlavorText = p.selectTwinBeeFlavor(tbResult)
 
 	return tbResult

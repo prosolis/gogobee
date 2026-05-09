@@ -3,7 +3,6 @@ package plugin
 import (
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -18,44 +17,62 @@ func babysitDailyCost(combatLevel int) int {
 	return 100 + (combatLevel * 20)
 }
 
-// ── Weakest Skill ───────────────────────────────────────────────────────────
+// ── Pet-care daily trickle ─────────────────────────────────────────────────
 
-func babysitWeakestSkill(char *AdventureCharacter) string {
-	skills := []struct {
-		name  string
-		level int
-	}{
-		{"mining", char.MiningSkill},
-		{"fishing", char.FishingSkill},
-		{"foraging", char.ForagingSkill},
+// petXPPerBabysitDay is the daily pet XP awarded while a babysit subscription
+// is active. Picked to be a meaningful but not overwhelming push toward L10:
+// roughly equivalent to a couple of player-driven actions per day.
+const petXPPerBabysitDay = 3
+
+// runBabysitDailyTrickle grants daily pet XP while a babysit subscription is
+// active and logs an entry for the end-of-service summary. Caller is
+// responsible for saving the character afterwards.
+func (p *AdventurePlugin) runBabysitDailyTrickle(char *AdventureCharacter) {
+	if !char.BabysitActive {
+		return
 	}
-	minLevel := skills[0].level
-	for _, s := range skills[1:] {
-		if s.level < minLevel {
-			minLevel = s.level
+	leveled := false
+	if char.HasPet() && char.PetLevel < 10 {
+		// Bypass petGrantXP's per-action constant — we want a flat trickle.
+		char.PetXP += petXPPerBabysitDay * 100
+		for char.PetLevel < 10 {
+			needed := petXPToNextLevel(char.PetLevel) * 100
+			if char.PetXP < needed {
+				break
+			}
+			char.PetXP -= needed
+			char.PetLevel++
+			leveled = true
+		}
+		if char.PetLevel >= 10 && char.PetLevel10Date == "" {
+			char.PetLevel10Date = time.Now().UTC().Format("2006-01-02")
 		}
 	}
-	// Collect ties
-	var tied []string
-	for _, s := range skills {
-		if s.level == minLevel {
-			tied = append(tied, s.name)
-		}
+	outcome := "pet_care"
+	if leveled {
+		outcome = "pet_care_levelup"
 	}
-	return tied[rand.IntN(len(tied))]
+	logBabysitActivity(char.UserID, "pet_care", outcome, 0, petXPPerBabysitDay, "")
 }
 
-// skillToActivity maps a skill name to its activity type.
-func skillToActivity(skill string) AdvActivityType {
-	switch skill {
-	case "mining":
-		return AdvActivityMining
-	case "fishing":
-		return AdvActivityFishing
-	case "foraging":
-		return AdvActivityForaging
+// BabysitSafeRest reports whether the user has an active babysit subscription
+// that should let standard camps qualify for fortified-tier rest perks.
+// Returns false on any error (treat as no babysit). Safe to call from tests
+// where the global DB has not been initialized — the panic is swallowed.
+func BabysitSafeRest(userID id.UserID) (active bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			active = false
+		}
+	}()
+	char, err := loadAdvCharacter(userID)
+	if err != nil || char == nil || !char.BabysitActive {
+		return false
 	}
-	return AdvActivityMining
+	if char.BabysitExpiresAt != nil && time.Now().UTC().After(*char.BabysitExpiresAt) {
+		return false
+	}
+	return true
 }
 
 // ── Command Handlers ────────────────────────────────────────────────────────
@@ -72,80 +89,17 @@ func (p *AdventurePlugin) handleBabysitCmd(ctx MessageContext, args string) erro
 		return p.handleBabysitPurchase(ctx, 7)
 	case lower == "month":
 		return p.handleBabysitPurchase(ctx, 30)
-	case lower == "auto":
-		return p.handleBabysitAutoToggle(ctx)
-	case strings.HasPrefix(lower, "focus"):
-		return p.handleBabysitFocus(ctx, strings.TrimSpace(strings.TrimPrefix(lower, "focus")))
 	default:
 		return p.SendDM(ctx.Sender, "🍼 **Adventurer Babysitting Service**\n\n"+
+			"Hire a babysitter to look after your camp and tend the pet while you sleep:\n"+
+			"  • Daily pet XP trickle (your pet still grows while you focus elsewhere)\n"+
+			"  • Standard camps act like fortified ones — rest deeply, no need for boss-cleared rooms\n"+
+			"  • Rival duels declined on your behalf\n\n"+
 			"`!adventure babysit week` — 7 days of service\n"+
 			"`!adventure babysit month` — 30 days of service\n"+
-			"`!adventure babysit auto` — toggle auto-babysit on missed days\n"+
-			"`!adventure babysit focus <mining|fishing|foraging>` — pick the skill auto-babysit trains\n"+
 			"`!adventure babysit status` — check service status\n"+
 			"`!adventure babysit cancel` — cancel early (no refund)")
 	}
-}
-
-func (p *AdventurePlugin) handleBabysitFocus(ctx MessageContext, arg string) error {
-	userMu := p.advUserLock(ctx.Sender)
-	userMu.Lock()
-	defer userMu.Unlock()
-
-	char, err := loadAdvCharacter(ctx.Sender)
-	if err != nil {
-		return p.SendDM(ctx.Sender, "No adventurer found. Type `!adventure` to create one.")
-	}
-
-	switch arg {
-	case "":
-		current := char.AutoBabysitFocus
-		if current == "" {
-			current = "weakest skill (default)"
-		}
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"🎯 **Auto-babysit focus:** %s\n\nSet with `!adventure babysit focus <mining|fishing|foraging>`. Use `!adventure babysit focus clear` to revert to the weakest-skill default.",
-			current))
-	case "clear", "default", "weakest", "off":
-		char.AutoBabysitFocus = ""
-	case "mining", "fishing", "foraging":
-		char.AutoBabysitFocus = arg
-	default:
-		return p.SendDM(ctx.Sender, "Pick one of `mining`, `fishing`, `foraging`, or `clear`.")
-	}
-
-	if err := saveAdvCharacter(char); err != nil {
-		slog.Error("babysit: failed to save focus", "user", ctx.Sender, "err", err)
-		return p.SendDM(ctx.Sender, "Something went wrong. Try again.")
-	}
-
-	if char.AutoBabysitFocus == "" {
-		return p.SendDM(ctx.Sender, "🎯 Auto-babysit focus cleared. The babysitter will train your weakest skill.")
-	}
-	return p.SendDM(ctx.Sender, fmt.Sprintf("🎯 Auto-babysit focus set to **%s**. The babysitter will train this on missed days.", char.AutoBabysitFocus))
-}
-
-func (p *AdventurePlugin) handleBabysitAutoToggle(ctx MessageContext) error {
-	userMu := p.advUserLock(ctx.Sender)
-	userMu.Lock()
-	defer userMu.Unlock()
-
-	char, err := loadAdvCharacter(ctx.Sender)
-	if err != nil {
-		return p.SendDM(ctx.Sender, "No adventurer found. Type `!adventure` to create one.")
-	}
-
-	char.AutoBabysit = !char.AutoBabysit
-	if err := saveAdvCharacter(char); err != nil {
-		slog.Error("babysit: failed to save auto-babysit toggle", "user", ctx.Sender, "err", err)
-		return p.SendDM(ctx.Sender, "Something went wrong. Try again.")
-	}
-
-	daily := babysitDailyCost(char.CombatLevel)
-	if char.AutoBabysit {
-		return p.SendDM(ctx.Sender, fmt.Sprintf("🍼 **Auto-babysit: ON**\n\nIf you miss a day, the babysitter steps in automatically (€%d/day). Your streak stays alive. Disable anytime with `!adventure babysit auto`.", daily))
-	}
-	return p.SendDM(ctx.Sender, "🍼 **Auto-babysit: OFF**\n\nYou're on your own. Miss a day and your streak takes the hit.")
 }
 
 func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) error {
@@ -173,24 +127,19 @@ func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) er
 		return p.SendDM(ctx.Sender, fmt.Sprintf("🍼 The babysitting service costs %s for %d days. You have %s. The service has standards. Not many, but some.", fmtEuro(totalCost), days, fmtEuro(balance)))
 	}
 
-	// Debit gold
 	if !p.euro.Debit(char.UserID, float64(totalCost), "babysit_purchase") {
 		return p.SendDM(ctx.Sender, "Payment failed. The babysitter looked at your wallet and walked away.")
 	}
 
-	// Clear any leftover logs from prior service so this period's summary is clean
 	clearBabysitLogs(char.UserID)
 
-	// Set babysit fields
-	skill := babysitWeakestSkill(char)
 	expires := time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour)
 	char.BabysitActive = true
 	char.BabysitExpiresAt = &expires
-	char.BabysitSkillFocus = skill
+	char.BabysitSkillFocus = "" // legacy field; no longer used
 
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("babysit: failed to save character", "user", char.UserID, "err", err)
-		// Refund
 		p.euro.Credit(char.UserID, float64(totalCost), "babysit_refund")
 		return p.SendDM(ctx.Sender, "Something went wrong activating the service. Your gold has been refunded.")
 	}
@@ -201,13 +150,18 @@ func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) er
 		durLabel = "1 month"
 	}
 
+	petLine := "No pet to tend yet — the babysitter will keep that in mind."
+	if char.HasPet() {
+		petLine = fmt.Sprintf("Pet: %s (L%d) — daily care included", char.PetName, char.PetLevel)
+	}
+
 	text := fmt.Sprintf("🍼 **Adventurer Babysitting Service — Activated**\n\n"+
 		"Duration: %s (%d days)\n"+
 		"Cost: €%d\n"+
-		"Focus: %s (currently level %d)\n"+
+		"%s\n"+
+		"Camp safety: standard camps now rest like fortified ones\n"+
 		"Rival duels: declined on your behalf\n\n"+
-		"Daily DMs are suspended until the service ends.\n\n"+
-		"_%s_", durLabel, days, totalCost, titleCase(skill), babysitSkillLevel(char, skill), confirm)
+		"_%s_", durLabel, days, totalCost, petLine, confirm)
 
 	return p.SendDM(ctx.Sender, text)
 }
@@ -218,13 +172,8 @@ func (p *AdventurePlugin) handleBabysitStatus(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "No adventurer found.")
 	}
 
-	autoLabel := "OFF"
-	if char.AutoBabysit {
-		autoLabel = "ON"
-	}
-
 	if !char.BabysitActive {
-		return p.SendDM(ctx.Sender, fmt.Sprintf("🍼 No active babysitting service.\nAuto-babysit: **%s** (`!adventure babysit auto` to toggle)\n\nUse `!adventure babysit week` or `!adventure babysit month` to start.", autoLabel))
+		return p.SendDM(ctx.Sender, "🍼 No active babysitting service.\n\nUse `!adventure babysit week` or `!adventure babysit month` to start. The babysitter tends your pet daily and lets you rest deeply at standard camps.")
 	}
 
 	remaining := "unknown"
@@ -237,23 +186,24 @@ func (p *AdventurePlugin) handleBabysitStatus(ctx MessageContext) error {
 		}
 	}
 
-	// Load log stats
 	logs, err := loadBabysitLogs(char.UserID)
 	if err != nil {
 		slog.Error("babysit: failed to load logs", "user", char.UserID, "err", err)
 	}
-	totalGold, totalXP, itemsClaimed, rivalsRefused := babysitLogStats(logs)
+	totalXP, petDays, rivalsRefused := babysitLogStats(logs)
+
+	petLine := "No pet to tend"
+	if char.HasPet() {
+		petLine = fmt.Sprintf("%s (L%d)", char.PetName, char.PetLevel)
+	}
 
 	text := fmt.Sprintf("🍼 **Babysitting Service — Status**\n\n"+
 		"Time remaining: %s\n"+
-		"Skill focus: %s\n"+
-		"Days completed: %d\n"+
-		"Gold earned: €%d\n"+
-		"XP gained: %d\n"+
-		"Items claimed by babysitter: %d\n"+
-		"Rivals declined: %d\n"+
-		"Auto-babysit: %s",
-		remaining, titleCase(char.BabysitSkillFocus), len(logs), totalGold, totalXP, itemsClaimed, rivalsRefused, autoLabel)
+		"Pet under care: %s\n"+
+		"Days of pet care given: %d\n"+
+		"Pet XP trickled: %d\n"+
+		"Rivals declined: %d",
+		remaining, petLine, petDays, totalXP, rivalsRefused)
 
 	return p.SendDM(ctx.Sender, text)
 }
@@ -272,14 +222,12 @@ func (p *AdventurePlugin) handleBabysitCancel(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "🍼 There's nothing to cancel. The babysitter isn't here.")
 	}
 
-	// Compile partial summary
 	logs, err := loadBabysitLogs(char.UserID)
 	if err != nil {
 		slog.Error("babysit: failed to load logs", "user", char.UserID, "err", err)
 	}
 	summary := renderBabysitSummary(char, logs)
 
-	// Clear babysit state
 	char.BabysitActive = false
 	char.BabysitExpiresAt = nil
 	char.BabysitSkillFocus = ""
@@ -288,177 +236,6 @@ func (p *AdventurePlugin) handleBabysitCancel(ctx MessageContext) error {
 	}
 
 	return p.SendDM(ctx.Sender, "🍼 Service cancelled. No refund. The babysitter was already there.\n\n"+summary)
-}
-
-// ── Daily Auto-Resolution ───────────────────────────────────────────────────
-
-func (p *AdventurePlugin) runBabysitDaily(char *AdventureCharacter) {
-	equip, err := loadAdvEquipment(char.UserID)
-	if err != nil {
-		slog.Error("babysit: failed to load equipment", "user", char.UserID, "err", err)
-		return
-	}
-
-	isHol, _ := isHolidayToday()
-	harvestMax := maxHarvestActions
-	if isHol {
-		harvestMax++
-	}
-
-	bonuses := &AdvBonusSummary{}
-	focusActivity := skillToActivity(char.BabysitSkillFocus)
-
-	var totalGold int
-	var totalXP int
-	var allItems []string
-
-	// Use all harvest actions on the focused skill — no combat, too dangerous
-	for char.HarvestActionsUsed < harvestMax {
-		gold, xp, items := p.runBabysitAction(char, equip, focusActivity, bonuses)
-		totalGold += gold
-		totalXP += xp
-		allItems = append(allItems, items...)
-		char.HarvestActionsUsed++
-	}
-
-	char.ActionTakenToday = true
-	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
-
-	if err := saveAdvCharacter(char); err != nil {
-		slog.Error("babysit: failed to save character after daily", "user", char.UserID, "err", err)
-	}
-
-	// Log combined daily totals
-	itemsJSON := ""
-	if len(allItems) > 0 {
-		itemsJSON = strings.Join(allItems, ", ")
-	}
-	logBabysitActivity(char.UserID, string(focusActivity), "babysit_daily",
-		totalGold, totalXP, itemsJSON)
-}
-
-// runBabysitAction resolves a single action for the babysitter. Returns gold, xp, item names.
-func (p *AdventurePlugin) runBabysitAction(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, activity AdvActivityType, bonuses *AdvBonusSummary) (int, int, []string) {
-	eligible := advEligibleLocations(char, equip, activity, bonuses)
-	if len(eligible) == 0 {
-		return 0, 0, nil
-	}
-	loc := eligible[len(eligible)-1].Location
-	inPenalty := eligible[len(eligible)-1].InPenaltyZone
-
-	result := resolveAdvAction(char, equip, loc, bonuses, inPenalty)
-
-	// Babysitter never lets the adventurer die
-	if result.Outcome == AdvOutcomeDeath {
-		result.Outcome = AdvOutcomeEmpty
-		result.LootItems = nil
-		result.TotalLootValue = 0
-		result.EquipDamage = nil
-		result.EquipBroken = nil
-	}
-
-	// Double XP/money boost
-	advApplyBoost(result)
-
-	// Apply XP
-	switch result.XPSkill {
-	case "combat":
-		char.CombatXP += result.XPGained
-	case "mining":
-		char.MiningXP += result.XPGained
-	case "foraging":
-		char.ForagingXP += result.XPGained
-	case "fishing":
-		char.FishingXP += result.XPGained
-	}
-	checkAdvLevelUp(char, result.XPSkill)
-
-	// Credit gold
-	if result.TotalLootValue > 0 {
-		net, _ := communityTax(char.UserID, float64(result.TotalLootValue), 0.05)
-		p.euro.Credit(char.UserID, net, "babysit_haul")
-	}
-
-	// No treasure drops during babysitting
-	result.TreasureFound = nil
-
-	var items []string
-	for _, item := range result.LootItems {
-		items = append(items, item.Name)
-	}
-	return int(result.TotalLootValue), result.XPGained, items
-}
-
-// AutoBabysitDayResult summarizes one day of auto-babysit work, surfaced in
-// the morning DM so the babysitter feels like a companion that did
-// something rather than a silent insurance product.
-type AutoBabysitDayResult struct {
-	Skill   string
-	Gold    int
-	XP      int
-	Items   []string
-	Highlight bool // true if the day produced an unusually large single haul or multiple item finds
-}
-
-// runAutoBabysitDay runs a single day of babysit actions for auto-babysit.
-// Called by the scheduler when a player with auto-babysit enabled misses a day.
-func (p *AdventurePlugin) runAutoBabysitDay(char *AdventureCharacter) AutoBabysitDayResult {
-	equip, err := loadAdvEquipment(char.UserID)
-	if err != nil {
-		slog.Error("auto-babysit: failed to load equipment", "user", char.UserID, "err", err)
-		return AutoBabysitDayResult{}
-	}
-
-	isHol, _ := isHolidayToday()
-	harvestMax := maxHarvestActions
-	if isHol {
-		harvestMax++
-	}
-
-	bonuses := &AdvBonusSummary{}
-	// Honor a player-set focus if it's a valid harvest skill; otherwise
-	// fall back to the weakest-skill default.
-	skill := char.AutoBabysitFocus
-	switch skill {
-	case "mining", "fishing", "foraging":
-		// player preference
-	default:
-		skill = babysitWeakestSkill(char)
-	}
-	activity := skillToActivity(skill)
-
-	var totalGold int
-	var totalXP int
-	var allItems []string
-	bestSingleHaul := 0
-	for char.HarvestActionsUsed < harvestMax {
-		gold, xp, items := p.runBabysitAction(char, equip, activity, bonuses)
-		totalGold += gold
-		totalXP += xp
-		allItems = append(allItems, items...)
-		if gold > bestSingleHaul {
-			bestSingleHaul = gold
-		}
-		char.HarvestActionsUsed++
-	}
-
-	char.ActionTakenToday = true
-	char.LastActionDate = time.Now().UTC().Format("2006-01-02")
-
-	itemsJSON := ""
-	if len(allItems) > 0 {
-		itemsJSON = strings.Join(allItems, ", ")
-	}
-	logBabysitActivity(char.UserID, string(activity), "auto_babysit_daily",
-		totalGold, totalXP, itemsJSON)
-
-	return AutoBabysitDayResult{
-		Skill:     skill,
-		Gold:      totalGold,
-		XP:        totalXP,
-		Items:     allItems,
-		Highlight: bestSingleHaul >= 200 || len(allItems) >= 2,
-	}
 }
 
 // ── Expiry Check ────────────────────────────────────────────────────────────
@@ -473,7 +250,6 @@ func (p *AdventurePlugin) checkBabysitExpiry(chars []AdventureCharacter) {
 			continue
 		}
 
-		// Service expired — compile summary and send DM
 		logs, err := loadBabysitLogs(char.UserID)
 		if err != nil {
 			slog.Error("babysit: failed to load logs", "user", char.UserID, "err", err)
@@ -497,20 +273,20 @@ func (p *AdventurePlugin) checkBabysitExpiry(chars []AdventureCharacter) {
 // ── Summary Rendering ───────────────────────────────────────────────────────
 
 func renderBabysitSummary(char *AdventureCharacter, logs []babysitLogEntry) string {
-	totalGold, totalXP, itemsClaimed, rivalsRefused := babysitLogStats(logs)
+	totalXP, petDays, rivalsRefused := babysitLogStats(logs)
 
 	var sb strings.Builder
 	sb.WriteString("🍼 **BABYSITTING SERVICE — END OF REPORT**\n\n")
-	sb.WriteString(fmt.Sprintf("Duration: %d days\n", len(logs)))
-	sb.WriteString(fmt.Sprintf("Tasks completed: %d\n", len(logs)))
-	sb.WriteString(fmt.Sprintf("Skill focused: %s\n", titleCase(char.BabysitSkillFocus)))
-	sb.WriteString(fmt.Sprintf("Gold earned from hauls: €%d\n", totalGold))
-	sb.WriteString(fmt.Sprintf("XP gained: %d\n", totalXP))
-	sb.WriteString(fmt.Sprintf("Items dropped: %d items. Claimed by the babysitter as per the terms.\n", itemsClaimed))
+	sb.WriteString(fmt.Sprintf("Days of service: %d\n", petDays))
+	if char.HasPet() {
+		sb.WriteString(fmt.Sprintf("Pet looked after: %s (L%d)\n", char.PetName, char.PetLevel))
+	} else {
+		sb.WriteString("Pet looked after: none — the babysitter played solitaire.\n")
+	}
+	sb.WriteString(fmt.Sprintf("Pet XP trickled: %d\n", totalXP))
 
 	if rivalsRefused > 0 {
 		sb.WriteString(fmt.Sprintf("\nRival challenges: %d declined\n", rivalsRefused))
-		// Pick a rival refusal flavor (generic — no specific rival name available)
 		for _, log := range logs {
 			if log.RivalRefused != "" {
 				line := pickBabysitFlavor(babysitRivalRefusalLines)
@@ -519,11 +295,8 @@ func renderBabysitSummary(char *AdventureCharacter, logs []babysitLogEntry) stri
 		}
 	}
 
-	// Diaper line
 	sb.WriteString("\n" + pickBabysitFlavor(babysitDiaperLines))
-
-	// Closing
-	sb.WriteString(fmt.Sprintf("\n\nYour adventurer is fed, rested, and slightly better at %s.", char.BabysitSkillFocus))
+	sb.WriteString("\n\nYour adventurer is fed and rested. The pet is suspiciously well-trained.")
 
 	return sb.String()
 }
@@ -591,27 +364,13 @@ func clearBabysitLogs(userID id.UserID) {
 	}
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Stats helper ────────────────────────────────────────────────────────────
 
-func babysitSkillLevel(char *AdventureCharacter, skill string) int {
-	switch skill {
-	case "mining":
-		return char.MiningSkill
-	case "fishing":
-		return char.FishingSkill
-	case "foraging":
-		return char.ForagingSkill
-	}
-	return 0
-}
-
-func babysitLogStats(logs []babysitLogEntry) (totalGold, totalXP, itemsClaimed, rivalsRefused int) {
+func babysitLogStats(logs []babysitLogEntry) (totalXP, petDays, rivalsRefused int) {
 	for _, l := range logs {
-		totalGold += l.GoldEarned
 		totalXP += l.XPGained
-		if l.ItemsDropped != "" {
-			// Count comma-separated items
-			itemsClaimed += len(strings.Split(l.ItemsDropped, ", "))
+		if l.Activity == "pet_care" {
+			petDays++
 		}
 		if l.RivalRefused != "" {
 			rivalsRefused++
