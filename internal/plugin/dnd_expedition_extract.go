@@ -63,6 +63,7 @@ func voluntaryExtractExpedition(userID id.UserID) (*Expedition, error) {
 	}
 	e.CurrentDay++
 	e.Status = ExpeditionStatusExtracting
+	_ = retireAllRegionRuns(e)
 	return e, nil
 }
 
@@ -87,6 +88,7 @@ func forcedExtractExpedition(expID, reason string) (*Expedition, int, error) {
 		return nil, 0, fmt.Errorf("forced extract: %w", err)
 	}
 	e.Status = ExpeditionStatusAbandoned
+	_ = retireAllRegionRuns(e)
 	return e, tax, nil
 }
 
@@ -222,6 +224,18 @@ func (p *AdventurePlugin) handleResumeCmd(ctx MessageContext, args string) error
 	if err := resumeExpedition(exp.ID, supplies); err != nil {
 		p.euro.Credit(ctx.Sender, cost, "expedition resume refund")
 		return p.SendDM(ctx.Sender, "Couldn't resume: "+err.Error())
+	}
+	exp.Status = ExpeditionStatusActive
+	exp.Supplies = supplies
+	// Spawn a fresh DungeonRun for the resumed region; the prior run was
+	// abandoned at extract time. Per-room harvest state in RegionState is
+	// preserved as-is so progression isn't reset.
+	exp.RunID = ""
+	exp.RegionState[regionStateRegionRuns] = map[string]string{}
+	_ = persistRegionState(exp)
+	if _, err := ensureRegionRun(exp, c.Level); err != nil {
+		p.euro.Credit(ctx.Sender, cost, "expedition resume refund (run-spawn failed)")
+		return p.SendDM(ctx.Sender, "Couldn't outfit the resumed region: "+err.Error())
 	}
 	line := flavor.Pick(flavor.ExpeditionResume)
 	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative",

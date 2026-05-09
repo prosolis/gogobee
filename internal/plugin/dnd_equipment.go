@@ -64,6 +64,7 @@ const (
 	RarityUncommon  DnDRarity = "Uncommon"
 	RarityRare      DnDRarity = "Rare"
 	RarityEpic      DnDRarity = "Epic"
+	RarityVeryRare  DnDRarity = "VeryRare"
 	RarityLegendary DnDRarity = "Legendary"
 )
 

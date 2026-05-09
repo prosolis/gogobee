@@ -134,6 +134,12 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "cast", Description: "Cast an Adv 2.0 spell (queues for next combat, or resolves out-of-combat)", Usage: "!cast <spell> [--upcast N] [--target @user]", Category: "Games"},
 		{Name: "spells", Description: "List your known spells, prepared spells, and spell slots", Usage: "!spells [learn <spell>]", Category: "Games"},
 		{Name: "prepare", Description: "Cleric: prepare a spell for the day (cap = WIS mod + level)", Usage: "!prepare <spell> | !prepare clear <spell>", Category: "Games"},
+		{Name: "forage", Description: "Forage in your current expedition region (WIS / Survival)", Usage: "!forage", Category: "Games"},
+		{Name: "mine", Description: "Mine or salvage in your current expedition region (STR / Athletics)", Usage: "!mine", Category: "Games"},
+		{Name: "scavenge", Description: "Scavenge in your current expedition region (INT / Investigation)", Usage: "!scavenge", Category: "Games"},
+		{Name: "essence", Description: "Harvest magical essence in your current expedition region (INT / Arcana)", Usage: "!essence", Category: "Games"},
+		{Name: "commune", Description: "Commune with spiritual energy in your current expedition region (Cleric primary)", Usage: "!commune", Category: "Games"},
+		{Name: "resources", Description: "List harvestable resources in your current expedition region", Usage: "!resources", Category: "Games"},
 	}
 }
 
@@ -272,6 +278,24 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	}
 	if p.IsCommand(ctx.Body, "map") {
 		return p.handleExpeditionMapCmd(ctx, p.GetArgs(ctx.Body, "map"))
+	}
+	if p.IsCommand(ctx.Body, "forage") {
+		return p.handleHarvestCmd(ctx, HarvestForage)
+	}
+	if p.IsCommand(ctx.Body, "mine") {
+		return p.handleHarvestCmd(ctx, HarvestMine)
+	}
+	if p.IsCommand(ctx.Body, "scavenge") {
+		return p.handleHarvestCmd(ctx, HarvestScavenge)
+	}
+	if p.IsCommand(ctx.Body, "essence") {
+		return p.handleHarvestCmd(ctx, HarvestEssence)
+	}
+	if p.IsCommand(ctx.Body, "commune") {
+		return p.handleHarvestCmd(ctx, HarvestCommune)
+	}
+	if p.IsCommand(ctx.Body, "resources") {
+		return p.handleResourcesCmd(ctx)
 	}
 
 	// 1. Arena commands (work in rooms and DMs)

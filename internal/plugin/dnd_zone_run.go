@@ -357,6 +357,24 @@ func abandonZoneRun(userID id.UserID) error {
 	return err
 }
 
+// abandonZoneRunByID abandons a specific run regardless of its active
+// status. Idempotent — exits cleanly if the row is already terminal.
+// Used by the expedition layer to retire a region's run when the player
+// travels onward, since the user-keyed abandonZoneRun would refuse to
+// fire when the run is no longer "active" (e.g. boss defeated).
+func abandonZoneRunByID(runID string) error {
+	if runID == "" {
+		return nil
+	}
+	_, err := db.Get().Exec(`
+		UPDATE dnd_zone_run
+		   SET abandoned = 1,
+		       completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
+		       last_action_at = CURRENT_TIMESTAMP
+		 WHERE run_id = ?`, runID)
+	return err
+}
+
 // adjustGMMood clamps mood to [0, 100] and persists. Used by D1d when
 // nat-1/nat-20/zone-completion events fire. delta may be negative.
 func adjustGMMood(runID string, delta int) error {

@@ -274,6 +274,7 @@ func processOvernightCamp(e *Expedition) string {
 	if kind == CampTypeStandard || kind == CampTypeFortified || kind == CampTypeBase {
 		_ = refreshAllResources(uid)
 		_ = refreshSpellSlots(uid)
+		_ = ReplenishHarvestNodes(e)
 	}
 
 	// Threat reduction (§8.1: -5 for fortified long rest).

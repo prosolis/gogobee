@@ -611,7 +611,12 @@ func plainBMPlayer() Combatant {
 // Probabilistic: a stiff +4 on the opening swing should noticeably lift
 // hit-rate against an enemy AC tuned to mostly-shrug the baseline player.
 func TestSimulateCombat_FirstAttackBonusImprovesEarlyHits(t *testing.T) {
-	const trials = 1500
+	// Probabilistic: a +4 on the opening swing should noticeably lift the
+	// player's win rate against a stiff enemy. The lift is small (a single
+	// hit's worth), so the trial count needs to be high enough that
+	// variance doesn't swamp the signal — at 1500 trials we were seeing
+	// ~14 wins of difference on bad seeds vs. the 25-win threshold.
+	const trials = 6000
 	hardEnemy := Combatant{
 		Name: "Wall",
 		Stats: CombatStats{
@@ -629,7 +634,7 @@ func TestSimulateCombat_FirstAttackBonusImprovesEarlyHits(t *testing.T) {
 			bmWins++
 		}
 	}
-	if bmWins-plainWins < 25 {
+	if bmWins-plainWins < 50 {
 		t.Errorf("Precision Attack lift too small: plain=%d bm=%d", plainWins, bmWins)
 	}
 }

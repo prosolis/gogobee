@@ -142,12 +142,27 @@ func (p *AdventurePlugin) regionCmdTravel(ctx MessageContext, exp *Expedition) e
 	tc := resolveTransitWanderingCheck(exp, charClass, nil)
 	_ = processTransitWanderingCheck(exp, tc)
 
+	// R2 — retire the outgoing region's DungeonRun before mutating
+	// CurrentRegion so retireRegionRun keys the right region.
+	if err := retireRegionRun(exp, cur.ID); err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't retire previous region run: "+err.Error())
+	}
+
 	// Update CurrentRegion + visited list.
 	if err := setCurrentRegion(exp, next.ID); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't update current region: "+err.Error())
 	}
 	if _, err := MarkRegionVisited(exp, next.ID); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't mark region visited: "+err.Error())
+	}
+
+	// Spawn the new region's DungeonRun and pin exp.RunID.
+	charLevel := 1
+	if c != nil {
+		charLevel = c.Level
+	}
+	if _, err := ensureRegionRun(exp, charLevel); err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't outfit the new region: "+err.Error())
 	}
 
 	// Log + flavor.

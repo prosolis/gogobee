@@ -19,11 +19,11 @@ func TestPickMorningBriefing_DayBands(t *testing.T) {
 		day  int
 		want []string // any-of pool
 	}{
-		{1, []string{"First morning", "Day one complete"}},
-		{3, []string{"Day three", "Three days in"}},
+		{1, []string{"First morning", "Day one", "day two"}},
+		{3, []string{"Day three", "Three days"}},
 		{7, []string{"One week", "Seven days", "A week underground"}},
-		{14, []string{"Two weeks", "Fourteen days"}},
-		{21, []string{"Three weeks"}},
+		{14, []string{"Two weeks", "Fourteen days", "Day fifteen"}},
+		{21, []string{"Three weeks", "Day twenty-one"}},
 	}
 	for _, c := range cases {
 		got := pickMorningBriefing(c.day)

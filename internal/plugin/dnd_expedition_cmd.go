@@ -196,6 +196,17 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 		return p.SendDM(ctx.Sender, "Couldn't start expedition: "+err.Error())
 	}
 
+	// R2 — auto-spawn the DungeonRun for the starting region. Per-room
+	// harvest depends on this; the existing zone-run !advance/!retreat
+	// commands now operate on this run while the expedition is active.
+	if _, err := ensureRegionRun(exp, c.Level); err != nil {
+		// Refund and tear the expedition row back down — without a
+		// linked run, harvest and rooms can't function.
+		_ = abandonExpedition(ctx.Sender)
+		p.euro.Credit(ctx.Sender, cost, "expedition outfitting refund (run-spawn failed)")
+		return p.SendDM(ctx.Sender, "Couldn't outfit the first region: "+err.Error())
+	}
+
 	// Log the start with prewritten flavor.
 	startLine := flavor.Pick(flavor.ExpeditionStart)
 	_ = appendExpeditionLog(exp.ID, 1, "narrative", "expedition started", startLine)
@@ -375,6 +386,7 @@ func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
 	if err := abandonExpedition(ctx.Sender); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't abandon: "+err.Error())
 	}
+	_ = retireAllRegionRuns(exp)
 	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative", "expedition abandoned", "")
 	return p.SendDM(ctx.Sender, fmt.Sprintf(
 		"Expedition in **%s** abandoned on Day %d. Supplies are forfeit. The dungeon remembers.",

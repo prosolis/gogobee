@@ -312,6 +312,17 @@ func updateCamp(expID string, c *CampState) error {
 	return err
 }
 
+// setExpeditionRunID writes the expedition's linked zone-run pointer.
+// Used during region transitions and on initial spawn (R2).
+func setExpeditionRunID(expID, runID string) error {
+	_, err := db.Get().Exec(`
+		UPDATE dnd_expedition
+		   SET run_id = ?,
+		       last_activity = CURRENT_TIMESTAMP
+		 WHERE expedition_id = ?`, nullableString(runID), expID)
+	return err
+}
+
 // abandonExpedition flags the active expedition as abandoned. Idempotent.
 func abandonExpedition(userID id.UserID) error {
 	e, err := getActiveExpedition(userID)
