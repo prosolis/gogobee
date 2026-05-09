@@ -394,7 +394,7 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 		`SELECT combat_level, mining_skill, fishing_skill, foraging_skill,
 		        combat_xp, mining_xp, fishing_xp, foraging_xp,
 		        alive, current_streak, best_streak
-		 FROM adventure_characters WHERE user_id = ?`, uid,
+		 FROM player_meta WHERE user_id = ?`, uid,
 	).Scan(&combatLv, &miningLv, &fishingLv, &forageLv, &combatXP, &miningXP, &fishingXP, &forageXP,
 		&alive, &streak, &bestStreak)
 	if err == nil {

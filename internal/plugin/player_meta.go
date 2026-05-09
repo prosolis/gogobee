@@ -3,7 +3,6 @@ package plugin
 import (
 	"database/sql"
 	"encoding/json"
-	"log/slog"
 	"time"
 
 	"gogobee/internal/db"
@@ -64,25 +63,6 @@ func upsertPlayerMetaArena(userID id.UserID, wins, losses, invasionScore int) er
 	return err
 }
 
-// backfillPlayerMetaArena copies arena_wins / arena_losses / invasion_score
-// from adventure_characters into player_meta for any user_id that doesn't
-// already have a row. Idempotent: INSERT OR IGNORE skips users that have
-// already been backfilled (or that wrote a row through the dual-write
-// path post-deploy). Logs the row count touched, matching Phase R1's
-// archiveOrphanZoneRuns precedent.
-func backfillPlayerMetaArena() error {
-	res, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id, arena_wins, arena_losses, invasion_score)
-		SELECT user_id, arena_wins, arena_losses, invasion_score FROM adventure_characters
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: arena counters backfilled", "rows", n)
-	return nil
-}
-
 // upsertPlayerMetaDisplayName writes display_name for a user, leaving other
 // columns untouched. Used by the dual-write path during the L4f-prep
 // DisplayName migration: every place that mutates AdvCharacter.DisplayName
@@ -97,26 +77,12 @@ func upsertPlayerMetaDisplayName(userID id.UserID, displayName string) error {
 	return err
 }
 
-// loadDisplayName returns the player's display name from player_meta when
-// present, falling back to adventure_characters.display_name during the
-// L4f-prep soak window. Empty string if the user has no row in either
-// table. Callers should prefer this helper over reading char.DisplayName
-// directly so the eventual reader flip is a no-op at the call site.
+// loadDisplayName returns the player's display name from player_meta.
+// Empty string if the user has no row.
 func loadDisplayName(userID id.UserID) (string, error) {
 	var name string
 	err := db.Get().QueryRow(
 		`SELECT display_name FROM player_meta WHERE user_id = ?`,
-		string(userID),
-	).Scan(&name)
-	if err == nil && name != "" {
-		return name, nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return "", err
-	}
-	// Fallback during soak.
-	err = db.Get().QueryRow(
-		`SELECT display_name FROM adventure_characters WHERE user_id = ?`,
 		string(userID),
 	).Scan(&name)
 	if err == sql.ErrNoRows {
@@ -140,71 +106,17 @@ func upsertPlayerMetaHospitalVisits(userID id.UserID, visits int) error {
 }
 
 // loadHospitalVisits returns the player's hospital visit count from
-// player_meta when present, falling back to adventure_characters during
-// the L4a soak window. Zero if the user has no row in either table.
+// player_meta. Zero if the user has no row.
 func loadHospitalVisits(userID id.UserID) (int, error) {
 	var visits int
 	err := db.Get().QueryRow(
 		`SELECT hospital_visits FROM player_meta WHERE user_id = ?`,
 		string(userID),
 	).Scan(&visits)
-	if err == nil && visits > 0 {
-		return visits, nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return 0, err
-	}
-	// player_meta row missing or zero → fall back to AdvCharacter for the
-	// soak window. A zero value in player_meta could legitimately mean "no
-	// visits yet", but the fallback only returns non-zero if the legacy
-	// column has a higher value, so this is safe either way.
-	var legacy int
-	err = db.Get().QueryRow(
-		`SELECT hospital_visits FROM adventure_characters WHERE user_id = ?`,
-		string(userID),
-	).Scan(&legacy)
 	if err == sql.ErrNoRows {
-		return visits, nil
+		return 0, nil
 	}
-	if err != nil {
-		return 0, err
-	}
-	if legacy > visits {
-		return legacy, nil
-	}
-	return visits, nil
-}
-
-// backfillPlayerMetaHospitalVisits copies adventure_characters.hospital_visits
-// into player_meta.hospital_visits for any row whose value is still the
-// default zero. Idempotent: only updates rows that haven't been populated
-// yet (via backfill or dual-write).
-func backfillPlayerMetaHospitalVisits() error {
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
-	}
-	res, err := db.Get().Exec(`
-		UPDATE player_meta
-		SET hospital_visits = (
-			SELECT hospital_visits FROM adventure_characters
-			WHERE adventure_characters.user_id = player_meta.user_id
-		)
-		WHERE hospital_visits = 0
-		  AND EXISTS (
-			SELECT 1 FROM adventure_characters
-			WHERE adventure_characters.user_id = player_meta.user_id
-			  AND adventure_characters.hospital_visits > 0
-		  )
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: hospital_visits backfilled", "rows", n)
-	return nil
+	return visits, err
 }
 
 // upsertPlayerMetaRivalState writes rival_pool / rival_unlocked_notified for
@@ -227,82 +139,21 @@ func upsertPlayerMetaRivalState(userID id.UserID, pool int, notified bool) error
 	return err
 }
 
-// loadRivalState returns rival_pool / rival_unlocked_notified for a user from
-// player_meta when populated, falling back to adventure_characters during the
-// L4b soak window. Treats a missing row as (0, false). The fallback returns
-// the AdvCharacter values whenever player_meta has the unmigrated default
-// (pool=0, notified=0) — a true "not yet in pool" state and the pre-backfill
-// state are indistinguishable at the column level, but the legacy column
-// only ever moves toward unlocked, so picking the higher of the two values
-// is safe.
+// loadRivalState returns rival_pool / rival_unlocked_notified for a user
+// from player_meta. (0, false) if the user has no row.
 func loadRivalState(userID id.UserID) (pool int, notified bool, err error) {
 	var notifiedInt int
 	err = db.Get().QueryRow(
 		`SELECT rival_pool, rival_unlocked_notified FROM player_meta WHERE user_id = ?`,
 		string(userID),
 	).Scan(&pool, &notifiedInt)
-	if err == nil && (pool > 0 || notifiedInt > 0) {
-		return pool, notifiedInt == 1, nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return 0, false, err
-	}
-	// Fallback during soak.
-	var legacyPool, legacyNotified int
-	err = db.Get().QueryRow(
-		`SELECT rival_pool, rival_unlocked_notified FROM adventure_characters WHERE user_id = ?`,
-		string(userID),
-	).Scan(&legacyPool, &legacyNotified)
 	if err == sql.ErrNoRows {
-		return pool, notifiedInt == 1, nil
+		return 0, false, nil
 	}
 	if err != nil {
 		return 0, false, err
-	}
-	if legacyPool > pool {
-		pool = legacyPool
-	}
-	if legacyNotified > notifiedInt {
-		notifiedInt = legacyNotified
 	}
 	return pool, notifiedInt == 1, nil
-}
-
-// backfillPlayerMetaRivalState copies rival_pool / rival_unlocked_notified
-// from adventure_characters into player_meta for any row whose values are
-// still the default zero. Idempotent: only updates rows that haven't been
-// populated yet (via backfill or dual-write).
-func backfillPlayerMetaRivalState() error {
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
-	}
-	res, err := db.Get().Exec(`
-		UPDATE player_meta
-		SET rival_pool = (
-			SELECT rival_pool FROM adventure_characters
-			WHERE adventure_characters.user_id = player_meta.user_id
-		),
-		    rival_unlocked_notified = (
-			SELECT rival_unlocked_notified FROM adventure_characters
-			WHERE adventure_characters.user_id = player_meta.user_id
-		)
-		WHERE rival_pool = 0 AND rival_unlocked_notified = 0
-		  AND EXISTS (
-			SELECT 1 FROM adventure_characters
-			WHERE adventure_characters.user_id = player_meta.user_id
-			  AND (adventure_characters.rival_pool > 0
-			       OR adventure_characters.rival_unlocked_notified > 0)
-		  )
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: rival state backfilled", "rows", n)
-	return nil
 }
 
 // upsertPlayerMetaMasterworkDrops writes masterwork_drops_received for a user,
@@ -320,69 +171,17 @@ func upsertPlayerMetaMasterworkDrops(userID id.UserID, drops int) error {
 }
 
 // loadMasterworkDrops returns the player's masterwork drop count from
-// player_meta when populated, falling back to adventure_characters during
-// the L4c soak window. Zero if the user has no row in either table. Mirrors
-// loadHospitalVisits: the legacy column only ever moves up, so taking the
-// higher of the two values is safe across the dual-write window.
+// player_meta. Zero if the user has no row.
 func loadMasterworkDrops(userID id.UserID) (int, error) {
 	var drops int
 	err := db.Get().QueryRow(
 		`SELECT masterwork_drops_received FROM player_meta WHERE user_id = ?`,
 		string(userID),
 	).Scan(&drops)
-	if err == nil && drops > 0 {
-		return drops, nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return 0, err
-	}
-	var legacy int
-	err = db.Get().QueryRow(
-		`SELECT masterwork_drops_received FROM adventure_characters WHERE user_id = ?`,
-		string(userID),
-	).Scan(&legacy)
 	if err == sql.ErrNoRows {
-		return drops, nil
+		return 0, nil
 	}
-	if err != nil {
-		return 0, err
-	}
-	if legacy > drops {
-		return legacy, nil
-	}
-	return drops, nil
-}
-
-// backfillPlayerMetaMasterworkDrops copies adventure_characters.masterwork_drops_received
-// into player_meta.masterwork_drops_received for any row whose value is still
-// the default zero. Idempotent: only updates rows that haven't been populated
-// yet (via backfill or dual-write).
-func backfillPlayerMetaMasterworkDrops() error {
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
-	}
-	res, err := db.Get().Exec(`
-		UPDATE player_meta
-		SET masterwork_drops_received = (
-			SELECT masterwork_drops_received FROM adventure_characters
-			WHERE adventure_characters.user_id = player_meta.user_id
-		)
-		WHERE masterwork_drops_received = 0
-		  AND EXISTS (
-			SELECT 1 FROM adventure_characters
-			WHERE adventure_characters.user_id = player_meta.user_id
-			  AND adventure_characters.masterwork_drops_received > 0
-		  )
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: masterwork_drops_received backfilled", "rows", n)
-	return nil
+	return drops, err
 }
 
 // PetState is the in-memory mirror of player_meta's pet_* columns. Phase L4d
@@ -458,11 +257,8 @@ func upsertPlayerMetaPetState(userID id.UserID, s PetState) error {
 	return err
 }
 
-// loadPetState returns the player's pet state from player_meta when populated,
-// falling back to adventure_characters during the L4d soak window. A
-// player_meta row whose pet_type is empty is treated as unmigrated and falls
-// through to AdvCharacter — matching the "type is the canonical
-// has-a-pet marker" semantics used by HasPet().
+// loadPetState returns the player's pet state from player_meta. Empty
+// PetState{} if the user has no row.
 func loadPetState(userID id.UserID) (PetState, error) {
 	var (
 		s         PetState
@@ -476,117 +272,22 @@ func loadPetState(userID id.UserID) (PetState, error) {
 		string(userID),
 	).Scan(&s.Type, &s.Name, &s.XP, &s.Level, &s.ArmorTier,
 		&flagsRaw, &supplyInt, &s.Level10Date)
-	if err == nil && s.Type != "" {
-		s.SupplyShopUnlocked = supplyInt == 1
-		var f petFlagsJSON
-		if flagsRaw != "" {
-			_ = json.Unmarshal([]byte(flagsRaw), &f)
-		}
-		s.Arrived = f.Arrived
-		s.ChasedAway = f.ChasedAway
-		s.Reactivated = f.Reactivated
-		s.MorningDefense = f.MorningDefense
-		return s, nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return PetState{}, err
-	}
-	// Fallback to AdvCharacter during soak.
-	var (
-		legacyType, legacyName, legacyL10Date         string
-		legacyXP, legacyLevel, legacyArmor            int
-		legacySupply                                  int
-		arrived, chased, reactivated, morningDefense  int
-	)
-	err = db.Get().QueryRow(
-		`SELECT pet_type, pet_name, pet_xp, pet_level, pet_armor_tier,
-		        pet_arrived, pet_chased_away, pet_reactivated, pet_morning_defense,
-		        pet_supply_shop_unlocked, pet_level_10_date
-		   FROM adventure_characters WHERE user_id = ?`,
-		string(userID),
-	).Scan(&legacyType, &legacyName, &legacyXP, &legacyLevel, &legacyArmor,
-		&arrived, &chased, &reactivated, &morningDefense,
-		&legacySupply, &legacyL10Date)
 	if err == sql.ErrNoRows {
 		return PetState{}, nil
 	}
 	if err != nil {
 		return PetState{}, err
 	}
-	return PetState{
-		Type:               legacyType,
-		Name:               legacyName,
-		XP:                 legacyXP,
-		Level:              legacyLevel,
-		ArmorTier:          legacyArmor,
-		SupplyShopUnlocked: legacySupply == 1,
-		Level10Date:        legacyL10Date,
-		Arrived:            arrived == 1,
-		ChasedAway:         chased == 1,
-		Reactivated:        reactivated == 1,
-		MorningDefense:     morningDefense == 1,
-	}, nil
-}
-
-// backfillPlayerMetaPetState copies the pet_* columns from adventure_characters
-// into player_meta for any row whose pet_type is still the empty default.
-// Idempotent: only updates rows that haven't been populated yet (via backfill
-// or dual-write). Pet flags are encoded as JSON to match the runtime helper.
-func backfillPlayerMetaPetState() error {
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
+	s.SupplyShopUnlocked = supplyInt == 1
+	var f petFlagsJSON
+	if flagsRaw != "" {
+		_ = json.Unmarshal([]byte(flagsRaw), &f)
 	}
-	rows, err := db.Get().Query(`
-		SELECT ac.user_id, ac.pet_type, ac.pet_name, ac.pet_xp, ac.pet_level,
-		       ac.pet_armor_tier, ac.pet_arrived, ac.pet_chased_away,
-		       ac.pet_reactivated, ac.pet_morning_defense,
-		       ac.pet_supply_shop_unlocked, ac.pet_level_10_date
-		  FROM adventure_characters ac
-		  JOIN player_meta pm ON pm.user_id = ac.user_id
-		 WHERE pm.pet_type = ''
-		   AND ac.pet_type <> ''
-	`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	type pending struct {
-		uid id.UserID
-		s   PetState
-	}
-	var todo []pending
-	for rows.Next() {
-		var (
-			uid                                          string
-			s                                            PetState
-			arrived, chased, reactivated, morningDefense int
-			supply                                       int
-		)
-		if err := rows.Scan(&uid, &s.Type, &s.Name, &s.XP, &s.Level,
-			&s.ArmorTier, &arrived, &chased, &reactivated, &morningDefense,
-			&supply, &s.Level10Date); err != nil {
-			return err
-		}
-		s.Arrived = arrived == 1
-		s.ChasedAway = chased == 1
-		s.Reactivated = reactivated == 1
-		s.MorningDefense = morningDefense == 1
-		s.SupplyShopUnlocked = supply == 1
-		todo = append(todo, pending{uid: id.UserID(uid), s: s})
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, p := range todo {
-		if err := upsertPlayerMetaPetState(p.uid, p.s); err != nil {
-			return err
-		}
-	}
-	slog.Info("player_meta: pet state backfilled", "rows", len(todo))
-	return nil
+	s.Arrived = f.Arrived
+	s.ChasedAway = f.ChasedAway
+	s.Reactivated = f.Reactivated
+	s.MorningDefense = f.MorningDefense
+	return s, nil
 }
 
 // petStateFromAdvChar projects the pet-related fields off an AdventureCharacter
@@ -659,11 +360,8 @@ func upsertPlayerMetaHouseState(userID id.UserID, s HouseState) error {
 	return err
 }
 
-// loadHouseState returns the player's house state from player_meta when
-// populated (HasHouse true), falling back to adventure_characters during
-// the L4e soak window. A row with tier=0 and loan_balance=0 is treated as
-// unmigrated and falls through — matching the canonical "tier > 0 || loan
-// > 0" has-a-house marker used elsewhere.
+// loadHouseState returns the player's house state from player_meta. Empty
+// HouseState{} if the user has no row.
 func loadHouseState(userID id.UserID) (HouseState, error) {
 	var (
 		s          HouseState
@@ -677,77 +375,15 @@ func loadHouseState(userID id.UserID) (HouseState, error) {
 		string(userID),
 	).Scan(&s.Tier, &s.LoanBalance, &frozenInt,
 		&s.MissedPayments, &autopayInt, &s.CurrentRate)
-	if err == nil && (s.Tier > 0 || s.LoanBalance > 0) {
-		s.LoanFrozen = frozenInt == 1
-		s.Autopay = autopayInt == 1
-		return s, nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return HouseState{}, err
-	}
-	// Fallback to AdvCharacter during soak.
-	var (
-		legacyTier, legacyBalance, legacyMissed int
-		legacyFrozen, legacyAutopay             int
-		legacyRate                              float64
-	)
-	err = db.Get().QueryRow(
-		`SELECT house_tier, house_loan_balance, house_loan_frozen,
-		        house_missed_payments, house_autopay, house_current_rate
-		   FROM adventure_characters WHERE user_id = ?`,
-		string(userID),
-	).Scan(&legacyTier, &legacyBalance, &legacyFrozen,
-		&legacyMissed, &legacyAutopay, &legacyRate)
 	if err == sql.ErrNoRows {
 		return HouseState{}, nil
 	}
 	if err != nil {
 		return HouseState{}, err
 	}
-	return HouseState{
-		Tier:           legacyTier,
-		LoanBalance:    legacyBalance,
-		LoanFrozen:     legacyFrozen == 1,
-		MissedPayments: legacyMissed,
-		Autopay:        legacyAutopay == 1,
-		CurrentRate:    legacyRate,
-	}, nil
-}
-
-// backfillPlayerMetaHouseState copies the house_* columns from
-// adventure_characters into player_meta for any row whose house_tier and
-// house_loan_balance are both still the default zero. Idempotent: only
-// updates rows that haven't been populated yet (via backfill or
-// dual-write).
-func backfillPlayerMetaHouseState() error {
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
-	}
-	res, err := db.Get().Exec(`
-		UPDATE player_meta
-		SET house_tier = (SELECT house_tier FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    house_loan_balance = (SELECT house_loan_balance FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    house_loan_frozen = (SELECT house_loan_frozen FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    house_missed_payments = (SELECT house_missed_payments FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    house_autopay = (SELECT house_autopay FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    house_current_rate = (SELECT house_current_rate FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
-		WHERE house_tier = 0
-		  AND house_loan_balance = 0
-		  AND EXISTS (
-			SELECT 1 FROM adventure_characters ac
-			WHERE ac.user_id = player_meta.user_id
-			  AND (ac.house_tier > 0 OR ac.house_loan_balance > 0)
-		  )
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: house state backfilled", "rows", n)
-	return nil
+	s.LoanFrozen = frozenInt == 1
+	s.Autopay = autopayInt == 1
+	return s, nil
 }
 
 // houseStateFromAdvChar projects the housing-related fields off an
@@ -840,74 +476,10 @@ func loadSkillState(userID id.UserID) (SkillState, error) {
 		&s.ForagingSkill, &s.ForagingXP,
 		&s.FishingSkill, &s.FishingXP,
 	)
-	if err == nil && s.HasSkills() {
-		return s, nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return SkillState{}, err
-	}
-	// Fallback to AdvCharacter during soak.
-	var legacy SkillState
-	err = db.Get().QueryRow(
-		`SELECT combat_level, combat_xp,
-		        mining_skill, mining_xp,
-		        foraging_skill, foraging_xp,
-		        fishing_skill, fishing_xp
-		   FROM adventure_characters WHERE user_id = ?`,
-		string(userID),
-	).Scan(
-		&legacy.CombatLevel, &legacy.CombatXP,
-		&legacy.MiningSkill, &legacy.MiningXP,
-		&legacy.ForagingSkill, &legacy.ForagingXP,
-		&legacy.FishingSkill, &legacy.FishingXP,
-	)
 	if err == sql.ErrNoRows {
 		return SkillState{}, nil
 	}
-	if err != nil {
-		return SkillState{}, err
-	}
-	return legacy, nil
-}
-
-// backfillPlayerMetaSkillState copies the skill columns from
-// adventure_characters into player_meta for any row whose skill columns
-// are all still zero. Idempotent: only updates rows that haven't been
-// populated yet (via backfill or dual-write).
-func backfillPlayerMetaSkillState() error {
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
-	}
-	res, err := db.Get().Exec(`
-		UPDATE player_meta
-		SET combat_level   = (SELECT combat_level   FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    combat_xp      = (SELECT combat_xp      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    mining_skill   = (SELECT mining_skill   FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    mining_xp      = (SELECT mining_xp      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    foraging_skill = (SELECT foraging_skill FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    foraging_xp    = (SELECT foraging_xp    FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    fishing_skill  = (SELECT fishing_skill  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    fishing_xp     = (SELECT fishing_xp     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
-		WHERE combat_level = 0 AND combat_xp = 0
-		  AND mining_skill = 0 AND mining_xp = 0
-		  AND foraging_skill = 0 AND foraging_xp = 0
-		  AND fishing_skill = 0 AND fishing_xp = 0
-		  AND EXISTS (
-			SELECT 1 FROM adventure_characters ac
-			WHERE ac.user_id = player_meta.user_id
-			  AND (ac.combat_level > 0 OR ac.mining_skill > 0 OR ac.foraging_skill > 0 OR ac.fishing_skill > 0
-			       OR ac.combat_xp > 0 OR ac.mining_xp > 0 OR ac.foraging_xp > 0 OR ac.fishing_xp > 0)
-		  )
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: skill state backfilled", "rows", n)
-	return nil
+	return s, err
 }
 
 // skillStateFromAdvChar projects the skill-related fields off an
@@ -979,10 +551,8 @@ func upsertPlayerMetaBabysitState(userID id.UserID, s BabysitState) error {
 	return err
 }
 
-// loadBabysitState returns the player's babysit state from player_meta
-// when active, falling back to adventure_characters during the L5b soak
-// window. An inactive row falls through to the legacy table since an
-// inactive player_meta row is indistinguishable from an unmigrated one.
+// loadBabysitState returns the player's babysit state from player_meta.
+// Empty BabysitState{} if the user has no row.
 func loadBabysitState(userID id.UserID) (BabysitState, error) {
 	var (
 		s         BabysitState
@@ -996,82 +566,19 @@ func loadBabysitState(userID id.UserID) (BabysitState, error) {
 		   FROM player_meta WHERE user_id = ?`,
 		string(userID),
 	).Scan(&activeInt, &expires, &s.SkillFocus, &autoInt, &s.AutoBabysitFocus)
-	if err == nil && activeInt == 1 {
-		s.Active = true
-		s.AutoBabysit = autoInt == 1
-		if expires.Valid {
-			t := expires.Time.UTC()
-			s.ExpiresAt = &t
-		}
-		return s, nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return BabysitState{}, err
-	}
-	// Fallback to AdvCharacter during soak.
-	var (
-		legacyActive  int
-		legacyExpires sql.NullTime
-		legacyFocus   string
-		legacyAuto    int
-		legacyAutoFoc string
-	)
-	err = db.Get().QueryRow(
-		`SELECT babysit_active, babysit_expires_at, babysit_skill_focus,
-		        auto_babysit, auto_babysit_focus
-		   FROM adventure_characters WHERE user_id = ?`,
-		string(userID),
-	).Scan(&legacyActive, &legacyExpires, &legacyFocus, &legacyAuto, &legacyAutoFoc)
 	if err == sql.ErrNoRows {
 		return BabysitState{}, nil
 	}
 	if err != nil {
 		return BabysitState{}, err
 	}
-	out := BabysitState{
-		Active:           legacyActive == 1,
-		SkillFocus:       legacyFocus,
-		AutoBabysit:      legacyAuto == 1,
-		AutoBabysitFocus: legacyAutoFoc,
+	s.Active = activeInt == 1
+	s.AutoBabysit = autoInt == 1
+	if expires.Valid {
+		t := expires.Time.UTC()
+		s.ExpiresAt = &t
 	}
-	if legacyExpires.Valid {
-		t := legacyExpires.Time.UTC()
-		out.ExpiresAt = &t
-	}
-	return out, nil
-}
-
-// backfillPlayerMetaBabysitState copies the babysit columns from
-// adventure_characters into player_meta for any row whose babysit_active
-// is still 0 AND the legacy row has babysit_active = 1. Idempotent: only
-// fills inactive rows whose legacy counterpart is active.
-func backfillPlayerMetaBabysitState() error {
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
-	}
-	res, err := db.Get().Exec(`
-		UPDATE player_meta
-		SET babysit_active      = (SELECT babysit_active      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    babysit_expires_at  = (SELECT babysit_expires_at  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    babysit_skill_focus = (SELECT babysit_skill_focus FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    auto_babysit        = (SELECT auto_babysit        FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    auto_babysit_focus  = (SELECT auto_babysit_focus  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
-		WHERE babysit_active = 0
-		  AND EXISTS (
-			SELECT 1 FROM adventure_characters ac
-			WHERE ac.user_id = player_meta.user_id
-			  AND ac.babysit_active = 1
-		  )
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: babysit state backfilled", "rows", n)
-	return nil
+	return s, nil
 }
 
 // babysitStateFromAdvChar projects the babysit-related fields off an
@@ -1200,137 +707,34 @@ func loadNPCState(userID id.UserID) (NPCState, error) {
 		&s.MistyEncounterCount, &s.MistyDonatedCount,
 		&thomInt, &s.RobbieVisitCount,
 	)
-	if err == nil {
-		s.ThomAnimalLineFired = thomInt == 1
-		if mistyLast.Valid {
-			t := mistyLast.Time.UTC()
-			s.MistyLastSeen = &t
-		}
-		if arinaLast.Valid {
-			t := arinaLast.Time.UTC()
-			s.ArinaLastSeen = &t
-		}
-		if mistyBuff.Valid {
-			t := mistyBuff.Time.UTC()
-			s.MistyBuffExpires = &t
-		}
-		if mistyDebuff.Valid {
-			t := mistyDebuff.Time.UTC()
-			s.MistyDebuffExpires = &t
-		}
-		if arinaBuff.Valid {
-			t := arinaBuff.Time.UTC()
-			s.ArinaBuffExpires = &t
-		}
-		if s.HasNPCActivity() {
-			return s, nil
-		}
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return NPCState{}, err
-	}
-	// Fallback to AdvCharacter during soak.
-	var (
-		legacy                                                                    NPCState
-		legacyMisty, legacyArinaLast, legacyMBuff, legacyMDebuff, legacyABuff     sql.NullTime
-		legacyThom                                                                int
-	)
-	err = db.Get().QueryRow(
-		`SELECT misty_last_seen, arina_last_seen,
-		        misty_buff_expires, misty_debuff_expires, arina_buff_expires,
-		        npc_msg_count, npc_msg_count_date,
-		        misty_roll_target, arina_roll_target,
-		        misty_encounter_count, misty_donated_count,
-		        thom_animal_line_fired, robbie_visit_count
-		   FROM adventure_characters WHERE user_id = ?`,
-		string(userID),
-	).Scan(
-		&legacyMisty, &legacyArinaLast, &legacyMBuff, &legacyMDebuff, &legacyABuff,
-		&legacy.NPCMsgCount, &legacy.NPCMsgCountDate,
-		&legacy.MistyRollTarget, &legacy.ArinaRollTarget,
-		&legacy.MistyEncounterCount, &legacy.MistyDonatedCount,
-		&legacyThom, &legacy.RobbieVisitCount,
-	)
 	if err == sql.ErrNoRows {
 		return NPCState{}, nil
 	}
 	if err != nil {
 		return NPCState{}, err
 	}
-	legacy.ThomAnimalLineFired = legacyThom == 1
-	if legacyMisty.Valid {
-		t := legacyMisty.Time.UTC()
-		legacy.MistyLastSeen = &t
+	s.ThomAnimalLineFired = thomInt == 1
+	if mistyLast.Valid {
+		t := mistyLast.Time.UTC()
+		s.MistyLastSeen = &t
 	}
-	if legacyArinaLast.Valid {
-		t := legacyArinaLast.Time.UTC()
-		legacy.ArinaLastSeen = &t
+	if arinaLast.Valid {
+		t := arinaLast.Time.UTC()
+		s.ArinaLastSeen = &t
 	}
-	if legacyMBuff.Valid {
-		t := legacyMBuff.Time.UTC()
-		legacy.MistyBuffExpires = &t
+	if mistyBuff.Valid {
+		t := mistyBuff.Time.UTC()
+		s.MistyBuffExpires = &t
 	}
-	if legacyMDebuff.Valid {
-		t := legacyMDebuff.Time.UTC()
-		legacy.MistyDebuffExpires = &t
+	if mistyDebuff.Valid {
+		t := mistyDebuff.Time.UTC()
+		s.MistyDebuffExpires = &t
 	}
-	if legacyABuff.Valid {
-		t := legacyABuff.Time.UTC()
-		legacy.ArinaBuffExpires = &t
+	if arinaBuff.Valid {
+		t := arinaBuff.Time.UTC()
+		s.ArinaBuffExpires = &t
 	}
-	return legacy, nil
-}
-
-// backfillPlayerMetaNPCState copies NPC columns from adventure_characters
-// into player_meta for any row where every NPC field is still zero AND
-// the legacy row has any non-zero NPC field. Idempotent.
-func backfillPlayerMetaNPCState() error {
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
-	}
-	res, err := db.Get().Exec(`
-		UPDATE player_meta
-		SET misty_last_seen        = (SELECT misty_last_seen        FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    arina_last_seen        = (SELECT arina_last_seen        FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    misty_buff_expires     = (SELECT misty_buff_expires     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    misty_debuff_expires   = (SELECT misty_debuff_expires   FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    arina_buff_expires     = (SELECT arina_buff_expires     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    npc_msg_count          = (SELECT npc_msg_count          FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    npc_msg_count_date     = (SELECT npc_msg_count_date     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    misty_roll_target      = (SELECT misty_roll_target      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    arina_roll_target      = (SELECT arina_roll_target      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    misty_encounter_count  = (SELECT misty_encounter_count  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    misty_donated_count    = (SELECT misty_donated_count    FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    thom_animal_line_fired = (SELECT thom_animal_line_fired FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    robbie_visit_count     = (SELECT robbie_visit_count     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
-		WHERE misty_last_seen IS NULL AND arina_last_seen IS NULL
-		  AND misty_buff_expires IS NULL AND misty_debuff_expires IS NULL
-		  AND arina_buff_expires IS NULL
-		  AND npc_msg_count = 0 AND npc_msg_count_date = ''
-		  AND misty_roll_target = 0 AND arina_roll_target = 0
-		  AND misty_encounter_count = 0 AND misty_donated_count = 0
-		  AND thom_animal_line_fired = 0 AND robbie_visit_count = 0
-		  AND EXISTS (
-			SELECT 1 FROM adventure_characters ac
-			WHERE ac.user_id = player_meta.user_id
-			  AND (ac.misty_last_seen IS NOT NULL OR ac.arina_last_seen IS NOT NULL
-			       OR ac.misty_buff_expires IS NOT NULL OR ac.misty_debuff_expires IS NOT NULL
-			       OR ac.arina_buff_expires IS NOT NULL
-			       OR ac.npc_msg_count > 0 OR ac.npc_msg_count_date <> ''
-			       OR ac.misty_roll_target > 0 OR ac.arina_roll_target > 0
-			       OR ac.misty_encounter_count > 0 OR ac.misty_donated_count > 0
-			       OR ac.thom_animal_line_fired = 1 OR ac.robbie_visit_count > 0)
-		  )
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: NPC state backfilled", "rows", n)
-	return nil
+	return s, nil
 }
 
 // npcStateFromAdvChar projects NPC fields off an AdventureCharacter into
@@ -1455,100 +859,24 @@ func loadLifecycleState(userID id.UserID) (LifecycleState, error) {
 		&s.CombatActionsUsed, &s.HarvestActionsUsed,
 		&createdAt, &lastActiveAt,
 	)
-	if err == nil {
-		s.StreakDecayed = streakDecayed == 1
-		s.ActionTakenToday = actionTaken == 1
-		s.HolidayActionTaken = holidayTaken == 1
-		if createdAt.Valid {
-			t := createdAt.Time.UTC()
-			s.CreatedAt = &t
-		}
-		if lastActiveAt.Valid {
-			t := lastActiveAt.Time.UTC()
-			s.LastActiveAt = &t
-		}
-		if s.HasLifecycle() {
-			return s, nil
-		}
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return LifecycleState{}, err
-	}
-	// Fallback to AdvCharacter during soak.
-	var (
-		legacy                                                  LifecycleState
-		legacyDecayed, legacyAction, legacyHoliday              int
-		legacyCreated, legacyActive                             sql.NullTime
-	)
-	err = db.Get().QueryRow(
-		`SELECT current_streak, best_streak, last_action_date, streak_decayed,
-		        action_taken_today, holiday_action_taken,
-		        combat_actions_used, harvest_actions_used,
-		        created_at, last_active_at
-		   FROM adventure_characters WHERE user_id = ?`,
-		string(userID),
-	).Scan(
-		&legacy.CurrentStreak, &legacy.BestStreak, &legacy.LastActionDate, &legacyDecayed,
-		&legacyAction, &legacyHoliday,
-		&legacy.CombatActionsUsed, &legacy.HarvestActionsUsed,
-		&legacyCreated, &legacyActive,
-	)
 	if err == sql.ErrNoRows {
 		return LifecycleState{}, nil
 	}
 	if err != nil {
 		return LifecycleState{}, err
 	}
-	legacy.StreakDecayed = legacyDecayed == 1
-	legacy.ActionTakenToday = legacyAction == 1
-	legacy.HolidayActionTaken = legacyHoliday == 1
-	if legacyCreated.Valid {
-		t := legacyCreated.Time.UTC()
-		legacy.CreatedAt = &t
+	s.StreakDecayed = streakDecayed == 1
+	s.ActionTakenToday = actionTaken == 1
+	s.HolidayActionTaken = holidayTaken == 1
+	if createdAt.Valid {
+		t := createdAt.Time.UTC()
+		s.CreatedAt = &t
 	}
-	if legacyActive.Valid {
-		t := legacyActive.Time.UTC()
-		legacy.LastActiveAt = &t
+	if lastActiveAt.Valid {
+		t := lastActiveAt.Time.UTC()
+		s.LastActiveAt = &t
 	}
-	return legacy, nil
-}
-
-// backfillPlayerMetaLifecycleState copies lifecycle columns from
-// adventure_characters into player_meta for any row whose lifecycle is
-// still empty (no CreatedAt) AND the legacy row has lifecycle data.
-// Idempotent.
-func backfillPlayerMetaLifecycleState() error {
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
-	}
-	res, err := db.Get().Exec(`
-		UPDATE player_meta
-		SET current_streak       = (SELECT current_streak       FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    best_streak          = (SELECT best_streak          FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    last_action_date     = (SELECT last_action_date     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    streak_decayed       = (SELECT streak_decayed       FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    action_taken_today   = (SELECT action_taken_today   FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    holiday_action_taken = (SELECT holiday_action_taken FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    combat_actions_used  = (SELECT combat_actions_used  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    harvest_actions_used = (SELECT harvest_actions_used FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    created_at           = (SELECT created_at           FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    last_active_at       = (SELECT last_active_at       FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
-		WHERE created_at IS NULL
-		  AND EXISTS (
-			SELECT 1 FROM adventure_characters ac
-			WHERE ac.user_id = player_meta.user_id
-			  AND ac.created_at IS NOT NULL
-		  )
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: lifecycle state backfilled", "rows", n)
-	return nil
+	return s, nil
 }
 
 // lifecycleStateFromAdvChar projects lifecycle fields off an
@@ -1648,14 +976,13 @@ func upsertPlayerMetaDeathState(userID id.UserID, s DeathState) error {
 	return err
 }
 
-// loadDeathState returns death state from player_meta when populated,
-// otherwise falls back to adventure_characters during the L5e soak
-// window. The "row is migrated" marker is any non-default field.
+// loadDeathState returns death state from player_meta. Default
+// DeathState{Alive: true} if the user has no row.
 func loadDeathState(userID id.UserID) (DeathState, error) {
 	var (
-		s                                 DeathState
-		aliveInt                          int
-		deadUntil, reprieve, pardon       sql.NullTime
+		s                           DeathState
+		aliveInt                    int
+		deadUntil, reprieve, pardon sql.NullTime
 	)
 	err := db.Get().QueryRow(
 		`SELECT alive, dead_until, death_reprieve_last,
@@ -1668,114 +995,26 @@ func loadDeathState(userID id.UserID) (DeathState, error) {
 		&s.LastDeathDate, &pardon,
 		&s.GrudgeLocation, &s.DeathSource, &s.DeathLocation,
 	)
-	migrated := false
-	if err == nil {
-		s.Alive = aliveInt == 1
-		if deadUntil.Valid {
-			t := deadUntil.Time.UTC()
-			s.DeadUntil = &t
-			migrated = true
-		}
-		if reprieve.Valid {
-			t := reprieve.Time.UTC()
-			s.DeathReprieveLast = &t
-			migrated = true
-		}
-		if pardon.Valid {
-			t := pardon.Time.UTC()
-			s.LastPardonUsed = &t
-			migrated = true
-		}
-		if s.LastDeathDate != "" || s.GrudgeLocation != "" ||
-			s.DeathSource != "" || s.DeathLocation != "" || !s.Alive {
-			migrated = true
-		}
-		if migrated {
-			return s, nil
-		}
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return DeathState{}, err
-	}
-	// Fallback to AdvCharacter during soak.
-	var (
-		legacy                                  DeathState
-		legacyAlive                             int
-		legacyDead, legacyReprieve, legacyPardon sql.NullTime
-	)
-	err = db.Get().QueryRow(
-		`SELECT alive, dead_until, death_reprieve_last,
-		        last_death_date, last_pardon_used,
-		        grudge_location, death_source, death_location
-		   FROM adventure_characters WHERE user_id = ?`,
-		string(userID),
-	).Scan(
-		&legacyAlive, &legacyDead, &legacyReprieve,
-		&legacy.LastDeathDate, &legacyPardon,
-		&legacy.GrudgeLocation, &legacy.DeathSource, &legacy.DeathLocation,
-	)
 	if err == sql.ErrNoRows {
 		return DeathState{Alive: true}, nil
 	}
 	if err != nil {
 		return DeathState{}, err
 	}
-	legacy.Alive = legacyAlive == 1
-	if legacyDead.Valid {
-		t := legacyDead.Time.UTC()
-		legacy.DeadUntil = &t
+	s.Alive = aliveInt == 1
+	if deadUntil.Valid {
+		t := deadUntil.Time.UTC()
+		s.DeadUntil = &t
 	}
-	if legacyReprieve.Valid {
-		t := legacyReprieve.Time.UTC()
-		legacy.DeathReprieveLast = &t
+	if reprieve.Valid {
+		t := reprieve.Time.UTC()
+		s.DeathReprieveLast = &t
 	}
-	if legacyPardon.Valid {
-		t := legacyPardon.Time.UTC()
-		legacy.LastPardonUsed = &t
+	if pardon.Valid {
+		t := pardon.Time.UTC()
+		s.LastPardonUsed = &t
 	}
-	return legacy, nil
-}
-
-// backfillPlayerMetaDeathState copies death columns from
-// adventure_characters into player_meta for any row that hasn't been
-// migrated yet. Idempotent: only fills rows where every death field is
-// still the default (alive=1, all timestamps NULL, all strings empty).
-func backfillPlayerMetaDeathState() error {
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
-	}
-	res, err := db.Get().Exec(`
-		UPDATE player_meta
-		SET alive               = (SELECT alive               FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    dead_until          = (SELECT dead_until          FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    death_reprieve_last = (SELECT death_reprieve_last FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    last_death_date     = (SELECT last_death_date     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    last_pardon_used    = (SELECT last_pardon_used    FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    grudge_location     = (SELECT grudge_location     FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    death_source        = (SELECT death_source        FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    death_location      = (SELECT death_location      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
-		WHERE alive = 1 AND dead_until IS NULL
-		  AND death_reprieve_last IS NULL AND last_pardon_used IS NULL
-		  AND last_death_date = '' AND grudge_location = ''
-		  AND death_source = '' AND death_location = ''
-		  AND EXISTS (
-			SELECT 1 FROM adventure_characters ac
-			WHERE ac.user_id = player_meta.user_id
-			  AND (ac.alive = 0 OR ac.dead_until IS NOT NULL
-			       OR ac.death_reprieve_last IS NOT NULL OR ac.last_pardon_used IS NOT NULL
-			       OR ac.last_death_date <> '' OR ac.grudge_location <> ''
-			       OR ac.death_source <> '' OR ac.death_location <> '')
-		  )
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: death state backfilled", "rows", n)
-	return nil
+	return s, nil
 }
 
 // deathStateFromAdvChar projects death fields off an AdventureCharacter.
@@ -1830,56 +1069,14 @@ func loadMiscState(userID id.UserID) (MiscState, error) {
 		   FROM player_meta WHERE user_id = ?`,
 		string(userID),
 	).Scan(&s.Title, &lockedInt, &s.CraftsSucceeded)
-	if err == nil && (s.Title != "" || lockedInt == 1 || s.CraftsSucceeded > 0) {
-		s.TreasuresLocked = lockedInt == 1
-		return s, nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return MiscState{}, err
-	}
-	// Fallback to AdvCharacter during soak.
-	var legacy MiscState
-	var legacyLocked int
-	err = db.Get().QueryRow(
-		`SELECT title, treasures_locked, crafts_succeeded
-		   FROM adventure_characters WHERE user_id = ?`,
-		string(userID),
-	).Scan(&legacy.Title, &legacyLocked, &legacy.CraftsSucceeded)
 	if err == sql.ErrNoRows {
 		return MiscState{}, nil
 	}
 	if err != nil {
 		return MiscState{}, err
 	}
-	legacy.TreasuresLocked = legacyLocked == 1
-	return legacy, nil
-}
-
-func backfillPlayerMetaMiscState() error {
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
-	}
-	res, err := db.Get().Exec(`
-		UPDATE player_meta
-		SET title             = (SELECT title             FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    treasures_locked  = (SELECT treasures_locked  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
-		    crafts_succeeded  = (SELECT crafts_succeeded  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
-		WHERE title = '' AND treasures_locked = 0 AND crafts_succeeded = 0
-		  AND EXISTS (
-			SELECT 1 FROM adventure_characters ac
-			WHERE ac.user_id = player_meta.user_id
-			  AND (ac.title <> '' OR ac.treasures_locked = 1 OR ac.crafts_succeeded > 0)
-		  )
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: misc state backfilled", "rows", n)
-	return nil
+	s.TreasuresLocked = lockedInt == 1
+	return s, nil
 }
 
 func miscStateFromAdvChar(c *AdventureCharacter) MiscState {
@@ -1888,41 +1085,6 @@ func miscStateFromAdvChar(c *AdventureCharacter) MiscState {
 		TreasuresLocked: c.TreasuresLocked,
 		CraftsSucceeded: c.CraftsSucceeded,
 	}
-}
-
-// backfillPlayerMetaDisplayName copies adventure_characters.display_name
-// into player_meta.display_name for any row whose display_name is still
-// the empty default. Idempotent: safe to re-run; only updates rows that
-// haven't been populated yet (either by backfill or the dual-write path).
-func backfillPlayerMetaDisplayName() error {
-	// Ensure a player_meta row exists for every adventure_characters user
-	// (arena backfill already does this, but display_name backfill must
-	// not assume order — re-run cheaply via INSERT OR IGNORE).
-	if _, err := db.Get().Exec(`
-		INSERT OR IGNORE INTO player_meta (user_id)
-		SELECT user_id FROM adventure_characters
-	`); err != nil {
-		return err
-	}
-	res, err := db.Get().Exec(`
-		UPDATE player_meta
-		SET display_name = (
-			SELECT display_name FROM adventure_characters
-			WHERE adventure_characters.user_id = player_meta.user_id
-		)
-		WHERE display_name = ''
-		  AND EXISTS (
-			SELECT 1 FROM adventure_characters
-			WHERE adventure_characters.user_id = player_meta.user_id
-			  AND adventure_characters.display_name <> ''
-		  )
-	`)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	slog.Info("player_meta: display_name backfilled", "rows", n)
-	return nil
 }
 
 // applyPlayerMetaOverlay overlays every player_meta-mirrored field onto an

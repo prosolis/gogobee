@@ -783,7 +783,7 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			Check: func(d *sql.DB, u id.UserID) bool {
 				var streak int
 				err := d.QueryRow(
-					`SELECT best_streak FROM adventure_characters WHERE user_id = ?`,
+					`SELECT best_streak FROM player_meta WHERE user_id = ?`,
 					string(u),
 				).Scan(&streak)
 				return err == nil && streak >= 7
@@ -795,7 +795,7 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			Check: func(d *sql.DB, u id.UserID) bool {
 				var streak int
 				err := d.QueryRow(
-					`SELECT best_streak FROM adventure_characters WHERE user_id = ?`,
+					`SELECT best_streak FROM player_meta WHERE user_id = ?`,
 					string(u),
 				).Scan(&streak)
 				return err == nil && streak >= 30
@@ -1023,7 +1023,7 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			Emoji: "🏃",
 			Check: func(d *sql.DB, u id.UserID) bool {
 				var streak int
-				_ = d.QueryRow(`SELECT best_streak FROM adventure_characters WHERE user_id = ?`, string(u)).Scan(&streak)
+				_ = d.QueryRow(`SELECT best_streak FROM player_meta WHERE user_id = ?`, string(u)).Scan(&streak)
 				return streak >= 7
 			},
 		},
@@ -1032,7 +1032,7 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			Emoji: "🔥",
 			Check: func(d *sql.DB, u id.UserID) bool {
 				var streak int
-				_ = d.QueryRow(`SELECT best_streak FROM adventure_characters WHERE user_id = ?`, string(u)).Scan(&streak)
+				_ = d.QueryRow(`SELECT best_streak FROM player_meta WHERE user_id = ?`, string(u)).Scan(&streak)
 				return streak >= 60
 			},
 		},
@@ -1041,7 +1041,7 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			Emoji: "💯",
 			Check: func(d *sql.DB, u id.UserID) bool {
 				var streak int
-				_ = d.QueryRow(`SELECT best_streak FROM adventure_characters WHERE user_id = ?`, string(u)).Scan(&streak)
+				_ = d.QueryRow(`SELECT best_streak FROM player_meta WHERE user_id = ?`, string(u)).Scan(&streak)
 				return streak >= 100
 			},
 		},
@@ -1067,7 +1067,7 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			Emoji: "🔄",
 			Check: func(d *sql.DB, u id.UserID) bool {
 				var current, best, decayed int
-				err := d.QueryRow(`SELECT current_streak, best_streak, streak_decayed FROM adventure_characters WHERE user_id = ?`, string(u)).Scan(&current, &best, &decayed)
+				err := d.QueryRow(`SELECT current_streak, best_streak, streak_decayed FROM player_meta WHERE user_id = ?`, string(u)).Scan(&current, &best, &decayed)
 				return err == nil && current >= 14 && decayed > 0
 			},
 		},

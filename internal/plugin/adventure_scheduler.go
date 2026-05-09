@@ -413,7 +413,7 @@ func (p *AdventurePlugin) midnightReset() error {
 	// from concurrent writers (e.g. reminder fire loop).
 	var resetErr error
 	for attempt := 0; attempt < 3; attempt++ {
-		if resetErr = resetAllAdvDailyActions(); resetErr == nil {
+		if resetErr = resetAllPlayerMetaDailyActions(); resetErr == nil {
 			break
 		}
 		slog.Warn("adventure: daily action reset failed, retrying", "attempt", attempt+1, "err", resetErr)
@@ -421,10 +421,6 @@ func (p *AdventurePlugin) midnightReset() error {
 	}
 	if resetErr != nil {
 		return fmt.Errorf("reset daily actions after 3 attempts: %w", resetErr)
-	}
-	// Adv 2.0 Phase L5d — parallel reset on player_meta during dual-write soak.
-	if err := resetAllPlayerMetaDailyActions(); err != nil {
-		slog.Error("player_meta: daily action reset failed", "err", err)
 	}
 
 	// Prune expired buffs

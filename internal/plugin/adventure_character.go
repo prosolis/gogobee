@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"database/sql"
 	"time"
 
 	"gogobee/internal/db"
@@ -431,119 +430,14 @@ func checkAdvLevelUp(char *AdventureCharacter, skill string) (bool, int) {
 
 func loadAdvCharacter(userID id.UserID) (*AdventureCharacter, error) {
 	d := db.Get()
-	c := &AdventureCharacter{}
-	var alive, actionTaken, holidayTaken, rivalUnlocked, babysitAct int
-	var deadUntil, reprieveLast, babysitExp, pardonUsed sql.NullTime
-	var mistyLastSeen, arinaLastSeen, mistyBuffExp, mistyDebuffExp, arinaBuffExp sql.NullTime
-
-	var houseFrozen, houseAutopay int
-	var petChasedAway, petReactivated, petArrived, thomAnimalLine, petSupplyUnlocked, petMorningDef int
-	var autoBabysit, streakDecayed, treasuresLocked int
-
-	err := d.QueryRow(`
-		SELECT user_id, display_name,
-		       combat_level, mining_skill, foraging_skill, fishing_skill,
-		       combat_xp, mining_xp, foraging_xp, fishing_xp,
-		       alive, dead_until, action_taken_today, holiday_action_taken,
-		       arena_wins, arena_losses, invasion_score, title,
-		       current_streak, best_streak, last_action_date, grudge_location,
-		       created_at, last_active_at, death_reprieve_last,
-		       masterwork_drops_received,
-		       rival_pool, rival_unlocked_notified,
-		       babysit_active, babysit_expires_at, babysit_skill_focus,
-		       hospital_visits, robbie_visit_count, last_death_date,
-		       combat_actions_used, harvest_actions_used,
-		       last_pardon_used,
-		       misty_last_seen, arina_last_seen,
-		       misty_buff_expires, misty_debuff_expires, arina_buff_expires,
-		       npc_msg_count, npc_msg_count_date,
-		       misty_roll_target, arina_roll_target,
-		       house_tier, house_loan_balance, house_loan_frozen, house_missed_payments,
-		       house_autopay, house_current_rate,
-		       pet_type, pet_name, pet_xp, pet_level, pet_armor_tier,
-		       pet_chased_away, pet_reactivated, pet_arrived,
-		       misty_encounter_count, misty_donated_count,
-		       thom_animal_line_fired, pet_supply_shop_unlocked, pet_level10_date,
-		       pet_morning_defense, auto_babysit, streak_decayed, crafts_succeeded,
-		       death_source, death_location, auto_babysit_focus, treasures_locked
-		FROM adventure_characters WHERE user_id = ?`, string(userID)).Scan(
-		&c.UserID, &c.DisplayName,
-		&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
-		&c.CombatXP, &c.MiningXP, &c.ForagingXP, &c.FishingXP,
-		&alive, &deadUntil, &actionTaken, &holidayTaken,
-		&c.ArenaWins, &c.ArenaLosses, &c.InvasionScore, &c.Title,
-		&c.CurrentStreak, &c.BestStreak, &c.LastActionDate, &c.GrudgeLocation,
-		&c.CreatedAt, &c.LastActiveAt, &reprieveLast,
-		&c.MasterworkDropsReceived,
-		&c.RivalPool, &rivalUnlocked,
-		&babysitAct, &babysitExp, &c.BabysitSkillFocus,
-		&c.HospitalVisits, &c.RobbieVisitCount, &c.LastDeathDate,
-		&c.CombatActionsUsed, &c.HarvestActionsUsed,
-		&pardonUsed,
-		&mistyLastSeen, &arinaLastSeen,
-		&mistyBuffExp, &mistyDebuffExp, &arinaBuffExp,
-		&c.NPCMsgCount, &c.NPCMsgCountDate,
-		&c.MistyRollTarget, &c.ArinaRollTarget,
-		&c.HouseTier, &c.HouseLoanBalance, &houseFrozen, &c.HouseMissedPayments,
-		&houseAutopay, &c.HouseCurrentRate,
-		&c.PetType, &c.PetName, &c.PetXP, &c.PetLevel, &c.PetArmorTier,
-		&petChasedAway, &petReactivated, &petArrived,
-		&c.MistyEncounterCount, &c.MistyDonatedCount,
-		&thomAnimalLine, &petSupplyUnlocked, &c.PetLevel10Date,
-		&petMorningDef, &autoBabysit, &streakDecayed, &c.CraftsSucceeded,
-		&c.DeathSource, &c.DeathLocation, &c.AutoBabysitFocus, &treasuresLocked,
-	)
-	if err != nil {
+	var uid string
+	if err := d.QueryRow(
+		`SELECT user_id FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&uid); err != nil {
 		return nil, err
 	}
-	c.Alive = alive == 1
-	c.ActionTakenToday = actionTaken == 1
-	c.HolidayActionTaken = holidayTaken == 1
-	c.RivalUnlockedNotified = rivalUnlocked == 1
-	c.BabysitActive = babysitAct == 1
-	c.PetMorningDefense = petMorningDef == 1
-	c.AutoBabysit = autoBabysit == 1
-	c.TreasuresLocked = treasuresLocked == 1
-	c.StreakDecayed = streakDecayed == 1
-	if deadUntil.Valid {
-		c.DeadUntil = &deadUntil.Time
-	}
-	if reprieveLast.Valid {
-		c.DeathReprieveLast = &reprieveLast.Time
-	}
-	if babysitExp.Valid {
-		c.BabysitExpiresAt = &babysitExp.Time
-	}
-	if pardonUsed.Valid {
-		c.LastPardonUsed = &pardonUsed.Time
-	}
-	if mistyLastSeen.Valid {
-		c.MistyLastSeen = &mistyLastSeen.Time
-	}
-	if arinaLastSeen.Valid {
-		c.ArinaLastSeen = &arinaLastSeen.Time
-	}
-	if mistyBuffExp.Valid {
-		c.MistyBuffExpires = &mistyBuffExp.Time
-	}
-	if mistyDebuffExp.Valid {
-		c.MistyDebuffExpires = &mistyDebuffExp.Time
-	}
-	if arinaBuffExp.Valid {
-		c.ArinaBuffExpires = &arinaBuffExp.Time
-	}
-	c.HouseLoanFrozen = houseFrozen == 1
-	c.HouseAutopay = houseAutopay == 1
-	c.PetChasedAway = petChasedAway == 1
-	c.PetReactivated = petReactivated == 1
-	c.PetArrived = petArrived == 1
-	c.ThomAnimalLineFired = thomAnimalLine == 1
-	c.PetSupplyShopUnlocked = petSupplyUnlocked == 1
-
-	// Phase L5h: adventure_characters columns are no longer written by
-	// saveAdvCharacter, so the SELECT above returns the row's frozen-at-cut
-	// snapshot. Overlay every player_meta-mirrored subsystem so callers see
-	// canonical (live) values for migrated fields.
+	c := &AdventureCharacter{UserID: id.UserID(uid), Alive: true}
 	applyPlayerMetaOverlay(c)
 	return c, nil
 }
@@ -556,20 +450,12 @@ func createAdvCharacter(userID id.UserID, displayName string) error {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`
-		INSERT INTO adventure_characters (user_id, display_name)
-		VALUES (?, ?)`, string(userID), displayName)
-	if err != nil {
-		return err
-	}
-
-	// Adv 2.0 Phase L4f-prep — dual-write display_name into player_meta.
-	// Adv 2.0 Phase L5d — also seed created_at + last_active_at lifecycle
-	// timestamps so the player_meta row is fully formed at creation.
-	// Inside the same tx so the two rows are created atomically.
+	// Adv 2.0 Phase L5 close-out: player_meta is the canonical seed row.
+	// adventure_characters is no longer written; loadAdvCharacter sources
+	// the user_id from player_meta and overlays every subsystem's state.
 	if _, err = tx.Exec(
-		`INSERT INTO player_meta (user_id, display_name, created_at, last_active_at)
-		 VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		`INSERT INTO player_meta (user_id, display_name, created_at, last_active_at, alive)
+		 VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
 		 ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name`,
 		string(userID), displayName,
 	); err != nil {
@@ -709,131 +595,31 @@ func advInventoryCount(userID id.UserID) int {
 
 func loadAllAdvCharacters() ([]AdventureCharacter, error) {
 	d := db.Get()
-	rows, err := d.Query(`
-		SELECT user_id, display_name,
-		       combat_level, mining_skill, foraging_skill, fishing_skill,
-		       combat_xp, mining_xp, foraging_xp, fishing_xp,
-		       alive, dead_until, action_taken_today, holiday_action_taken,
-		       arena_wins, arena_losses, invasion_score, title,
-		       current_streak, best_streak, last_action_date, grudge_location,
-		       created_at, last_active_at, death_reprieve_last,
-		       masterwork_drops_received,
-		       rival_pool, rival_unlocked_notified,
-		       babysit_active, babysit_expires_at, babysit_skill_focus,
-		       hospital_visits, robbie_visit_count, last_death_date,
-		       combat_actions_used, harvest_actions_used,
-		       last_pardon_used,
-		       misty_last_seen, arina_last_seen,
-		       misty_buff_expires, misty_debuff_expires, arina_buff_expires,
-		       npc_msg_count, npc_msg_count_date,
-		       misty_roll_target, arina_roll_target,
-		       house_tier, house_loan_balance, house_loan_frozen, house_missed_payments,
-		       house_autopay, house_current_rate,
-		       pet_type, pet_name, pet_xp, pet_level, pet_armor_tier,
-		       pet_chased_away, pet_reactivated, pet_arrived,
-		       misty_encounter_count, misty_donated_count,
-		       thom_animal_line_fired, pet_supply_shop_unlocked, pet_level10_date,
-		       pet_morning_defense, auto_babysit, streak_decayed, crafts_succeeded,
-		       death_source, death_location, auto_babysit_focus, treasures_locked
-		FROM adventure_characters`)
+	rows, err := d.Query(`SELECT user_id FROM player_meta`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var chars []AdventureCharacter
+	var uids []string
 	for rows.Next() {
-		c := AdventureCharacter{}
-		var alive, actionTaken, holidayTaken, rivalUnlocked, babysitAct int
-		var deadUntil, reprieveLast, babysitExp, pardonUsed sql.NullTime
-		var mistyLastSeen, arinaLastSeen, mistyBuffExp, mistyDebuffExp, arinaBuffExp sql.NullTime
-		var houseFrozen, houseAutopay int
-		var petChasedAway, petReactivated, petArrived, thomAnimalLine, petSupplyUnlocked, petMorningDef int
-		var autoBabysit, streakDecayed, treasuresLocked int
-		if err := rows.Scan(
-			&c.UserID, &c.DisplayName,
-			&c.CombatLevel, &c.MiningSkill, &c.ForagingSkill, &c.FishingSkill,
-			&c.CombatXP, &c.MiningXP, &c.ForagingXP, &c.FishingXP,
-			&alive, &deadUntil, &actionTaken, &holidayTaken,
-			&c.ArenaWins, &c.ArenaLosses, &c.InvasionScore, &c.Title,
-			&c.CurrentStreak, &c.BestStreak, &c.LastActionDate, &c.GrudgeLocation,
-			&c.CreatedAt, &c.LastActiveAt, &reprieveLast,
-			&c.MasterworkDropsReceived,
-			&c.RivalPool, &rivalUnlocked,
-			&babysitAct, &babysitExp, &c.BabysitSkillFocus,
-			&c.HospitalVisits, &c.RobbieVisitCount, &c.LastDeathDate,
-			&c.CombatActionsUsed, &c.HarvestActionsUsed,
-			&pardonUsed,
-			&mistyLastSeen, &arinaLastSeen,
-			&mistyBuffExp, &mistyDebuffExp, &arinaBuffExp,
-			&c.NPCMsgCount, &c.NPCMsgCountDate,
-			&c.MistyRollTarget, &c.ArinaRollTarget,
-			&c.HouseTier, &c.HouseLoanBalance, &houseFrozen, &c.HouseMissedPayments,
-			&houseAutopay, &c.HouseCurrentRate,
-			&c.PetType, &c.PetName, &c.PetXP, &c.PetLevel, &c.PetArmorTier,
-			&petChasedAway, &petReactivated, &petArrived,
-			&c.MistyEncounterCount, &c.MistyDonatedCount,
-			&thomAnimalLine, &petSupplyUnlocked, &c.PetLevel10Date,
-			&petMorningDef, &autoBabysit, &streakDecayed, &c.CraftsSucceeded,
-			&c.DeathSource, &c.DeathLocation, &c.AutoBabysitFocus, &treasuresLocked,
-		); err != nil {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		c.Alive = alive == 1
-		c.ActionTakenToday = actionTaken == 1
-		c.HolidayActionTaken = holidayTaken == 1
-		c.RivalUnlockedNotified = rivalUnlocked == 1
-		c.BabysitActive = babysitAct == 1
-		c.PetMorningDefense = petMorningDef == 1
-		c.AutoBabysit = autoBabysit == 1
-		c.TreasuresLocked = treasuresLocked == 1
-		c.StreakDecayed = streakDecayed == 1
-		c.HouseLoanFrozen = houseFrozen == 1
-		c.HouseAutopay = houseAutopay == 1
-		c.PetChasedAway = petChasedAway == 1
-		c.PetReactivated = petReactivated == 1
-		c.PetArrived = petArrived == 1
-		c.ThomAnimalLineFired = thomAnimalLine == 1
-		c.PetSupplyShopUnlocked = petSupplyUnlocked == 1
-		if deadUntil.Valid {
-			c.DeadUntil = &deadUntil.Time
-		}
-		if reprieveLast.Valid {
-			c.DeathReprieveLast = &reprieveLast.Time
-		}
-		if babysitExp.Valid {
-			c.BabysitExpiresAt = &babysitExp.Time
-		}
-		if pardonUsed.Valid {
-			c.LastPardonUsed = &pardonUsed.Time
-		}
-		if mistyLastSeen.Valid {
-			c.MistyLastSeen = &mistyLastSeen.Time
-		}
-		if arinaLastSeen.Valid {
-			c.ArinaLastSeen = &arinaLastSeen.Time
-		}
-		if mistyBuffExp.Valid {
-			c.MistyBuffExpires = &mistyBuffExp.Time
-		}
-		if mistyDebuffExp.Valid {
-			c.MistyDebuffExpires = &mistyDebuffExp.Time
-		}
-		if arinaBuffExp.Valid {
-			c.ArinaBuffExpires = &arinaBuffExp.Time
-		}
+		uids = append(uids, uid)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	chars := make([]AdventureCharacter, 0, len(uids))
+	for _, uid := range uids {
+		c := AdventureCharacter{UserID: id.UserID(uid), Alive: true}
+		applyPlayerMetaOverlay(&c)
 		chars = append(chars, c)
 	}
-	return chars, rows.Err()
-}
-
-func resetAllAdvDailyActions() error {
-	d := db.Get()
-	// Only reset actions taken before today — protects against race if a player
-	// resolves their action at exactly midnight.
-	today := time.Now().UTC().Format("2006-01-02")
-	_, err := d.Exec(`UPDATE adventure_characters SET action_taken_today = 0, holiday_action_taken = 0, combat_actions_used = 0, harvest_actions_used = 0, pet_morning_defense = 0 WHERE last_action_date < ? OR last_action_date IS NULL`, today)
-	return err
+	return chars, nil
 }
 
 func logAdvActivity(userID id.UserID, activityType, location, outcome string, lootValue int64, xpGained int, flavorKey string) {

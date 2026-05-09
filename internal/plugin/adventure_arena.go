@@ -979,7 +979,7 @@ func loadArenaLeaderboard() ([]ArenaLeaderboardEntry, error) {
 		       s.total_earnings, s.highest_tier, s.tier5_completions,
 		       s.total_runs, s.total_deaths
 		FROM arena_stats s
-		LEFT JOIN adventure_characters c ON c.user_id = s.user_id
+		LEFT JOIN player_meta c ON c.user_id = s.user_id
 		ORDER BY s.total_earnings DESC
 		LIMIT 10`)
 	if err != nil {

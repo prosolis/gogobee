@@ -435,13 +435,21 @@ Each sub-phase is the same shape as L4a–L4e: column-add → backfill (idempote
 
 After L5a–L5h soak (one week post-cut-of-AdvCharacter-writes per §11):
 
-1. **Three remaining `CombatLevel` reader fixes** (post-L5g the legacy fallback is the only source still feeding them):
-   - `adventure_babysit.go::babysitDailyCost(char.CombatLevel)` → read D&D level.
-   - `dnd_sheet.go:168` legacy stat-block line displaying `adv.CombatLevel` → drop or swap to D&D level.
-   - `dnd_onboarding.go:27,38` gate on `advChar.CombatLevel < dndLegacyMinLevel` → re-evaluate purpose now that L5g guarantees every active user has a D&D row.
-2. Drop `adventure_character` table behind `GOGOBEE_LEGACY_PURGE=1` env gate (`dnd_l5_cleanup.go` migration script, default off).
-3. Drop `player_meta.combat_level` column (introduced as a transitional column in L5a; redundant once readers no longer consult it).
-4. Final `go vet ./... && go test ./...` clean.
+1. **Three remaining `CombatLevel` reader fixes** — SHIPPED 2026-05-09 (see L5 close-out commits 978a621 / ece838e). Babysit cost reads `dndLevelForUser`, dnd_sheet legacy line removed, dnd_onboarding deleted entirely.
+2. **Loader rewire** — SHIPPED 2026-05-09. Without this step the table drop in #3 would break every login.
+   - `loadAdvCharacter` (adventure_character.go:432) now `SELECT user_id FROM player_meta` + default-init struct + `applyPlayerMetaOverlay`. The giant 70-column SELECT against adventure_characters is gone.
+   - `loadAllAdvCharacters` enumerates `player_meta` and applies the overlay per row.
+   - `createAdvCharacter` (adventure_character.go:445) inserts `player_meta` only; the `INSERT INTO adventure_characters` line is removed.
+   - `npcMidnightReset` and `resetAllAdvDailyActions` (now deleted) had their legacy UPDATEs cut; the player_meta versions are canonical.
+   - `stats.go::loadAdvSnapshot` SELECT swapped to `player_meta`.
+   - All `achievements.go` streak reads swapped to `player_meta`.
+   - `loadArenaLeaderboard` LEFT JOIN swapped to `player_meta`.
+   - Every `loadXxxState` helper in `player_meta.go` had its "fallback to adventure_characters during soak" branch deleted; player_meta is the single source of truth.
+   - All `backfillPlayerMeta*` and `backfillDnDCharactersFromAdv` one-shots removed (already-completed migrations; their Init wiring is gone).
+   - `db.go::snapshotPreDnD` gates on a `sqlite_master` lookup so it skips silently after the purge.
+3. **Purge script** — SHIPPED. `internal/plugin/cleanup_l5.go::purgeLegacyAdvCharacterTable` runs on every Init, gated on `GOGOBEE_LEGACY_PURGE=1`. Idempotent (`sqlite_master` existence check). Drops the `adventure_characters` table only; the `adventure_characters_pre_dnd` rollback snapshot is preserved (separate `GOGOBEE_PRE_DND_PURGE` pass when its 30-day grace window expires). The `CREATE TABLE adventure_characters` clause has been removed from the schema string and the columnMigrations runner now also tolerates `no such table: adventure_characters`, so the table won't be re-instated on next boot.
+4. **`player_meta.combat_level` column drop — STILL DEFERRED.** `combat_stats.go::DerivePlayerStats` (HP/Attack/Defense/Speed scaling) and `combat_stats.go::applyMistyHealAmt` and `adventure_activities.go::adv power calculations` all read `char.CombatLevel` via the player_meta overlay. Per §7.4's reconciliation, those files are shared infrastructure that stays — so `combat_level` continues to drive combat power scaling and is not safe to drop. Revisit only if/when D&D-derived stats subsume those formulas.
+5. Final `go vet ./... && go test ./...` — clean (2026-05-09).
 
 **What stays:**
 - `adventure_character.go` — `AdventureCharacter` struct continues as the loaded-view shape; `loadAdvCharacter` SELECTs from the (now read-only) `adventure_characters` seed row and overlays `player_meta` / `dnd_character` state. A future cosmetic pass may rename it to drop the implication of being legacy, but that is *not* part of this migration. (Per `feedback_avoid_dnd_naming.md`, any rename must avoid "dnd"-prefixed names.)

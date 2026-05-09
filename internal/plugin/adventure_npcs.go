@@ -428,9 +428,7 @@ func npcRepairMostDamaged(userID id.UserID, equip map[EquipmentSlot]*AdvEquipmen
 
 // npcMidnightReset resets message counts and regenerates roll targets.
 // Called from midnightReset. Uses a direct DB update to avoid loading/saving
-// every character individually. Phase L5h: writes player_meta as the
-// canonical store; the legacy adventure_characters update is preserved
-// only as a defensive sweep for rows that pre-date the L5c backfill.
+// every character individually.
 func npcMidnightReset() {
 	d := db.Get()
 	today := time.Now().UTC().Format("2006-01-02")
@@ -441,15 +439,6 @@ func npcMidnightReset() {
 		    misty_roll_target = ABS(RANDOM()) % 6 + 5,
 		    arina_roll_target = ABS(RANDOM()) % 6 + 5`,
 		today); err != nil {
-		slog.Error("npc: midnight reset (player_meta) failed", "err", err)
-	}
-	if _, err := d.Exec(`
-		UPDATE adventure_characters
-		SET npc_msg_count = 0,
-		    npc_msg_count_date = ?,
-		    misty_roll_target = ABS(RANDOM()) % 6 + 5,
-		    arina_roll_target = ABS(RANDOM()) % 6 + 5`,
-		today); err != nil {
-		slog.Error("npc: midnight reset (adventure_characters) failed", "err", err)
+		slog.Error("npc: midnight reset failed", "err", err)
 	}
 }

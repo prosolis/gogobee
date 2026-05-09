@@ -186,86 +186,15 @@ func (p *AdventurePlugin) Init() error {
 	// only touches characters whose last_action_date < today). This handles
 	// the case where the old buggy code marked the midnight job as completed
 	// even though the actual reset failed due to SQLite contention.
-	if err := resetAllAdvDailyActions(); err != nil {
+	if err := resetAllPlayerMetaDailyActions(); err != nil {
 		slog.Error("adventure: startup daily reset failed", "err", err)
-	}
-	// Adv 2.0 Phase L2 step 5 — one-shot arena counter backfill into
-	// player_meta. Idempotent (INSERT OR IGNORE).
-	if err := backfillPlayerMetaArena(); err != nil {
-		slog.Error("player_meta: arena backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L4f-prep — one-shot DisplayName backfill into
-	// player_meta. Idempotent (only fills empty display_name rows).
-	if err := backfillPlayerMetaDisplayName(); err != nil {
-		slog.Error("player_meta: display_name backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L4a — one-shot HospitalVisits backfill into
-	// player_meta. Idempotent (only fills zero rows).
-	if err := backfillPlayerMetaHospitalVisits(); err != nil {
-		slog.Error("player_meta: hospital_visits backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L4b — one-shot rival state backfill into player_meta.
-	// Idempotent (only fills rows whose rival columns are still zero).
-	if err := backfillPlayerMetaRivalState(); err != nil {
-		slog.Error("player_meta: rival state backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L4c — one-shot MasterworkDropsReceived backfill into
-	// player_meta. Idempotent (only fills zero rows).
-	if err := backfillPlayerMetaMasterworkDrops(); err != nil {
-		slog.Error("player_meta: masterwork_drops_received backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L4d — one-shot pet state backfill into player_meta.
-	// Idempotent (only fills rows whose pet_type is still empty).
-	if err := backfillPlayerMetaPetState(); err != nil {
-		slog.Error("player_meta: pet state backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L4e — one-shot house state backfill into player_meta.
-	// Idempotent (only fills rows whose house_tier and house_loan_balance
-	// are still both the default zero).
-	if err := backfillPlayerMetaHouseState(); err != nil {
-		slog.Error("player_meta: house state backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L5a — one-shot skill state backfill into player_meta.
-	// Idempotent (only fills rows whose skill columns are all still zero).
-	if err := backfillPlayerMetaSkillState(); err != nil {
-		slog.Error("player_meta: skill state backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L5b — one-shot babysit state backfill into player_meta.
-	// Idempotent (only fills inactive rows whose legacy counterpart is active).
-	if err := backfillPlayerMetaBabysitState(); err != nil {
-		slog.Error("player_meta: babysit state backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L5c — one-shot NPC state backfill into player_meta.
-	// Idempotent (only fills rows where every NPC field is still zero).
-	if err := backfillPlayerMetaNPCState(); err != nil {
-		slog.Error("player_meta: NPC state backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L5d — one-shot lifecycle state backfill into player_meta.
-	// Idempotent (only fills rows whose created_at is still NULL).
-	if err := backfillPlayerMetaLifecycleState(); err != nil {
-		slog.Error("player_meta: lifecycle state backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L5e — one-shot death state backfill into player_meta.
-	// Idempotent (only fills rows whose death fields are all default).
-	if err := backfillPlayerMetaDeathState(); err != nil {
-		slog.Error("player_meta: death state backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L5f — one-shot misc state backfill into player_meta.
-	// Idempotent (only fills rows whose misc fields are all default).
-	if err := backfillPlayerMetaMiscState(); err != nil {
-		slog.Error("player_meta: misc state backfill failed", "err", err)
-	}
-	// Adv 2.0 Phase L5g — one-shot DnDCharacter mass-backfill. Every legacy
-	// player without a D&D row gets an auto-migrated character seeded from
-	// their CombatLevel, retiring the dndLevelFromCombatLevel fallbacks in
-	// dndLevelForUser / rivalLevelForUser / hospitalCostsForUser. Idempotent
-	// (skips users who already have any dnd_character row).
-	if err := backfillDnDCharactersFromAdv(); err != nil {
-		slog.Error("dnd: L5g character backfill failed", "err", err)
 	}
 	// Phase L3 — cancel any open/active legacy coop dungeon runs and
 	// refund member contributions + unsettled bets. Idempotent.
 	closeAndRefundLegacyCoopRuns(p.euro)
+	// Phase L5 close-out — drop the now-cold adventure_characters table when
+	// the operator sets GOGOBEE_LEGACY_PURGE=1. Default off; idempotent.
+	purgeLegacyAdvCharacterTable()
 	// Phase R1 orphan-archive used to run here on every Init, but it
 	// over-archived: it treats any active dnd_zone_run row not linked to
 	// an active expedition as a legacy `!adventure dungeon` orphan, which

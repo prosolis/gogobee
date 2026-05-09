@@ -309,10 +309,17 @@ func runMigrations(d *sql.DB) error {
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
+			msg := err.Error()
 			// "duplicate column name" means it already exists — safe to ignore.
-			if !strings.Contains(err.Error(), "duplicate column") {
-				return fmt.Errorf("migration %q: %w", stmt, err)
+			// "no such table: adventure_characters" is expected after the
+			// L5 close-out purge (GOGOBEE_LEGACY_PURGE=1).
+			if strings.Contains(msg, "duplicate column") {
+				continue
 			}
+			if strings.Contains(msg, "no such table: adventure_characters") {
+				continue
+			}
+			return fmt.Errorf("migration %q: %w", stmt, err)
 		}
 	}
 	return nil
@@ -321,9 +328,17 @@ func runMigrations(d *sql.DB) error {
 // snapshotPreDnD copies the current adventure_characters rows into
 // adventure_characters_pre_dnd as a one-shot rollback safety net for the
 // D&D-layer migration. Idempotent: only inserts rows for user_ids that
-// aren't already snapshotted, so running on a fresh install (no characters)
-// or on subsequent boots is a no-op.
+// aren't already snapshotted. Skips silently once the source table has
+// been dropped by the L5 close-out purge (GOGOBEE_LEGACY_PURGE=1).
 func snapshotPreDnD(d *sql.DB) error {
+	var name string
+	if err := d.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='table' AND name='adventure_characters'`,
+	).Scan(&name); err == sql.ErrNoRows {
+		return nil
+	} else if err != nil {
+		return err
+	}
 	_, err := d.Exec(`
 		INSERT OR IGNORE INTO adventure_characters_pre_dnd (user_id, snapshot_json)
 		SELECT user_id,
@@ -1184,34 +1199,9 @@ CREATE TABLE IF NOT EXISTS space_groups (
 
 -- ── Adventure Plugin ────────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS adventure_characters (
-	user_id              TEXT PRIMARY KEY,
-	display_name         TEXT NOT NULL,
-	combat_level         INTEGER NOT NULL DEFAULT 1,
-	mining_skill         INTEGER NOT NULL DEFAULT 1,
-	foraging_skill       INTEGER NOT NULL DEFAULT 1,
-	fishing_skill        INTEGER NOT NULL DEFAULT 1,
-	combat_xp            INTEGER NOT NULL DEFAULT 0,
-	mining_xp            INTEGER NOT NULL DEFAULT 0,
-	foraging_xp          INTEGER NOT NULL DEFAULT 0,
-	fishing_xp           INTEGER NOT NULL DEFAULT 0,
-	alive                INTEGER NOT NULL DEFAULT 1,
-	dead_until           DATETIME,
-	action_taken_today   INTEGER NOT NULL DEFAULT 0,
-	holiday_action_taken INTEGER NOT NULL DEFAULT 0,
-	arena_wins           INTEGER NOT NULL DEFAULT 0,
-	arena_losses         INTEGER NOT NULL DEFAULT 0,
-	invasion_score       INTEGER NOT NULL DEFAULT 0,
-	title                TEXT NOT NULL DEFAULT '',
-	current_streak       INTEGER NOT NULL DEFAULT 0,
-	best_streak          INTEGER NOT NULL DEFAULT 0,
-	last_action_date     TEXT NOT NULL DEFAULT '',
-	grudge_location      TEXT NOT NULL DEFAULT '',
-	created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	last_active_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	death_reprieve_last  DATETIME,
-	masterwork_drops_received INTEGER NOT NULL DEFAULT 0
-);
+-- adventure_characters was retired in the L5 close-out. Per-user state lives
+-- in player_meta now; the table is dropped via GOGOBEE_LEGACY_PURGE=1 and
+-- the schema CREATE has been removed so it is not re-instated on next boot.
 
 CREATE TABLE IF NOT EXISTS adventure_equipment (
 	user_id      TEXT NOT NULL,
