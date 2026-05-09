@@ -227,13 +227,13 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 6. Swap render reads to DnDCharacter + player_meta.
 7. Port `tierFromCombatLevel` → `tierFromLevel` with new brackets.
 8. Port `adventure_arena_test.go`. Add a new test asserting arena win surfaces the staged combat log + TwinBee BossDeath line.
-9. Drop AdvCharacter imports from arena files.
+9. Drop AdvCharacter imports from arena files. **DEFERRED (2026-05-09):** blocked on DisplayName migration (L4f-prep, see §7) plus L4 hospital/pets/XP work. Arena code still needs `char.DisplayName` (stats DM, T5/helm announces, render), `char.PetName` (pet-recovery game-room msg), `char.DeathReprieveLast`, `char.CombatXP`, `char.Alive`/`transitionDeath`. Counter dual-writes to `char.ArenaWins/Losses/InvasionScore` could be dropped now (player_meta is source of truth post-step 6), but the surrounding `loadAdvCharacter`/`saveAdvCharacter` calls stay for the other fields, so step 9's exit grep can't pass at L2 time. Revisit after DisplayName migration ships and L4 (hospital/pets/render) lands.
 10. `go test ./... && go vet`.
 
 **Feature flag.** Ship behind `ARENA_BOSS_FLOW=1` for one week of soak. Inside the flag the new flow runs; outside it falls back to the legacy path. Flip to default-on after the soak; remove the flag in the same commit that lands L4f (twinbee).
 
 **Exit criteria:**
-- `grep -l 'AdventureCharacter\|CombatLevel\|combat_engine' internal/plugin/adventure_arena*.go` empty.
+- ~~`grep -l 'AdventureCharacter\|CombatLevel\|combat_engine' internal/plugin/adventure_arena*.go` empty.~~ **Deferred** with step 9 — see note above. The grep will only clear once DisplayName migration + L4 (hospital/pets/XP/render) ship; L2 closes without it.
 - Arena win produces a staged combat log + TwinBee BossDeath line + payout, just like a zone boss.
 - Arena loss produces a TwinBee PlayerDeath line + arena death flag, no zone-run side effects.
 - Existing arena DB rows readable; ArenaWins backfill from AdvCharacter into `player_meta` (§8).
