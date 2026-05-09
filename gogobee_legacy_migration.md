@@ -313,6 +313,16 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 ### 6.4 L4d — Pets
 - `adventure_pets.go`: pet fields move from AdvCharacter to `player_meta` (see §2.1 `pet_*` columns). Pet combat hooks (PetMorningDefense, pet damage rolls) target DnDCharacter HP.
 
+**Status (2026-05-09):** SHIPPED on `adv-2.0` (column + dual-write only; reader flip deferred — see note).
+- `player_meta` gains `pet_type`, `pet_name`, `pet_xp`, `pet_level`, `pet_armor_tier`, `pet_flags_json`, `pet_supply_shop_unlocked`, `pet_level_10_date` via columnMigration in `internal/db/db.go`. The four flags (arrived, chased_away, reactivated, morning_defense) serialize as a single JSON column to avoid a four-bool ALTER train on each future flag addition.
+- New helpers in `player_meta.go`: `PetState` struct, `upsertPlayerMetaPetState(userID, PetState)`, `loadPetState(userID)` (player_meta canonical, falls back to AdvCharacter when `pet_type` is empty), `backfillPlayerMetaPetState()` (idempotent — copies rows whose player_meta `pet_type` is still default empty), and `petStateFromAdvChar(*AdventureCharacter)` for the dual-write projection.
+- Dual-writes wired at every pet mutation site: `resolvePetArrival` (chase), `resolvePetName` (adopt), `petMidnightCheck` (supply-shop unlock), `runBabysitDailyTrickle` save in scheduler, morning `PetMorningDefense` set, and `mistyReactivatePet` save in `adventure_npcs.go`.
+- `petGrantXP` (in `adventure_pets.go`) is currently dead code — only exercised by tests; once the legacy daily-loop XP path is rewired by Phase R/zone integration, that caller will need to add a dual-write at its save site.
+- Backfill: `backfillPlayerMetaPetState()` runs on every Init; idempotent (only fills rows whose `pet_type` is still empty).
+- Tests: `TestPlayerMetaPetStateBackfill_Idempotent`, `TestLoadPetState_FallsBackToAdvCharacter`, `TestUpsertPlayerMetaPetState_RoundTrip` in `player_meta_test.go`.
+- `go vet ./...` + `go test ./...` clean.
+- **Reader flip deferred.** The L4 exit criterion (`grep 'AdventureCharacter\|CombatLevel' adventure_pets.go` empty) is NOT met yet: `adventure_pets.go`'s helpers (`petGrantXP`, `petRollCombatActions`, `petRollDitchRecovery`, `petVictoryText`, `petDeathText`, `petShouldArrive`, `petMorningEvent`, `petCheckSupplyShopUnlock`, `mistyHousingHint`, `mistyReactivatePet`) still take `*AdventureCharacter` because they're called from many external files (`adventure_babysit.go`, `adventure_scheduler.go`, `adventure_npcs.go`, `combat_bridge.go`, `combat_stats.go`, `dnd_sheet.go`, `adventure_arena.go`, `adventure_character.go`). Flipping these signatures is a cross-file refactor that can land after the soak window — at which point the helpers can take `userID` (and call `loadPetState`) and the call sites drop their `*AdventureCharacter` access. The DB-level migration (this step) is the prerequisite that unblocks that refactor.
+
 ### 6.5 L4e — Housing & mortgage
 - `adventure_housing.go`, `adventure_mortgage.go`: HouseTier/loan fields → `player_meta`. `houseHPBonus` → applied to `DnDCharacter.HPMax` calculation (already a parallel hook in `dnd_sheet.go`'s `recomputeHPMax`).
 - Mortgage scheduler tick stays — only the field source changes.

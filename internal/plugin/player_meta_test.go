@@ -533,3 +533,146 @@ func TestUpsertPlayerMetaMasterworkDrops_RoundTrip(t *testing.T) {
 		t.Errorf("update: got %d want 9", got2)
 	}
 }
+
+// Phase L4d — Pet state migration. Backfill is idempotent and only touches
+// rows with empty pet_type; the upsert helper round-trips the full PetState
+// (including the four flag bools encoded into pet_flags_json); loadPetState
+// falls back to AdvCharacter when player_meta hasn't been populated yet.
+
+func TestPlayerMetaPetStateBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-pet-bf:example")
+	if err := createAdvCharacter(uid, "PetOwner"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET pet_type = ?, pet_name = ?, pet_xp = ?, pet_level = ?,
+		        pet_armor_tier = ?, pet_arrived = ?, pet_chased_away = ?,
+		        pet_reactivated = ?, pet_morning_defense = ?,
+		        pet_supply_shop_unlocked = ?, pet_level_10_date = ?
+		  WHERE user_id = ?`,
+		"dog", "Rex", 750, 4, 2, 1, 0, 0, 1, 0, "", string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET pet_type = '' WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaPetState(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	got, err := loadPetState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Type != "dog" || got.Name != "Rex" || got.XP != 750 || got.Level != 4 ||
+		got.ArmorTier != 2 || !got.Arrived || got.ChasedAway || got.Reactivated ||
+		!got.MorningDefense {
+		t.Errorf("after backfill: got %+v", got)
+	}
+
+	// Layer a dual-write that promotes the pet (level-up + supply shop).
+	got.Level = 10
+	got.XP = 0
+	got.Level10Date = "2026-05-09"
+	got.SupplyShopUnlocked = true
+	if err := upsertPlayerMetaPetState(uid, got); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaPetState(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	got2, _ := loadPetState(uid)
+	if got2.Level != 10 || !got2.SupplyShopUnlocked || got2.Level10Date != "2026-05-09" {
+		t.Errorf("backfill clobbered dual-write: got %+v", got2)
+	}
+}
+
+func TestLoadPetState_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-pet-fb:example")
+	if err := createAdvCharacter(uid, "PetFallback"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET pet_type = ?, pet_name = ?, pet_xp = ?, pet_level = ?,
+		        pet_arrived = ?, pet_chased_away = ?, pet_reactivated = ?
+		  WHERE user_id = ?`,
+		"cat", "Whiskers", 50, 2, 1, 1, 1, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET pet_type = '' WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	got, err := loadPetState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Type != "cat" || got.Name != "Whiskers" || got.Level != 2 ||
+		!got.Arrived || !got.ChasedAway || !got.Reactivated {
+		t.Errorf("fallback: got %+v", got)
+	}
+
+	// Unknown user → zero PetState, no error.
+	got2, err := loadPetState(id.UserID("@meta-pet-nobody:example"))
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if got2.Type != "" || got2.Level != 0 {
+		t.Errorf("missing user: got %+v", got2)
+	}
+}
+
+func TestUpsertPlayerMetaPetState_RoundTrip(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-pet-rt:example")
+	in := PetState{
+		Type:               "dog",
+		Name:               "Boon",
+		XP:                 1234,
+		Level:              7,
+		ArmorTier:          3,
+		SupplyShopUnlocked: true,
+		Level10Date:        "2026-05-09",
+		Arrived:            true,
+		ChasedAway:         true,
+		Reactivated:        true,
+		MorningDefense:     true,
+	}
+	if err := upsertPlayerMetaPetState(uid, in); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	got, err := loadPetState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got != in {
+		t.Errorf("round-trip mismatch:\n got=%+v\nwant=%+v", got, in)
+	}
+
+	// Mutating one field updates only that field via the same upsert.
+	in.Level = 8
+	in.XP = 0
+	in.MorningDefense = false
+	if err := upsertPlayerMetaPetState(uid, in); err != nil {
+		t.Fatalf("upsert update: %v", err)
+	}
+	got2, _ := loadPetState(uid)
+	if got2 != in {
+		t.Errorf("update mismatch:\n got=%+v\nwant=%+v", got2, in)
+	}
+}

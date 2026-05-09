@@ -214,6 +214,11 @@ func (p *AdventurePlugin) Init() error {
 	if err := backfillPlayerMetaMasterworkDrops(); err != nil {
 		slog.Error("player_meta: masterwork_drops_received backfill failed", "err", err)
 	}
+	// Adv 2.0 Phase L4d — one-shot pet state backfill into player_meta.
+	// Idempotent (only fills rows whose pet_type is still empty).
+	if err := backfillPlayerMetaPetState(); err != nil {
+		slog.Error("player_meta: pet state backfill failed", "err", err)
+	}
 	// Phase L3 — cancel any open/active legacy coop dungeon runs and
 	// refund member contributions + unsettled bets. Idempotent.
 	closeAndRefundLegacyCoopRuns(p.euro)

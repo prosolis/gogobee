@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"database/sql"
+	"encoding/json"
 	"log/slog"
 
 	"gogobee/internal/db"
@@ -381,6 +382,223 @@ func backfillPlayerMetaMasterworkDrops() error {
 	n, _ := res.RowsAffected()
 	slog.Info("player_meta: masterwork_drops_received backfilled", "rows", n)
 	return nil
+}
+
+// PetState is the in-memory mirror of player_meta's pet_* columns. Phase L4d
+// ports pet ownership and progression off AdvCharacter (gogobee_legacy_migration.md
+// §6.4). The four flag bools serialize as a single pet_flags_json column to
+// avoid an explosion of boolean ALTERs when future pet behaviors land.
+type PetState struct {
+	Type               string
+	Name               string
+	XP                 int
+	Level              int
+	ArmorTier          int
+	SupplyShopUnlocked bool
+	Level10Date        string
+	Arrived            bool
+	ChasedAway         bool
+	Reactivated        bool
+	MorningDefense     bool
+}
+
+// petFlagsJSON is the on-disk encoding of the four pet bools. Adding a new
+// flag is an additive JSON field — old rows decode as false.
+type petFlagsJSON struct {
+	Arrived        bool `json:"arrived"`
+	ChasedAway     bool `json:"chased_away"`
+	Reactivated    bool `json:"reactivated"`
+	MorningDefense bool `json:"morning_defense"`
+}
+
+// upsertPlayerMetaPetState writes the full pet column set for a user. Pet
+// state mutates as a unit (arrival sets type/name/level/flags together;
+// level-ups touch xp/level/level10date), so this helper takes the whole
+// PetState rather than splitting per-field. Used by the dual-write path
+// during the L4d soak window.
+func upsertPlayerMetaPetState(userID id.UserID, s PetState) error {
+	flags, err := json.Marshal(petFlagsJSON{
+		Arrived:        s.Arrived,
+		ChasedAway:     s.ChasedAway,
+		Reactivated:    s.Reactivated,
+		MorningDefense: s.MorningDefense,
+	})
+	if err != nil {
+		return err
+	}
+	supplyInt := 0
+	if s.SupplyShopUnlocked {
+		supplyInt = 1
+	}
+	_, err = db.Get().Exec(
+		`INSERT INTO player_meta (
+		   user_id, pet_type, pet_name, pet_xp, pet_level, pet_armor_tier,
+		   pet_flags_json, pet_supply_shop_unlocked, pet_level_10_date
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   pet_type = excluded.pet_type,
+		   pet_name = excluded.pet_name,
+		   pet_xp = excluded.pet_xp,
+		   pet_level = excluded.pet_level,
+		   pet_armor_tier = excluded.pet_armor_tier,
+		   pet_flags_json = excluded.pet_flags_json,
+		   pet_supply_shop_unlocked = excluded.pet_supply_shop_unlocked,
+		   pet_level_10_date = excluded.pet_level_10_date`,
+		string(userID), s.Type, s.Name, s.XP, s.Level, s.ArmorTier,
+		string(flags), supplyInt, s.Level10Date,
+	)
+	return err
+}
+
+// loadPetState returns the player's pet state from player_meta when populated,
+// falling back to adventure_characters during the L4d soak window. A
+// player_meta row whose pet_type is empty is treated as unmigrated and falls
+// through to AdvCharacter — matching the "type is the canonical
+// has-a-pet marker" semantics used by HasPet().
+func loadPetState(userID id.UserID) (PetState, error) {
+	var (
+		s         PetState
+		flagsRaw  string
+		supplyInt int
+	)
+	err := db.Get().QueryRow(
+		`SELECT pet_type, pet_name, pet_xp, pet_level, pet_armor_tier,
+		        pet_flags_json, pet_supply_shop_unlocked, pet_level_10_date
+		   FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&s.Type, &s.Name, &s.XP, &s.Level, &s.ArmorTier,
+		&flagsRaw, &supplyInt, &s.Level10Date)
+	if err == nil && s.Type != "" {
+		s.SupplyShopUnlocked = supplyInt == 1
+		var f petFlagsJSON
+		if flagsRaw != "" {
+			_ = json.Unmarshal([]byte(flagsRaw), &f)
+		}
+		s.Arrived = f.Arrived
+		s.ChasedAway = f.ChasedAway
+		s.Reactivated = f.Reactivated
+		s.MorningDefense = f.MorningDefense
+		return s, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return PetState{}, err
+	}
+	// Fallback to AdvCharacter during soak.
+	var (
+		legacyType, legacyName, legacyL10Date         string
+		legacyXP, legacyLevel, legacyArmor            int
+		legacySupply                                  int
+		arrived, chased, reactivated, morningDefense  int
+	)
+	err = db.Get().QueryRow(
+		`SELECT pet_type, pet_name, pet_xp, pet_level, pet_armor_tier,
+		        pet_arrived, pet_chased_away, pet_reactivated, pet_morning_defense,
+		        pet_supply_shop_unlocked, pet_level_10_date
+		   FROM adventure_characters WHERE user_id = ?`,
+		string(userID),
+	).Scan(&legacyType, &legacyName, &legacyXP, &legacyLevel, &legacyArmor,
+		&arrived, &chased, &reactivated, &morningDefense,
+		&legacySupply, &legacyL10Date)
+	if err == sql.ErrNoRows {
+		return PetState{}, nil
+	}
+	if err != nil {
+		return PetState{}, err
+	}
+	return PetState{
+		Type:               legacyType,
+		Name:               legacyName,
+		XP:                 legacyXP,
+		Level:              legacyLevel,
+		ArmorTier:          legacyArmor,
+		SupplyShopUnlocked: legacySupply == 1,
+		Level10Date:        legacyL10Date,
+		Arrived:            arrived == 1,
+		ChasedAway:         chased == 1,
+		Reactivated:        reactivated == 1,
+		MorningDefense:     morningDefense == 1,
+	}, nil
+}
+
+// backfillPlayerMetaPetState copies the pet_* columns from adventure_characters
+// into player_meta for any row whose pet_type is still the empty default.
+// Idempotent: only updates rows that haven't been populated yet (via backfill
+// or dual-write). Pet flags are encoded as JSON to match the runtime helper.
+func backfillPlayerMetaPetState() error {
+	if _, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO player_meta (user_id)
+		SELECT user_id FROM adventure_characters
+	`); err != nil {
+		return err
+	}
+	rows, err := db.Get().Query(`
+		SELECT ac.user_id, ac.pet_type, ac.pet_name, ac.pet_xp, ac.pet_level,
+		       ac.pet_armor_tier, ac.pet_arrived, ac.pet_chased_away,
+		       ac.pet_reactivated, ac.pet_morning_defense,
+		       ac.pet_supply_shop_unlocked, ac.pet_level_10_date
+		  FROM adventure_characters ac
+		  JOIN player_meta pm ON pm.user_id = ac.user_id
+		 WHERE pm.pet_type = ''
+		   AND ac.pet_type <> ''
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type pending struct {
+		uid id.UserID
+		s   PetState
+	}
+	var todo []pending
+	for rows.Next() {
+		var (
+			uid                                          string
+			s                                            PetState
+			arrived, chased, reactivated, morningDefense int
+			supply                                       int
+		)
+		if err := rows.Scan(&uid, &s.Type, &s.Name, &s.XP, &s.Level,
+			&s.ArmorTier, &arrived, &chased, &reactivated, &morningDefense,
+			&supply, &s.Level10Date); err != nil {
+			return err
+		}
+		s.Arrived = arrived == 1
+		s.ChasedAway = chased == 1
+		s.Reactivated = reactivated == 1
+		s.MorningDefense = morningDefense == 1
+		s.SupplyShopUnlocked = supply == 1
+		todo = append(todo, pending{uid: id.UserID(uid), s: s})
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, p := range todo {
+		if err := upsertPlayerMetaPetState(p.uid, p.s); err != nil {
+			return err
+		}
+	}
+	slog.Info("player_meta: pet state backfilled", "rows", len(todo))
+	return nil
+}
+
+// petStateFromAdvChar projects the pet-related fields off an AdventureCharacter
+// into a PetState. Used by the dual-write path: every site that mutates
+// AdvCharacter pet fields then calls upsertPlayerMetaPetState with this
+// projection so the column moves cleanly during the L4d soak window.
+func petStateFromAdvChar(c *AdventureCharacter) PetState {
+	return PetState{
+		Type:               c.PetType,
+		Name:               c.PetName,
+		XP:                 c.PetXP,
+		Level:              c.PetLevel,
+		ArmorTier:          c.PetArmorTier,
+		SupplyShopUnlocked: c.PetSupplyShopUnlocked,
+		Level10Date:        c.PetLevel10Date,
+		Arrived:            c.PetArrived,
+		ChasedAway:         c.PetChasedAway,
+		Reactivated:        c.PetReactivated,
+		MorningDefense:     c.PetMorningDefense,
+	}
 }
 
 // backfillPlayerMetaDisplayName copies adventure_characters.display_name

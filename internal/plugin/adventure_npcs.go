@@ -239,6 +239,7 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 		if err := saveAdvCharacter(char); err != nil {
 			slog.Error("npc: failed to save misty buff", "user", ctx.Sender, "err", err)
 		}
+		_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(char))
 
 		reply := mistyAcceptLines[rand.IntN(len(mistyAcceptLines))]
 

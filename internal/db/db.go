@@ -203,6 +203,19 @@ func runMigrations(d *sql.DB) error {
 		// MasterworkDropsReceived moves to player_meta; AdvCharacter column
 		// keeps dual-writing during soak (gogobee_legacy_migration.md §6.3).
 		`ALTER TABLE player_meta ADD COLUMN masterwork_drops_received INTEGER NOT NULL DEFAULT 0`,
+		// Adv 2.0 Phase L4d — Pets migration off AdvCharacter.
+		// PetType / PetName / PetXP / PetLevel / PetArmorTier and the four
+		// pet flags (arrived, chased_away, reactivated, morning_defense)
+		// move to player_meta; AdvCharacter columns keep dual-writing during
+		// soak (gogobee_legacy_migration.md §6.4).
+		`ALTER TABLE player_meta ADD COLUMN pet_type TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE player_meta ADD COLUMN pet_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE player_meta ADD COLUMN pet_xp INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN pet_level INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN pet_armor_tier INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN pet_flags_json TEXT NOT NULL DEFAULT '{}'`,
+		`ALTER TABLE player_meta ADD COLUMN pet_supply_shop_unlocked INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN pet_level_10_date TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

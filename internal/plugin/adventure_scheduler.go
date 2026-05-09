@@ -95,6 +95,7 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			if err := saveAdvCharacter(&char); err != nil {
 				slog.Error("babysit: failed to save after daily trickle", "user", char.UserID, "err", err)
 			}
+			_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(&char))
 			continue
 		}
 
@@ -124,6 +125,7 @@ func (p *AdventurePlugin) sendMorningDMs() {
 		if petEvent != "" {
 			char.PetMorningDefense = true
 			_ = saveAdvCharacter(&char)
+			_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(&char))
 		}
 
 		// Send morning DM with choices

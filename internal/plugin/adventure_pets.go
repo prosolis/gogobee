@@ -241,6 +241,7 @@ func (p *AdventurePlugin) resolvePetArrival(ctx MessageContext) error {
 		char.PetChasedAway = true
 		char.PetReactivated = false
 		_ = saveAdvCharacter(char)
+		_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(char))
 		return p.SendDM(ctx.Sender, "You chased it away. It disappeared around the corner and didn't come back.\n\nThe house is quiet again.")
 	}
 
@@ -345,6 +346,7 @@ func (p *AdventurePlugin) resolvePetName(ctx MessageContext) error {
 	if err := saveAdvCharacter(char); err != nil {
 		return p.SendDM(ctx.Sender, "Failed to save.")
 	}
+	_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(char))
 
 	emoji := "🐶"
 	if data.PetType == "cat" {
@@ -432,6 +434,7 @@ func (p *AdventurePlugin) petMidnightCheck() {
 		if petCheckSupplyShopUnlock(&char) {
 			char.PetSupplyShopUnlocked = true
 			_ = saveAdvCharacter(&char)
+			_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(&char))
 			slog.Info("pet: supply shop unlocked", "user", char.UserID, "pet", char.PetName)
 		}
 	}
