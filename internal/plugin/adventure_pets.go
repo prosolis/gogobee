@@ -187,13 +187,15 @@ func petDeathText(char *AdventureCharacter) string {
 // ── Pet Arrival Flow ───────────────────────────────────────────────────────
 
 // petShouldArrive checks if pet arrival should trigger.
-// Fires randomly after Tier 1 house upgrade is complete.
-func petShouldArrive(char *AdventureCharacter) bool {
+// Fires randomly after Tier 1 house upgrade is complete. Housing state
+// comes from player_meta via loadHouseState (L4e reader flip); pet flags
+// still live on AdvCharacter during the soak window.
+func petShouldArrive(char *AdventureCharacter, house HouseState) bool {
 	if char.PetArrived {
 		return false
 	}
 	// Pet arrives after Tier 1 (Livable) upgrade = HouseTier >= 2
-	if char.HouseTier < 2 {
+	if house.Tier < 2 {
 		return false
 	}
 	// Pet was chased away and reactivated via Misty — allow re-arrival
@@ -396,9 +398,10 @@ func petCheckSupplyShopUnlock(char *AdventureCharacter) bool {
 // ── Misty Housing Hint ─────────────────────────────────────────────────────
 
 // mistyHousingHint returns a hint about housing/pets if conditions are met.
-// Fires once, after 2+ Misty encounters, player has no house.
-func mistyHousingHint(char *AdventureCharacter) string {
-	if char.HasHouse() || char.MistyEncounterCount < 2 {
+// Fires once, after 2+ Misty encounters, player has no house. Housing
+// state comes from player_meta (L4e reader flip).
+func mistyHousingHint(char *AdventureCharacter, house HouseState) string {
+	if house.HasHouse() || char.MistyEncounterCount < 2 {
 		return ""
 	}
 	if char.MistyDonatedCount > 0 {

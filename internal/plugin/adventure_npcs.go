@@ -244,7 +244,8 @@ func (p *AdventurePlugin) resolveMisty(ctx MessageContext, char *AdventureCharac
 		reply := mistyAcceptLines[rand.IntN(len(mistyAcceptLines))]
 
 		// Housing hint (fires once after 2+ encounters)
-		hint := mistyHousingHint(char)
+		mistyHouse, _ := loadHouseState(char.UserID)
+		hint := mistyHousingHint(char, mistyHouse)
 		if hint != "" {
 			reply += "\n\n_" + hint + "_"
 		}

@@ -63,11 +63,12 @@ func (p *AdventurePlugin) handleDnDSheetCmd(ctx MessageContext) error {
 	equip, _ := loadAdvEquipment(ctx.Sender)
 	treasures, _ := loadAdvTreasureBonuses(ctx.Sender)
 	meta, _ := loadPlayerMeta(ctx.Sender)
+	house, _ := loadHouseState(ctx.Sender)
 
-	return p.SendDM(ctx.Sender, renderDnDSheet(c, advChar, meta, equip, treasures))
+	return p.SendDM(ctx.Sender, renderDnDSheet(c, advChar, meta, house, equip, treasures))
 }
 
-func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, equip map[EquipmentSlot]*AdvEquipment, treasures []AdvTreasureBonus) string {
+func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, house HouseState, equip map[EquipmentSlot]*AdvEquipment, treasures []AdvTreasureBonus) string {
 	ri, _ := raceInfo(c.Race)
 	ci, _ := classInfo(c.Class)
 	mods := c.Modifiers()
@@ -174,8 +175,8 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, 
 		if adv.PetName != "" {
 			b.WriteString(fmt.Sprintf("  Pet: %s the %s (lv %d)\n", adv.PetName, adv.PetType, adv.PetLevel))
 		}
-		if adv.HouseTier > 0 {
-			b.WriteString(fmt.Sprintf("  Housing: tier %d\n", adv.HouseTier))
+		if house.Tier > 0 {
+			b.WriteString(fmt.Sprintf("  Housing: tier %d\n", house.Tier))
 		}
 	}
 

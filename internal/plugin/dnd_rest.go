@@ -126,8 +126,11 @@ func (p *AdventurePlugin) handleDnDLongRest(ctx MessageContext) error {
 		}
 	}
 
-	// Eligibility: housing OR pay inn fee.
-	hasHousing := advChar.HouseTier > 0
+	// Eligibility: housing OR pay inn fee. Housing read flips to
+	// player_meta via loadHouseState (L4e reader flip); falls back to
+	// adventure_characters during the soak window.
+	house, _ := loadHouseState(ctx.Sender)
+	hasHousing := house.Tier > 0
 	innPaid := false
 	if !hasHousing {
 		if p.euro == nil || !p.euro.Debit(ctx.Sender, float64(dndInnCost), "dnd_inn_long_rest") {

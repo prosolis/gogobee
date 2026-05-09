@@ -214,37 +214,37 @@ func TestPetDeathText_NoPet(t *testing.T) {
 // ── Pet Arrival Logic ──────────────────────────────────────────────────────
 
 func TestPetShouldArrive_NoHouse(t *testing.T) {
-	char := &AdventureCharacter{HouseTier: 0}
-	if petShouldArrive(char) {
+	char := &AdventureCharacter{}
+	if petShouldArrive(char, HouseState{Tier: 0}) {
 		t.Error("should not arrive without house")
 	}
 }
 
 func TestPetShouldArrive_BaseHouseOnly(t *testing.T) {
-	char := &AdventureCharacter{HouseTier: 1} // Base house, not yet Livable
-	if petShouldArrive(char) {
+	char := &AdventureCharacter{}
+	if petShouldArrive(char, HouseState{Tier: 1}) { // Base house, not yet Livable
 		t.Error("should not arrive with only base house (need tier 2+)")
 	}
 }
 
 func TestPetShouldArrive_AlreadyArrived(t *testing.T) {
-	char := &AdventureCharacter{HouseTier: 2, PetArrived: true}
-	if petShouldArrive(char) {
+	char := &AdventureCharacter{PetArrived: true}
+	if petShouldArrive(char, HouseState{Tier: 2}) {
 		t.Error("should not trigger if pet already arrived")
 	}
 }
 
 func TestPetShouldArrive_ChasedAway(t *testing.T) {
-	char := &AdventureCharacter{HouseTier: 2, PetChasedAway: true}
-	if petShouldArrive(char) {
+	char := &AdventureCharacter{PetChasedAway: true}
+	if petShouldArrive(char, HouseState{Tier: 2}) {
 		t.Error("should not trigger if pet was chased away (and not reactivated)")
 	}
 }
 
 func TestPetShouldArrive_Reactivated(t *testing.T) {
-	char := &AdventureCharacter{HouseTier: 2, PetChasedAway: true, PetReactivated: true}
+	char := &AdventureCharacter{PetChasedAway: true, PetReactivated: true}
 	// With reactivation, should always return true
-	if !petShouldArrive(char) {
+	if !petShouldArrive(char, HouseState{Tier: 2}) {
 		t.Error("reactivated pet should always trigger arrival")
 	}
 }
@@ -284,21 +284,21 @@ func TestPetMorningEvent_NoPet(t *testing.T) {
 
 func TestMistyHousingHint_NoEncounters(t *testing.T) {
 	char := &AdventureCharacter{MistyEncounterCount: 0}
-	if mistyHousingHint(char) != "" {
+	if mistyHousingHint(char, HouseState{}) != "" {
 		t.Error("should not hint with 0 encounters")
 	}
 }
 
 func TestMistyHousingHint_HasHouse(t *testing.T) {
-	char := &AdventureCharacter{MistyEncounterCount: 3, HouseTier: 1}
-	if mistyHousingHint(char) != "" {
+	char := &AdventureCharacter{MistyEncounterCount: 3}
+	if mistyHousingHint(char, HouseState{Tier: 1}) != "" {
 		t.Error("should not hint if player has house")
 	}
 }
 
 func TestMistyHousingHint_Donated(t *testing.T) {
 	char := &AdventureCharacter{MistyEncounterCount: 2, MistyDonatedCount: 1}
-	hint := mistyHousingHint(char)
+	hint := mistyHousingHint(char, HouseState{})
 	if !strings.Contains(hint, "house") {
 		t.Errorf("donated player hint should mention house, got: %q", hint)
 	}
@@ -306,7 +306,7 @@ func TestMistyHousingHint_Donated(t *testing.T) {
 
 func TestMistyHousingHint_NotDonated(t *testing.T) {
 	char := &AdventureCharacter{MistyEncounterCount: 2, MistyDonatedCount: 0}
-	hint := mistyHousingHint(char)
+	hint := mistyHousingHint(char, HouseState{})
 	if hint != "Thank you for your time." {
 		t.Errorf("non-donor hint should be dismissive, got: %q", hint)
 	}
