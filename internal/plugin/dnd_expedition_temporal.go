@@ -372,7 +372,14 @@ func feywildTemporalPostRollover(e *Expedition) []string {
 		_ = appendExpeditionLog(e.ID, e.CurrentDay, "temporal",
 			"feywild distortion: time loop (room re-enters with new enemies; loot already taken)",
 			line)
-		return []string{line}
+		// §3 Zone 08 — Time Loop returns previously-harvested resources
+		// to the current room's nodes. Combat loot stays gone; only the
+		// renewable harvest nodes loop back.
+		out := []string{line}
+		if restored := restoreHarvestNodesInRoom(e, currentRoomIndexFor(e)); restored {
+			out = append(out, "_Harvest nodes in this room have re-emerged — the timeline isn't sure they were ever taken._")
+		}
+		return out
 	}
 	return nil
 }

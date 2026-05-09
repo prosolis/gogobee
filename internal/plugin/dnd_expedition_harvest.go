@@ -366,6 +366,10 @@ func (p *AdventurePlugin) handleHarvestCmd(ctx MessageContext, action HarvestAct
 			prettyRoomType(run.CurrentRoomType())))
 	}
 
+	if blockReason := zoneConditionHarvestBlock(exp, action); blockReason != "" {
+		return p.SendDM(ctx.Sender, blockReason)
+	}
+
 	roomIdx := run.CurrentRoom
 	nodes := loadHarvestNodes(exp, roomIdx)
 	idx := pickAvailableNode(nodes, exp, char, action)
@@ -415,7 +419,9 @@ func (p *AdventurePlugin) handleHarvestCmd(ctx MessageContext, action HarvestAct
 		}
 	}
 	total := roll + mod
-	outcome := resolveHarvestOutcome(total, res.DC)
+	dcDelta, dcReason := zoneConditionHarvestDCMod(exp, action)
+	effectiveDC := res.DC + dcDelta
+	outcome := resolveHarvestOutcome(total, effectiveDC)
 	outcome = rangerRareCatchUpgrade(char.Class, action, outcome, nil)
 
 	var b strings.Builder
@@ -426,8 +432,17 @@ func (p *AdventurePlugin) handleHarvestCmd(ctx MessageContext, action HarvestAct
 		b.WriteString(dist)
 	}
 	verb := strings.ToTitle(string(action)[:1]) + string(action)[1:]
-	b.WriteString(fmt.Sprintf("**%s · %s** — d20=%d + %d = **%d** vs DC %d\n\n",
-		verb, res.Name, roll, mod, total, res.DC))
+	if dcDelta != 0 {
+		sign := "+"
+		if dcDelta < 0 {
+			sign = ""
+		}
+		b.WriteString(fmt.Sprintf("**%s · %s** — d20=%d + %d = **%d** vs DC %d (%s%d %s)\n\n",
+			verb, res.Name, roll, mod, total, effectiveDC, sign, dcDelta, dcReason))
+	} else {
+		b.WriteString(fmt.Sprintf("**%s · %s** — d20=%d + %d = **%d** vs DC %d\n\n",
+			verb, res.Name, roll, mod, total, effectiveDC))
+	}
 
 	switch outcome {
 	case OutcomeNothing:
@@ -461,6 +476,19 @@ func (p *AdventurePlugin) handleHarvestCmd(ctx MessageContext, action HarvestAct
 	if outcome != OutcomeNothing && nodes[idx].CurrentCharges <= 0 {
 		b.WriteString("\n\n")
 		b.WriteString(flavor.Pick(flavor.NodeDepleted))
+	}
+
+	// §3 Zone 05 — Manor secondary drop on !scavenge (10% per attempt).
+	if rollManorCursedTrinket(exp.ZoneID, action, nil) {
+		if trinket, ok := FindZoneResource(exp.ZoneID, "cursed_trinket"); ok {
+			_ = grantHarvestYield(ctx.Sender, trinket, 1)
+			b.WriteString("\n\n_Something cold turns up in your kit — a small trinket you didn't pocket. **+1 Cursed Trinket.**_")
+			if warned, _ := exp.RegionState["manor_cursed_warned"].(bool); !warned {
+				b.WriteString("\n\n_TwinBee, low: \"Cursed items in this house bind to anyone who equips them. Sell them. Don't wear them. I'll only say this once.\"_")
+				exp.RegionState["manor_cursed_warned"] = true
+				_ = persistRegionState(exp)
+			}
+		}
 	}
 
 	if err := saveHarvestNodes(exp, roomIdx, nodes); err != nil {
@@ -776,4 +804,131 @@ func retireAllRegionRuns(exp *Expedition) error {
 		_ = abandonZoneRunByID(other.RunID)
 	}
 	return nil
+}
+
+// ── R6: Zone-condition harvest interactions (§3 zone notes) ──────────────────
+
+// zoneConditionHarvestBlock returns a human-facing block message when the
+// current zone state forbids harvesting entirely (Heat 10 in Underforge,
+// Infernax awake in Dragon's Lair, Instability 81+ in Abyss). Empty
+// string = harvesting allowed.
+func zoneConditionHarvestBlock(exp *Expedition, action HarvestAction) string {
+	switch exp.ZoneID {
+	case ZoneUnderforge:
+		if action == HarvestMine && exp.TemporalStack >= UnderforgeMaxHeat {
+			return "_The forge stones are white-hot. The hammers shake out of your hands before they bite. Mining is impossible until the heat drops._"
+		}
+	case ZoneDragonsLair:
+		if awake, _ := exp.RegionState["infernax_awake"].(bool); awake {
+			return "_Infernax is hunting these halls now. There's no time to harvest — keep moving or extract._"
+		}
+	case ZoneAbyssPortal:
+		if exp.TemporalStack >= 81 {
+			return "_The Abyss is unraveling. Reality is too loose to anchor a harvest — what you reach for slides between your fingers._"
+		}
+	}
+	return ""
+}
+
+// zoneConditionHarvestDCMod returns a (deltaDC, reason) pair applied to
+// the per-zone harvest roll. Reason is shown alongside the dice line.
+func zoneConditionHarvestDCMod(exp *Expedition, action HarvestAction) (int, string) {
+	switch exp.ZoneID {
+	case ZoneUnderforge:
+		if action == HarvestMine && exp.TemporalStack >= 7 {
+			return 3, "heat-baked stone"
+		}
+	case ZoneDragonsLair:
+		// Awareness pulses fire on every DragonsLairAwarenessCycleDays.
+		// Pulse 3+ = day 9+. Use day count as the proxy (matches §7.5
+		// pulse cadence and the spec's "Awareness Pulse 3+" reading).
+		pulses := 0
+		if d := exp.CurrentDay; d > 0 {
+			pulses = d / DragonsLairAwarenessCycleDays
+		}
+		if pulses >= 3 {
+			return 4, "the lair is alert"
+		}
+	case ZoneAbyssPortal:
+		if exp.TemporalStack >= 61 && exp.TemporalStack < 81 {
+			return 5, "reality surges"
+		}
+	case ZoneFeywildCrossing:
+		if action == HarvestForage {
+			raw, _ := exp.RegionState["feywild_today"].(string)
+			if FeywildDistortion(raw) == FeywildDistortionDouble {
+				return -3, "double-day bloom"
+			}
+		}
+	}
+	return 0, ""
+}
+
+// manorCursedTrinketChance is §3 Zone 05 — every !scavenge in the Manor
+// has a 10% secondary-drop chance regardless of node outcome.
+const manorCursedTrinketChance = 10
+
+// rollManorCursedTrinket returns true when a !scavenge in the Manor
+// should also yield a Cursed Trinket. rng==nil falls back to math/rand.
+func rollManorCursedTrinket(zoneID ZoneID, action HarvestAction, rng func(int) int) bool {
+	if zoneID != ZoneManorBlackspire || action != HarvestScavenge {
+		return false
+	}
+	roll := 0
+	if rng != nil {
+		roll = rng(100)
+	} else {
+		roll = rand.IntN(100)
+	}
+	return roll < manorCursedTrinketChance
+}
+
+// restoreHarvestNodesInRoom resets every node in (region, room) to its
+// MaxCharges. Used by the Feywild Time Loop event (§7.4) — "previous
+// harvest results in that room are nullified."
+func restoreHarvestNodesInRoom(exp *Expedition, roomIdx int) bool {
+	if roomIdx < 0 {
+		return false
+	}
+	nodes := loadHarvestNodes(exp, roomIdx)
+	if len(nodes) == 0 {
+		return false
+	}
+	changed := false
+	for i := range nodes {
+		if nodes[i].CurrentCharges < nodes[i].MaxCharges {
+			nodes[i].CurrentCharges = nodes[i].MaxCharges
+			changed = true
+		}
+	}
+	if !changed {
+		return false
+	}
+	// Write the mutated nodes back into the in-memory table; the
+	// briefing/cycle flow persists RegionState downstream. Avoiding the
+	// persist call here keeps the helper test-friendly without a DB.
+	regionKey := regionHarvestKey(exp)
+	roomKey := roomHarvestKey(roomIdx)
+	table := loadHarvestTable(exp)
+	regionMap := table[regionKey]
+	if regionMap == nil {
+		regionMap = map[string][]HarvestNode{}
+	}
+	regionMap[roomKey] = nodes
+	table[regionKey] = regionMap
+	exp.RegionState[regionStateHarvestKey] = table
+	return true
+}
+
+// currentRoomIndexFor returns the room index of the active region run
+// for an expedition, or -1 if no run is linked or the run can't load.
+func currentRoomIndexFor(e *Expedition) int {
+	if e == nil || e.RunID == "" {
+		return -1
+	}
+	run, err := getZoneRun(e.RunID)
+	if err != nil || run == nil {
+		return -1
+	}
+	return run.CurrentRoom
 }

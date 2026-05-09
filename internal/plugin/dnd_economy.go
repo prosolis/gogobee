@@ -30,15 +30,18 @@ import (
 // ThomCraftRecipe is one §8.2 recipe. Ingredient names match the registry
 // Name field exactly so inventory lookups succeed without fuzzy matching.
 type ThomCraftRecipe struct {
-	ID            string
-	Name          string
-	Ingredients   map[string]int // Name → count
-	OutputName    string
-	OutputType    string // material | item | weapon | armor | accessory | consumable
-	OutputTier    int
-	OutputValue   int64
-	Description   string
-	DiscoveryHint string // shown when newly discovered via !lore
+	ID          string
+	Name        string
+	Ingredients map[string]int // Name → count (exact match)
+	// BladeWeaponCount is the count of generic "any blade weapon"
+	// inventory items consumed (§8.2 Drow Poison Blade). 0 = none.
+	BladeWeaponCount int
+	OutputName       string
+	OutputType       string // material | item | weapon | armor | accessory | consumable
+	OutputTier       int
+	OutputValue      int64
+	Description      string
+	DiscoveryHint    string // shown when newly discovered via !lore
 }
 
 var thomCraftRecipes = []ThomCraftRecipe{
@@ -98,6 +101,43 @@ var thomCraftRecipes = []ThomCraftRecipe{
 		Description:   "Light armor. Stealth advantage 1/day. (Effect wired in R6 polish.)",
 		DiscoveryHint: "Thom: \"Three lengths of ghost silk woven against one drop of shadow essence. The silk fights you while you stitch. That's how you know it's working.\"",
 	},
+	{
+		ID:   "drow_poison_blade",
+		Name: "Drow Poison Blade",
+		Ingredients: map[string]int{
+			"Drow Poison (diluted)": 1,
+		},
+		BladeWeaponCount: 1,
+		OutputName:       "Drow Poison Blade",
+		OutputType:       "weapon",
+		OutputTier:       4,
+		OutputValue:      540,
+		Description:      "Coated blade — sleep-on-crit (DC 14 CON save) for 3 combats. (Effect wired in R6 polish.)",
+		DiscoveryHint:    "Thom turns a glass vial in the lamplight. \"Drow brew, drawn down to a thin coat. Bring me any blade you trust — sword, dagger, scimitar, makes no odds. The poison picks the edge.\"",
+	},
+}
+
+// bladeWeaponKeywords are the name-substrings that qualify an AdvItem
+// (Type=="weapon") as a blade for the §8.2 "any blade weapon" matcher.
+var bladeWeaponKeywords = []string{
+	"sword", "dagger", "blade", "scimitar", "rapier",
+	"knife", "cutlass", "saber", "katana", "falchion",
+	"shortsword", "longsword", "greatsword",
+}
+
+// isBladeWeapon reports whether an inventory item qualifies as a blade
+// for crafting purposes — type "weapon" plus a blade keyword in the name.
+func isBladeWeapon(it AdvItem) bool {
+	if it.Type != "weapon" {
+		return false
+	}
+	low := strings.ToLower(it.Name)
+	for _, kw := range bladeWeaponKeywords {
+		if strings.Contains(low, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 // findRecipeByID returns the recipe with the given ID.
@@ -402,6 +442,18 @@ func renderRecipeBook(userID id.UserID, known map[string]bool) string {
 				ready = false
 			}
 		}
+		if r.BladeWeaponCount > 0 {
+			haveBlades := 0
+			for _, it := range items {
+				if isBladeWeapon(it) {
+					haveBlades++
+				}
+			}
+			parts = append(parts, fmt.Sprintf("any blade weapon ×%d (%d)", r.BladeWeaponCount, haveBlades))
+			if haveBlades < r.BladeWeaponCount {
+				ready = false
+			}
+		}
 		sb.WriteString("  Ingredients: " + strings.Join(parts, " + ") + "\n")
 		sb.WriteString("  " + r.Description + "\n")
 		if ready {
@@ -439,12 +491,18 @@ func (p *AdventurePlugin) executeCraft(userID id.UserID, r ThomCraftRecipe) erro
 		return p.SendDM(userID, "Couldn't load inventory.")
 	}
 
-	// Pick item IDs to consume — first-fit per ingredient name.
+	// Pick item IDs to consume — first-fit per ingredient name plus any
+	// generic "blade weapon" slots required by the recipe.
 	consume, missing := pickIngredients(items, r.Ingredients)
-	if len(missing) > 0 {
+	bladeIDs, bladeShort := pickBladeWeapons(items, r.BladeWeaponCount, consume)
+	consume = append(consume, bladeIDs...)
+	if len(missing) > 0 || bladeShort > 0 {
 		var lines []string
 		for ing, short := range missing {
 			lines = append(lines, fmt.Sprintf("  • %s — short %d", ing, short))
+		}
+		if bladeShort > 0 {
+			lines = append(lines, fmt.Sprintf("  • any blade weapon — short %d", bladeShort))
 		}
 		return p.SendDM(userID, fmt.Sprintf(
 			"_Thom: \"Not enough material. Come back when you've got the rest.\"_\n\n%s",
@@ -471,6 +529,33 @@ func (p *AdventurePlugin) executeCraft(userID id.UserID, r ThomCraftRecipe) erro
 		"**Thom Krooke** lays the materials out, works for a moment, and slides the result back to you.\n\n"+
 			"Crafted: **%s** _(tier %d, sell value €%d)_\n%s",
 		r.OutputName, r.OutputTier, r.OutputValue, r.Description))
+}
+
+// pickBladeWeapons returns inventory IDs covering the requested generic
+// blade-weapon count, skipping any IDs already in `exclude`. Returns the
+// chosen IDs plus a shortfall count when inventory can't cover.
+func pickBladeWeapons(items []AdvItem, count int, exclude []int64) ([]int64, int) {
+	if count <= 0 {
+		return nil, 0
+	}
+	used := map[int64]bool{}
+	for _, id := range exclude {
+		used[id] = true
+	}
+	var picked []int64
+	for _, it := range items {
+		if len(picked) >= count {
+			break
+		}
+		if used[it.ID] {
+			continue
+		}
+		if isBladeWeapon(it) {
+			picked = append(picked, it.ID)
+			used[it.ID] = true
+		}
+	}
+	return picked, count - len(picked)
 }
 
 // pickIngredients walks the inventory and selects item IDs to consume,
