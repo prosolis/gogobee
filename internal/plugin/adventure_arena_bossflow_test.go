@@ -84,6 +84,57 @@ func TestArenaBossPhaseTwoAt(t *testing.T) {
 	}
 }
 
+// Phase L2 step 4b — flag gate. Empty / "0" / "false" disable the new
+// boss-flow path; anything else (including "1") enables it.
+func TestArenaBossFlowEnabled(t *testing.T) {
+	cases := []struct {
+		val  string
+		want bool
+	}{
+		{"", false},
+		{"0", false},
+		{"false", false},
+		{"FALSE", false},
+		{"False", false},
+		{"1", true},
+		{"true", true},
+		{"on", true},
+	}
+	for _, c := range cases {
+		t.Setenv("ARENA_BOSS_FLOW", c.val)
+		if got := arenaBossFlowEnabled(); got != c.want {
+			t.Errorf("arenaBossFlowEnabled with %q = %v want %v", c.val, got, c.want)
+		}
+	}
+}
+
+// Phase L2 step 4b — staged-narration assembly. The intro line leads,
+// followed by the combat-log phases, mirroring streamOrSend's
+// intro+phases pattern in dnd_zone_cmd.go.
+func TestBossFlowPhaseMessages(t *testing.T) {
+	n := &arenaBossNarration{
+		intro:  "🏟️ **Arena T1 R1 — Slug** (HP 12, AC 10)",
+		phases: []string{"phase A", "phase B"},
+	}
+	got := bossFlowPhaseMessages(n)
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3 (intro + 2 phases): %v", len(got), got)
+	}
+	if got[0] != n.intro {
+		t.Errorf("got[0] = %q, want intro %q", got[0], n.intro)
+	}
+	if got[1] != "phase A" || got[2] != "phase B" {
+		t.Errorf("phases out of order: %v", got)
+	}
+
+	// No intro → just the phases, unchanged.
+	n2 := &arenaBossNarration{phases: []string{"only"}}
+	got2 := bossFlowPhaseMessages(n2)
+	if len(got2) != 1 || got2[0] != "only" {
+		t.Errorf("no-intro case: got %v want [only]", got2)
+	}
+}
+
 func TestArenaBosses_AllTiersPopulated(t *testing.T) {
 	for tier := 1; tier <= 5; tier++ {
 		for round := 1; round <= 4; round++ {

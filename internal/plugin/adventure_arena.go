@@ -188,10 +188,45 @@ func (p *AdventurePlugin) confirmAndStartArenaRun(ctx MessageContext) error {
 	return p.resolveArenaRound(ctx, run, char, equip, tier, monster)
 }
 
+// arenaBossNarration carries the staged-narration trio produced by
+// resolveArenaBoss (Phase L2 step 4b). When non-nil it tells the
+// survival/death handlers to skip the legacy RenderCombatLogArena +
+// dnd opening/closing/roll-summary stack and instead use the
+// pre-rendered boss-flow intro/phases/outcome.
+type arenaBossNarration struct {
+	intro   string
+	phases  []string
+	outcome string
+}
+
 // resolveArenaRound runs a single arena round through the combat engine and
-// dispatches to survival or death handlers.
+// dispatches to survival or death handlers. When ARENA_BOSS_FLOW is set, the
+// round is routed through resolveArenaBoss (zone-boss combat + staged
+// narration) and the resulting CombatResult / narration are threaded into
+// the existing economic glue.
 func (p *AdventurePlugin) resolveArenaRound(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, tier *ArenaTier, monster *ArenaMonster) error {
-	result, condRepair := p.runArenaCombat(ctx.Sender, char, equip, monster, run.Round, run.Tier)
+	var (
+		result     CombatResult
+		condRepair int
+		bossNarr   *arenaBossNarration
+	)
+
+	if arenaBossFlowEnabled() {
+		intro, phases, outcome, res, err := p.resolveArenaBoss(ctx.Sender, ArenaBossEncounter{
+			Tier:        run.Tier,
+			Round:       run.Round,
+			DisplayName: char.DisplayName,
+		})
+		if err != nil {
+			slog.Error("arena: boss flow failed, falling back to legacy", "user", ctx.Sender, "err", err)
+		} else {
+			result = res
+			bossNarr = &arenaBossNarration{intro: intro, phases: phases, outcome: outcome}
+		}
+	}
+	if bossNarr == nil {
+		result, condRepair = p.runArenaCombat(ctx.Sender, char, equip, monster, run.Round, run.Tier)
+	}
 
 	// Apply event-based equipment degradation
 	degradation := combatDegradation(result, equip)
@@ -212,15 +247,16 @@ func (p *AdventurePlugin) resolveArenaRound(ctx MessageContext, run *ArenaRun, c
 	}
 
 	if !result.PlayerWon {
-		return p.resolveArenaDeath(ctx, run, char, tier, monster, result)
+		return p.resolveArenaDeath(ctx, run, char, tier, monster, result, bossNarr)
 	}
 
-	// Misty condition repair (post-combat)
+	// Misty condition repair (post-combat). Boss-flow path runs through
+	// runZoneCombat which doesn't surface condRepair; skip it there.
 	if condRepair > 0 {
 		npcRepairMostDamaged(ctx.Sender, equip, condRepair)
 	}
 
-	return p.resolveArenaSurvival(ctx, run, char, tier, monster, result)
+	return p.resolveArenaSurvival(ctx, run, char, tier, monster, result, bossNarr)
 }
 
 func (p *AdventurePlugin) handleArenaCancel(ctx MessageContext) error {
@@ -299,7 +335,7 @@ func (p *AdventurePlugin) handleArenaLeaderboard(ctx MessageContext) error {
 var arenaStreakEuroMultiplier = [6]float64{0, 1.0, 1.5, 2.0, 2.75, 4.0} // index = tier
 var arenaStreakXPMultiplier = [6]float64{0, 1.0, 1.2, 1.5, 1.85, 2.5}   // index = tiers won
 
-func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, result CombatResult) error {
+func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, result CombatResult, bossNarr *arenaBossNarration) error {
 	// Calculate reward — accumulate in tier earnings, not credited yet
 	reward := arenaRoundReward(tier, run.Round, char.CombatLevel)
 	run.TierEarnings += reward
@@ -317,18 +353,29 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 	}
 	run.XPAccumulated += battleXP
 
-	// Render combat log as phased messages + final outcome
-	phaseMessages := RenderCombatLogArena(result, char.DisplayName, monster.Name)
-	phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
-	if open := dndCombatOpeningLine(); open != "" && len(phaseMessages) > 0 {
-		phaseMessages[0] = "_" + open + "_\n\n" + phaseMessages[0]
-	}
-	finalMessage := renderArenaCombatFinalMessage(result, monster, reward, battleXP, run.Round)
-	// Boss = T5 final round. Use BossDeath flavor for that fight's win.
-	isBoss := run.Tier == 5
-	finalMessage += dndItalicize(dndCombatClosingLine(true, isBoss))
-	if rollLine := dndRollSummaryLine(result); rollLine != "" {
-		finalMessage += "\n" + rollLine
+	// Render combat log as phased messages + final outcome. Boss-flow path
+	// uses pre-rendered intro/phases/outcome; legacy path builds them here.
+	var (
+		phaseMessages []string
+		finalMessage  string
+	)
+	if bossNarr != nil {
+		phaseMessages = bossFlowPhaseMessages(bossNarr)
+		phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
+		finalMessage = bossNarr.outcome + fmt.Sprintf("\n🏆 +%d XP | €%d earned", battleXP, reward)
+	} else {
+		phaseMessages = RenderCombatLogArena(result, char.DisplayName, monster.Name)
+		phaseMessages = p.prependCraftNarrative(ctx.Sender, phaseMessages)
+		if open := dndCombatOpeningLine(); open != "" && len(phaseMessages) > 0 {
+			phaseMessages[0] = "_" + open + "_\n\n" + phaseMessages[0]
+		}
+		finalMessage = renderArenaCombatFinalMessage(result, monster, reward, battleXP, run.Round)
+		// Boss = T5 final round. Use BossDeath flavor for that fight's win.
+		isBoss := run.Tier == 5
+		finalMessage += dndItalicize(dndCombatClosingLine(true, isBoss))
+		if rollLine := dndRollSummaryLine(result); rollLine != "" {
+			finalMessage += "\n" + rollLine
+		}
 	}
 
 	// Suppress the "(at risk)" line on the tier-completing round — those earnings
@@ -373,7 +420,7 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 			finalMessage += fmt.Sprintf("\n🏆 **Tier %d cleared!** Round earnings: €%d + completion bonus: €%d (×%.1f streak)\n",
 				tier.Number, tierRaw, tier.CompletionBonus, multiplier)
 
-			done := p.sendCombatMessages(ctx.Sender, phaseMessages, finalMessage)
+			done := p.sendArenaCombatMessages(ctx.Sender, phaseMessages, finalMessage, bossNarr != nil)
 			<-done
 			return p.arenaCompleteSession(ctx.Sender, run, char, "")
 		}
@@ -392,7 +439,7 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 			p.postArenaDropAnnouncement(char.DisplayName, dropped)
 		}
 
-		done := p.sendCombatMessages(ctx.Sender, phaseMessages, finalMessage)
+		done := p.sendArenaCombatMessages(ctx.Sender, phaseMessages, finalMessage, bossNarr != nil)
 		go func() {
 			<-done
 			p.arenaCountdown(ctx.Sender, run)
@@ -414,17 +461,44 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 		finalMessage += "`!arena fight` — Face this opponent"
 	}
 
-	p.sendCombatMessages(ctx.Sender, phaseMessages, finalMessage)
+	p.sendArenaCombatMessages(ctx.Sender, phaseMessages, finalMessage, bossNarr != nil)
 	return nil
 }
 
-func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, result CombatResult) error {
+// sendArenaCombatMessages dispatches arena phase narration. Boss-flow uses
+// the tighter zone-combat pacing (2–3s); legacy uses arena pacing (5–8s).
+func (p *AdventurePlugin) sendArenaCombatMessages(userID id.UserID, phases []string, final string, bossFlow bool) <-chan struct{} {
+	if bossFlow {
+		return p.sendZoneCombatMessages(userID, phases, final)
+	}
+	return p.sendCombatMessages(userID, phases, final)
+}
+
+// bossFlowPhaseMessages prepends the resolveArenaBoss intro line to the
+// staged combat phases, mirroring streamOrSend's intro+phases pattern in
+// dnd_zone_cmd.go.
+func bossFlowPhaseMessages(n *arenaBossNarration) []string {
+	if n.intro == "" {
+		return append([]string{}, n.phases...)
+	}
+	out := make([]string, 0, len(n.phases)+1)
+	out = append(out, n.intro)
+	out = append(out, n.phases...)
+	return out
+}
+
+func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, tier *ArenaTier, monster *ArenaMonster, result CombatResult, bossNarr *arenaBossNarration) error {
 	run.LastMonster = monster.Name
 	lostEarnings := run.Earnings + run.TierEarnings
 
-	phaseMessages := RenderCombatLogArena(result, char.DisplayName, monster.Name)
-	if open := dndCombatOpeningLine(); open != "" && len(phaseMessages) > 0 {
-		phaseMessages[0] = "_" + open + "_\n\n" + phaseMessages[0]
+	var phaseMessages []string
+	if bossNarr != nil {
+		phaseMessages = bossFlowPhaseMessages(bossNarr)
+	} else {
+		phaseMessages = RenderCombatLogArena(result, char.DisplayName, monster.Name)
+		if open := dndCombatOpeningLine(); open != "" && len(phaseMessages) > 0 {
+			phaseMessages[0] = "_" + open + "_\n\n" + phaseMessages[0]
+		}
 	}
 
 	dt := transitionDeath(DeathTransitionParams{
@@ -454,10 +528,15 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	insertArenaHistory(run.UserID, run.StartTier, run.Tier, run.RoundsSurvived, 0, "dead", monster.Name)
 	upsertArenaStats(run.UserID, 0, true, run.Tier)
 
-	finalMsg := renderArenaCombatFinalMessage(result, monster, 0, arenaParticipationXP, run.Round)
-	finalMsg += dndItalicize(dndCombatClosingLine(false, false))
-	if rollLine := dndRollSummaryLine(result); rollLine != "" {
-		finalMsg += "\n" + rollLine
+	var finalMsg string
+	if bossNarr != nil {
+		finalMsg = bossNarr.outcome + fmt.Sprintf("\n+%d XP (participation) | Back tomorrow.", arenaParticipationXP)
+	} else {
+		finalMsg = renderArenaCombatFinalMessage(result, monster, 0, arenaParticipationXP, run.Round)
+		finalMsg += dndItalicize(dndCombatClosingLine(false, false))
+		if rollLine := dndRollSummaryLine(result); rollLine != "" {
+			finalMsg += "\n" + rollLine
+		}
 	}
 	if dt.PetRecovered {
 		finalMsg += fmt.Sprintf("\n\nYour pet dragged you out of the arena. Death timer reduced. All session earnings forfeited.")
@@ -471,7 +550,7 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 		}
 	}
 
-	done := p.sendCombatMessages(ctx.Sender, phaseMessages, finalMsg)
+	done := p.sendArenaCombatMessages(ctx.Sender, phaseMessages, finalMsg, bossNarr != nil)
 
 	if dt.PetRecovered {
 		gr := gamesRoom()
