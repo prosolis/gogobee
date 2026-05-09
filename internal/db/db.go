@@ -241,6 +241,15 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE player_meta ADD COLUMN foraging_xp INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN fishing_skill INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN fishing_xp INTEGER NOT NULL DEFAULT 0`,
+		// Adv 2.0 Phase L5b — Babysit state migration off AdvCharacter.
+		// BabysitActive / BabysitExpiresAt / BabysitSkillFocus / AutoBabysit /
+		// AutoBabysitFocus move to player_meta; AdvCharacter columns keep
+		// dual-writing during soak (gogobee_legacy_migration.md §7.3 L5b).
+		`ALTER TABLE player_meta ADD COLUMN babysit_active INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN babysit_expires_at DATETIME`,
+		`ALTER TABLE player_meta ADD COLUMN babysit_skill_focus TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE player_meta ADD COLUMN auto_babysit INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN auto_babysit_focus TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

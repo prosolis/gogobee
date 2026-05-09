@@ -143,6 +143,9 @@ func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) er
 		p.euro.Credit(char.UserID, float64(totalCost), "babysit_refund")
 		return p.SendDM(ctx.Sender, "Something went wrong activating the service. Your gold has been refunded.")
 	}
+	if err := upsertPlayerMetaBabysitState(char.UserID, babysitStateFromAdvChar(char)); err != nil {
+		slog.Error("player_meta: babysit start dual-write failed", "user", char.UserID, "err", err)
+	}
 
 	confirm := pickBabysitFlavor(babysitConfirmLines)
 	durLabel := "1 week"
@@ -234,6 +237,9 @@ func (p *AdventurePlugin) handleBabysitCancel(ctx MessageContext) error {
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("babysit: failed to save character on cancel", "user", char.UserID, "err", err)
 	}
+	if err := upsertPlayerMetaBabysitState(char.UserID, babysitStateFromAdvChar(char)); err != nil {
+		slog.Error("player_meta: babysit cancel dual-write failed", "user", char.UserID, "err", err)
+	}
 
 	return p.SendDM(ctx.Sender, "🍼 Service cancelled. No refund. The babysitter was already there.\n\n"+summary)
 }
@@ -262,6 +268,9 @@ func (p *AdventurePlugin) checkBabysitExpiry(chars []AdventureCharacter) {
 		if err := saveAdvCharacter(&char); err != nil {
 			slog.Error("babysit: failed to save character on expiry", "user", char.UserID, "err", err)
 			continue
+		}
+		if err := upsertPlayerMetaBabysitState(char.UserID, babysitStateFromAdvChar(&char)); err != nil {
+			slog.Error("player_meta: babysit expiry dual-write failed", "user", char.UserID, "err", err)
 		}
 
 		if err := p.SendDM(char.UserID, summary); err != nil {

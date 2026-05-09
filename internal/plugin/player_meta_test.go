@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"testing"
+	"time"
 
 	"gogobee/internal/db"
 	"maunium.net/go/mautrix/id"
@@ -897,6 +898,146 @@ func TestUpsertPlayerMetaSkillState_RoundTrip(t *testing.T) {
 	got2, _ := loadSkillState(uid)
 	if got2 != in {
 		t.Errorf("update mismatch:\n got=%+v\nwant=%+v", got2, in)
+	}
+}
+
+func TestPlayerMetaBabysitStateBackfill_Idempotent(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-baby-bf:example")
+	if err := createAdvCharacter(uid, "Sitter"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	expires := time.Now().UTC().Add(7 * 24 * time.Hour).Truncate(time.Second)
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET babysit_active = ?, babysit_expires_at = ?, babysit_skill_focus = ?,
+		        auto_babysit = ?, auto_babysit_focus = ?
+		  WHERE user_id = ?`,
+		1, expires, "mining", 1, "fishing", string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET babysit_active = 0, babysit_expires_at = NULL,
+		        babysit_skill_focus = '', auto_babysit = 0, auto_babysit_focus = '' WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	if err := backfillPlayerMetaBabysitState(); err != nil {
+		t.Fatalf("backfill 1: %v", err)
+	}
+	got, err := loadBabysitState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !got.Active || got.SkillFocus != "mining" || !got.AutoBabysit || got.AutoBabysitFocus != "fishing" {
+		t.Errorf("after backfill: got %+v", got)
+	}
+	if got.ExpiresAt == nil || !got.ExpiresAt.Equal(expires) {
+		t.Errorf("expires_at: got %v want %v", got.ExpiresAt, expires)
+	}
+
+	// Layer a dual-write: cancel.
+	got.Active = false
+	got.ExpiresAt = nil
+	got.SkillFocus = ""
+	if err := upsertPlayerMetaBabysitState(uid, got); err != nil {
+		t.Fatalf("dual-write: %v", err)
+	}
+	if err := backfillPlayerMetaBabysitState(); err != nil {
+		t.Fatalf("backfill 2: %v", err)
+	}
+	got2, _ := loadBabysitState(uid)
+	if got2.Active {
+		t.Errorf("backfill clobbered cancel: got %+v", got2)
+	}
+}
+
+func TestLoadBabysitState_FallsBackToAdvCharacter(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-baby-fb:example")
+	if err := createAdvCharacter(uid, "Faller"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	expires := time.Now().UTC().Add(30 * 24 * time.Hour).Truncate(time.Second)
+	if _, err := db.Get().Exec(
+		`UPDATE adventure_characters
+		    SET babysit_active = ?, babysit_expires_at = ?
+		  WHERE user_id = ?`,
+		1, expires, string(uid),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE player_meta SET babysit_active = 0, babysit_expires_at = NULL WHERE user_id = ?`,
+		string(uid),
+	); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	got, err := loadBabysitState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !got.Active {
+		t.Errorf("fallback should be active: got %+v", got)
+	}
+	if got.ExpiresAt == nil || !got.ExpiresAt.Equal(expires) {
+		t.Errorf("expires_at: got %v want %v", got.ExpiresAt, expires)
+	}
+
+	// Unknown user → zero state, no error.
+	got2, err := loadBabysitState(id.UserID("@meta-baby-nobody:example"))
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if got2.Active {
+		t.Errorf("missing user: got %+v", got2)
+	}
+}
+
+func TestUpsertPlayerMetaBabysitState_RoundTrip(t *testing.T) {
+	setupAuditTestDB(t)
+
+	uid := id.UserID("@meta-baby-rt:example")
+	expires := time.Now().UTC().Add(14 * 24 * time.Hour).Truncate(time.Second)
+	in := BabysitState{
+		Active:           true,
+		ExpiresAt:        &expires,
+		SkillFocus:       "foraging",
+		AutoBabysit:      true,
+		AutoBabysitFocus: "mining",
+	}
+	if err := upsertPlayerMetaBabysitState(uid, in); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	got, err := loadBabysitState(uid)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !got.Active || got.SkillFocus != "foraging" || !got.AutoBabysit || got.AutoBabysitFocus != "mining" {
+		t.Errorf("round-trip mismatch: got %+v", got)
+	}
+	if got.ExpiresAt == nil || !got.ExpiresAt.Equal(expires) {
+		t.Errorf("expires_at: got %v want %v", got.ExpiresAt, expires)
+	}
+
+	// Cancel → inactive falls through, but verify upsert wrote 0.
+	in.Active = false
+	in.ExpiresAt = nil
+	if err := upsertPlayerMetaBabysitState(uid, in); err != nil {
+		t.Fatalf("upsert cancel: %v", err)
+	}
+	var activeInt int
+	if err := db.Get().QueryRow(`SELECT babysit_active FROM player_meta WHERE user_id = ?`, string(uid)).Scan(&activeInt); err != nil {
+		t.Fatalf("verify cancel: %v", err)
+	}
+	if activeInt != 0 {
+		t.Errorf("cancel should write 0: got %d", activeInt)
 	}
 }
 

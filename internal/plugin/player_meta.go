@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log/slog"
+	"time"
 
 	"gogobee/internal/db"
 	"maunium.net/go/mautrix/id"
@@ -924,6 +925,165 @@ func skillStateFromAdvChar(c *AdventureCharacter) SkillState {
 		ForagingXP:    c.ForagingXP,
 		FishingSkill:  c.FishingSkill,
 		FishingXP:     c.FishingXP,
+	}
+}
+
+// BabysitState is the in-memory mirror of player_meta's babysit columns.
+// Phase L5b ports babysit state off AdvCharacter (gogobee_legacy_migration.md
+// §7.3 L5b). Five fields: the active service (Active + ExpiresAt +
+// SkillFocus — legacy slot, no longer mutated) and the auto-babysit
+// preference (AutoBabysit + AutoBabysitFocus, dormant in current code but
+// preserved for the schema migration).
+type BabysitState struct {
+	Active           bool
+	ExpiresAt        *time.Time
+	SkillFocus       string
+	AutoBabysit      bool
+	AutoBabysitFocus string
+}
+
+// IsActive returns true when the babysit service is on. Used as the "row
+// is migrated" marker in loadBabysitState; an idle row is
+// indistinguishable from a never-populated row, so it falls through to the
+// legacy table during the soak window.
+func (s BabysitState) IsActive() bool { return s.Active }
+
+// upsertPlayerMetaBabysitState writes the full babysit column set for a
+// user. Used by the dual-write path during the L5b soak window.
+func upsertPlayerMetaBabysitState(userID id.UserID, s BabysitState) error {
+	active := 0
+	if s.Active {
+		active = 1
+	}
+	auto := 0
+	if s.AutoBabysit {
+		auto = 1
+	}
+	var expires interface{}
+	if s.ExpiresAt != nil {
+		expires = s.ExpiresAt.UTC()
+	}
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (
+		   user_id, babysit_active, babysit_expires_at, babysit_skill_focus,
+		   auto_babysit, auto_babysit_focus
+		 ) VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   babysit_active = excluded.babysit_active,
+		   babysit_expires_at = excluded.babysit_expires_at,
+		   babysit_skill_focus = excluded.babysit_skill_focus,
+		   auto_babysit = excluded.auto_babysit,
+		   auto_babysit_focus = excluded.auto_babysit_focus`,
+		string(userID), active, expires, s.SkillFocus, auto, s.AutoBabysitFocus,
+	)
+	return err
+}
+
+// loadBabysitState returns the player's babysit state from player_meta
+// when active, falling back to adventure_characters during the L5b soak
+// window. An inactive row falls through to the legacy table since an
+// inactive player_meta row is indistinguishable from an unmigrated one.
+func loadBabysitState(userID id.UserID) (BabysitState, error) {
+	var (
+		s         BabysitState
+		activeInt int
+		autoInt   int
+		expires   sql.NullTime
+	)
+	err := db.Get().QueryRow(
+		`SELECT babysit_active, babysit_expires_at, babysit_skill_focus,
+		        auto_babysit, auto_babysit_focus
+		   FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&activeInt, &expires, &s.SkillFocus, &autoInt, &s.AutoBabysitFocus)
+	if err == nil && activeInt == 1 {
+		s.Active = true
+		s.AutoBabysit = autoInt == 1
+		if expires.Valid {
+			t := expires.Time.UTC()
+			s.ExpiresAt = &t
+		}
+		return s, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return BabysitState{}, err
+	}
+	// Fallback to AdvCharacter during soak.
+	var (
+		legacyActive  int
+		legacyExpires sql.NullTime
+		legacyFocus   string
+		legacyAuto    int
+		legacyAutoFoc string
+	)
+	err = db.Get().QueryRow(
+		`SELECT babysit_active, babysit_expires_at, babysit_skill_focus,
+		        auto_babysit, auto_babysit_focus
+		   FROM adventure_characters WHERE user_id = ?`,
+		string(userID),
+	).Scan(&legacyActive, &legacyExpires, &legacyFocus, &legacyAuto, &legacyAutoFoc)
+	if err == sql.ErrNoRows {
+		return BabysitState{}, nil
+	}
+	if err != nil {
+		return BabysitState{}, err
+	}
+	out := BabysitState{
+		Active:           legacyActive == 1,
+		SkillFocus:       legacyFocus,
+		AutoBabysit:      legacyAuto == 1,
+		AutoBabysitFocus: legacyAutoFoc,
+	}
+	if legacyExpires.Valid {
+		t := legacyExpires.Time.UTC()
+		out.ExpiresAt = &t
+	}
+	return out, nil
+}
+
+// backfillPlayerMetaBabysitState copies the babysit columns from
+// adventure_characters into player_meta for any row whose babysit_active
+// is still 0 AND the legacy row has babysit_active = 1. Idempotent: only
+// fills inactive rows whose legacy counterpart is active.
+func backfillPlayerMetaBabysitState() error {
+	if _, err := db.Get().Exec(`
+		INSERT OR IGNORE INTO player_meta (user_id)
+		SELECT user_id FROM adventure_characters
+	`); err != nil {
+		return err
+	}
+	res, err := db.Get().Exec(`
+		UPDATE player_meta
+		SET babysit_active      = (SELECT babysit_active      FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    babysit_expires_at  = (SELECT babysit_expires_at  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    babysit_skill_focus = (SELECT babysit_skill_focus FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    auto_babysit        = (SELECT auto_babysit        FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id),
+		    auto_babysit_focus  = (SELECT auto_babysit_focus  FROM adventure_characters ac WHERE ac.user_id = player_meta.user_id)
+		WHERE babysit_active = 0
+		  AND EXISTS (
+			SELECT 1 FROM adventure_characters ac
+			WHERE ac.user_id = player_meta.user_id
+			  AND ac.babysit_active = 1
+		  )
+	`)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	slog.Info("player_meta: babysit state backfilled", "rows", n)
+	return nil
+}
+
+// babysitStateFromAdvChar projects the babysit-related fields off an
+// AdventureCharacter into a BabysitState. Used by the dual-write path
+// during the L5b soak window.
+func babysitStateFromAdvChar(c *AdventureCharacter) BabysitState {
+	return BabysitState{
+		Active:           c.BabysitActive,
+		ExpiresAt:        c.BabysitExpiresAt,
+		SkillFocus:       c.BabysitSkillFocus,
+		AutoBabysit:      c.AutoBabysit,
+		AutoBabysitFocus: c.AutoBabysitFocus,
 	}
 }
 
