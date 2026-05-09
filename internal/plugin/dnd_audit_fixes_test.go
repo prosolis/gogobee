@@ -200,37 +200,6 @@ func TestArm_SaveThenSpend_HappyPath(t *testing.T) {
 	}
 }
 
-// ── Fix F: onboarding sent exactly once across draft cancel/rebuild ────────
-
-func TestOnboarding_PersistsAcrossRespec(t *testing.T) {
-	setupAuditTestDB(t)
-	uid := id.UserID("@onboard_persist:example")
-	c := &DnDCharacter{
-		UserID: uid, Race: RaceHuman, Class: ClassFighter, Level: 3,
-		STR: 16, DEX: 13, CON: 14, INT: 8, WIS: 10, CHA: 12,
-		HPMax: 30, HPCurrent: 30, ArmorClass: 16,
-		OnboardingSent: true, // already received DM
-	}
-	if err := SaveDnDCharacter(c); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := LoadDnDCharacter(uid)
-	if !got.OnboardingSent {
-		t.Fatal("OnboardingSent didn't round-trip")
-	}
-
-	// maybeSendDnDOnboarding must NOT re-send.
-	p := &AdventurePlugin{}
-	advChar := &AdventureCharacter{UserID: uid, CombatLevel: 20}
-	p.maybeSendDnDOnboarding(uid, advChar, got)
-
-	// Flag must remain set; no error.
-	got2, _ := LoadDnDCharacter(uid)
-	if !got2.OnboardingSent {
-		t.Error("OnboardingSent flag flipped off")
-	}
-}
-
 // ── Fix G: Persuasion shop discount expires after 30 minutes ────────────────
 
 func TestPersuasionDiscount_ExpiresAfterTTL(t *testing.T) {
@@ -267,11 +236,10 @@ func TestPersuasionDiscount_ActiveWithinTTL(t *testing.T) {
 
 // ── Fix I: HP scaling clamp ─────────────────────────────────────────────────
 
-// ── Onboarding gap: !setup-first path and wrapper for non-combat handlers ──
+// ── Wrapper for non-combat handlers ──────────────────────────────────────
 
 // TestEnsureCharForDnDCmd_FreshMigrate — the wrapper used by !check, !stats,
-// !level, !rest, !arm should auto-migrate AND record OnboardingSent=true
-// for legacy players.
+// !level, !rest, !arm should auto-migrate any legacy player without a D&D row.
 func TestEnsureCharForDnDCmd_FreshMigrate(t *testing.T) {
 	setupAuditTestDB(t)
 	uid := id.UserID("@wrapper_legacy:example")
@@ -284,9 +252,6 @@ func TestEnsureCharForDnDCmd_FreshMigrate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Plugin without Matrix client — maybeSendDnDOnboarding short-circuits.
-	// We only verify that the wrapper produces a character; the DM-side
-	// short-circuit means OnboardingSent stays false until a real send fires.
 	p := &AdventurePlugin{}
 	c, err := p.ensureCharForDnDCmd(uid, advChar)
 	if err != nil || c == nil {
@@ -300,67 +265,32 @@ func TestEnsureCharForDnDCmd_FreshMigrate(t *testing.T) {
 	}
 }
 
-// TestSetupStatus_LegacyWelcomeStubsRow — when a legacy player runs `!setup`
-// for the first time, we save a stub draft with OnboardingSent persisted so
-// future paths don't re-fire the welcome.
-//
-// SendDM no-ops in tests (nil Client), so OnboardingSent stays 0 on the
-// stub. The behavior we verify: a stub row gets saved on first !setup, and
-// it's flagged PendingSetup=1 so loadOrInitDraft will continue the flow.
-func TestSetupStatus_StubRowSaved(t *testing.T) {
+// TestSetupStatus_NoStubOnFirstSetup — `!setup` for a player without a D&D
+// row must NOT pre-create one; the row is created only on `!setup confirm`.
+// (Pre-L5g this branch saved a stub for legacy players to carry the
+// onboarding-DM flag; that mechanism has been retired.)
+func TestSetupStatus_NoStubOnFirstSetup(t *testing.T) {
 	setupAuditTestDB(t)
-	uid := id.UserID("@setup_first:example")
-	if err := createAdvCharacter(uid, "setup_first"); err != nil {
-		t.Fatal(err)
+	for _, uid := range []id.UserID{"@setup_legacy:example", "@setup_new:example"} {
+		if err := createAdvCharacter(uid, string(uid)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	advChar, _ := loadAdvCharacter(uid)
-	advChar.CombatLevel = 30
-	saveAdvCharacter(advChar)
+
+	// Legacy player (CombatLevel = 30) — used to get a stub.
+	advLegacy, _ := loadAdvCharacter("@setup_legacy:example")
+	advLegacy.CombatLevel = 30
+	saveAdvCharacter(advLegacy)
 
 	p := &AdventurePlugin{}
-	if err := p.dndSetupStatus(MessageContext{Sender: uid}); err != nil {
-		t.Fatal(err)
-	}
-
-	// Stub row should now exist.
-	got, err := LoadDnDCharacter(uid)
-	if err != nil || got == nil {
-		t.Fatalf("expected stub row after !setup; got err=%v", err)
-	}
-	if !got.PendingSetup {
-		t.Error("stub row should be pending_setup=1")
-	}
-	if got.Race != "" || got.Class != "" {
-		t.Errorf("stub row should have empty race/class; got race=%q class=%q",
-			got.Race, got.Class)
-	}
-	// Level on the stub must be the computed mapping (not the default 1)
-	// so the onboarding DM reports the correct projected level.
-	wantLevel := dndLevelFromCombatLevel(30) // 30/5 = 6
-	if got.Level != wantLevel {
-		t.Errorf("stub level = %d, want %d (combat_level=30 → /5)", got.Level, wantLevel)
-	}
-}
-
-// TestSetupStatus_BrandNewPlayerNoStub — combat_level < 2 means brand-new
-// player. The !setup flow must NOT save a stub or fire onboarding.
-func TestSetupStatus_BrandNewPlayerNoStub(t *testing.T) {
-	setupAuditTestDB(t)
-	uid := id.UserID("@setup_new:example")
-	if err := createAdvCharacter(uid, "setup_new"); err != nil {
-		t.Fatal(err)
-	}
-	// CombatLevel stays at default (1).
-
-	p := &AdventurePlugin{}
-	if err := p.dndSetupStatus(MessageContext{Sender: uid}); err != nil {
-		t.Fatal(err)
-	}
-
-	// No row should exist — brand-new player flow doesn't pre-create.
-	got, _ := LoadDnDCharacter(uid)
-	if got != nil {
-		t.Errorf("brand-new player got a stub row: %+v", got)
+	for _, uid := range []id.UserID{"@setup_legacy:example", "@setup_new:example"} {
+		if err := p.dndSetupStatus(MessageContext{Sender: uid}); err != nil {
+			t.Fatal(err)
+		}
+		got, _ := LoadDnDCharacter(uid)
+		if got != nil {
+			t.Errorf("%s: !setup pre-created a row: %+v", uid, got)
+		}
 	}
 }
 

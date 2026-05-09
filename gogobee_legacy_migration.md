@@ -426,31 +426,33 @@ Each sub-phase is the same shape as L4a–L4e: column-add → backfill (idempote
 
 ### 7.4 Final teardown (after L5a–L5h)
 
-After all eight sub-phases ship and soak (one week post-cut-of-AdvCharacter-writes per §11):
+**Reconciled 2026-05-09.** The original deletion list was wrong. Two strategy switches during execution invalidated it:
 
-1. Re-run §7 greps — both must return 0 (modulo `dnd_l5_cleanup.go` archive code).
-2. Delete files listed below.
-3. Drop `adventure_character` table behind `GOGOBEE_LEGACY_PURGE=1` env gate.
+1. **L5h preserved `AdventureCharacter` as a load-view struct.** Rather than delete 51 `saveAdvCharacter` call sites, L5h rewrote `saveAdvCharacter` as a fan-out into `player_meta` and added `applyPlayerMetaOverlay` at the tail of `loadAdvCharacter`. The struct is the in-memory shape every caller expects; only the *backing table* goes cold and eventually drops. `adventure_character.go` stays.
+2. **`combat_engine.go` / `combat_bridge.go` / `combat_stats.go` are not legacy.** A 2026-05-09 audit confirmed `SimulateCombat`, `CombatStats`, `CombatModifiers`, `Combatant`, `CombatPhase`, `CombatResult`, `CombatEvent`, `defaultCombatPhases`, `dungeonCombatPhases`, `DerivePlayerStats`, `DeriveDungeonMonsterStats`, `runDungeonCombat`, `transitionDeath`, `applyXPBonuses`, `combatDegradation`, etc. are referenced across 21+ files (arena, dungeons, zones, expedition, plus every D&D combat test). The D&D system layers *on top of* this engine via `applyDnDPlayerLayer` / `applyDnDEquipmentLayer` / `applyDnDArenaMonsterLayer` / `applyDnDDungeonMonsterLayer` — it was never a replacement. There is nothing to migrate; these files are shared infrastructure and stay.
+
+**Revised teardown checklist:**
+
+After L5a–L5h soak (one week post-cut-of-AdvCharacter-writes per §11):
+
+1. **Three remaining `CombatLevel` reader fixes** (post-L5g the legacy fallback is the only source still feeding them):
+   - `adventure_babysit.go::babysitDailyCost(char.CombatLevel)` → read D&D level.
+   - `dnd_sheet.go:168` legacy stat-block line displaying `adv.CombatLevel` → drop or swap to D&D level.
+   - `dnd_onboarding.go:27,38` gate on `advChar.CombatLevel < dndLegacyMinLevel` → re-evaluate purpose now that L5g guarantees every active user has a D&D row.
+2. Drop `adventure_character` table behind `GOGOBEE_LEGACY_PURGE=1` env gate (`dnd_l5_cleanup.go` migration script, default off).
+3. Drop `player_meta.combat_level` column (introduced as a transitional column in L5a; redundant once readers no longer consult it).
 4. Final `go vet ./... && go test ./...` clean.
 
-**Files deleted:**
-- `adventure_character.go`
-- `adventure_activities.go` (already gutted in L1)
-- `combat_engine.go`
-- `combat_engine_test.go`
-- `combat_bridge.go`
-- `combat_bridge_test.go`
-- `combat_stats.go` (if unused; verify)
-- `combat_stats_test.go`
+**What stays:**
+- `adventure_character.go` — `AdventureCharacter` struct continues as the loaded-view shape; `loadAdvCharacter` SELECTs from the (now read-only) `adventure_characters` seed row and overlays `player_meta` / `dnd_character` state. A future cosmetic pass may rename it to drop the implication of being legacy, but that is *not* part of this migration. (Per `feedback_avoid_dnd_naming.md`, any rename must avoid "dnd"-prefixed names.)
+- `adventure_activities.go` — already gutted in L1; the file's residual stubs can stay or be sweep-deleted in a separate cleanup, not part of teardown.
+- `combat_engine.go`, `combat_bridge.go`, `combat_stats.go` (+ tests) — shared combat infrastructure.
+- `AdvLocation` tier data and `AdvBonusSummary` plumbing — both still consumed by the live combat path; not "legacy" in the L1–L5 sense.
 
 **DB cleanup:**
-- `adventure_character` table: drop after a 30-day grace period in case of rollback. Schedule with a migration script `dnd_l5_cleanup.go` that runs only when env var `GOGOBEE_LEGACY_PURGE=1` is set, to gate the destructive op. Default off; manual flip after confirming.
+- `adventure_character` table: drop after a 30-day grace period in case of rollback. `dnd_l5_cleanup.go` migration script gated on `GOGOBEE_LEGACY_PURGE=1`. Default off; manual flip after confirming.
 - Equipment table stays — it was always per-user, never per-AdvCharacter.
-
-**Code cleanup:**
-- Remove `AdvLocation` tier data unless something else picked it up.
-- Remove all `AdvBonusSummary` plumbing.
-- Final `go vet ./... && go test ./...` clean.
+- `player_meta.combat_level` column drop sequenced with the three reader fixes above.
 
 **Branching dungeon paths:** unblocked. The `dnd_zone_run` schema is the only one we still own; rebuild/expand it without AdvCharacter pressure. Out of scope for this doc — see `project_branching_paths_post_legacy.md` memory note.
 

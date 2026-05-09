@@ -13,8 +13,13 @@ import (
 
 // ── Pricing ─────────────────────────────────────────────────────────────────
 
-func babysitDailyCost(combatLevel int) int {
-	return 100 + (combatLevel * 20)
+// babysitDailyCost returns the daily babysit subscription cost in €.
+// Phase L (post-L5g): keyed off D&D Level instead of legacy CombatLevel.
+// The slope is 5× the old per-level slope to preserve the curve shape across
+// the 5:1 compression in dndLevelFromCombatLevel — Level 4 (~old CL 20) =
+// €500/day, Level 10 (~old CL 50) = €1100/day, matching pre-migration pricing.
+func babysitDailyCost(level int) int {
+	return 100 + (level * 100)
 }
 
 // ── Pet-care daily trickle ─────────────────────────────────────────────────
@@ -120,7 +125,7 @@ func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) er
 		return p.SendDM(ctx.Sender, "Your adventurer is dead. The babysitter does not work with corpses.")
 	}
 
-	daily := babysitDailyCost(char.CombatLevel)
+	daily := babysitDailyCost(dndLevelForUser(char.UserID))
 	totalCost := daily * days
 	balance := p.euro.GetBalance(char.UserID)
 	if balance < float64(totalCost) {

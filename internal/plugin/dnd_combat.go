@@ -191,16 +191,12 @@ func classStatPriority(class DnDClass) [6]int {
 }
 
 // ensureCharForDnDCmd is the helper non-combat D&D command handlers should
-// use when they want auto-migration semantics PLUS the legacy-player
-// onboarding DM. Combat paths in combat_bridge.go use ensureDnDCharacterForCombat
-// directly because they already control the freshMigrate hook.
+// use when they want auto-migration semantics. Combat paths in
+// combat_bridge.go use ensureDnDCharacterForCombat directly.
 func (p *AdventurePlugin) ensureCharForDnDCmd(userID id.UserID, char *AdventureCharacter) (*DnDCharacter, error) {
-	c, fresh, err := ensureDnDCharacterForCombat(userID, char)
+	c, _, err := ensureDnDCharacterForCombat(userID, char)
 	if err != nil {
 		return nil, err
-	}
-	if fresh {
-		p.maybeSendDnDOnboarding(userID, char, c)
 	}
 	return c, nil
 }

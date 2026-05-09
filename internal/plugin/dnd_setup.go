@@ -116,34 +116,6 @@ func (p *AdventurePlugin) dndSetupStatus(ctx MessageContext) error {
 
 	// No row yet → fresh setup. Show suggestion + race menu.
 	if c == nil {
-		// Legacy-player welcome: if they're meeting D&D for the first time
-		// via `!setup` (rather than via combat auto-migration), they still
-		// deserve the onboarding DM. We persist a stub draft row so the
-		// OnboardingSent flag carries forward — neither this nor any later
-		// auto-migration will re-send the welcome.
-		advChar, _ := loadAdvCharacter(ctx.Sender)
-		if advChar != nil && advChar.CombatLevel >= dndLegacyMinLevel {
-			now := time.Now().UTC()
-			// Seed the stub's Level with the computed mapping so the welcome DM
-			// reports the right number ("your level X is now Adv 2.0 level Y").
-			// On !setup confirm the level is recomputed from the same formula,
-			// so the value here matches what the player will actually end up with.
-			stub := &DnDCharacter{
-				UserID:         ctx.Sender,
-				Level:          dndLevelFromCombatLevel(advChar.CombatLevel),
-				ArmorClass:     10,
-				PendingSetup:   true,
-				OnboardingSent: false, // maybeSendDnDOnboarding will flip this on success
-				CreatedAt:      now,
-				UpdatedAt:      now,
-			}
-			if err := SaveDnDCharacter(stub); err != nil {
-				slog.Error("dnd: setup stub save failed", "user", ctx.Sender, "err", err)
-			} else {
-				p.maybeSendDnDOnboarding(ctx.Sender, advChar, stub)
-			}
-		}
-
 		sug := inferDnDFromArchetypes(ctx.Sender)
 		var b strings.Builder
 		b.WriteString("⚔️ **Adv 2.0 Setup** — let's build your character.\n\n")

@@ -164,8 +164,8 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, 
 	// Legacy adventure context — preserved progress at a glance
 	if adv != nil {
 		b.WriteString("\n**Adventure progress** _(preserved)_\n")
-		b.WriteString(fmt.Sprintf("  Mining %d  Foraging %d  Fishing %d   Combat (legacy) %d\n",
-			adv.MiningSkill, adv.ForagingSkill, adv.FishingSkill, adv.CombatLevel))
+		b.WriteString(fmt.Sprintf("  Mining %d  Foraging %d  Fishing %d\n",
+			adv.MiningSkill, adv.ForagingSkill, adv.FishingSkill))
 		wins, losses := adv.ArenaWins, adv.ArenaLosses
 		if meta != nil {
 			wins, losses = meta.ArenaWins, meta.ArenaLosses

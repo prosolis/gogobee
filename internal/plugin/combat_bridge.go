@@ -67,13 +67,10 @@ func (p *AdventurePlugin) runDungeonCombat(
 	enemyStats, enemyMods := DeriveDungeonMonsterStats(loc)
 
 	// All combat is D&D. Auto-migrate if needed.
-	dndChar, freshMigrate, err := ensureDnDCharacterForCombat(userID, char)
+	dndChar, _, err := ensureDnDCharacterForCombat(userID, char)
 	if err != nil {
 		slog.Error("dnd: ensureDnDCharacterForCombat (dungeon) failed", "user", userID, "err", err)
 		return CombatResult{}
-	}
-	if freshMigrate {
-		p.maybeSendDnDOnboarding(userID, char, dndChar)
 	}
 	applyDnDPlayerLayer(&playerStats, dndChar)
 	applyDnDEquipmentLayer(&playerStats, dndChar, equip)

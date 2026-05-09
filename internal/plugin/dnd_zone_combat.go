@@ -130,12 +130,9 @@ func (p *AdventurePlugin) runZoneCombat(
 
 	playerStats, playerMods := DerivePlayerStats(char, equip, bonuses, chatLvl, char.CurrentStreak, false)
 
-	dndChar, freshMigrate, err := ensureDnDCharacterForCombat(userID, char)
+	dndChar, _, err := ensureDnDCharacterForCombat(userID, char)
 	if err != nil {
 		return CombatResult{}, fmt.Errorf("ensure dnd character: %w", err)
-	}
-	if freshMigrate {
-		p.maybeSendDnDOnboarding(userID, char, dndChar)
 	}
 	applyDnDPlayerLayer(&playerStats, dndChar)
 	applyDnDEquipmentLayer(&playerStats, dndChar, equip)
