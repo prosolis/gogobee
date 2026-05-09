@@ -650,49 +650,27 @@ func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zon
 	}
 	phases = RenderCombatLog(result, playerName, monster.Name)
 
-	var ob strings.Builder
-	if nat20s > 0 {
-		if line := twinBeeLine(zone.ID, DMNat20, run.RunID, run.CurrentRoom); line != "" {
-			ob.WriteString(line)
-			ob.WriteString("\n")
-		}
-	} else if nat1s > 0 {
-		if line := twinBeeLine(zone.ID, DMNat1, run.RunID, run.CurrentRoom); line != "" {
-			ob.WriteString(line)
-			ob.WriteString("\n")
-		}
-	}
-	if phaseTwoCrossedInEvents(result.Events, result.EnemyStartHP, zone.Boss.PhaseTwoAt) {
-		if line := bossPhaseTwoLine(zone.ID, run.RunID, run.CurrentRoom); line != "" {
-			ob.WriteString(line)
-			ob.WriteString("\n")
-		}
-	}
+	outcome = renderBossOutcome(BossOutcomeInputs{
+		ZoneID:          zone.ID,
+		RunID:           run.RunID,
+		RoomIdx:         run.CurrentRoom,
+		Monster:         monster,
+		Result:          result,
+		PreHP:           preHP,
+		PostHP:          postHP,
+		MaxHP:           maxHP,
+		PhaseTwoAt:      zone.Boss.PhaseTwoAt,
+		Nat20s:          nat20s,
+		Nat1s:           nat1s,
+		DefeatHeadline:  fmt.Sprintf("💀 **%s** stands over your body. Run ended.", monster.Name),
+		VictoryHeadline: fmt.Sprintf("🏆 **%s** falls (HP %d→%d / %d).", monster.Name, preHP, postHP, maxHP),
+	})
 	if !result.PlayerWon {
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		markAdventureDead(userID, "zone", zone.Display)
-		if line := twinBeeLine(zone.ID, DMPlayerDeath, run.RunID, run.CurrentRoom); line != "" {
-			ob.WriteString(line)
-			ob.WriteString("\n")
-		}
-		ob.WriteString(fmt.Sprintf("💀 **%s** stands over your body. Run ended.", monster.Name))
-		if rollLine := dndRollSummaryLine(result); rollLine != "" {
-			ob.WriteString("\n")
-			ob.WriteString(rollLine)
-		}
-		outcome = ob.String()
 		ended = true
 		return
-	}
-	if line := twinBeeLine(zone.ID, DMBossDeath, run.RunID, run.CurrentRoom); line != "" {
-		ob.WriteString(line)
-		ob.WriteString("\n")
-	}
-	ob.WriteString(fmt.Sprintf("🏆 **%s** falls (HP %d→%d / %d).", monster.Name, preHP, postHP, maxHP))
-	if rollLine := dndRollSummaryLine(result); rollLine != "" {
-		ob.WriteString("\n")
-		ob.WriteString(rollLine)
 	}
 	recordZoneKillForUser(userID, monster.ID)
 	// §8.1: zone boss defeat drops expedition threat by 20. Silent
@@ -701,11 +679,81 @@ func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zon
 		_ = applyBossDefeatThreat(exp.ID)
 	}
 	if drop := p.dropZoneLoot(userID, zone.ID, monster, true); drop != "" {
-		ob.WriteString("\n")
-		ob.WriteString(drop)
+		outcome = outcome + "\n" + drop
 	}
-	outcome = ob.String()
 	return
+}
+
+// BossOutcomeInputs is the carrier struct for renderBossOutcome — the
+// shared staged-narration body used by zone bosses (resolveBossRoom)
+// and arena bosses (resolveArenaBoss, post-L2). Pure inputs: every
+// field is read-only and the helper performs no DB writes.
+type BossOutcomeInputs struct {
+	ZoneID  ZoneID // routes twinBeeLine (use ZoneArena for arena fights)
+	RunID   string // deterministic seed for twinBeeLine pickers
+	RoomIdx int    // ditto
+
+	Monster              DnDMonsterTemplate
+	Result               CombatResult
+	PreHP, PostHP, MaxHP int
+	PhaseTwoAt           float64 // fraction of MaxHP; 0 disables phase-two narration
+	Nat20s, Nat1s        int // pre-counted by scanMoodEventsFromCombat
+
+	// Caller-supplied headlines so arena and zone read in their own voice.
+	// DefeatHeadline is the full sentence shown after the PlayerDeath
+	// TwinBee line; VictoryHeadline is the full sentence shown after
+	// BossDeath. The roll-summary line is appended automatically.
+	DefeatHeadline  string
+	VictoryHeadline string
+}
+
+// renderBossOutcome composes the outcome block for a boss-shaped
+// encounter: optional Nat20/Nat1 mood line, optional phase-two barb if
+// the enemy crossed PhaseTwoAt mid-fight, BossDeath/PlayerDeath flavor,
+// the caller-supplied victory/defeat headline, and a trailing dice-roll
+// summary. Side-effect free — callers handle abandonZoneRun, loot,
+// kill records, payout, etc.
+func renderBossOutcome(in BossOutcomeInputs) string {
+	var ob strings.Builder
+	if in.Nat20s > 0 {
+		if line := twinBeeLine(in.ZoneID, DMNat20, in.RunID, in.RoomIdx); line != "" {
+			ob.WriteString(line)
+			ob.WriteString("\n")
+		}
+	} else if in.Nat1s > 0 {
+		if line := twinBeeLine(in.ZoneID, DMNat1, in.RunID, in.RoomIdx); line != "" {
+			ob.WriteString(line)
+			ob.WriteString("\n")
+		}
+	}
+	if phaseTwoCrossedInEvents(in.Result.Events, in.Result.EnemyStartHP, in.PhaseTwoAt) {
+		if line := bossPhaseTwoLine(in.ZoneID, in.RunID, in.RoomIdx); line != "" {
+			ob.WriteString(line)
+			ob.WriteString("\n")
+		}
+	}
+	if !in.Result.PlayerWon {
+		if line := twinBeeLine(in.ZoneID, DMPlayerDeath, in.RunID, in.RoomIdx); line != "" {
+			ob.WriteString(line)
+			ob.WriteString("\n")
+		}
+		ob.WriteString(in.DefeatHeadline)
+		if rollLine := dndRollSummaryLine(in.Result); rollLine != "" {
+			ob.WriteString("\n")
+			ob.WriteString(rollLine)
+		}
+		return ob.String()
+	}
+	if line := twinBeeLine(in.ZoneID, DMBossDeath, in.RunID, in.RoomIdx); line != "" {
+		ob.WriteString(line)
+		ob.WriteString("\n")
+	}
+	ob.WriteString(in.VictoryHeadline)
+	if rollLine := dndRollSummaryLine(in.Result); rollLine != "" {
+		ob.WriteString("\n")
+		ob.WriteString(rollLine)
+	}
+	return ob.String()
 }
 
 // ── taunt / compliment ──────────────────────────────────────────────────────
