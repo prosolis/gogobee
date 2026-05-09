@@ -306,6 +306,13 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE player_meta ADD COLUMN title TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE player_meta ADD COLUMN treasures_locked INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN crafts_succeeded INTEGER NOT NULL DEFAULT 0`,
+		// Adv 2.0 Phase G1 — branching zone graph run-state columns.
+		// current_node / visited_nodes / node_choices live alongside the
+		// legacy current_room / room_seq_json during the migration; the
+		// linear columns retire in G9 (gogobee_branching_zones_plan.md §2).
+		`ALTER TABLE dnd_zone_run ADD COLUMN current_node TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE dnd_zone_run ADD COLUMN visited_nodes TEXT NOT NULL DEFAULT '[]'`,
+		`ALTER TABLE dnd_zone_run ADD COLUMN node_choices TEXT NOT NULL DEFAULT '{}'`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1808,6 +1815,39 @@ CREATE TABLE IF NOT EXISTS dnd_known_recipe (
     discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, recipe_id)
 );
+
+-- ── Adv 2.0 Phase G1 — branching zone graph (zones as directed graphs) ────
+-- Replaces the linear room_seq_json model with a directed-graph topology.
+-- A zone has many nodes (rooms, forks, secrets, boss) and edges connecting
+-- them. Edges may be locked behind Perception checks, keys, level gates,
+-- or region-clear flags. Authoring lives in Go (registerZoneGraph); these
+-- tables are the persisted shape for runtime lookups + future tooling.
+-- See gogobee_branching_zones_plan.md §2 for the full schema rationale.
+CREATE TABLE IF NOT EXISTS zone_node (
+    node_id        TEXT PRIMARY KEY,           -- "crypt_valdris.entry"
+    zone_id        TEXT NOT NULL,
+    region_id      TEXT NOT NULL DEFAULT '',   -- empty for single-region zones
+    kind           TEXT NOT NULL,              -- entry|exploration|trap|elite|boss|harvest|rest_camp|secret|fork|merge
+    label          TEXT NOT NULL DEFAULT '',   -- human-readable for !zone map
+    is_entry       INTEGER NOT NULL DEFAULT 0,
+    is_boss        INTEGER NOT NULL DEFAULT 0,
+    pos_x          INTEGER NOT NULL DEFAULT 0,
+    pos_y          INTEGER NOT NULL DEFAULT 0,
+    content_json   TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_zone_node_zone ON zone_node(zone_id);
+
+CREATE TABLE IF NOT EXISTS zone_edge (
+    edge_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    zone_id        TEXT NOT NULL,
+    from_node      TEXT NOT NULL,              -- FK-ish: zone_node.node_id
+    to_node        TEXT NOT NULL,              -- FK-ish: zone_node.node_id
+    lock_kind      TEXT NOT NULL DEFAULT 'none', -- none|perception_check|key_required|level_min|region_clear|stat_check
+    lock_data_json TEXT NOT NULL DEFAULT '{}',
+    hint           TEXT NOT NULL DEFAULT '',
+    weight         INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_zone_edge_from ON zone_edge(zone_id, from_node);
 
 -- ── Adv 2.0 Phase L2 step 5 — player_meta ──────────────────────────────────
 -- Holding pen for non-stat per-user state migrating off adventure_characters

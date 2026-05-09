@@ -45,6 +45,12 @@ const (
 )
 
 // DungeonRun is the in-memory shape of a dnd_zone_run row.
+//
+// Phase G4 adds CurrentNode / VisitedNodes / NodeChoices alongside the
+// legacy CurrentRoom / RoomSeq fields. The graph columns dual-write
+// during the migration; readers prefer CurrentNode but fall back to
+// deriving it from CurrentRoom + RoomSeq (compileRunGraph) when a row
+// predates the migration. The legacy fields retire in G9.
 type DungeonRun struct {
 	RunID         string
 	UserID        string
@@ -60,6 +66,16 @@ type DungeonRun struct {
 	StartedAt     time.Time
 	LastActionAt  time.Time
 	CompletedAt   *time.Time
+
+	// Phase G4 — branching zone graph run state. CurrentNode is the
+	// authoritative position once the graph rollout is complete; until
+	// then it dual-writes with CurrentRoom. VisitedNodes is the ordered
+	// path of node_ids the player has resolved. NodeChoices stores
+	// pending fork-prompt state (G5 surface) — populated when the player
+	// arrives at a fork with 2+ unlocked outgoing edges.
+	CurrentNode   string
+	VisitedNodes  []string
+	NodeChoices   map[string]any
 }
 
 // IsActive reports whether this run is still ongoing (not boss-defeated,
@@ -194,12 +210,22 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 		StartedAt:    time.Now().UTC(),
 		LastActionAt: time.Now().UTC(),
 	}
+	// G4 dual-write: persist the entry node id and seed visited_nodes
+	// with it, so navigation surfaces in G5 can read graph state without
+	// further migration.
+	entryNode := deriveLegacyNodeID(zoneID, 0)
+	visitedJSON, _ := json.Marshal([]string{entryNode})
+	run.CurrentNode = entryNode
+	run.VisitedNodes = []string{entryNode}
+	run.NodeChoices = map[string]any{}
 	if _, err := db.Get().Exec(`
 		INSERT INTO dnd_zone_run
 			(run_id, user_id, zone_id, current_room, total_rooms,
-			 room_seq_json, rooms_cleared, gm_mood)
-		VALUES (?, ?, ?, 0, ?, ?, '[]', ?)`,
+			 room_seq_json, rooms_cleared, gm_mood,
+			 current_node, visited_nodes, node_choices)
+		VALUES (?, ?, ?, 0, ?, ?, '[]', ?, ?, ?, '{}')`,
 		run.RunID, run.UserID, string(zoneID), run.TotalRooms, string(seqJSON), startMood,
+		entryNode, string(visitedJSON),
 	); err != nil {
 		return nil, fmt.Errorf("insert zone run: %w", err)
 	}
@@ -219,7 +245,8 @@ func getActiveZoneRun(userID id.UserID) (*DungeonRun, error) {
 	row := db.Get().QueryRow(`
 		SELECT run_id, user_id, zone_id, current_room, total_rooms,
 		       room_seq_json, rooms_cleared, boss_defeated, abandoned,
-		       loot_collected, gm_mood, started_at, last_action_at, completed_at
+		       loot_collected, gm_mood, started_at, last_action_at, completed_at,
+		       current_node, visited_nodes, node_choices
 		  FROM dnd_zone_run
 		 WHERE user_id = ?
 		   AND completed_at IS NULL
@@ -247,7 +274,8 @@ func getZoneRun(runID string) (*DungeonRun, error) {
 	row := db.Get().QueryRow(`
 		SELECT run_id, user_id, zone_id, current_room, total_rooms,
 		       room_seq_json, rooms_cleared, boss_defeated, abandoned,
-		       loot_collected, gm_mood, started_at, last_action_at, completed_at
+		       loot_collected, gm_mood, started_at, last_action_at, completed_at,
+		       current_node, visited_nodes, node_choices
 		  FROM dnd_zone_run WHERE run_id = ?`, runID)
 	r, err := scanZoneRun(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -271,11 +299,15 @@ func scanZoneRun(row scanner) (*DungeonRun, error) {
 		bossDefeatedI  int
 		abandonedI     int
 		completedAtRaw sql.NullTime
+		currentNode    string
+		visitedJSON    string
+		choicesJSON    string
 	)
 	if err := row.Scan(
 		&r.RunID, &r.UserID, &zoneID, &r.CurrentRoom, &r.TotalRooms,
 		&seqJSON, &clearedJSON, &bossDefeatedI, &abandonedI,
 		&lootJSON, &r.DMMood, &r.StartedAt, &r.LastActionAt, &completedAtRaw,
+		&currentNode, &visitedJSON, &choicesJSON,
 	); err != nil {
 		return nil, err
 	}
@@ -305,7 +337,41 @@ func scanZoneRun(row scanner) (*DungeonRun, error) {
 	if r.LootCollected == nil {
 		r.LootCollected = []string{}
 	}
+	// G4 graph run state. visited_nodes / node_choices come straight
+	// from JSON; current_node is hot-swap-derived from current_room
+	// when empty (rows that predate the migration).
+	if visitedJSON != "" && visitedJSON != "[]" {
+		if err := json.Unmarshal([]byte(visitedJSON), &r.VisitedNodes); err != nil {
+			return nil, fmt.Errorf("decode visited_nodes: %w", err)
+		}
+	}
+	if r.VisitedNodes == nil {
+		r.VisitedNodes = []string{}
+	}
+	if choicesJSON != "" && choicesJSON != "{}" {
+		if err := json.Unmarshal([]byte(choicesJSON), &r.NodeChoices); err != nil {
+			return nil, fmt.Errorf("decode node_choices: %w", err)
+		}
+	}
+	if r.NodeChoices == nil {
+		r.NodeChoices = map[string]any{}
+	}
+	r.CurrentNode = currentNode
+	if r.CurrentNode == "" && len(r.RoomSeq) > 0 {
+		r.CurrentNode = deriveLegacyNodeID(r.ZoneID, r.CurrentRoom)
+	}
 	return &r, nil
+}
+
+// deriveLegacyNodeID returns the node id a linear graph would assign
+// to position roomIdx (0-based) for the given zone. Mirrors
+// BuildLinearGraph's "<zone>.r<n>" scheme so hot-swapped rows align
+// with newly-started runs.
+func deriveLegacyNodeID(zoneID ZoneID, roomIdx int) string {
+	if roomIdx < 0 {
+		roomIdx = 0
+	}
+	return fmt.Sprintf("%s.r%d", zoneID, roomIdx+1)
 }
 
 // markRoomCleared records that the current room has been resolved and
@@ -343,17 +409,26 @@ func markRoomCleared(runID string) (RoomType, error) {
 		}
 		return "", nil
 	}
+	// G4 dual-write: advance current_node + append to visited_nodes
+	// alongside the legacy current_room bump.
+	nextNode := deriveLegacyNodeID(r.ZoneID, next)
+	visited := append(r.VisitedNodes, nextNode)
+	visitedJSON, _ := json.Marshal(visited)
 	if _, err := db.Get().Exec(`
 		UPDATE dnd_zone_run
 		   SET rooms_cleared = ?,
 		       current_room  = ?,
+		       current_node  = ?,
+		       visited_nodes = ?,
 		       last_action_at = CURRENT_TIMESTAMP
 		 WHERE run_id = ?`,
-		string(clearedJSON), next, runID,
+		string(clearedJSON), next, nextNode, string(visitedJSON), runID,
 	); err != nil {
 		return "", err
 	}
 	r.CurrentRoom = next
+	r.CurrentNode = nextNode
+	r.VisitedNodes = visited
 	return r.RoomSeq[next], nil
 }
 
