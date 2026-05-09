@@ -142,9 +142,11 @@ func (p *AdventurePlugin) tryTriggerEvent(userID id.UserID) {
 
 	slog.Info("adventure: mid-day event triggered", "user", userID, "event", event.Key, "id", eventID)
 
+	displayName, _ := loadDisplayName(userID)
+
 	// DM the player
 	triggerDM := advSubstituteFlavor(event.TriggerDM, map[string]string{
-		"{name}": char.DisplayName,
+		"{name}": displayName,
 	})
 	if err := p.SendDM(userID, triggerDM); err != nil {
 		slog.Error("adventure: events: failed to send trigger DM", "user", userID, "err", err)
@@ -154,7 +156,7 @@ func (p *AdventurePlugin) tryTriggerEvent(userID id.UserID) {
 	gr := gamesRoom()
 	if gr != "" {
 		roomLine := advSubstituteFlavor(advEventRoomTriggerWrapper, map[string]string{
-			"{trigger_room_line}": advSubstituteFlavor(event.TriggerRoomLine, map[string]string{"{name}": char.DisplayName}),
+			"{trigger_room_line}": advSubstituteFlavor(event.TriggerRoomLine, map[string]string{"{name}": displayName}),
 		})
 		_ = p.SendMessage(id.RoomID(gr), roomLine)
 	}

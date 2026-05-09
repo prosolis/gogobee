@@ -568,8 +568,8 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	// Phases: forward-simulating engine play-by-play. Use the player's
 	// display name when available so narrative lines read naturally.
 	playerName := "You"
-	if char, _ := loadAdvCharacter(userID); char != nil && char.DisplayName != "" {
-		playerName = char.DisplayName
+	if name, _ := loadDisplayName(userID); name != "" {
+		playerName = name
 	}
 	phases = RenderCombatLog(result, playerName, monster.Name)
 
@@ -645,8 +645,8 @@ func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zon
 	intro = fmt.Sprintf("👑 **Boss — %s** (HP %d, AC %d)", monster.Name, monster.HP, monster.AC)
 
 	playerName := "You"
-	if char, _ := loadAdvCharacter(userID); char != nil && char.DisplayName != "" {
-		playerName = char.DisplayName
+	if name, _ := loadDisplayName(userID); name != "" {
+		playerName = name
 	}
 	phases = RenderCombatLog(result, playerName, monster.Name)
 

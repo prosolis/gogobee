@@ -262,7 +262,8 @@ func (p *AdventurePlugin) checkMasterworkDrop(userID id.UserID, char *AdventureC
 	p.SendDM(userID, sb.String())
 
 	// Room announcement (tiered)
-	p.postMasterworkAnnouncement(char.DisplayName, def, loc.Name)
+	displayName, _ := loadDisplayName(userID)
+	p.postMasterworkAnnouncement(displayName, def, loc.Name)
 }
 
 // ── Room Announcements ─────────────────────────────────────────────────────

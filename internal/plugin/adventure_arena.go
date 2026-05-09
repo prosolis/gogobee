@@ -205,10 +205,11 @@ type arenaBossNarration struct {
 // surrounding economic glue. There is no legacy fallback — a boss-flow
 // error surfaces to the player and aborts the round.
 func (p *AdventurePlugin) resolveArenaRound(ctx MessageContext, run *ArenaRun, char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, tier *ArenaTier, monster *ArenaMonster) error {
+	displayName, _ := loadDisplayName(ctx.Sender)
 	intro, phases, outcome, result, err := p.resolveArenaBoss(ctx.Sender, ArenaBossEncounter{
 		Tier:        run.Tier,
 		Round:       run.Round,
-		DisplayName: char.DisplayName,
+		DisplayName: displayName,
 	})
 	if err != nil {
 		slog.Error("arena: boss flow failed", "user", ctx.Sender, "err", err)
@@ -299,7 +300,8 @@ func (p *AdventurePlugin) handleArenaStats(ctx MessageContext) error {
 	} else {
 		slog.Error("player_meta: arena stats read failed, falling back to AdvCharacter", "user", ctx.Sender, "err", err)
 	}
-	return p.SendDM(ctx.Sender, renderArenaPersonalStats(char.DisplayName, wins, losses, stats))
+	displayName, _ := loadDisplayName(ctx.Sender)
+	return p.SendDM(ctx.Sender, renderArenaPersonalStats(displayName, wins, losses, stats))
 }
 
 func (p *AdventurePlugin) handleArenaLeaderboard(ctx MessageContext) error {
@@ -401,7 +403,8 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 
 		if dropped := p.arenaRollHelmetDrop(ctx.Sender, run.Tier); dropped != nil {
 			finalMessage += "\n" + renderArenaHelmetDrop(dropped)
-			p.postArenaDropAnnouncement(char.DisplayName, dropped)
+			displayName, _ := loadDisplayName(ctx.Sender)
+			p.postArenaDropAnnouncement(displayName, dropped)
 		}
 
 		done := p.sendZoneCombatMessages(ctx.Sender, phaseMessages, finalMessage)
@@ -498,7 +501,8 @@ func (p *AdventurePlugin) resolveArenaDeath(ctx MessageContext, run *ArenaRun, c
 	if dt.PetRecovered {
 		gr := gamesRoom()
 		if gr != "" {
-			_ = p.SendMessage(gr, petDitchRecoveryGameRoom(char.DisplayName, char.PetName, true))
+			displayName, _ := loadDisplayName(ctx.Sender)
+			_ = p.SendMessage(gr, petDitchRecoveryGameRoom(displayName, char.PetName, true))
 		}
 	}
 
@@ -581,8 +585,9 @@ func (p *AdventurePlugin) arenaCompleteSession(userID id.UserID, run *ArenaRun, 
 		// Room announcement for T5
 		gr := gamesRoom()
 		if gr != "" {
+			displayName, _ := loadDisplayName(userID)
 			announce := fmt.Sprintf("🏆 **%s has conquered the Arena.** Tier 5 streak. €%d earned. That Which Has Always Been has fallen.",
-				char.DisplayName, run.Earnings)
+				displayName, run.Earnings)
 			p.SendMessage(id.RoomID(gr), announce)
 		}
 	}
@@ -596,9 +601,10 @@ func (p *AdventurePlugin) arenaCompleteSession(userID id.UserID, run *ArenaRun, 
 			// Game room announcement
 			gr := gamesRoom()
 			if gr != "" {
+				displayName, _ := loadDisplayName(userID)
 				p.SendMessage(id.RoomID(gr), fmt.Sprintf(
 					"🏆 %s walked out of the arena with the Gladiator's Helm. Tier %d streak. They had the option to stop. They did not stop.",
-					char.DisplayName, tiersWon))
+					displayName, tiersWon))
 			}
 		}
 	}

@@ -378,8 +378,8 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 
 	// Phases: forward-simulating engine play-by-play.
 	playerName := "You"
-	if char, _ := loadAdvCharacter(userID); char != nil && char.DisplayName != "" {
-		playerName = char.DisplayName
+	if name, _ := loadDisplayName(userID); name != "" {
+		playerName = name
 	}
 	phases = RenderCombatLog(result, playerName, monster.Name)
 

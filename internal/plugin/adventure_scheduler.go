@@ -232,8 +232,9 @@ func (p *AdventurePlugin) postDailySummary() {
 	// Build player summaries
 	var players []AdvPlayerDaySummary
 	for _, c := range chars {
+		dispName, _ := loadDisplayName(c.UserID)
 		ps := AdvPlayerDaySummary{
-			DisplayName:   c.DisplayName,
+			DisplayName:   dispName,
 			CombatLevel:   c.CombatLevel,
 			MiningSkill:   c.MiningSkill,
 			ForagingSkill: c.ForagingSkill,

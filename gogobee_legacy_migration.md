@@ -314,8 +314,10 @@ This is also the right shape because zone-boss plumbing (bestiary, mood events, 
 - `player_meta.display_name` column added via column migration in `internal/db/db.go`.
 - `backfillPlayerMetaDisplayName` runs on every Init: idempotent (`UPDATE ... WHERE display_name = ''` only touches empty rows, so dual-writes layered on top survive re-runs).
 - `upsertPlayerMetaDisplayName(userID, name)` dual-writes from `createAdvCharacter` (inside the same tx, atomic with the AdvCharacter INSERT) and `saveAdvCharacter` (post-commit, error-logged but non-fatal).
-- `loadDisplayName(userID)` reads `player_meta` → falls back to `adventure_characters.display_name` → empty string if neither exists. Helper exists but **readers are NOT flipped yet** — soak week begins now; per-call-site flip happens in a follow-up session once we've confirmed dual-write doesn't drift.
+- `loadDisplayName(userID)` reads `player_meta` → falls back to `adventure_characters.display_name` → empty string if neither exists.
 - Tests: `TestPlayerMetaDisplayNameBackfill_Idempotent`, `TestLoadDisplayName_FallsBackToAdvCharacter`, `TestCreateAdvCharacter_DualWritesDisplayName`.
+
+**Reader flip SHIPPED (2026-05-09).** All `char.DisplayName` / `c.DisplayName` reader sites in `internal/plugin/` were swapped to `loadDisplayName(userID)` (or pass-through equivalents) across: `combat_bridge.go`, `dnd_zone_cmd.go`, `dnd_expedition_combat.go`, `dnd_zone_combat.go`, `adventure_robbie.go`, `adventure_scheduler.go`, `adventure_hospital.go`, `adventure_events.go`, `adventure_render.go`, `adventure_masterwork.go`, `adventure.go`, `adventure_arena.go`. The only remaining `char.DisplayName` references are in `adventure_character.go` itself (scan into struct + `saveAdvCharacter` SQL + dual-write to `player_meta`) and the `player_meta.go` doc comment. `go vet` + `go test ./internal/plugin/...` clean.
 
 **Pre-conditions:**
 - L1–L4 all shipped.

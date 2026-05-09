@@ -699,8 +699,9 @@ func (p *AdventurePlugin) handleAdminRevive(ctx MessageContext, target string) e
 		return p.SendReply(ctx.RoomID, ctx.EventID, "That user has no adventurer.")
 	}
 
+	displayName, _ := loadDisplayName(targetID)
 	if char.Alive {
-		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("%s is already alive.", char.DisplayName))
+		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("%s is already alive.", displayName))
 	}
 
 	char.Alive = true
@@ -713,7 +714,7 @@ func (p *AdventurePlugin) handleAdminRevive(ctx MessageContext, target string) e
 	if p.achievements != nil {
 		p.achievements.GrantAchievement(targetID, "adv_revived")
 	}
-	return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("✅ %s has been revived.", char.DisplayName))
+	return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf("✅ %s has been revived.", displayName))
 }
 
 func (p *AdventurePlugin) handleAdminSummary(ctx MessageContext) error {
@@ -982,6 +983,8 @@ func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharact
 
 	logAdvActivity(char.UserID, string(AdvActivityRest), "", "rest", 0, 0, "")
 
+	dispName, _ := loadDisplayName(char.UserID)
+
 	// Compute reset countdown
 	now := time.Now().UTC()
 	midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
@@ -998,7 +1001,7 @@ func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharact
 			"Morning DM: %02d:00 UTC\n"+
 			"Evening summary: %02d:00 UTC\n\n"+
 			"The Arena is always open: `!arena`",
-		char.DisplayName, hours, minutes, p.morningHour, p.summaryHour)
+		dispName, hours, minutes, p.morningHour, p.summaryHour)
 
 	if err := p.SendDM(ctx.Sender, restMsg); err != nil {
 		slog.Error("adventure: failed to send rest DM", "user", ctx.Sender, "err", err)
@@ -1210,8 +1213,9 @@ func (p *AdventurePlugin) announceTreasureToRoom(char *AdventureCharacter, def *
 	if gr == "" {
 		return
 	}
+	displayName, _ := loadDisplayName(char.UserID)
 	announce := advSubstituteFlavor(def.RoomAnnounce, map[string]string{
-		"{name}":     char.DisplayName,
+		"{name}":     displayName,
 		"{location}": loc.Name,
 	})
 	p.SendMessage(id.RoomID(gr), announce)
@@ -1221,8 +1225,9 @@ func (p *AdventurePlugin) announceTreasureToRoom(char *AdventureCharacter, def *
 
 func (p *AdventurePlugin) selectFlavorText(char *AdventureCharacter, result *AdvActionResult) (string, string) {
 	loc := result.Location
+	displayName, _ := loadDisplayName(char.UserID)
 	vars := map[string]string{
-		"{name}":     char.DisplayName,
+		"{name}":     displayName,
 		"{location}": loc.Name,
 		"{value}":    fmt.Sprintf("%d", result.TotalLootValue),
 		"{xp}":       fmt.Sprintf("%d", result.XPGained),

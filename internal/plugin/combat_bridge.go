@@ -101,8 +101,9 @@ func (p *AdventurePlugin) runDungeonCombat(
 		ability = &MonsterAbility{Name: "Stone Skin", Phase: "opening", ProcChance: 0.20, Effect: "armor_break"}
 	}
 
+	displayName, _ := loadDisplayName(userID)
 	player := Combatant{
-		Name:     char.DisplayName,
+		Name:     displayName,
 		Stats:    playerStats,
 		Mods:     playerMods,
 		IsPlayer: true,

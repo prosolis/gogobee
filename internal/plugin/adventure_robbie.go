@@ -83,7 +83,8 @@ func (p *AdventurePlugin) robbieVisitAll() {
 			time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
 		}
 
-		p.robbieVisitPlayer(char.UserID, char.DisplayName)
+		name, _ := loadDisplayName(char.UserID)
+		p.robbieVisitPlayer(char.UserID, name)
 	}
 }
 

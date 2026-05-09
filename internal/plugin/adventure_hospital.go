@@ -55,7 +55,8 @@ func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
 		// Room announcement
 		gr := gamesRoom()
 		if gr != "" {
-			p.SendMessage(gr, fmt.Sprintf(hospitalDitchAnnounce, char.DisplayName))
+			name, _ := loadDisplayName(char.UserID)
+			p.SendMessage(gr, fmt.Sprintf(hospitalDitchAnnounce, name))
 		}
 		return nil
 	}
@@ -152,7 +153,8 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 
 			gr := gamesRoom()
 			if gr != "" {
-				p.SendMessage(gr, fmt.Sprintf(hospitalDitchAnnounce, char.DisplayName))
+				name, _ := loadDisplayName(char.UserID)
+			p.SendMessage(gr, fmt.Sprintf(hospitalDitchAnnounce, name))
 			}
 			return nil
 		}
@@ -191,7 +193,8 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 		// Room announcement
 		gr := gamesRoom()
 		if gr != "" {
-			p.SendMessage(gr, fmt.Sprintf(hospitalDischargeAnnounce, char.DisplayName))
+			name, _ := loadDisplayName(char.UserID)
+			p.SendMessage(gr, fmt.Sprintf(hospitalDischargeAnnounce, name))
 		}
 
 		return nil
@@ -206,7 +209,8 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 	if err == nil {
 		gr := gamesRoom()
 		if gr != "" {
-			p.SendMessage(gr, fmt.Sprintf(hospitalDitchAnnounce, char.DisplayName))
+			name, _ := loadDisplayName(char.UserID)
+			p.SendMessage(gr, fmt.Sprintf(hospitalDitchAnnounce, name))
 		}
 	}
 

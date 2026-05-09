@@ -164,8 +164,9 @@ func (p *AdventurePlugin) runZoneCombat(
 	}
 	applyPendingCast(userID, dndChar, &playerStats, &playerMods, &enemyStats)
 
+	displayName, _ := loadDisplayName(userID)
 	player := Combatant{
-		Name:     char.DisplayName,
+		Name:     displayName,
 		Stats:    playerStats,
 		Mods:     playerMods,
 		IsPlayer: true,

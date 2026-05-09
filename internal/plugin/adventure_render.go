@@ -92,7 +92,8 @@ func advSubstituteFlavor(template string, vars map[string]string) string {
 func renderAdvCharacterSheet(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEquipment, items []AdvItem, treasures []AdvTreasureBonus, balance float64) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("⚔️ **%s's Adventurer**\n\n", char.DisplayName))
+	displayName, _ := loadDisplayName(char.UserID)
+	sb.WriteString(fmt.Sprintf("⚔️ **%s's Adventurer**\n\n", displayName))
 
 	// Stats
 	sb.WriteString("📊 Stats:\n")
@@ -275,8 +276,8 @@ func renderRivalNudge(char *AdventureCharacter) string {
 		hours = 1 // floor — "<1h" feels worse than "1h"
 	}
 	rivalName := string(c.ChallengerID)
-	if rc, err := loadAdvCharacter(c.ChallengerID); err == nil && rc != nil && rc.DisplayName != "" {
-		rivalName = rc.DisplayName
+	if name, err := loadDisplayName(c.ChallengerID); err == nil && name != "" {
+		rivalName = name
 	}
 	return fmt.Sprintf("⚔️ **Rival challenge open** — %s, round %d/3, €%d on the line · expires in %dh · reply **rock**, **paper**, or **scissors**",
 		rivalName, c.Round, c.Stake, hours)
@@ -294,8 +295,9 @@ func renderAdvMorningDM(char *AdventureCharacter, equip map[EquipmentSlot]*AdvEq
 
 	// Pick a morning greeting
 	greeting, _ := advPickFlavor(MorningDM, char.UserID, "morning_dm")
+	displayName, _ := loadDisplayName(char.UserID)
 	vars := map[string]string{
-		"{name}": char.DisplayName,
+		"{name}": displayName,
 		"{character_sheet}": fmt.Sprintf(
 			"  ⚔️ Combat Lv.%d  ⛏️ Mining Lv.%d  🌿 Foraging Lv.%d  🎣 Fishing Lv.%d\n  💰 €%.0f",
 			char.CombatLevel, char.MiningSkill, char.ForagingSkill, char.FishingSkill, balance),
@@ -503,8 +505,9 @@ func renderAdvDeathStatusDM(char *AdventureCharacter) string {
 
 func renderAdvRespawnDM(char *AdventureCharacter) string {
 	text, _ := advPickFlavor(RespawnDM, char.UserID, "respawn_dm")
+	displayName, _ := loadDisplayName(char.UserID)
 	return advSubstituteFlavor(text, map[string]string{
-		"{name}": char.DisplayName,
+		"{name}": displayName,
 	})
 }
 
@@ -664,8 +667,9 @@ func masteryBar(value, total int) string {
 
 func renderAdvIdleShameDM(char *AdventureCharacter) string {
 	text, _ := advPickFlavor(IdleShameDM, char.UserID, "idle_shame")
+	displayName, _ := loadDisplayName(char.UserID)
 	return advSubstituteFlavor(text, map[string]string{
-		"{name}": char.DisplayName,
+		"{name}": displayName,
 	})
 }
 
@@ -673,8 +677,9 @@ func renderAdvIdleShameDM(char *AdventureCharacter) string {
 
 func renderAdvOnboardingDM(char *AdventureCharacter) string {
 	text, _ := advPickFlavor(OnboardingDM, char.UserID, "onboarding")
+	displayName, _ := loadDisplayName(char.UserID)
 	return advSubstituteFlavor(text, map[string]string{
-		"{name}": char.DisplayName,
+		"{name}": displayName,
 	})
 }
 
@@ -890,8 +895,9 @@ func renderAdvLeaderboard(chars []AdventureCharacter) string {
 	var entries []entry
 	for _, c := range chars {
 		score := (c.CombatLevel + c.MiningSkill + c.ForagingSkill + c.FishingSkill) * 10
+		name, _ := loadDisplayName(c.UserID)
 		entries = append(entries, entry{
-			Name:   c.DisplayName,
+			Name:   name,
 			Score:  score,
 			Levels: fmt.Sprintf("⚔️%d ⛏️%d 🌿%d 🎣%d", c.CombatLevel, c.MiningSkill, c.ForagingSkill, c.FishingSkill),
 			Streak: c.CurrentStreak,
