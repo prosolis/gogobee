@@ -55,7 +55,7 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 	case "help", "?":
 		return p.SendDM(ctx.Sender, expeditionHelpText())
 	case "list", "ls":
-		return p.zoneCmdList(ctx, c)
+		return p.expeditionCmdList(ctx, c)
 	case "start", "begin", "go":
 		return p.expeditionCmdStart(ctx, c, rest)
 	case "status", "info":
@@ -90,6 +90,28 @@ func expeditionHelpText() string {
 	b.WriteString("`!resume [Ns] [Md]` — resume an extracted expedition\n")
 	b.WriteString("`!map` — region/room ASCII map")
 	return b.String()
+}
+
+// ── list ────────────────────────────────────────────────────────────────────
+
+func (p *AdventurePlugin) expeditionCmdList(ctx MessageContext, c *DnDCharacter) error {
+	zones := zonesForLevel(c.Level)
+	if len(zones) == 0 {
+		return p.SendDM(ctx.Sender, "No zones available at your level. (This shouldn't happen — file a bug.)")
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("**Expeditions available at L%d** (you can enter zones up to 2 tiers above your current tier):\n\n", c.Level))
+	for i, z := range zones {
+		b.WriteString(fmt.Sprintf("**%d.** %s — _T%d, L%d–%d_  `!expedition start %s`\n",
+			i+1, z.Display, int(z.Tier), z.LevelMin, z.LevelMax, z.ID))
+		b.WriteString(fmt.Sprintf("    %s\n", z.Atmosphere))
+	}
+	if exp, _ := getActiveExpedition(ctx.Sender); exp != nil {
+		zone := zoneOrFallback(exp.ZoneID)
+		b.WriteString(fmt.Sprintf("\n_⚠ Active expedition: **%s**, day %d. Use `!expedition status` or `!expedition abandon`._",
+			zone.Display, exp.CurrentDay))
+	}
+	return p.SendDM(ctx.Sender, b.String())
 }
 
 // ── start ───────────────────────────────────────────────────────────────────
