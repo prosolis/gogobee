@@ -300,7 +300,7 @@ func renderForkPrompt(zone ZoneDefinition, pf pendingFork) string {
 }
 
 // recordRoomCleared appends the current room to rooms_cleared and
-// bumps last_action_at, without advancing current_room/current_node.
+// bumps last_action_at, without advancing current_node.
 // Used by the graph-mode fork path: clearing the room is a separate
 // step from choosing where to go next. Returns the updated DungeonRun
 // snapshot reloaded post-write so callers see fresh fields.
@@ -377,9 +377,8 @@ func completeRunAtNode(runID string, boss bool) error {
 }
 
 // advanceZoneRunNode moves a run to nextNode: appends to visited_nodes,
-// sets current_node, bumps current_room (legacy dual-write), and
-// clears any pending fork prompt. Caller is expected to have already
-// called recordRoomCleared for the prior node.
+// sets current_node, and clears any pending fork prompt. Caller is
+// expected to have already called recordRoomCleared for the prior node.
 func advanceZoneRunNode(runID, nextNode string) error {
 	r, err := getZoneRun(runID)
 	if err != nil {
@@ -390,16 +389,14 @@ func advanceZoneRunNode(runID, nextNode string) error {
 	}
 	visited := append(r.VisitedNodes, nextNode)
 	visitedJSON, _ := json.Marshal(visited)
-	nextRoom := r.CurrentRoom + 1
 	_, err = db.Get().Exec(`
 		UPDATE dnd_zone_run
 		   SET current_node  = ?,
 		       visited_nodes = ?,
-		       current_room  = ?,
 		       node_choices  = '{}',
 		       last_action_at = CURRENT_TIMESTAMP
 		 WHERE run_id = ?`,
-		nextNode, string(visitedJSON), nextRoom, runID)
+		nextNode, string(visitedJSON), runID)
 	return err
 }
 

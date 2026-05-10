@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -78,9 +79,10 @@ func loadAdvDailyActivity(date string) (map[id.UserID][]AdvDailyActivity, error)
 	}
 	rows.Close()
 
-	// 2. dnd_zone_run — rows touched today.
+	// 2. dnd_zone_run — rows touched today. Progress count is derived
+	// from len(visited_nodes) — current_room retired in G9.
 	rows, err = d.Query(`
-		SELECT user_id, zone_id, current_room, total_rooms, abandoned,
+		SELECT user_id, zone_id, visited_nodes, total_rooms, abandoned,
 		       boss_defeated, completed_at, last_action_at
 		FROM dnd_zone_run
 		WHERE last_action_at >= ? AND last_action_at < DATE(?, '+1 day')
@@ -91,15 +93,22 @@ func loadAdvDailyActivity(date string) (map[id.UserID][]AdvDailyActivity, error)
 	for rows.Next() {
 		var (
 			uid, zoneID                        string
-			currentRoom, totalRooms            int
+			visitedJSON                        string
+			totalRooms                         int
 			abandoned, bossDefeated            int
 			completedAt                        *time.Time
 			lastAction                         time.Time
 		)
-		if err := rows.Scan(&uid, &zoneID, &currentRoom, &totalRooms,
+		if err := rows.Scan(&uid, &zoneID, &visitedJSON, &totalRooms,
 			&abandoned, &bossDefeated, &completedAt, &lastAction); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("zone run scan: %w", err)
+		}
+		var visited []string
+		_ = json.Unmarshal([]byte(visitedJSON), &visited)
+		currentRoom := len(visited) - 1
+		if currentRoom < 0 {
+			currentRoom = 0
 		}
 		userID := id.UserID(uid)
 		zoneDef := zoneOrFallback(ZoneID(zoneID))

@@ -204,7 +204,6 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 		rng = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixMicro())))
 	}
 	seq := generateRoomSequence(zone, rng)
-	seqJSON, _ := json.Marshal(seq)
 
 	startMood := 50
 	if isHol, _ := isHolidayToday(); isHol {
@@ -237,11 +236,11 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 	run.NodeChoices = map[string]any{}
 	if _, err := db.Get().Exec(`
 		INSERT INTO dnd_zone_run
-			(run_id, user_id, zone_id, current_room, total_rooms,
-			 room_seq_json, rooms_cleared, gm_mood,
+			(run_id, user_id, zone_id, total_rooms,
+			 rooms_cleared, gm_mood,
 			 current_node, visited_nodes, node_choices)
-		VALUES (?, ?, ?, 0, ?, ?, '[]', ?, ?, ?, '{}')`,
-		run.RunID, run.UserID, string(zoneID), run.TotalRooms, string(seqJSON), startMood,
+		VALUES (?, ?, ?, ?, '[]', ?, ?, ?, '{}')`,
+		run.RunID, run.UserID, string(zoneID), run.TotalRooms, startMood,
 		entryNode, string(visitedJSON),
 	); err != nil {
 		return nil, fmt.Errorf("insert zone run: %w", err)
@@ -260,8 +259,8 @@ const zoneRunInactivityTimeout = 24 * time.Hour
 // function returns (nil, nil) — the caller sees a clean slate.
 func getActiveZoneRun(userID id.UserID) (*DungeonRun, error) {
 	row := db.Get().QueryRow(`
-		SELECT run_id, user_id, zone_id, current_room, total_rooms,
-		       room_seq_json, rooms_cleared, boss_defeated, abandoned,
+		SELECT run_id, user_id, zone_id, total_rooms,
+		       rooms_cleared, boss_defeated, abandoned,
 		       loot_collected, gm_mood, started_at, last_action_at, completed_at,
 		       current_node, visited_nodes, node_choices
 		  FROM dnd_zone_run
@@ -289,8 +288,8 @@ func getActiveZoneRun(userID id.UserID) (*DungeonRun, error) {
 // getZoneRun fetches by RunID regardless of completion state. Test/admin use.
 func getZoneRun(runID string) (*DungeonRun, error) {
 	row := db.Get().QueryRow(`
-		SELECT run_id, user_id, zone_id, current_room, total_rooms,
-		       room_seq_json, rooms_cleared, boss_defeated, abandoned,
+		SELECT run_id, user_id, zone_id, total_rooms,
+		       rooms_cleared, boss_defeated, abandoned,
 		       loot_collected, gm_mood, started_at, last_action_at, completed_at,
 		       current_node, visited_nodes, node_choices
 		  FROM dnd_zone_run WHERE run_id = ?`, runID)
@@ -310,7 +309,6 @@ func scanZoneRun(row scanner) (*DungeonRun, error) {
 	var (
 		r              DungeonRun
 		zoneID         string
-		seqJSON        string
 		clearedJSON    string
 		lootJSON       string
 		bossDefeatedI  int
@@ -321,8 +319,8 @@ func scanZoneRun(row scanner) (*DungeonRun, error) {
 		choicesJSON    string
 	)
 	if err := row.Scan(
-		&r.RunID, &r.UserID, &zoneID, &r.CurrentRoom, &r.TotalRooms,
-		&seqJSON, &clearedJSON, &bossDefeatedI, &abandonedI,
+		&r.RunID, &r.UserID, &zoneID, &r.TotalRooms,
+		&clearedJSON, &bossDefeatedI, &abandonedI,
 		&lootJSON, &r.DMMood, &r.StartedAt, &r.LastActionAt, &completedAtRaw,
 		&currentNode, &visitedJSON, &choicesJSON,
 	); err != nil {
@@ -334,9 +332,6 @@ func scanZoneRun(row scanner) (*DungeonRun, error) {
 	if completedAtRaw.Valid {
 		t := completedAtRaw.Time
 		r.CompletedAt = &t
-	}
-	if err := json.Unmarshal([]byte(seqJSON), &r.RoomSeq); err != nil {
-		return nil, fmt.Errorf("decode room_seq_json: %w", err)
 	}
 	if clearedJSON != "" {
 		if err := json.Unmarshal([]byte(clearedJSON), &r.RoomsCleared); err != nil {
@@ -374,7 +369,18 @@ func scanZoneRun(row scanner) (*DungeonRun, error) {
 		r.NodeChoices = map[string]any{}
 	}
 	r.CurrentNode = currentNode
-	if r.CurrentNode == "" && len(r.RoomSeq) > 0 {
+	// G9b: CurrentRoom is now derived from VisitedNodes — no longer
+	// persisted in current_room. The downstream callers that key on
+	// CurrentRoom (combat enemy/trap salts, status renders, harvest
+	// keys) stay numerically identical to the dual-write era because
+	// VisitedNodes was bumped in lockstep with current_room.
+	if n := len(r.VisitedNodes); n > 0 {
+		r.CurrentRoom = n - 1
+	}
+	if r.CurrentNode == "" {
+		// Defensive: a row from before the G4 dual-write deploy that
+		// somehow survived 24h inactivity timeouts. Pin to the linear
+		// entry node so resolveRoom doesn't crash.
 		r.CurrentNode = deriveLegacyNodeID(r.ZoneID, r.CurrentRoom)
 	}
 	return &r, nil
@@ -392,8 +398,11 @@ func deriveLegacyNodeID(zoneID ZoneID, roomIdx int) string {
 }
 
 // markRoomCleared records that the current room has been resolved and
-// advances the player to the next room. Returns the new current room
-// type (or "" if the run completed via boss kill / final room).
+// advances the player along the first outgoing graph edge. Returns the
+// new current room type (or "" if the run completed via boss kill /
+// dead-end). Used by tests that drive a run end-to-end without going
+// through the !zone advance command surface; the runtime command path
+// uses advanceTransitionGraph directly so it can render fork prompts.
 func markRoomCleared(runID string) (RoomType, error) {
 	r, err := getZoneRun(runID)
 	if err != nil {
@@ -405,13 +414,17 @@ func markRoomCleared(runID string) (RoomType, error) {
 	if !r.IsActive() {
 		return "", ErrNoActiveRun
 	}
+	g, ok := loadZoneGraph(r.ZoneID)
+	if !ok {
+		return "", fmt.Errorf("no graph for zone %q", r.ZoneID)
+	}
 	cleared := append(r.RoomsCleared, r.CurrentRoom)
 	clearedJSON, _ := json.Marshal(cleared)
 
-	wasBossRoom := r.CurrentRoomType() == RoomBoss
-	next := r.CurrentRoom + 1
-	if next >= r.TotalRooms || wasBossRoom {
-		// Boss room cleared = run complete via boss defeat.
+	edges := g.outgoingEdges(r.CurrentNode)
+	if len(edges) == 0 {
+		// Dead-end or boss — run completes here.
+		isBoss := g.Nodes[r.CurrentNode].IsBoss
 		now := time.Now().UTC()
 		if _, err := db.Get().Exec(`
 			UPDATE dnd_zone_run
@@ -420,33 +433,29 @@ func markRoomCleared(runID string) (RoomType, error) {
 			       completed_at  = ?,
 			       last_action_at = ?
 			 WHERE run_id = ?`,
-			string(clearedJSON), boolToInt(wasBossRoom), now, now, runID,
+			string(clearedJSON), boolToInt(isBoss), now, now, runID,
 		); err != nil {
 			return "", err
 		}
 		return "", nil
 	}
-	// G4 dual-write: advance current_node + append to visited_nodes
-	// alongside the legacy current_room bump.
-	nextNode := deriveLegacyNodeID(r.ZoneID, next)
+	nextNode := edges[0].To
 	visited := append(r.VisitedNodes, nextNode)
 	visitedJSON, _ := json.Marshal(visited)
 	if _, err := db.Get().Exec(`
 		UPDATE dnd_zone_run
 		   SET rooms_cleared = ?,
-		       current_room  = ?,
 		       current_node  = ?,
 		       visited_nodes = ?,
 		       last_action_at = CURRENT_TIMESTAMP
 		 WHERE run_id = ?`,
-		string(clearedJSON), next, nextNode, string(visitedJSON), runID,
+		string(clearedJSON), nextNode, string(visitedJSON), runID,
 	); err != nil {
 		return "", err
 	}
-	r.CurrentRoom = next
 	r.CurrentNode = nextNode
 	r.VisitedNodes = visited
-	return r.RoomSeq[next], nil
+	return nodeKindToRoomType(g.Nodes[nextNode].Kind), nil
 }
 
 // abandonZoneRun flags the active run as abandoned. Idempotent: returns

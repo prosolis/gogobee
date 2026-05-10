@@ -267,24 +267,27 @@ func TestCampLocationCheck_BossRoomBlocks(t *testing.T) {
 	defer cleanupZoneRuns(uid)
 	defer cleanupExpeditions(uid)
 
-	// Pre-create a zone run, then advance current_room to the boss room.
+	// Pre-create a zone run, then warp current_node to the graph's boss.
 	run, err := startZoneRun(uid, ZoneGoblinWarrens, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Walk to the boss room directly (last index).
-	bossIdx := -1
-	for i, rt := range run.RoomSeq {
-		if rt == RoomBoss {
-			bossIdx = i
+	g, ok := loadZoneGraph(run.ZoneID)
+	if !ok {
+		t.Fatalf("no graph for zone %q", run.ZoneID)
+	}
+	bossNodeID := ""
+	for nid, n := range g.Nodes {
+		if n.IsBoss {
+			bossNodeID = nid
+			break
 		}
 	}
-	if bossIdx < 0 {
-		t.Fatal("no boss room in seq")
+	if bossNodeID == "" {
+		t.Fatal("no boss node in graph")
 	}
 	exp := &Expedition{RunID: run.RunID}
-	// Force current_room to bossIdx.
-	if _, err := db.Get().Exec(`UPDATE dnd_zone_run SET current_room = ? WHERE run_id = ?`, bossIdx, run.RunID); err != nil {
+	if _, err := db.Get().Exec(`UPDATE dnd_zone_run SET current_node = ? WHERE run_id = ?`, bossNodeID, run.RunID); err != nil {
 		t.Fatal(err)
 	}
 	cleared, problem := campLocationCheck(exp)
