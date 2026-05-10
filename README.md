@@ -32,6 +32,7 @@ Written in Go using [mautrix-go](https://github.com/mautrix/go) for encryption a
 - **50 plugins** with dependency injection and ordered registration
 - **Games & economy** - Euro virtual currency, Hangman (collaborative, threaded, tiered scoring, multilingual clue mode via DreamDict, difficulty tier display), Blackjack (1-4 players, auto-play timeout), UNO (solo vs bot or 2–4 player multiplayer via DMs, with optional No Mercy mode), Texas Hold'em (2-9 players, CFR-trained NPC bot, DM-based gameplay with Ollama coaching tips, 1-hour idle auto-close with 45-min warning), Wordle (daily cooperative, DreamDict-powered, 5-20 letter words, guess persistence across restarts, midnight expiry announcements, video game themed bonus words with category hints, dupe prevention across last 500 puzzles, earnings tracked in stats), Adventure 2.0 (D&D-layered RPG: 7 races, 5 classes with 3 subclasses each through L15, real spell slots and forward-simulating combat engine, 10 hand-tuned dungeon zones across 5 tiers, multi-day expeditions with supply burn / threat clock / day cycle / multi-region travel / extract-and-resume / per-zone temporal events, harvest nodes per room, TwinBee as a mood-driven DM with ten zone-specific narration pools, all on top of the existing economy/housing/pets/Misty/Arina/blacksmith/hospital/rivals systems), Arena (5-tier combat gauntlet with 20 unique monsters, streak-based payouts, death lockout, leaderboard), Co-op Dungeons (2–7 day party runs with funding tiers, TwinBee-narrated floor events with voting, spectator parimutuel betting, basket/mimic gift system, weighted-roll item distribution including masterworks at T4–T5), all with channel restriction
 - **Moderation system** (optional) - deterministic detection only, no LLM. Word list with leetspeak variation matching, text/image flood, repeated messages, mention flooding, link rate limiting, invite flooding, join/leave cycling. Three-strike ladder (warn → mute → ban). Admin room notifications, DMs over public callouts.
+- **Space inviter** (optional) - detects local homeserver users who aren't in any Matrix Space and DMs the configured admin to ask whether to invite them to a target Space. Replies are `yes` / `no` / `ignore`. Persistent prompt log in SQLite means restarts/upgrades don't re-ping the admin about users they've already answered. Runs on startup sweep + reactive on join events.
 - **Passive tracking** - XP, stats, streaks, achievements, markov corpus, keyword alerts, all running silently
 - **Scheduled posts** via [robfig/cron](https://github.com/robfig/cron) - Palavra do Dia (Portuguese WOTD with en/fr translations and etymology), holidays, game releases, birthdays, anime/movie releases, concert digests, esteemed members
 - **LLM integration** (optional) - Ollama-powered sentiment analysis, roast profiles, room vibes, tarot readings, conversation summaries
@@ -150,6 +151,7 @@ Everything is configured through environment variables or a `.env` file.
 | `FEATURE_ESTEEMED` | Set to anything to enable satirical esteemed member posts |
 | `ESTEEMED_ROOM` | Room ID for esteemed member posts (separate from broadcast rooms) |
 | `FEATURE_MODERATION` | Set to `true` to enable the moderation system (disabled by default) |
+| `FEATURE_SPACE_INVITER` | Set to `true` to enable the space inviter (disabled by default) |
 | `FEATURE_MARKET` | Set to `true` to enable the market overview plugin |
 | `MARKET_BROADCAST_SUMMARY` | Set to `true` to auto-post daily market summary to broadcast rooms |
 | `DISABLE_WOTD_POST` | Set to `true` to suppress daily WOTD auto-post (the `!wotd` command and passive WOTD usage tracking still work) |
@@ -227,6 +229,20 @@ All moderation settings are optional. The system is disabled unless `FEATURE_MOD
 |----------|---------|-------------|
 | `SPACE_GROUP_THRESHOLD` | `50` | Percentage of the smaller room's members that must overlap to group rooms together (1–100) |
 | `HOLIDAY_COUNTRIES` | `US` | Comma-separated ISO country codes for Calendarific holiday posts |
+
+### Space Inviter
+
+Disabled unless `FEATURE_SPACE_INVITER=true`. Requires the bot to be joined to **every** Space on the homeserver — if a Space exists that the bot can't see, users in only that Space will be misclassified as Space-less. Uses the Synapse Admin API to enumerate local users.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SPACE_INVITER_TARGET` | | Room ID of the Space to invite users into on `yes` reply |
+| `SPACE_INVITER_HOME_DOMAIN` | | Your homeserver domain (e.g. `parodia.dev`) — only users with this suffix are considered |
+| `SPACE_INVITER_SYNAPSE_URL` | | Base URL for Synapse admin API (e.g. `https://parodia.dev`) |
+| `SPACE_INVITER_ADMIN_TOKEN` | | Synapse admin access token |
+| `SPACE_INVITER_ADMIN_USER` | | User ID to DM with prompts (the operator) |
+| `SPACE_INVITER_DELAY` | `2s` | Delay between prompts during the startup sweep |
+| `SPACE_INVITER_COOLDOWN` | `720h` | Minimum gap between re-prompts for the same user (Go duration). Prevents restart/upgrade ping-spam — a `no` reply is honored for this long across restarts. `ignore` is permanent. |
 
 ### Missing Members
 

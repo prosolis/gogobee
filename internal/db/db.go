@@ -1863,6 +1863,21 @@ CREATE TABLE IF NOT EXISTS player_meta (
     display_name    TEXT NOT NULL DEFAULT '',
     hospital_visits INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS space_inviter_prompts (
+    user_id          TEXT NOT NULL,
+    prompt_sent_at   INTEGER NOT NULL,
+    trigger_kind     TEXT NOT NULL,
+    dm_room_id       TEXT NOT NULL,
+    dm_event_id      TEXT NOT NULL,
+    reply            TEXT,
+    replied_at       INTEGER,
+    invite_attempted INTEGER NOT NULL DEFAULT 0,
+    invite_outcome   TEXT,
+    invite_error     TEXT,
+    PRIMARY KEY (user_id, prompt_sent_at)
+);
+CREATE INDEX IF NOT EXISTS idx_space_inviter_user ON space_inviter_prompts(user_id);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

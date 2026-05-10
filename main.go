@@ -191,6 +191,10 @@ func main() {
 	registry.Register(plugin.NewShadePlugin(client))
 	registry.Register(plugin.NewWelcomePlugin(client, xpPlugin, registry))
 
+	// Space inviter (admin-prompted invites for Space-less local users)
+	spaceInviter := plugin.NewSpaceInviterPlugin(client)
+	registry.Register(spaceInviter)
+
 	// Initialize all plugins
 	if err := registry.Init(); err != nil {
 		slog.Error("plugin init failed", "err", err)
@@ -234,6 +238,11 @@ func main() {
 		// Track join/leave/invite for moderation
 		targetUser := id.UserID(evt.GetStateKey())
 		modPlugin.OnMemberEvent(evt.RoomID, targetUser, mem.Membership)
+
+		// Space inviter: react to local-user joins
+		if mem.Membership == event.MembershipJoin {
+			spaceInviter.OnMemberJoin(targetUser)
+		}
 	})
 
 	// Message handler
