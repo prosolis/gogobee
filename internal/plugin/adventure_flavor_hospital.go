@@ -98,8 +98,22 @@ var nurseJoyAlreadyRevived = "You seem to have recovered on your own! " +
 
 // ── Room Announcements ───────────────────────────────────────────────────��─
 
-var hospitalDischargeAnnounce = "🏥 %s has been discharged from St. Guildmore's Memorial Hospital. " +
-	"Recovered. Back in action. The bill has been described as \"a lot.\""
+// hospitalDischargeBillDescriptors are the variants used for the
+// "The bill has been described as ..." sentence in the discharge announcement.
+// Some are bare adjectives ("devastating"); others are full quoted phrases.
+var hospitalDischargeBillDescriptors = []string{
+	"\"inhumane but probably normal by USA standards.\"",
+	"devastating.",
+	"ruinous.",
+	"soul-crushing.",
+	"\"proof that someone, somewhere, hates me specifically.\"",
+	"\"tearing to shreds what little hope I had left for humanity.\"",
+	"\"what I imagine my greatest enemies would charge me.\"",
+	"\"enough to make me reconsider the whole 'surviving' part.\"",
+}
+
+var hospitalDischargeAnnouncePrefix = "🏥 %s has been discharged from St. Guildmore's Memorial Hospital. " +
+	"Recovered. Back in action. The bill has been described as %s"
 
 var hospitalDitchAnnounce = "🏥 %s was brought into St. Guildmore's on a stretcher. " +
 	"They have been returned to the ditch. They'll be fine tomorrow."

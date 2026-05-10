@@ -336,7 +336,8 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 		gr := gamesRoom()
 		if gr != "" {
 			name, _ := loadDisplayName(char.UserID)
-			p.SendMessage(gr, fmt.Sprintf(hospitalDischargeAnnounce, name))
+			descriptor, _ := advPickFlavor(hospitalDischargeBillDescriptors, ctx.Sender, "hospital_discharge_bill")
+			p.SendMessage(gr, fmt.Sprintf(hospitalDischargeAnnouncePrefix, name, descriptor))
 		}
 
 		return nil
