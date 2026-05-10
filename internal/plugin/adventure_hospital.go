@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -13,22 +14,56 @@ import (
 // ── Pending Interaction Types ──────────────────────────────────────────────
 
 type advPendingHospitalPay struct {
-	Cost int64 // after-insurance amount (recomputed at confirm time for TOCTOU safety)
+	Cost       int64 // after-insurance amount (recomputed at confirm time for TOCTOU safety)
+	Discounted bool  // pinned haggle outcome — when true, recomputed base is halved
+	Waived     bool  // pinned nat-20 outcome — full waiver, no debit
 }
 
 // hospitalCostsForUser returns (beforeInsurance, afterInsurance) for the
-// hospital revival bill. Phase L4a switches the formula off CombatLevel
-// onto DnDCharacter.Level: `Level × 50_000` after insurance, 5× that
-// before. Post-L5g every legacy player has a DnDCharacter row, so the
-// CombatLevel-derived fallback has been retired. Floors at level 1.
+// hospital revival bill. `Level × 5_000` after insurance, 5× that before.
+// Floors at level 1.
 func hospitalCostsForUser(char *AdventureCharacter) (int64, int64) {
 	level := 1
 	if dnd, err := LoadDnDCharacter(char.UserID); err == nil && dnd != nil && dnd.Level > 0 {
 		level = dnd.Level
 	}
-	after := int64(level) * 50_000
+	after := int64(level) * 5_000
 	before := after * 5
 	return before, after
+}
+
+// hospitalHaggleDC is the target for the CHA-based haggle check. Pass = 50% off.
+const hospitalHaggleDC = 15
+
+type hospitalHaggleOutcome int
+
+const (
+	haggleFumble hospitalHaggleOutcome = iota // nat 1 — auto-fail, full price
+	haggleFail                                // d20+CHA < 15
+	haggleWin                                 // d20+CHA ≥ 15
+	haggleCrit                                // nat 20 — bill waived
+)
+
+// rollHospitalHaggle rolls d20 + CHA modifier vs DC 15. Returns the raw roll,
+// the CHA modifier, and the outcome. Nat 1 is an auto-fumble (full price);
+// nat 20 is an auto-crit (full waiver) regardless of modifier.
+// Falls back to 0 mod if the DnD row can't be loaded.
+func rollHospitalHaggle(userID id.UserID) (int, int, hospitalHaggleOutcome) {
+	mod := 0
+	if dnd, err := LoadDnDCharacter(userID); err == nil && dnd != nil {
+		mod = abilityModifier(dnd.CHA)
+	}
+	r := rand.IntN(20) + 1
+	switch {
+	case r == 20:
+		return r, mod, haggleCrit
+	case r == 1:
+		return r, mod, haggleFumble
+	case r+mod >= hospitalHaggleDC:
+		return r, mod, haggleWin
+	default:
+		return r, mod, haggleFail
+	}
 }
 
 // ── Hospital Command ───────────────────────────────────────────────────────
@@ -62,8 +97,19 @@ func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, nurseJoyAlreadyRevived)
 	}
 
-	// Compute costs (Phase L4a: DnD level × 50k after insurance, 5× before)
-	beforeInsurance, afterInsurance := hospitalCostsForUser(char)
+	// Compute costs (level × 5k after insurance, 5× before)
+	beforeInsurance, baseAfterInsurance := hospitalCostsForUser(char)
+
+	// Haggle: CHA save vs DC 15. Nat 20 waives the bill, nat 1 is auto-full,
+	// otherwise pass = half off.
+	haggleRoll, haggleMod, haggleOutcome := rollHospitalHaggle(ctx.Sender)
+	afterInsurance := baseAfterInsurance
+	switch haggleOutcome {
+	case haggleCrit:
+		afterInsurance = 0
+	case haggleWin:
+		afterInsurance /= 2
+	}
 
 	// Check balance
 	balance := p.euro.GetBalance(ctx.Sender)
@@ -100,29 +146,61 @@ func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
 	sb.WriteString(admission)
 	sb.WriteString("\n\n")
 
-	// Act 2 — The Bill
-	sb.WriteString(generateItemizedBill(beforeInsurance, afterInsurance, visits, isHol))
+	// Act 2 — The Bill (always shows the un-haggled after-insurance figure;
+	// the haggle adjustment is announced separately below).
+	sb.WriteString(generateItemizedBill(beforeInsurance, baseAfterInsurance, visits, isHol))
 	sb.WriteString("\n\n")
 
 	delivery, _ := advPickFlavor(nurseJoyBillDelivery, ctx.Sender, "hospital_delivery")
 	sb.WriteString(delivery)
 	sb.WriteString("\n\n───\n\n")
 
-	// Act 3 — After Insurance
+	// Act 3 — After Insurance (pre-haggle figure)
 	afterText, _ := advPickFlavor(nurseJoyAfterInsurance, ctx.Sender, "hospital_after")
 	// Some entries have two %d placeholders (she says the number twice)
 	count := strings.Count(afterText, "%d")
 	switch count {
 	case 1:
-		afterText = fmt.Sprintf(afterText, afterInsurance)
+		afterText = fmt.Sprintf(afterText, baseAfterInsurance)
 	case 2:
-		afterText = fmt.Sprintf(afterText, afterInsurance, afterInsurance)
+		afterText = fmt.Sprintf(afterText, baseAfterInsurance, baseAfterInsurance)
 	}
 	sb.WriteString(afterText)
-	sb.WriteString("\n\n")
+	sb.WriteString("\n\n───\n\n")
 
-	// Payment prompt
-	sb.WriteString(fmt.Sprintf("**St. Guildmore's Memorial Hospital**\nAmount due: **%s**\n\n", fmtEuro(afterInsurance)))
+	// Act 4 — The Haggle. Nurse Joy lets you make a charisma save on your bill.
+	total := haggleRoll + haggleMod
+	flavor, _ := advPickFlavor(nurseJoyHaggleFlavor[haggleOutcome], ctx.Sender, fmt.Sprintf("hospital_haggle_%d", haggleOutcome))
+	var verdict string
+	switch haggleOutcome {
+	case haggleCrit:
+		verdict = "🎉 **NAT 20 — bill waived!**"
+	case haggleWin:
+		verdict = "✅ *Passed!* The bill is halved."
+	case haggleFumble:
+		verdict = "💀 **NAT 1 — auto-fail.** Full price stands."
+	default:
+		verdict = "❌ *Failed.* Full price stands."
+	}
+	sb.WriteString(fmt.Sprintf(
+		"🎲 **Haggle Check (CHA DC %d)**\n"+
+			"You attempt to charm Nurse Joy into a discount...\n"+
+			"d20 = **%d**, CHA mod %+d → **total %d** vs DC %d\n"+
+			"%s\n\n%s\n\n───\n\n",
+		hospitalHaggleDC, haggleRoll, haggleMod, total, hospitalHaggleDC, verdict, flavor))
+
+	// Payment prompt — show base → final adjustment when it changed.
+	sb.WriteString("**St. Guildmore's Memorial Hospital**\n")
+	switch haggleOutcome {
+	case haggleCrit:
+		sb.WriteString(fmt.Sprintf("Original: ~~%s~~ → **WAIVED**\n", fmtEuro(baseAfterInsurance)))
+		sb.WriteString("Amount due: **€0**\n\n")
+	case haggleWin:
+		sb.WriteString(fmt.Sprintf("Original: ~~%s~~ → **%s** (haggled)\n", fmtEuro(baseAfterInsurance), fmtEuro(afterInsurance)))
+		sb.WriteString(fmt.Sprintf("Amount due: **%s**\n\n", fmtEuro(afterInsurance)))
+	default:
+		sb.WriteString(fmt.Sprintf("Amount due: **%s**\n\n", fmtEuro(afterInsurance)))
+	}
 	sb.WriteString("Pay now? (yes / no)\n\n")
 	sb.WriteString("*Note: Declining payment will result in discharge to the natural respawn queue. " +
 		"You'll be back tomorrow. The chair in the waiting room is available in the meantime.*")
@@ -130,7 +208,11 @@ func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
 	// Store pending interaction
 	p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 		Type:      "hospital_pay",
-		Data:      &advPendingHospitalPay{Cost: afterInsurance},
+		Data: &advPendingHospitalPay{
+			Cost:       afterInsurance,
+			Discounted: haggleOutcome == haggleWin,
+			Waived:     haggleOutcome == haggleCrit,
+		},
 		ExpiresAt: time.Now().Add(advDMResponseWindow),
 	})
 	p.advMarkMenuSent(ctx.Sender)
@@ -170,8 +252,21 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 			return p.SendDM(ctx.Sender, nurseJoyAlreadyRevived)
 		}
 
-		// Recompute cost from current DnD level (don't trust cached value)
+		// Recompute cost from current DnD level (don't trust cached value).
+		// The haggle outcome was pinned at prompt time — re-applying it here
+		// preserves the discount even if level changed mid-flow, and prevents
+		// any reroll exploit.
 		_, cost := hospitalCostsForUser(char)
+		waived := false
+		if pay, ok := interaction.Data.(*advPendingHospitalPay); ok {
+			switch {
+			case pay.Waived:
+				cost = 0
+				waived = true
+			case pay.Discounted:
+				cost /= 2
+			}
+		}
 
 		// Check balance
 		balance := p.euro.GetBalance(ctx.Sender)
@@ -187,16 +282,18 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 			return nil
 		}
 
-		// Debit
-		if !p.euro.Debit(ctx.Sender, float64(cost), "hospital_revival") {
-			text, _ := advPickFlavor(nurseJoyCantAfford, ctx.Sender, "hospital_broke")
-			return p.SendDM(ctx.Sender, text)
-		}
+		// Debit (skipped on a nat-20 waiver)
+		if !waived {
+			if !p.euro.Debit(ctx.Sender, float64(cost), "hospital_revival") {
+				text, _ := advPickFlavor(nurseJoyCantAfford, ctx.Sender, "hospital_broke")
+				return p.SendDM(ctx.Sender, text)
+			}
 
-		// Community health fund: 10% of revival cost.
-		if potCut := int(math.Round(float64(cost) * 0.1)); potCut > 0 {
-			communityPotAdd(potCut)
-			trackTaxPaid(ctx.Sender, potCut)
+			// Community health fund: 10% of revival cost.
+			if potCut := int(math.Round(float64(cost) * 0.1)); potCut > 0 {
+				communityPotAdd(potCut)
+				trackTaxPaid(ctx.Sender, potCut)
+			}
 		}
 
 		// Revive. Restore DnDCharacter HP to full (canonical post-L5 path);
@@ -207,8 +304,10 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 		char.HospitalVisits++
 		if err := saveAdvCharacter(char); err != nil {
 			slog.Error("hospital: failed to save character after revival", "user", char.UserID, "err", err)
-			// Refund on save failure
-			p.euro.Credit(ctx.Sender, float64(cost), "hospital_revival_refund")
+			// Refund on save failure (no-op when nothing was debited)
+			if !waived {
+				p.euro.Credit(ctx.Sender, float64(cost), "hospital_revival_refund")
+			}
 			return p.SendDM(ctx.Sender, "Something went wrong during recovery. Your payment has been refunded.")
 		}
 		if dnd, err := LoadDnDCharacter(char.UserID); err == nil && dnd != nil {
@@ -219,12 +318,19 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 		}
 
 		// Discharge DM
-		p.SendDM(ctx.Sender, fmt.Sprintf(
-			"✅ **Discharged — you're alive!**\n\n"+
-				"%s deducted. Nurse Joy wishes you the best. "+
-				"She means it. She always means it.\n\n"+
-				"Go get 'em. Type `!adventure` when you're ready.",
-			fmtEuro(cost)))
+		if waived {
+			p.SendDM(ctx.Sender, "✅ **Discharged — you're alive!**\n\n"+
+				"Nurse Joy waved the deductible entirely. _\"On the house, sweetie. "+
+				"You earned it.\"_ Derek the billing orderly looks personally offended.\n\n"+
+				"Go get 'em. Type `!adventure` when you're ready.")
+		} else {
+			p.SendDM(ctx.Sender, fmt.Sprintf(
+				"✅ **Discharged — you're alive!**\n\n"+
+					"%s deducted. Nurse Joy wishes you the best. "+
+					"She means it. She always means it.\n\n"+
+					"Go get 'em. Type `!adventure` when you're ready.",
+				fmtEuro(cost)))
+		}
 
 		// Room announcement
 		gr := gamesRoom()

@@ -52,6 +52,41 @@ var nurseJoyNudge = []string{
 		"Type `!hospital` to check in.",
 }
 
+// nurseJoyHaggleFlavor — Nurse Joy's reaction to the player's CHA haggle roll.
+// Indexed by hospitalHaggleOutcome (haggleFumble=0, haggleFail=1, haggleWin=2, haggleCrit=3).
+var nurseJoyHaggleFlavor = [][]string{
+	// haggleFumble — nat 1
+	{
+		"_you have drooled on the clipboard_ Oh sweetie. _gently dabs at it_ That's okay! We see this all the time. _has not seen this all the time._ Full price, but on the house emotionally!",
+		"You opened your mouth and a single, low groan came out. _she nods supportively_ I'll take that as 'fine with the full bill!' Wonderful negotiating!",
+		"_you tried to wink and both eyes closed_ Bless. We'll just go with the standard rate, sugar. Don't strain yourself.",
+		"You attempted charm. You produced a wet, rattling exhale. _Nurse Joy beams._ \"That's a yes to the full price! Great chat!\"",
+		"_you mumbled what you thought was a compliment about her hair_ That was a tube. That was the oxygen tube, honey. Full price!",
+	},
+	// haggleFail — d20+CHA below DC
+	{
+		"_smiles, doesn't blink_ I hear you, I do, but our pricing is set by the regional billing council and they are not sentimental people. Full bill it is!",
+		"That was a nice try! Really. _pats your hand_ Unfortunately I don't actually have the authority to discount anything, but it's so cute that you asked!",
+		"_tilts head sympathetically_ Oh, I would if I could! I really would. _she would not_ Standard rate, sugar.",
+		"Mm, no, that one didn't quite land for me. _still smiling_ But you're so brave for trying! Standard pricing applies.",
+	},
+	// haggleWin — pass
+	{
+		"_leans in conspiratorially_ You know what? You've been so polite. _types something_ I'm going to push this through as a 'goodwill adjustment.' Half off! Don't tell Derek.",
+		"_genuinely charmed_ Oh you're sweet. Okay, okay, I can flag this as a hardship case. Fifty percent off! _winks, has never winked at anyone before_",
+		"You know, the system has this little box for 'compassionate review' and I'm just _click_ going to go ahead and check that. There. Half price! Our little secret.",
+		"_giggles_ You're trouble. Okay — half off, but only because I like you, and because Derek is on lunch.",
+	},
+	// haggleCrit — nat 20
+	{
+		"_completely disarmed_ Oh my god. _puts down clipboard_ I haven't laughed like that on shift in YEARS. You know what? This one's on the house. Derek is going to have a complete meltdown and I do not care.",
+		"_dabs at her eye, recovering_ Sir. Ma'am. Whatever-you-are. That was the single most charming thing a corpse has ever said to me. Bill: waived. Walk it off.",
+		"_actually blushing_ I — okay. Okay! You know what? Free. It's free. _whispers to the ceiling_ Sorry Derek.",
+		"_stares at you for a long moment_ I'm calling it a clinical trial. You're the trial. There is no charge. Get out of here before I change my mind. _winks for real this time_",
+		"_to the orderlies_ Tear up the bill. _to you_ You, sugar, are a treasure. Discharge papers, no charge, complimentary water for the road.",
+	},
+}
+
 var nurseJoyAlive = []string{
 	"_looks up from clipboard_ You don't appear to be dead! That's great news! We love when people aren't dead. Come back if that changes! _cheerfully_",
 	"_tilts head_ Our records show you're... alive? That's wonderful! We don't actually treat alive people here. It's a whole different department. _waves vaguely_",
