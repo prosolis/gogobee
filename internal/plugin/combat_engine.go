@@ -6,6 +6,10 @@ import "math/rand/v2"
 
 type CombatStats struct {
 	MaxHP     int
+	// StartHP is the HP the combatant *enters* this fight at. Zero means
+	// "use MaxHP" (full health). Wounded carry-over uses this so MaxHP
+	// stays stable across fights — display reads "100/123", not "100/100".
+	StartHP   int
 	Attack    int
 	Defense   int
 	Speed     int
@@ -237,9 +241,17 @@ type combatState struct {
 }
 
 func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult {
+	playerStart := player.Stats.MaxHP
+	if player.Stats.StartHP > 0 && player.Stats.StartHP < player.Stats.MaxHP {
+		playerStart = player.Stats.StartHP
+	}
+	enemyStart := enemy.Stats.MaxHP
+	if enemy.Stats.StartHP > 0 && enemy.Stats.StartHP < enemy.Stats.MaxHP {
+		enemyStart = enemy.Stats.StartHP
+	}
 	st := &combatState{
-		playerHP:    player.Stats.MaxHP,
-		enemyHP:     enemy.Stats.MaxHP,
+		playerHP:    playerStart,
+		enemyHP:     enemyStart,
 		wardCharges:    player.Mods.WardCharges,
 		sporeRounds:    player.Mods.SporeCloud,
 		reflectFrac:    player.Mods.ReflectNext,
@@ -607,8 +619,14 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	}
 
 	isCrit := isCritRoll
-	if st.autoCrit {
+	autoCritFired := false
+	if !isCritRoll && st.autoCrit {
 		isCrit = true
+		autoCritFired = true
+		st.autoCrit = false
+	} else if st.autoCrit && isCritRoll {
+		// Natural crit consumes the auto-crit charge but doesn't get the
+		// "passive fired" flavor — the dice already explain it.
 		st.autoCrit = false
 	}
 	if isCrit {
@@ -651,8 +669,12 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	dmg = max(1, dmg)
 
 	action := "hit"
+	desc := ""
 	if isCrit {
 		action = "crit"
+		if autoCritFired {
+			desc = "auto_crit"
+		}
 	} else if blocked {
 		action = "block"
 	}
@@ -661,7 +683,7 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: phaseName, Actor: "player", Action: action,
 		Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
-		Roll: roll, RollAgainst: enemy.Stats.AC,
+		Roll: roll, RollAgainst: enemy.Stats.AC, Desc: desc,
 	})
 	return st.enemyHP <= 0
 }

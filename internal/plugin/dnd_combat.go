@@ -433,13 +433,15 @@ func applyDnDHPScaling(stats *CombatStats, c *DnDCharacter) {
 	if scaled < 1 {
 		scaled = 1
 	}
-	// Defensive: pct is clamped above to [floor, 1.0], so scaled should
-	// always be ≤ original MaxHP. Belt-and-suspenders in case the floor
-	// or pct math drifts in a future refactor.
 	if scaled > stats.MaxHP {
 		scaled = stats.MaxHP
 	}
-	stats.MaxHP = scaled
+	// Set StartHP rather than overwriting MaxHP. The combat engine reads
+	// StartHP as the entry-HP, but display denominators (e.g. "101/123")
+	// keep using MaxHP — so wounded carry-over reads "wounded out of full"
+	// rather than "full out of shrunk-max", which previously made wound
+	// state invisible across battles.
+	stats.StartHP = scaled
 }
 
 // ── HP persistence ───────────────────────────────────────────────────────────

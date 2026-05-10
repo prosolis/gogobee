@@ -172,6 +172,9 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 
 	case "crit":
 		if e.Actor == "player" {
+			if e.Desc == "auto_crit" {
+				return pickFrom(narrativePlayerAutoCrit, picker.player, e.Damage)
+			}
 			return pickFrom(narrativePlayerCrit, picker.player, e.Damage)
 		}
 		return pickFrom(narrativeEnemyCrit, picker.enemy, e.Damage)
@@ -355,6 +358,19 @@ var narrativePlayerCrit = []string{
 	"💥 A devastating strike. %d damage. You didn't know you had that in you. Neither did they.",
 	"💥 You put everything behind this one. %d damage. It shows. It shows on their face specifically.",
 	"💥 **CRIT!** %d damage. You look at your weapon like it just got a promotion.",
+}
+
+// narrativePlayerAutoCrit is used when a forced/auto crit fires *not* from a
+// natural high roll — Rogue's first-strike instinct, a held/paralyzed enemy,
+// or a consumable like Ancient Artifact Oil. The roll itself is unimpressive;
+// the *setup* is what made the hit devastating.
+var narrativePlayerAutoCrit = []string{
+	"💥 **CRIT — opening exploit.** Years of looking for this exact gap pay off. %d damage. The roll didn't matter. You did.",
+	"💥 Your training takes over before you do. The opening was there; instinct found it. %d damage.",
+	"💥 The enemy left exactly the gap your subclass trained you to punish. %d damage. They did not get to protest.",
+	"💥 **First-strike instinct fires.** You don't aim; you *know*. %d damage. The dice were a formality.",
+	"💥 You read the seam between their guard and their breath. Slip in, slip out. %d damage. They notice on the way down.",
+	"💥 The setup was perfect — the *attack* was just paperwork. %d damage.",
 }
 
 var narrativeEnemyCrit = []string{

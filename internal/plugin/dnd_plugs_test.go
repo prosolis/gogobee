@@ -12,7 +12,10 @@ func TestApplyDnDHPScaling_FullHP(t *testing.T) {
 	c := &DnDCharacter{HPMax: 50, HPCurrent: 50}
 	applyDnDHPScaling(&stats, c)
 	if stats.MaxHP != 100 {
-		t.Errorf("full HP: MaxHP scaled to %d, want unchanged 100", stats.MaxHP)
+		t.Errorf("full HP: MaxHP changed to %d, want unchanged 100", stats.MaxHP)
+	}
+	if stats.StartHP != 0 {
+		t.Errorf("full HP: StartHP = %d, want 0 (unset)", stats.StartHP)
 	}
 }
 
@@ -20,8 +23,11 @@ func TestApplyDnDHPScaling_HalfHP(t *testing.T) {
 	stats := CombatStats{MaxHP: 100}
 	c := &DnDCharacter{HPMax: 50, HPCurrent: 25}
 	applyDnDHPScaling(&stats, c)
-	if stats.MaxHP != 50 {
-		t.Errorf("50%% HP: MaxHP = %d, want 50", stats.MaxHP)
+	if stats.MaxHP != 100 {
+		t.Errorf("50%% HP: MaxHP = %d, want unchanged 100", stats.MaxHP)
+	}
+	if stats.StartHP != 50 {
+		t.Errorf("50%% HP: StartHP = %d, want 50", stats.StartHP)
 	}
 }
 
@@ -29,21 +35,24 @@ func TestApplyDnDHPScaling_FloorAt25Pct(t *testing.T) {
 	stats := CombatStats{MaxHP: 100}
 	c := &DnDCharacter{HPMax: 50, HPCurrent: 0}
 	applyDnDHPScaling(&stats, c)
-	if stats.MaxHP != 25 {
-		t.Errorf("0%% HP: MaxHP = %d, want 25 (floor)", stats.MaxHP)
+	if stats.MaxHP != 100 {
+		t.Errorf("0%% HP: MaxHP = %d, want unchanged 100", stats.MaxHP)
+	}
+	if stats.StartHP != 25 {
+		t.Errorf("0%% HP: StartHP = %d, want 25 (floor)", stats.StartHP)
 	}
 }
 
 func TestApplyDnDHPScaling_NoOpIfNilOrZero(t *testing.T) {
 	stats := CombatStats{MaxHP: 100}
 	applyDnDHPScaling(&stats, nil)
-	if stats.MaxHP != 100 {
-		t.Errorf("nil char: scaled to %d, want unchanged", stats.MaxHP)
+	if stats.MaxHP != 100 || stats.StartHP != 0 {
+		t.Errorf("nil char: MaxHP=%d StartHP=%d, want 100/0", stats.MaxHP, stats.StartHP)
 	}
 	c := &DnDCharacter{HPMax: 0}
 	applyDnDHPScaling(&stats, c)
-	if stats.MaxHP != 100 {
-		t.Errorf("zero HPMax: scaled to %d, want unchanged", stats.MaxHP)
+	if stats.MaxHP != 100 || stats.StartHP != 0 {
+		t.Errorf("zero HPMax: MaxHP=%d StartHP=%d, want 100/0", stats.MaxHP, stats.StartHP)
 	}
 }
 

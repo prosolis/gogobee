@@ -254,7 +254,7 @@ func TestBalanceRegression_DungeonDeathRates(t *testing.T) {
 		{12, 2, advDungeons[1], 0.10, 0.0},    // T2: very easy at level
 		{25, 3, advDungeons[2], 0.15, 0.0},    // T3: low risk at level with T3 gear
 		{38, 4, advDungeons[3], 0.25, 0.0},    // T4: some risk even geared
-		{48, 5, advDungeons[4], 0.35, 0.02},   // T5: real danger — monster stats catch up
+		{48, 5, advDungeons[4], 0.35, 0.01},   // T5: real danger — monster stats catch up. Lower bound is loose because the Sudden Death phase added round headroom that lets geared players close fights more often.
 	}
 
 	for _, c := range cases {
