@@ -67,7 +67,7 @@ var nurseJoyAlreadyRevived = "You seem to have recovered on your own! " +
 // "The bill has been described as ..." sentence in the discharge announcement.
 // Some are bare adjectives ("devastating"); others are full quoted phrases.
 var hospitalDischargeBillDescriptors = []string{
-	"\"a lot.\"",
+	"\"inhumane but probably normal for USA standards.\"",
 	"devastating.",
 	"ruinous.",
 	"soul-crushing.",
