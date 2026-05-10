@@ -171,16 +171,23 @@ type MonsterAbility struct {
 
 // ── Default Phase Definitions ────────────────────────────────────────────────
 
+// Sudden Death is a fallback phase that runs only when none of the earlier
+// phases produced a kill. Adds enough rounds to push total combat length
+// to ~10 in the worst case, so the absolute-HP tiebreaker below is rarely
+// hit. Players reported the prior 6-round insta-timeout felt arbitrary
+// when both sides still had plenty of HP.
 var defaultCombatPhases = []CombatPhase{
 	{"Opening", 2, 0.6, 0.8, 1.5, 0.15},
 	{"Clash", 3, 1.2, 1.0, 0.8, 0.08},
 	{"Decisive", 1, 1.0, 0.7, 1.0, 0.05},
+	{"Sudden Death", 3, 1.1, 0.6, 1.0, 0.05},
 }
 
 var dungeonCombatPhases = []CombatPhase{
 	{"Opening", 1, 0.8, 0.8, 1.2, 0.10},
 	{"Clash", 2, 1.0, 1.0, 0.8, 0.08},
 	{"Decisive", 1, 1.0, 0.7, 1.0, 0.05},
+	{"Sudden Death", 4, 1.1, 0.6, 1.0, 0.05},
 }
 
 // ── Simulation ───────────────────────────────────────────────────────────────
@@ -305,12 +312,10 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 		}
 	}
 
-	// If we exhaust all phases without a kill, the side with more HP% wins.
-	playerMax := max(1, player.Stats.MaxHP)
-	enemyMax := max(1, enemy.Stats.MaxHP)
-	playerPct := float64(st.playerHP) / float64(playerMax)
-	enemyPct := float64(st.enemyHP) / float64(enemyMax)
-	if playerPct < enemyPct {
+	// If we exhaust all phases without a kill, tiebreak by absolute HP.
+	// Was %-based, which produced unintuitive outcomes (e.g. 88/123 player
+	// losing to 83/97 boss because the boss had a higher percentage).
+	if st.playerHP < st.enemyHP {
 		st.playerHP = 0
 	} else {
 		st.enemyHP = 0

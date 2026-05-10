@@ -153,6 +153,8 @@ func phaseHeader(name string) string {
 		return pickRand(decisiveHeaders)
 	case "pre_combat", "pre":
 		return "⚔️ **The fight begins.**"
+	case "Sudden Death", "sudden_death":
+		return "⚔️ **Sudden Death — No Quarter**"
 	case "exhaust":
 		return "⚔️ **Exhaustion — Time Runs Out**"
 	default:
