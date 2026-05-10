@@ -124,6 +124,7 @@ func (p *EuroPlugin) Commands() []CommandDef {
 		{Name: "baltop", Description: "Euro leaderboard", Usage: "!baltop", Category: "Economy"},
 		{Name: "baltransfer", Description: "Send euros to another player", Usage: "!baltransfer @user €amount", Category: "Economy"},
 		{Name: "combo", Description: "View your current activity combo streaks", Usage: "!combo", Category: "Economy"},
+		{Name: "eurogrant", Description: "Grant euros to a user (admin)", Usage: "!eurogrant @user amount [reason]", Category: "Admin", AdminOnly: true},
 	}
 }
 
@@ -146,6 +147,8 @@ func (p *EuroPlugin) OnMessage(ctx MessageContext) error {
 		return p.handleTransfer(ctx)
 	case p.IsCommand(ctx.Body, "combo"):
 		return p.handleCombo(ctx)
+	case p.IsCommand(ctx.Body, "eurogrant"):
+		return p.handleGrant(ctx)
 	}
 	return nil
 }
@@ -542,5 +545,42 @@ func (p *EuroPlugin) handleTransfer(ctx MessageContext) error {
 	targetName := p.DisplayName(targetID)
 	return p.SendReply(ctx.RoomID, ctx.EventID,
 		fmt.Sprintf("💸 **%s** sent €%d to **%s**.", senderName, int(amount), targetName))
+}
+
+// handleGrant lets an admin credit euros to any user. Logs the transaction
+// with reason "admin grant by <admin>" plus any free-form note the admin
+// supplied as the third argument.
+func (p *EuroPlugin) handleGrant(ctx MessageContext) error {
+	if !p.IsAdmin(ctx.Sender) {
+		return nil
+	}
+	args := p.GetArgs(ctx.Body, "eurogrant")
+	parts := strings.Fields(args)
+	if len(parts) < 2 {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Usage: `!eurogrant @user amount [reason]`")
+	}
+
+	targetID, ok := p.ResolveUser(parts[0], ctx.RoomID)
+	if !ok {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Could not resolve user.")
+	}
+
+	amountStr := strings.TrimPrefix(parts[1], "€")
+	amount := 0.0
+	fmt.Sscanf(amountStr, "%f", &amount)
+	if amount < 1 {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Amount must be at least €1.")
+	}
+
+	reason := fmt.Sprintf("admin grant by %s", ctx.Sender)
+	if len(parts) > 2 {
+		reason = fmt.Sprintf("%s — %s", reason, strings.Join(parts[2:], " "))
+	}
+
+	p.Credit(targetID, amount, reason)
+	newBalance := p.GetBalance(targetID)
+	targetName := p.DisplayName(targetID)
+	return p.SendReply(ctx.RoomID, ctx.EventID,
+		fmt.Sprintf("✅ Granted €%d to **%s**. New balance: €%d.", int(amount), targetName, int(newBalance)))
 }
 
