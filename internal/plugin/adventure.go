@@ -200,6 +200,10 @@ func (p *AdventurePlugin) Init() error {
 	// Phase L5 close-out — drop the now-cold adventure_characters table when
 	// the operator sets GOGOBEE_LEGACY_PURGE=1. Default off; idempotent.
 	purgeLegacyAdvCharacterTable()
+	// Phase G9 close-out — drop the now-cold current_room / room_seq_json
+	// columns from dnd_zone_run when the operator sets
+	// GOGOBEE_BRANCHING_PURGE=1. Default off; idempotent.
+	purgeLegacyZoneRunColumns()
 	// Phase R1 orphan-archive used to run here on every Init, but it
 	// over-archived: it treats any active dnd_zone_run row not linked to
 	// an active expedition as a legacy `!adventure dungeon` orphan, which

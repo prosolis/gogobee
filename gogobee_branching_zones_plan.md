@@ -310,18 +310,11 @@ func compileLegacyZoneGraph(z ZoneDefinition) ZoneGraph {
   - Flip `GOGOBEE_BRANCHING_ZONES=1` for that zone.
 - Remove env gate when all zones converted.
 
-### G9 — Retire linear model
+### G9 — Retire linear model ✅
 
-- Drop `room_seq_json` and `current_room` columns once all zones have registered graphs and old runs are completed.
-- Idempotent purge gate (mirror `purgeLegacyAdvCharacterTable` shape from L5):
-```go
-func purgeLegacyZoneRunColumns() {
-    if os.Getenv("GOGOBEE_BRANCHING_PURGE") != "1" { return }
-    // ALTER TABLE dnd_zone_run DROP COLUMN current_room
-    // ALTER TABLE dnd_zone_run DROP COLUMN room_seq_json
-}
-```
-- Wire into Init, gated, idempotent. Operator flips after final soak.
+- **G9a** — `GOGOBEE_BRANCHING_ZONES` POC gate removed; graph mode is the only runtime path.
+- **G9b** — `current_room` / `room_seq_json` no longer persisted. `CurrentRoom` derived from `len(VisitedNodes)-1` on read; `RoomSeq` is in-memory only and unused at runtime.
+- **G9c** — Columns dropped from `CREATE TABLE dnd_zone_run`. `purgeLegacyZoneRunColumns()` in `cleanup_g9.go` mirrors the L5 shape (gated by `GOGOBEE_BRANCHING_PURGE=1`, idempotent, runs in adventure init). Operator flips after final soak.
 
 ---
 

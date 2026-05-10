@@ -1730,16 +1730,16 @@ CREATE TABLE IF NOT EXISTS adventure_characters_pre_dnd (
 -- A single in-progress or completed dungeon run. One row per run; players
 -- may have at most one row with completed_at IS NULL AND abandoned = 0
 -- (enforced in code, not via constraint, to keep migrations simple).
--- room_seq_json is a JSON array of RoomType strings generated at run start;
--- current_room indexes into that array. rooms_cleared is a JSON array of
--- room indices the player has resolved (combat won / trap survived / etc.).
+-- rooms_cleared is a JSON array of room indices the player has resolved
+-- (combat won / trap survived / etc.). The zone-graph columns
+-- (current_node, visited_nodes, node_choices) are added in Phase G1's
+-- columnMigrations; the legacy linear current_room / room_seq_json
+-- columns retired in G9.
 CREATE TABLE IF NOT EXISTS dnd_zone_run (
     run_id          TEXT PRIMARY KEY,
     user_id         TEXT NOT NULL,
     zone_id         TEXT NOT NULL,
-    current_room    INTEGER NOT NULL DEFAULT 0,
     total_rooms     INTEGER NOT NULL,
-    room_seq_json   TEXT NOT NULL DEFAULT '[]',
     rooms_cleared   TEXT NOT NULL DEFAULT '[]',
     boss_defeated   INTEGER NOT NULL DEFAULT 0,
     abandoned       INTEGER NOT NULL DEFAULT 0,
