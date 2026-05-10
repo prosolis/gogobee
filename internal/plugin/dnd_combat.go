@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"log/slog"
+	"math"
 	"time"
 
 	"gogobee/internal/db"
@@ -429,7 +430,11 @@ func applyDnDHPScaling(stats *CombatStats, c *DnDCharacter) {
 	if pct < dndWoundFloor {
 		pct = dndWoundFloor
 	}
-	scaled := int(float64(stats.MaxHP) * pct)
+	// Round half-up. Naive int truncation loses up to 1 HP on every
+	// round-trip through the dndChar scale (which is coarser than the
+	// legacy combat scale): 101/123 → persist as 64/78 → restore as
+	// int(100.92) = 100, silently dropping a HP between fights.
+	scaled := int(math.Round(float64(stats.MaxHP) * pct))
 	if scaled < 1 {
 		scaled = 1
 	}
@@ -470,7 +475,10 @@ func persistDnDHPAfterCombat(userID id.UserID, legacyStartHP, legacyEndHP int) {
 		pct = 1
 	}
 
-	newHP := int(float64(c.HPMax) * pct)
+	// Round half-up to mirror applyDnDHPScaling — a fight that ends at
+	// 101/123 should round-trip cleanly through the dndChar (78-scale)
+	// store and come back as 101, not 100.
+	newHP := int(math.Round(float64(c.HPMax) * pct))
 	if newHP < 0 {
 		newHP = 0
 	}
