@@ -2,12 +2,12 @@ package plugin
 
 // Phase G6 — graph-aware !zone map renderer.
 //
-// Replaces the linear renderZoneMap() output when GOGOBEE_BRANCHING_ZONES
-// is on. Walks the registered (or legacy-compiled) ZoneGraph in BFS
-// order rooted at Entry, lays nodes out by PosX/PosY, and prints a
-// horizontal glyph row per layer with a status row underneath. Locked
-// outgoing edges show as `╳`; secret nodes stay hidden until the
-// player has visited them (prevents spoilers from `!zone map`).
+// Replaces the linear renderZoneMap() output. Walks the registered
+// (or legacy-compiled) ZoneGraph in BFS order rooted at Entry, lays
+// nodes out by PosX/PosY, and prints a horizontal glyph row per layer
+// with a status row underneath. Locked outgoing edges show as `╳`;
+// secret nodes stay hidden until the player has visited them
+// (prevents spoilers from `!zone map`).
 
 import (
 	"fmt"

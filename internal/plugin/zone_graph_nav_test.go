@@ -241,17 +241,3 @@ func TestNodeKindToRoomType(t *testing.T) {
 	}
 }
 
-func TestBranchingZonesGate(t *testing.T) {
-	t.Setenv("GOGOBEE_BRANCHING_ZONES", "")
-	if branchingZonesEnabled() {
-		t.Error("gate should be off when env empty")
-	}
-	t.Setenv("GOGOBEE_BRANCHING_ZONES", "1")
-	if !branchingZonesEnabled() {
-		t.Error("gate should be on when env=1")
-	}
-	t.Setenv("GOGOBEE_BRANCHING_ZONES", "0")
-	if branchingZonesEnabled() {
-		t.Error("gate should be off when env=0")
-	}
-}

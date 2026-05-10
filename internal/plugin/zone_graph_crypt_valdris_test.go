@@ -87,14 +87,12 @@ func TestCryptValdrisGraph_SecretGated(t *testing.T) {
 	}
 }
 
-// TestCurrentRoomType_GraphAuthored verifies that in gated graph mode,
-// CurrentRoomType resolves via the registered graph's node kind rather
-// than the legacy RoomSeq lookup. This is what makes side_path nodes
-// (e.g. the secret_chamber) resolve to the right RoomType when the
-// player diverges from the canonical RoomSeq layout.
+// TestCurrentRoomType_GraphAuthored verifies that CurrentRoomType
+// resolves via the registered graph's node kind rather than the legacy
+// RoomSeq lookup. This is what makes side_path nodes (e.g. the
+// secret_chamber) resolve to the right RoomType when the player
+// diverges from the canonical RoomSeq layout.
 func TestCurrentRoomType_GraphAuthored(t *testing.T) {
-	t.Setenv("GOGOBEE_BRANCHING_ZONES", "1")
-
 	// Mismatched RoomSeq vs. live CurrentNode: CurrentRoom=2 would land
 	// on RoomTrap in the legacy fallback, but the graph node kind is
 	// Elite (main_hall). Graph wins.
@@ -121,18 +119,3 @@ func TestCurrentRoomType_GraphAuthored(t *testing.T) {
 	}
 }
 
-// TestCurrentRoomType_GateOffUsesRoomSeq asserts the legacy behavior is
-// untouched when the gate is off: RoomSeq[CurrentRoom] is authoritative
-// even though Crypt of Valdris has a registered graph.
-func TestCurrentRoomType_GateOffUsesRoomSeq(t *testing.T) {
-	t.Setenv("GOGOBEE_BRANCHING_ZONES", "")
-	run := &DungeonRun{
-		ZoneID:      ZoneCryptValdris,
-		CurrentRoom: 2,
-		CurrentNode: "crypt_valdris.main_hall",
-		RoomSeq:     []RoomType{RoomEntry, RoomExploration, RoomTrap, RoomElite, RoomBoss},
-	}
-	if got := run.CurrentRoomType(); got != RoomTrap {
-		t.Errorf("gate off: got %s, want %s (RoomSeq lookup)", got, RoomTrap)
-	}
-}

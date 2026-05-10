@@ -288,14 +288,13 @@ func (p *AdventurePlugin) zoneCmdMap(ctx MessageContext) error {
 	zone := zoneOrFallback(run.ZoneID)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("**%s — Map**\n```\n", zone.Display))
-	if branchingZonesEnabled() {
-		if g, ok := loadZoneGraph(run.ZoneID); ok {
-			b.WriteString(renderZoneGraphMap(g, run))
-			b.WriteString("\n```\n")
-			b.WriteString("_E=Entry  ?=Exploration  T=Trap  ★=Elite  ☠=Boss  ⚿=Secret · ✓ cleared  ▶ here  · pending  ╳ locked_")
-			return p.SendDM(ctx.Sender, b.String())
-		}
+	if g, ok := loadZoneGraph(run.ZoneID); ok {
+		b.WriteString(renderZoneGraphMap(g, run))
+		b.WriteString("\n```\n")
+		b.WriteString("_E=Entry  ?=Exploration  T=Trap  ★=Elite  ☠=Boss  ⚿=Secret · ✓ cleared  ▶ here  · pending  ╳ locked_")
+		return p.SendDM(ctx.Sender, b.String())
 	}
+	// No registered graph (defensive — every zone has one post-G8).
 	cleared := map[int]bool{}
 	for _, r := range run.RoomsCleared {
 		cleared[r] = true
@@ -415,60 +414,18 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 		return p.streamOrSend(ctx.Sender, preStream, intro, phases, outcome)
 	}
 
-	// Graph-mode (POC gate): clear the current room, then either auto-advance
-	// down a single edge, surface a fork prompt for 2+ edges, or complete the
-	// run when there are 0 outgoing edges. Legacy linear path stays on
-	// markRoomCleared so non-gated deployments are bit-identical to G4.
-	if branchingZonesEnabled() {
-		c, cerr := LoadDnDCharacter(ctx.Sender)
-		if cerr != nil {
-			return p.SendDM(ctx.Sender, "Couldn't load character: "+cerr.Error())
-		}
-		next, forkMsg, complete, gerr := p.advanceTransitionGraph(run, zone, c)
-		if gerr != nil {
-			return p.SendDM(ctx.Sender, "Couldn't advance: "+gerr.Error())
-		}
-		if complete {
-			_, _ = applyMoodEvent(run.RunID, MoodEventZoneComplete)
-			var b strings.Builder
-			if outcome != "" {
-				b.WriteString(outcome)
-				b.WriteString("\n\n")
-			}
-			b.WriteString(fmt.Sprintf("🏆 **Cleared %s.** Run complete.\n\n", zone.Display))
-			if line := twinBeeLine(zone.ID, DMZoneComplete, run.RunID, prevIdx); line != "" {
-				b.WriteString(line)
-				b.WriteString("\n\n")
-			}
-			if granted := p.rollZoneLoot(ctx.Sender, run, zone); len(granted) > 0 {
-				b.WriteString("**Loot:**\n")
-				for _, id := range granted {
-					b.WriteString("• " + id + "\n")
-				}
-			}
-			return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
-		}
-		if forkMsg != "" {
-			var b strings.Builder
-			if outcome != "" {
-				b.WriteString(outcome)
-				b.WriteString("\n\n")
-			}
-			b.WriteString(fmt.Sprintf("✓ Cleared room %d (%s).\n\n", prevIdx+1, prettyRoomType(prev)))
-			b.WriteString(forkMsg)
-			return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
-		}
-		// Single-edge auto-advance — fall through to the shared next-room
-		// teaser using the resolved next room type.
-		return p.streamOrSend(ctx.Sender, preStream, intro, phases,
-			p.formatNextRoomMessage(run, zone, prev, prevIdx, outcome, next))
+	// Graph-mode advance (G9a — only mode now): clear the current room,
+	// then either auto-advance down a single edge, surface a fork prompt
+	// for 2+ edges, or complete the run when there are 0 outgoing edges.
+	c, cerr := LoadDnDCharacter(ctx.Sender)
+	if cerr != nil {
+		return p.SendDM(ctx.Sender, "Couldn't load character: "+cerr.Error())
 	}
-
-	next, err := markRoomCleared(run.RunID)
-	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't advance: "+err.Error())
+	next, forkMsg, complete, gerr := p.advanceTransitionGraph(run, zone, c)
+	if gerr != nil {
+		return p.SendDM(ctx.Sender, "Couldn't advance: "+gerr.Error())
 	}
-	if next == "" {
+	if complete {
 		_, _ = applyMoodEvent(run.RunID, MoodEventZoneComplete)
 		var b strings.Builder
 		if outcome != "" {
@@ -488,7 +445,16 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 		}
 		return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
 	}
-
+	if forkMsg != "" {
+		var b strings.Builder
+		if outcome != "" {
+			b.WriteString(outcome)
+			b.WriteString("\n\n")
+		}
+		b.WriteString(fmt.Sprintf("✓ Cleared room %d (%s).\n\n", prevIdx+1, prettyRoomType(prev)))
+		b.WriteString(forkMsg)
+		return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
+	}
 	return p.streamOrSend(ctx.Sender, preStream, intro, phases,
 		p.formatNextRoomMessage(run, zone, prev, prevIdx, outcome, next))
 }

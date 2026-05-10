@@ -14,9 +14,6 @@ package plugin
 //
 // Two paths to the boss (main_hall vs side_chapel); secret_chamber
 // dangles off side_chapel for an extra Perception gate with loot.
-// Registration is unconditional — the runtime gate
-// (GOGOBEE_BRANCHING_ZONES) decides whether new runs adopt this graph
-// or stay on the legacy linear template.
 
 func zoneCryptValdrisGraph() ZoneGraph {
 	nodes := []ZoneNode{

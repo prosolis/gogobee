@@ -85,21 +85,17 @@ func (r *DungeonRun) IsActive() bool {
 }
 
 // CurrentRoomType returns the type of the room the player is currently
-// standing in. In gated graph mode (GOGOBEE_BRANCHING_ZONES=1) with a
-// hand-authored ZoneGraph registered for the run's zone, the live
-// CurrentNode's kind is authoritative — that's the only way side paths
-// (e.g. the Crypt of Valdris secret chamber) resolve to the right
-// room-type when the player diverges from the canonical RoomSeq. The
-// legacy RoomSeq fallback covers gate-off runs and runs in zones whose
-// graph is still the linear-compiled one. Returns "" if no resolution
-// is possible.
+// standing in. The live CurrentNode's kind is authoritative — that's
+// the only way side paths (e.g. the Crypt of Valdris secret chamber)
+// resolve to the right room-type when the player diverges from the
+// canonical RoomSeq. The legacy RoomSeq fallback covers in-flight runs
+// from before the G4 dual-write deploy that lack a CurrentNode entry.
+// Returns "" if no resolution is possible.
 func (r *DungeonRun) CurrentRoomType() RoomType {
-	if branchingZonesEnabled() && r.CurrentNode != "" {
-		if _, authored := zoneGraphRegistry[r.ZoneID]; authored {
-			if g, ok := loadZoneGraph(r.ZoneID); ok {
-				if n, exists := g.Nodes[r.CurrentNode]; exists {
-					return nodeKindToRoomType(n.Kind)
-				}
+	if r.CurrentNode != "" {
+		if g, ok := loadZoneGraph(r.ZoneID); ok {
+			if n, exists := g.Nodes[r.CurrentNode]; exists {
+				return nodeKindToRoomType(n.Kind)
 			}
 		}
 	}
@@ -228,15 +224,12 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 	}
 	// G4 dual-write: persist the entry node id and seed visited_nodes
 	// with it, so navigation surfaces in G5 can read graph state without
-	// further migration. G7: when graph mode is on AND the zone has a
-	// hand-authored graph, start at that graph's Entry node so the player
-	// actually traverses the authored topology rather than falling off
-	// into the legacy `<zone>.r1` namespace.
+	// further migration. New runs always start at the registered graph's
+	// Entry node; only zones that lack a registered graph (none, post-G8)
+	// would fall back to the legacy linear `<zone>.r1` namespace.
 	entryNode := deriveLegacyNodeID(zoneID, 0)
-	if branchingZonesEnabled() {
-		if g, ok := zoneGraphRegistry[zoneID]; ok {
-			entryNode = g.Entry
-		}
+	if g, ok := zoneGraphRegistry[zoneID]; ok {
+		entryNode = g.Entry
 	}
 	visitedJSON, _ := json.Marshal([]string{entryNode})
 	run.CurrentNode = entryNode

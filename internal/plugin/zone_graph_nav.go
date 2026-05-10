@@ -8,27 +8,18 @@ package plugin
 // consumes the choice, validates the chosen edge is unlocked, and
 // advances the run state to the chosen node.
 //
-// Behavior is gated by GOGOBEE_BRANCHING_ZONES=1 during the POC week
-// (plan §G5 / §9.5). With the gate off, !zone advance still uses the
-// linear markRoomCleared path and forks never fire — even on zones
-// that have a hand-authored graph registered.
+// G9a retired the GOGOBEE_BRANCHING_ZONES POC gate: graph mode is the
+// only runtime path now that all 9 zones have hand-authored graphs.
 
 import (
 	"crypto/sha1"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"gogobee/internal/db"
 )
-
-// branchingZonesEnabled — POC gate. Default off. Operator flips it for
-// the POC soak week, then it's removed in G9.
-func branchingZonesEnabled() bool {
-	return os.Getenv("GOGOBEE_BRANCHING_ZONES") == "1"
-}
 
 // pendingFork is the typed shape of dnd_zone_run.node_choices when the
 // player is paused at a fork. Persisted as JSON inside the

@@ -113,19 +113,24 @@ func (p *AdventurePlugin) handleExpeditionMapCmd(ctx MessageContext, _ string) e
 	// Per-run room map. The expedition's zone run is the per-region
 	// dungeon instance; for single-region zones it's the only run.
 	run, _ := getActiveZoneRun(ctx.Sender)
-	if run != nil && len(run.RoomSeq) > 0 {
-		cleared := map[int]bool{}
-		for _, r := range run.RoomsCleared {
-			cleared[r] = true
-		}
-		b.WriteString("```\n")
-		b.WriteString(renderZoneMap(run.RoomSeq, run.CurrentRoom, cleared))
-		b.WriteString("\n```\n")
-		b.WriteString("_E=Entry  ?=Exploration  T=Trap  ★=Elite  ☠=Boss · ✓ cleared  ▶ here  · pending_")
-		if chain != "" {
-			b.WriteString("\n_Regions: ")
-			b.WriteString(renderRegionLegend(exp))
-			b.WriteString(" · ⛺ base camp pitched_")
+	if run != nil {
+		if g, ok := loadZoneGraph(run.ZoneID); ok {
+			b.WriteString("```\n")
+			b.WriteString(renderZoneGraphMap(g, run))
+			b.WriteString("\n```\n")
+			b.WriteString("_E=Entry  ?=Exploration  T=Trap  ★=Elite  ☠=Boss  ⚿=Secret · ✓ cleared  ▶ here  · pending  ╳ locked_")
+			if chain != "" {
+				b.WriteString("\n_Regions: ")
+				b.WriteString(renderRegionLegend(exp))
+				b.WriteString(" · ⛺ base camp pitched_")
+			}
+		} else {
+			b.WriteString("_(no room layout — between rooms or pre-entry)_")
+			if chain != "" {
+				b.WriteString("\n_Regions: ")
+				b.WriteString(renderRegionLegend(exp))
+				b.WriteString(" · ⛺ base camp pitched_")
+			}
 		}
 	} else {
 		b.WriteString("_(no room layout — between rooms or pre-entry)_")
