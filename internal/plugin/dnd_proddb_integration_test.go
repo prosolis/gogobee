@@ -177,19 +177,20 @@ func TestProdDB_DnDLayer(t *testing.T) {
 		}
 	}
 
-	// 5. HP persistence smoke test — simulate a combat that left the player
-	//    at 50% HP. Verify dnd_character.hp_current shifts proportionally.
-	persistDnDHPAfterCombat(uid, 100, 50)
+	// 5. HP persistence smoke test — combat is now on the dnd HP scale, so
+	//    endHP is copied directly into hp_current (clamped to [0, hp_max]).
+	pre, _ := LoadDnDCharacter(uid)
+	endHP := pre.HPMax / 2
+	persistDnDHPAfterCombat(uid, endHP)
 	after, err := LoadDnDCharacter(uid)
 	if err != nil || after == nil {
 		t.Fatalf("post-persist load: %v", err)
 	}
-	want := after.HPMax / 2
-	if after.HPCurrent < want-1 || after.HPCurrent > want+1 {
-		t.Errorf("hp_current=%d after 50%% loss; want ~%d (hp_max=%d)",
-			after.HPCurrent, want, after.HPMax)
+	if after.HPCurrent != endHP {
+		t.Errorf("hp_current=%d after persist(endHP=%d); want exact copy (hp_max=%d)",
+			after.HPCurrent, endHP, after.HPMax)
 	}
-	t.Logf("HP persistence verified: %d/%d after 50%% combat damage", after.HPCurrent, after.HPMax)
+	t.Logf("HP persistence verified: %d/%d after combat", after.HPCurrent, after.HPMax)
 
 	// 6. !setup overwrite path: an auto-migrated char should be wipeable via
 	//    loadOrInitDraft → DELETE → fresh draft.

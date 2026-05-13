@@ -63,7 +63,7 @@ var RoomEntryForestShadows = []string{
 	"The trees here grow too close. Their roots are above ground, like they've been trying to leave and thought better of it. TwinBee thinks better of commenting.",
 	"A clearing. Moonlight. Flowers that shouldn't be blooming at this hour. TwinBee has played enough Majora's Mask to be deeply suspicious of beautiful clearings.",
 	"Something watches from the canopy. TwinBee watches back. After a moment, it looks away first. TwinBee counts this as a point.",
-	"The path forks. Both ways look equally uninviting. TwinBee consults no map, because there is no map, because TwinBee is the map, and TwinBee chooses left. Probably.",
+	"The path forks. Both ways look equally uninviting. TwinBee consults no map, because there is no map, because TwinBee is the map, and chooses left. Probably.",
 	"Bioluminescent fungi light the forest floor in soft blue. It is, genuinely, beautiful. It is also exactly what the Lost Woods looked like right before things got bad. TwinBee stays alert.",
 	"The wind carries voices. Not words, exactly — more like the memory of words. TwinBee has heard this before. It means the forest is old and has opinions.",
 	"Owlbear tracks in the mud. Fresh. TwinBee measures them. Whatever left these tracks was not small and was moving with purpose. TwinBee hopes the purpose was in the other direction.",
@@ -171,7 +171,7 @@ var CombatRetreat = []string{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var Nat20 = []string{
-	"NATURAL TWENTY. TwinBee stands up. TwinBee does not have legs. TwinBee stands up anyway.",
+	"NATURAL TWENTY. TwinBee stands up. Does not have legs. Stands up anyway.",
 	"The dice land perfectly and TwinBee makes a sound that it will not acknowledge making.",
 	"A critical hit for the ages. TwinBee notes this one down. Not for records. Just because it deserves to be noted.",
 	"PERFECT. TwinBee says it like it's the Street Fighter announcer saying it after a flawless round and every syllable is justified.",
@@ -235,7 +235,7 @@ var BossEntryHollowKing = []string{
 }
 
 var BossEntryInfernax = []string{
-	"TwinBee stops walking. TwinBee does not stop walking. TwinBee processes what it sees and takes a moment that it has never taken before in the history of narrating dungeons. The dragon is not large the way a large thing is large. It is large the way weather is large — not an object with size, but a condition of the space you're in. One eye opens. Gold, lit from within, older than the mountain it's resting in. It looks at you the way you'd look at a very small thing that had climbed onto your counter. 'So,' Infernax says, and the word moves the air in the room. TwinBee translates: 'What an interesting mistake you've made.' TwinBee wishes you luck and means it more than it has ever meant anything.",
+	"TwinBee stops walking. Does not stop walking. Processes what it sees and takes a moment never taken before in the history of narrating dungeons. The dragon is not large the way a large thing is large. It is large the way weather is large — not an object with size, but a condition of the space you're in. One eye opens. Gold, lit from within, older than the mountain it's resting in. It looks at you the way you'd look at a very small thing that had climbed onto your counter. 'So,' Infernax says, and the word moves the air in the room. TwinBee translates: 'What an interesting mistake you've made.' Wishes you luck and means it more than it has ever meant anything.",
 }
 
 var BossEntryBelaxath = []string{
@@ -397,9 +397,9 @@ var TauntResponses = []string{
 	"TwinBee has been taunted by things with more teeth than you and survived the experience with its dignity intact. TwinBee will survive this too.",
 	"The next room will contain a thing that TwinBee has been saving for exactly this kind of energy. TwinBee is pleased you've given it an occasion.",
 	"Noted. TwinBee's mood shifts. You can hear it shift. TwinBee wants you to hear it shift. The shift is the point.",
-	"You taunt TwinBee. TwinBee smiles. The smile does not reach the eyes, because TwinBee does not have eyes per se, but the quality of the smile communicates clearly. 'Proceed,' TwinBee says.",
+	"You taunt TwinBee. It smiles. The smile does not reach the eyes, because TwinBee does not have eyes per se, but the quality of the smile communicates clearly. 'Proceed,' it says.",
 	"In Gradius, you could powerup into overconfidence and lose everything in one hit. TwinBee mentions this as a purely historical observation.",
-	"TwinBee accepts the taunt with grace. TwinBee also generates a trap for the next room with specific energy. These two events are unrelated. TwinBee maintains this position legally.",
+	"TwinBee accepts the taunt with grace. Also generates a trap for the next room with specific energy. These two events are unrelated. TwinBee maintains this position legally.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -421,7 +421,7 @@ var ComplimentResponses = []string{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var IdleLines = []string{
-	"TwinBee waits. TwinBee is good at waiting. The dungeon is also waiting, which is arguably more important, but TwinBee acknowledges both.",
+	"TwinBee waits. Good at waiting. The dungeon is also waiting, which is arguably more important, but TwinBee acknowledges both.",
 	"The dungeon holds its breath. TwinBee is also holding its breath. There are a lot of things holding breath right now and TwinBee recommends acting before someone has to exhale.",
 	"TwinBee taps its metaphorical foot. Not impatiently — more in the way of a metronome. The tempo is there whenever you're ready.",
 	"In Contra, hesitation had consequences. TwinBee mentions this as context, not pressure. Definitely not pressure.",
@@ -499,7 +499,7 @@ var SaveFailed = []string{
 var MoodAsidesHostile = []string{
 	"TwinBee is not narrating this one in detail. You can read the room. Read it.",
 	"The dungeon offers TwinBee something to mention. TwinBee declines. You're on your own for color commentary.",
-	"TwinBee is here. TwinBee is watching. TwinBee is not, currently, helping. There is a difference and you will feel it.",
+	"TwinBee is here. Watching. Not, currently, helping. There is a difference and you will feel it.",
 	"In the bad ending of every Castlevania, the protagonist gets less guidance than they did at the start. TwinBee has reached approximately that part of the playthrough.",
 	"TwinBee keeps several details to itself. The details would have been useful. TwinBee does not consider this its problem right now.",
 	"Whatever's in the next part of the room, TwinBee saw it and chose not to flag it. The mood is what it is.",
@@ -522,4 +522,36 @@ var MoodAsidesEffusive = []string{
 	"TwinBee, not normally given to footnotes, is about to add a footnote. It will probably be useful. TwinBee is in that kind of mood.",
 	"The mood is high. TwinBee is, for the next stretch, more likely to mention the loose flagstone, the suspicious tapestry, the thing on the ceiling. Take advantage.",
 	"TwinBee hums a victory fanfare softly to itself. It is not earned yet. TwinBee is being optimistic on your behalf.",
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MOOD ASIDES — Grumpy band (mood 20–39)
+// TwinBee is unimpressed. Short, dry, slightly clipped. Not actively
+// withholding (that's hostile) — just not feeling generous.
+// ─────────────────────────────────────────────────────────────────────────────
+
+var MoodAsidesGrumpy = []string{
+	"TwinBee describes the room. TwinBee does not embellish. Make of that what you will.",
+	"The mood is fine. TwinBee specifies fine, not good. There's a difference.",
+	"TwinBee notes the chamber. TwinBee notes its existence. That's the whole note.",
+	"The dungeon has a thing worth mentioning. TwinBee will mention it if you specifically ask. You will not specifically ask.",
+	"TwinBee is keeping the commentary lean today. The dungeon does not need editorializing. TwinBee almost convinces itself.",
+	"There's color here. TwinBee is choosing greyscale.",
+	"You arrive in a room. TwinBee declines to make it cinematic.",
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MOOD ASIDES — Friendly band (mood 60–79)
+// Warm and helpful but not effusive. The middle-friendly read: TwinBee
+// has noticed your competence and is rooting for you without making it weird.
+// ─────────────────────────────────────────────────────────────────────────────
+
+var MoodAsidesFriendly = []string{
+	"TwinBee is enjoying the run. Just enough to mention the door hinge that creaks before it opens. Just barely.",
+	"The mood is up. TwinBee will throw in an adjective or two more than strictly necessary. Treat them as gifts.",
+	"TwinBee is, frankly, having a fine time. You are doing the work. TwinBee is appreciating it.",
+	"The narration warms slightly. The dungeon is the same. TwinBee is in a marginally better mood and it shows.",
+	"TwinBee notices something nice and chooses to mention it. This is the equivalent of a small wave from a stranger. Take it.",
+	"You're playing well. TwinBee will not say so directly but the run rate of helpful adjectives is detectably up.",
+	"TwinBee is, by the standards of TwinBee, *cheerful*. The dungeon hasn't changed. The narration has.",
 }

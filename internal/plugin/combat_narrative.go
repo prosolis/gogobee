@@ -11,6 +11,7 @@ type actionPicker struct {
 	enemy       map[int]bool
 	player      map[int]bool
 	playerMiss  map[int]bool
+	enemyMiss   map[int]bool
 	block       map[int]bool
 	environment map[int]bool
 }
@@ -20,6 +21,7 @@ func newActionPicker() *actionPicker {
 		enemy:       make(map[int]bool),
 		player:      make(map[int]bool),
 		playerMiss:  make(map[int]bool),
+		enemyMiss:   make(map[int]bool),
 		block:       make(map[int]bool),
 		environment: make(map[int]bool),
 	}
@@ -95,7 +97,24 @@ func renderPhaseBlock(pg phaseGroup, playerName, enemyName string, result Combat
 	header := phaseHeader(pg.Name)
 	sb.WriteString(header + "\n")
 
-	for _, e := range pg.Events {
+	// Walk events with a 3+ consecutive-trivial collapse: long runs of
+	// "miss / miss / miss" get one TwinBee yadda-yadda line instead of N
+	// individual lines. Keeps boss fights (16 rounds) from drowning in
+	// repetition while still rendering every impactful beat.
+	i := 0
+	for i < len(pg.Events) {
+		e := pg.Events[i]
+		if isTrivialEvent(e) {
+			run := 1
+			for i+run < len(pg.Events) && isTrivialEvent(pg.Events[i+run]) {
+				run++
+			}
+			if run >= 3 {
+				sb.WriteString(pickRand(narrativeFillerSlog) + "\n")
+				i += run
+				continue
+			}
+		}
 		line := renderEvent(e, playerName, enemyName, result, picker)
 		if line != "" {
 			if roll := rollAnnotation(e); roll != "" {
@@ -103,6 +122,7 @@ func renderPhaseBlock(pg phaseGroup, playerName, enemyName string, result Combat
 			}
 			sb.WriteString(line + "\n")
 		}
+		i++
 	}
 
 	if len(pg.Events) == 0 {
@@ -114,6 +134,28 @@ func renderPhaseBlock(pg phaseGroup, playerName, enemyName string, result Combat
 		enemyName, clampHP(lastEvent.EnemyHP), result.EnemyStartHP))
 
 	return sb.String()
+}
+
+// isTrivialEvent — events that don't move HP or set up a tactical hook.
+// A run of 3+ of these collapses into a TwinBee filler line.
+func isTrivialEvent(e CombatEvent) bool {
+	switch e.Action {
+	case "miss", "spore_miss", "pet_whiff":
+		return true
+	}
+	return false
+}
+
+// narrativeFillerSlog covers a run of consecutive trivial events
+// (misses, whiffs) so long boss fights don't read as a wall of
+// "you swing wide / they swing wide" lines.
+var narrativeFillerSlog = []string{
+	"_The exchange settles into a rhythm. A few rounds of nothing meaningful — TwinBee skips to the next thing that matters._",
+	"_TwinBee narrates the next few seconds in a single sigh. Both sides keep swinging. Both sides keep missing._",
+	"_And the battle goes on. Yadda yadda yadda. TwinBee will narrate the next part where something actually lands._",
+	"_The grind continues. TwinBee uses the time to mentally redesign the dungeon's lighting._",
+	"_A flurry of misses on both sides. Nobody is impressing anybody. TwinBee waits for the next hit._",
+	"_TwinBee politely declines to narrate this stretch. It was, in TwinBee's professional opinion, a waste of everyone's time._",
 }
 
 func clampHP(hp int) int {
@@ -186,7 +228,10 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 		return fmt.Sprintf(pickRand(narrativePlayerBlock), e.Damage)
 
 	case "miss":
-		return pickFromNoFmt(narrativeMiss, picker.playerMiss)
+		if e.Actor == "player" {
+			return pickFromNoFmt(narrativePlayerMiss, picker.playerMiss)
+		}
+		return pickFromNoFmt(narrativeEnemyMiss, picker.enemyMiss)
 
 	case "pet_attack":
 		return fmt.Sprintf(pickRand(narrativePetAttack), e.Damage)
@@ -403,13 +448,23 @@ var narrativeEnemyBlock = []string{
 	"The enemy's defense absorbs most of it. %d damage. The enemy's forearm speaks to the pathetic nature of your striking.",
 }
 
-var narrativeMiss = []string{
+var narrativePlayerMiss = []string{
 	"Your swing goes wide. Nothing connects. The air you hit had it coming.",
 	"The enemy anticipated that one. Complete miss. They're already bored.",
 	"You overcommit and hit nothing but air. The air files no complaint.",
 	"A whiff. It happens. It happens to you more than average.",
 	"You attempt a move you saw in a film once. It does not work like in the film.",
 	"You close your eyes for the strike because it feels more dramatic. You miss. Everything about this was predictable.",
+}
+
+var narrativeEnemyMiss = []string{
+	"The enemy lunges. Finds only air. The air takes the slight personally.",
+	"Their strike misses by inches. They curse in a language you don't recognize.",
+	"A wild swing, deflected by your stance. They expected better of themselves.",
+	"The blow comes in too predictable. You're already gone. They commit. They miss.",
+	"The enemy whiffs. The look on their face — what passes for one — is priceless.",
+	"Their weapon meets your guard, slides past harmless. They've used this combo before. It worked then.",
+	"The strike is fast. You are slightly faster. The math works out in your favor for once.",
 }
 
 var narrativePetAttack = []string{

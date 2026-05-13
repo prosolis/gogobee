@@ -119,7 +119,7 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 	}
 
 	preCombatHP, _ := dndHPSnapshot(userID)
-	result, err := p.runZoneCombat(userID, monster, int(zone.Tier))
+	result, err := p.runZoneCombat(userID, monster, int(zone.Tier), nil, run.DMMood)
 	if err != nil {
 		return fmt.Sprintf("_(Interrupt combat error: %v.)_", err), false
 	}
@@ -149,12 +149,18 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		_ = retireAllRegionRuns(exp)
-		markAdventureDead(userID, "expedition", zone.Display)
+		if !result.TimedOut {
+			markAdventureDead(userID, "expedition", zone.Display)
+		}
 		if line := flavor.Pick(flavor.PlayerDeath); line != "" {
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
-		b.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
+		if result.TimedOut {
+			b.WriteString(fmt.Sprintf("⏳ **%s** outlasts you. You retreat from the expedition, wounded but alive.", monster.Name))
+		} else {
+			b.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
+		}
 		return b.String(), true
 	}
 
@@ -359,8 +365,7 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 	if !ok {
 		return
 	}
-	preHP, _ := dndHPSnapshot(userID)
-	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier))
+	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier), nil, run.DMMood)
 	if rerr != nil {
 		err = rerr
 		return
@@ -388,12 +393,18 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		_ = retireAllRegionRuns(exp)
-		markAdventureDead(userID, "patrol", zone.Display)
+		if !result.TimedOut {
+			markAdventureDead(userID, "patrol", zone.Display)
+		}
 		if line := flavor.Pick(flavor.PlayerDeath); line != "" {
 			ob.WriteString(line)
 			ob.WriteString("\n")
 		}
-		ob.WriteString("💀 The patrol takes you down. Run ended.")
+		if result.TimedOut {
+			ob.WriteString("⏳ The patrol drags on. You break off and retreat, wounded but alive.")
+		} else {
+			ob.WriteString("💀 The patrol takes you down. Run ended.")
+		}
 		if rollLine := dndRollSummaryLine(result); rollLine != "" {
 			ob.WriteString("\n")
 			ob.WriteString(rollLine)
@@ -403,8 +414,8 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 		return
 	}
 	_ = recordZoneKill(exp, monster.ID)
-	ob.WriteString(fmt.Sprintf("✅ Patrol dispatched (HP %d→%d / %d).",
-		preHP, postHP, maxHP))
+	ob.WriteString(fmt.Sprintf("✅ Patrol dispatched. You finished at **%d/%d HP**.",
+		postHP, maxHP))
 	if rollLine := dndRollSummaryLine(result); rollLine != "" {
 		ob.WriteString("\n")
 		ob.WriteString(rollLine)

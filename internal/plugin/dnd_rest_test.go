@@ -42,6 +42,7 @@ func makeRestTestChar(t *testing.T, uid id.UserID, level int) *DnDCharacter {
 	c.HPMax = computeMaxHP(c.Class, conMod, level)
 	c.HPCurrent = 1 // wounded
 	c.ArmorClass = computeAC(c.Class, abilityModifier(c.DEX))
+	c.ShortRestCharges = level // charges = level (matches autoBuildCharacter)
 	if err := SaveDnDCharacter(c); err != nil {
 		t.Fatal(err)
 	}
@@ -95,26 +96,34 @@ func TestShortRest_DoublesAtL5(t *testing.T) {
 	}
 }
 
-func TestShortRest_CooldownEnforced(t *testing.T) {
+func TestShortRest_ChargesEnforced(t *testing.T) {
 	setupRestTestDB(t)
 	uid := id.UserID("@short_cd:example")
-	makeRestTestChar(t, uid, 3)
+	c := makeRestTestChar(t, uid, 3)
+	// Drain to last charge so the second rest hits the empty branch.
+	c.ShortRestCharges = 1
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
 	p := &AdventurePlugin{}
 
-	// First rest succeeds
+	// First rest succeeds and burns the last charge.
 	if err := p.handleDnDShortRest(MessageContext{Sender: uid}); err != nil {
 		t.Fatal(err)
 	}
 	got1, _ := LoadDnDCharacter(uid)
+	if got1.ShortRestCharges != 0 {
+		t.Errorf("charge not consumed: %d remaining", got1.ShortRestCharges)
+	}
 	hpAfterFirst := got1.HPCurrent
 
-	// Second immediate rest should NOT heal further (cooldown blocks).
+	// Second rest should bail (no charges) — HP unchanged.
 	if err := p.handleDnDShortRest(MessageContext{Sender: uid}); err != nil {
 		t.Fatal(err)
 	}
 	got2, _ := LoadDnDCharacter(uid)
 	if got2.HPCurrent != hpAfterFirst {
-		t.Errorf("cooldown not enforced: HP changed from %d → %d on second rest",
+		t.Errorf("charges not enforced: HP changed from %d → %d on second rest",
 			hpAfterFirst, got2.HPCurrent)
 	}
 }

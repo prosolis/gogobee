@@ -54,7 +54,7 @@ var MorningBriefingDay3 = []string{
 var MorningBriefingDay7 = []string{
 	"One week. You have spent one week in this place and it has not finished you, which says something about you that TwinBee intends to say out loud: that took something real. Take a moment with that. Then advance.",
 	"Seven days. In the old reckoning, seven was the number of completion — seven seals, seven trials, seven nights before the thing reveals itself. TwinBee is not superstitious. TwinBee is also watching the door very carefully this morning.",
-	"A week underground. TwinBee thinks about the sky sometimes — not with longing, exactly, more as a reference point. You've been below it for seven days. TwinBee finds that remarkable. TwinBee finds you remarkable.",
+	"A week underground. TwinBee thinks about the sky sometimes — not with longing, exactly, more as a reference point. You've been below it for seven days. Remarkable. You, more so.",
 }
 
 var MorningBriefingDay14 = []string{
@@ -97,7 +97,7 @@ var EveningRecapBossKilled = []string{
 var EveningRecapCloseCall = []string{
 	"TwinBee runs the evening recap and notes: you came very close today to not being here for the evening recap. TwinBee notes this without drama and with complete sincerity. You made it. That's the recap.",
 	"Today was the kind of day that TwinBee files under 'let's not do that again' and also 'and yet you did it.' Rest. You need it more tonight than most nights.",
-	"Evening recap. TwinBee will note for the ledger that today was very nearly a different kind of recap, and TwinBee is glad it isn't. The margin was thinner than TwinBee likes. TwinBee will adjust tomorrow's caution accordingly.",
+	"Evening recap. TwinBee will note for the ledger that today was very nearly a different kind of recap, and is glad it isn't. The margin was thinner than the acceptable range. Tomorrow's caution adjusts accordingly.",
 	"End of day, narrowly. TwinBee runs through the close-call list — the round that nearly went the other way, the save that landed by one, the room you almost didn't leave — and signs each one off as 'survived.' Survived is a wide category. TwinBee accepts you in any part of it.",
 }
 
@@ -137,7 +137,7 @@ var SupplyWarningLow = []string{
 }
 
 var SupplyWarningCritical = []string{
-	"TwinBee holds up the supply manifest. The number is very small. 'This is the part,' TwinBee says quietly, 'where we start making decisions.' TwinBee does not specify which decisions. You know which decisions.",
+	"TwinBee holds up the supply manifest. The number is very small. 'This is the part,' it says quietly, 'where we start making decisions.' Doesn't specify which. You know which.",
 	"Critical supply levels. TwinBee delivers this without inflation — the situation is what it is. Extract and resupply, or forage aggressively and push for the finish. TwinBee outlines both paths and neither is comfortable.",
 	"The supplies are nearly gone. TwinBee thinks of every long JRPG dungeon where you realize at the bottom floor that you're out of Ethers. This is that moment. TwinBee has plans. They require movement.",
 }
@@ -174,7 +174,7 @@ var ThreatClockHostile = []string{
 }
 
 var ThreatClockSiege = []string{
-	"Siege Mode. TwinBee delivers this without decoration because decoration would be dishonest. The dungeon is fully active, fully aware, and fully committed to ending this expedition. So is TwinBee — to ending it on your terms, not theirs. What happens next is a race. TwinBee is already running.",
+	"Siege Mode. TwinBee delivers this without decoration because decoration would be dishonest. The dungeon is fully active, fully aware, and fully committed to ending this expedition. So is TwinBee — to ending it on your terms, not theirs. What happens next is a race. Already running.",
 	"Siege. The dungeon is putting everything it has into the room you're standing in, and the rooms adjacent to it, and the route between you and the door. TwinBee is putting everything TwinBee has into making sure the dungeon doesn't get what it wants. Meet in the middle.",
 	"Siege Mode. TwinBee narrates the band shift and then stops narrating because narration is not what this band needs. Action is what this band needs. TwinBee is in motion. The expectation is that you are too.",
 }
@@ -209,15 +209,15 @@ var SunkenTempleTidalEvent = []string{
 var HauntedManorResetMorning = []string{
 	"TwinBee's morning briefing includes an addendum. The rooms that were clear yesterday are not entirely clear this morning. The house has been busy overnight. TwinBee adds this to the log under 'things the house does' and suggests adjusting the advance plan.",
 	"Night three. The manor reset itself. TwinBee was watching and it happened anyway — not violently, not dramatically, just quietly and completely, the way the house does everything. One enemy per room, back in place. TwinBee has updated the map.",
-	"TwinBee reads the morning's hallway and stops. 'The arrangement has changed,' TwinBee says, in the tone of someone who has now seen this happen often enough to recognize it without alarm. The manor reset. TwinBee adjusts the map. Morning continues.",
-	"Reset day. The rooms TwinBee cleared are not the rooms TwinBee finds this morning. TwinBee accepts this as a property of the manor — like weather, but indoors and unfair. The plan accommodates. TwinBee bills the time.",
+	"TwinBee reads the morning's hallway and stops. 'The arrangement has changed,' it says, in the tone of someone who has now seen this happen often enough to recognize it without alarm. The manor reset. Map adjusts. Morning continues.",
+	"Reset day. The rooms TwinBee cleared are not the rooms it finds this morning. Accepts this as a property of the manor — like weather, but indoors and unfair. The plan accommodates. The time gets billed.",
 }
 
 var UnderforgHeapWarning = []string{
 	"Heat Stack [N]. TwinBee notes the accumulation and what it means: the Underforge is getting into you in ways that don't resolve without real rest. The number has time to come down. TwinBee is watching the number.",
 	"The heat is building. TwinBee tracks it the way you track a temperature gauge on a long drive — with the specific alertness of someone who knows what happens when the gauge hits red. It has not hit red. TwinBee intends to ensure it doesn't.",
 	"Heat building. TwinBee notes the count, notes the band, notes how each step now takes a fraction more out of you than the last step did. None of it is critical. All of it is direction. TwinBee suggests the direction be inverted soon.",
-	"Stack [N]. TwinBee tracks the heat the way TwinBee tracks anything that compounds — patiently, with running totals, with a clear point at which the totals stop being managed and start being problems. We are still on the management side. The other side is visible.",
+	"Stack [N]. TwinBee tracks the heat the way it tracks anything that compounds — patiently, with running totals, with a clear point at which the totals stop being managed and start being problems. We are still on the management side. The other side is visible.",
 }
 
 var UnderforgHeapCritical = []string{
@@ -227,7 +227,7 @@ var UnderforgHeapCritical = []string{
 }
 
 var FeywildTimeDistortionHalf = []string{
-	"The day moved strangely. TwinBee tried to track it and lost the thread somewhere around mid-afternoon — the light didn't change the way it should have, and when TwinBee looked up, the day was half over in the time it usually takes to be a quarter over. On the positive side: you're barely hungry. On the less positive side: TwinBee is not sure what that means.",
+	"The day moved strangely. TwinBee tried to track it and lost the thread somewhere around mid-afternoon — the light didn't change the way it should have, and when it looked up, the day was half over in the time it usually takes to be a quarter over. On the positive side: you're barely hungry. On the less positive side: nobody is sure what that means.",
 	"Half a day passed in what felt like half of half. TwinBee checks the supply burn against the sun, finds them disagreeing, sides with the supplies — those don't lie about how much you've used. Net result: a free pocket of time. Use it on something that takes time.",
 	"The Feywild gave you back some hours. TwinBee notes this without trusting it. The Feywild does not give without taking, eventually. For now: less hungry, less tired, more daylight than the math allows. TwinBee writes it down and keeps moving.",
 }
@@ -239,7 +239,7 @@ var FeywildTimeDistortionDouble = []string{
 }
 
 var FeywildTimeLoop = []string{
-	"TwinBee recognizes this room. TwinBee has described this room before. The enemies in it are different — new enemies, the old ones are gone, the loot you found is still gone but the enemies are back — and TwinBee processes this with something between professional acceptance and profound exasperation. 'Again,' TwinBee says. 'We do this room again.'",
+	"TwinBee recognizes this room. Has described it before. The enemies in it are different — new enemies, the old ones are gone, the loot you found is still gone but the enemies are back — and it processes this with something between professional acceptance and profound exasperation. 'Again,' TwinBee says. 'We do this room again.'",
 	"The loop. TwinBee marks the room on the map with a small symbol that means 'we have been in this room before in a way that doesn't count.' The symbol has its own column on TwinBee's ledger. The column is occupied.",
 	"Same room. New enemies. TwinBee runs the encounter again with the cold professionalism of someone who has stopped expecting fairness from the Feywild and started expecting only repetition. The repetition arrives. TwinBee handles it.",
 }
@@ -265,14 +265,14 @@ var AbyssPortalDestabilizationMid = []string{
 }
 
 var AbyssPortalDestabilizationCritical = []string{
-	"Instability critical. The portal is unraveling at edges TwinBee can see and probably at edges TwinBee can't. The demons coming through are more agitated than they were — which is relevant because demons at baseline are already at the upper end of agitated. TwinBee says: finish this today. Tomorrow is a different calculation.",
+	"Instability critical. The portal is unraveling at edges TwinBee can see and probably at edges it can't. The demons coming through are more agitated than they were — which is relevant because demons at baseline are already at the upper end of agitated. The verdict: finish this today. Tomorrow is a different calculation.",
 	"The portal is louder. Not in sound — in pressure. TwinBee can feel it in the back teeth, in the joint of the jaw. The instability number is the number you don't want it to be. Finish the work today or accept that today was the last day to.",
 	"Critical. The geometry around the portal is bending in ways that suggest the room does not entirely agree with itself anymore. TwinBee adjusts the route around the worst of it. There are more demons than there should be. There always are. There are more than that now.",
 }
 
 var AbyssPortalCollapse = []string{
-	"The portal collapses. TwinBee watches it happen and does what TwinBee does in situations with no good options: moves. 'Out,' TwinBee says, and means it completely. 'Now. Everything you have, we move now.' The expedition ends here, not in defeat, but in physics. What you took is yours. What's left in there is the portal's problem. Come back when it isn't.",
-	"It's coming apart. TwinBee says one word, 'Move,' in the tone TwinBee uses exactly once per expedition. You move. The portal screams behind you in a register that isn't sound. The expedition is over because physics says so. TwinBee will sort the loot once you're somewhere physics still works.",
+	"The portal collapses. TwinBee watches it happen and does what it does in situations with no good options: moves. 'Out,' it says, and means it completely. 'Now. Everything you have, we move now.' The expedition ends here, not in defeat, but in physics. What you took is yours. What's left in there is the portal's problem. Come back when it isn't.",
+	"It's coming apart. TwinBee says one word, 'Move,' in the tone it uses exactly once per expedition. You move. The portal screams behind you in a register that isn't sound. The expedition is over because physics says so. The loot gets sorted once you're somewhere physics still works.",
 	"Collapse. TwinBee was prepared for this and is also actively running. 'Out,' TwinBee says. 'Now.' The corridors are folding behind you in the way that things fold when reality is no longer paying attention to what's allowed. You finish out the door. The portal does not.",
 }
 
@@ -331,23 +331,23 @@ var ExpeditionResume = []string{
 var MilestoneFirstNight = []string{
 	"You survived the first night. TwinBee notes this milestone specifically because not everyone does, and those who do carry something from it that changes how the rest of the expedition goes. You have that now. TwinBee has noticed it already.",
 	"Night one survived. TwinBee makes a small mark in the corner of the manifest — the kind of mark you make for the things that count more than they look. First nights count. TwinBee has been in dungeons where they were the last nights too. This wasn't one of those.",
-	"Day two morning. The first night is behind you, which means the first watch is behind TwinBee, which means TwinBee can confirm a thing TwinBee was hoping to confirm: you sleep through the noises that matter and wake for the ones that don't. That's a survival skill. TwinBee logs it.",
+	"Day two morning. The first night is behind you, which means the first watch is behind TwinBee, which means a thing worth confirming has been confirmed: you sleep through the noises that matter and wake for the ones that don't. That's a survival skill. Logged.",
 }
 
 var MilestoneWeekOne = []string{
-	"Seven days. TwinBee pauses the morning briefing for a moment — just a moment — to mark this. One week in an active dungeon zone is not a thing that happens by accident. It happens through every decision you've made since Day 1, compounded. TwinBee has been watching those decisions. TwinBee is glad they were yours.",
+	"Seven days. TwinBee pauses the morning briefing for a moment — just a moment — to mark this. One week in an active dungeon zone is not a thing that happens by accident. It happens through every decision you've made since Day 1, compounded. Those decisions were watched. They were, gladly, yours.",
 	"Day eight. TwinBee delivers the briefing slowly, because there's a thing to mark first: you have been in here, intact and operational, for a full week. That is a number with weight. TwinBee is going to set the briefing down for a moment and let the number have its weight. ... Right. Briefing.",
 	"One week. TwinBee makes the mark in the column reserved for week-one survivors. The column is shorter than you'd expect. You are now on it. The rest of the day proceeds normally, but for one moment, TwinBee allows itself to be visibly impressed. The moment ends. We continue.",
 }
 
 var MilestoneTwoWeeks = []string{
-	"Two weeks. TwinBee doesn't have a comparison for this one. The references have run out. There's just you, in here, on Day 14, still going, and TwinBee standing next to you having run out of everything except genuine admiration. TwinBee has that in abundance. Proceed.",
+	"Two weeks. TwinBee doesn't have a comparison for this one. The references have run out. There's just you, in here, on Day 14, still going, and TwinBee standing next to you having run out of everything except genuine admiration. That, in abundance. Proceed.",
 	"Day fifteen. TwinBee notes that the historical comparisons stopped working at Day fourteen and have not resumed working today. We are off the chart. TwinBee is not a person who values being off the chart, except in the very specific sense that you are off the chart, in which case TwinBee values it deeply.",
 	"Fortnight. TwinBee uses the older word because it sounds more like what this is — not 'two weeks,' which sounds modular and reasonable, but 'fortnight,' which sounds like the kind of duration that earns a title. TwinBee may be inventing titles for you. TwinBee will be honest about that as it happens.",
 }
 
 var MilestoneTheLongGame = []string{
-	"TwinBee sets aside the narration format for a moment. Just sets it down. Speaks plainly: what you just did was not supposed to be survivable. The designers of this zone — the thing that shaped it, the evil that filled it — did not account for someone like you. TwinBee did. TwinBee always accounts for someone like you. That's why TwinBee is here.",
+	"TwinBee sets aside the narration format for a moment. Just sets it down. Speaks plainly: what you just did was not supposed to be survivable. The designers of this zone — the thing that shaped it, the evil that filled it — did not account for someone like you. TwinBee did. Always does. That's why it's here.",
 	"Tier five complete. TwinBee allows the narration format to fully break for a moment because the moment fully deserves it. What you just did, complete, in a Tier 5 zone, is a thing that goes on the short list. TwinBee keeps a short list. You're on it.",
 	"Long game closed. TwinBee gathers the run notes, the threat curve, the supply records, the camp positions — files them all under your name in a folder TwinBee has been keeping. The folder has a title now. The title is good.",
 }
@@ -372,6 +372,6 @@ var MilestoneCartographer = []string{
 // item-grant hookup; this pool covers the narrative line at the moment it lands.
 var MilestoneSurvivalist = []string{
 	"Survivalist. TwinBee writes the title next to your name in the ledger and underlines it once. No abandonments, no scrambles for the door, no expeditions cut short by anything but the boss going down. TwinBee acknowledges the discipline directly.",
-	"The Survivalist title is technical — it means the run never broke; it ended on your terms, every time. TwinBee has been in expeditions where that wasn't true and TwinBee remembers them differently. This one TwinBee remembers as: complete. TwinBee files it with the others like it. The folder is short.",
+	"The Survivalist title is technical — it means the run never broke; it ended on your terms, every time. TwinBee has been in expeditions where that wasn't true and remembers them differently. This one gets remembered as: complete. Filed with the others like it. The folder is short.",
 	"No forced extractions, full clear, Tier 3-or-better. TwinBee notes each criterion separately because each one is its own choice, made repeatedly, across days. The result is the title, which is real, and the cosmetic, which is forthcoming. TwinBee will hand both over when the system permits.",
 }

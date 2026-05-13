@@ -10,11 +10,17 @@ type CombatStats struct {
 	// "use MaxHP" (full health). Wounded carry-over uses this so MaxHP
 	// stays stable across fights — display reads "100/123", not "100/100".
 	StartHP   int
+	// HPBonus is the absolute HP players gain from equipment / arena sets /
+	// housing on top of their D&D character sheet HP. DerivePlayerStats
+	// computes this; applyDnDPlayerLayer adds it to c.HPMax to form the
+	// final combat MaxHP. Kept separate so persistence to dnd_character can
+	// simply clamp endHP to c.HPMax — gear cushion doesn't carry over.
+	HPBonus   int
 	Attack    int
 	Defense   int
 	Speed     int
-	CritRate  float64 // legacy; superseded by nat-20 crits but still consumed by autoCrit logic & equipment scaling.
-	DodgeRate float64 // legacy; no longer queried by hit resolution but still computed for narrative scaling.
+	CritRate  float64 // superseded by nat-20 crits but still consumed by autoCrit logic & equipment scaling.
+	DodgeRate float64 // not queried by hit resolution but still computed for narrative scaling.
 	BlockRate float64 // still used to halve damage on a successful hit.
 
 	// D&D layer. AC and AttackBonus drive d20-vs-AC hit resolution.
@@ -45,7 +51,16 @@ type CombatModifiers struct {
 	MistyHealAmt   int
 	CrowdRevengeProc float64 // Misty debuff: chance per round of crowd damage
 	CrowdRevengeDmg  int    // Misty debuff: damage per proc
-	HealItem         int    // consumable: HP restored at <50% HP (one-shot)
+	HealItem         int    // consumable: HP restored per heal trigger
+	// HealItemCharges is the number of times the heal-at-<50%-HP trigger
+	// can fire. 1 = legacy one-shot. Boss fights set this from inventory
+	// healing-item count so a stocked-up player can sustain through long
+	// fights instead of the heal becoming a single weak trigger.
+	HealItemCharges  int
+	// InitiativeBias adds to the player's initiative roll each round.
+	// Used by the DM mood system to tilt who-goes-first: positive favors
+	// the player (Effusive mood), negative favors the enemy (Hostile).
+	InitiativeBias   float64
 	WardCharges      int    // consumable: hits fully absorbed
 	SporeCloud     int     // consumable: rounds of 15% enemy miss chance
 	ReflectNext    float64 // consumable: fraction of next hit reflected
@@ -150,9 +165,21 @@ type CombatEvent struct {
 
 type CombatResult struct {
 	PlayerWon     bool
+	// TimedOut is true when the fight ran out the phase clock without a
+	// kill on either side and was decided by the HP-percentage tiebreak.
+	// Callers should treat a timeout loss as a retreat / escape — the
+	// player didn't actually take a fatal blow, so character-death side
+	// effects (markAdventureDead, respawn timer) should NOT fire.
+	TimedOut      bool
 	Events        []CombatEvent
-	PlayerStartHP int
+	PlayerStartHP int // MaxHP — display denominator
+	// PlayerEntryHP is the actual HP the player entered combat with (== MaxHP
+	// at full health, less when wounded carry-over via applyDnDHPScaling).
+	// Used by injectConsumableEvents so pre-combat narration shows the
+	// wounded entry state instead of lying "47/47" on the consumable line.
+	PlayerEntryHP int
 	EnemyStartHP  int
+	EnemyEntryHP  int
 	PlayerEndHP   int
 	EnemyEndHP    int
 	TotalRounds   int
@@ -194,6 +221,18 @@ var dungeonCombatPhases = []CombatPhase{
 	{"Sudden Death", 4, 1.1, 0.6, 1.0, 0.05},
 }
 
+// bossCombatPhases extends the regular dungeon phases for boss encounters.
+// Boss HP pools (97–546) are too large for auto-resolve to close in the
+// 8-round dungeon budget — players hit a wall and time out. Doubling the
+// Sudden Death budget gives sustained pressure a chance to close the gap.
+// Real fix is the turn-based-bosses refactor; this is the bridge tuning.
+var bossCombatPhases = []CombatPhase{
+	{"Opening", 1, 0.8, 0.8, 1.2, 0.10},
+	{"Clash", 3, 1.0, 1.0, 0.8, 0.08},
+	{"Decisive", 2, 1.0, 0.7, 1.0, 0.05},
+	{"Sudden Death", 10, 1.1, 0.6, 1.0, 0.05},
+}
+
 // ── Simulation ───────────────────────────────────────────────────────────────
 
 // combatState tracks mutable state during the simulation.
@@ -202,7 +241,7 @@ type combatState struct {
 	enemyHP  int
 
 	// Consumable one-shots
-	healUsed    bool
+	healChargesLeft int // remaining heal-at-<50% triggers
 	wardCharges int
 	sporeRounds int
 	reflectFrac float64
@@ -259,10 +298,18 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 		enemySkipFirst: player.Mods.SpellEnemySkipFirst,
 		arcaneWardHP:   player.Mods.ArcaneWardHP,
 	}
+	// HealItemCharges: explicit count overrides legacy one-shot. Backfill
+	// to 1 charge if the caller set a HealItem amount but no count.
+	st.healChargesLeft = player.Mods.HealItemCharges
+	if st.healChargesLeft == 0 && player.Mods.HealItem > 0 {
+		st.healChargesLeft = 1
+	}
 
 	result := CombatResult{
 		PlayerStartHP: player.Stats.MaxHP,
+		PlayerEntryHP: playerStart,
 		EnemyStartHP:  enemy.Stats.MaxHP,
+		EnemyEntryHP:  enemyStart,
 	}
 
 	// Pre-combat: Arina sniper check
@@ -324,19 +371,27 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 		}
 	}
 
-	// If we exhaust all phases without a kill, tiebreak by absolute HP.
-	// Was %-based, which produced unintuitive outcomes (e.g. 88/123 player
-	// losing to 83/97 boss because the boss had a higher percentage).
-	if st.playerHP < st.enemyHP {
-		st.playerHP = 0
-	} else {
-		st.enemyHP = 0
-	}
+	// If we exhaust all phases without a kill, tiebreak by HP percentage
+	// to decide the *outcome* (PlayerWon flag) — but DO NOT zero out HP
+	// on the loser. Timeout = retreat, not lethal blow. Caller treats a
+	// timeout loss as "fight ended, no character death".
+	//
+	// Absolute-HP tiebreak (briefly used on the legacy ~120 HP scale) was
+	// wrong post HP-unification: monster pools (~30–175) are 2-3× player
+	// pools (~13–83), so absolute always favored the larger combatant
+	// even when the player took less proportional damage. Slight bias
+	// toward the player on exact ties (frac >=).
+	result.TimedOut = true
+	playerFrac := float64(st.playerHP) / float64(max(1, player.Stats.MaxHP))
+	enemyFrac := float64(st.enemyHP) / float64(max(1, enemy.Stats.MaxHP))
+	playerWonTiebreak := playerFrac >= enemyFrac
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: "exhaust", Actor: "system", Action: "timeout",
 		PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 	})
-	return finalize(result, st, player, enemy)
+	out := finalize(result, st, player, enemy)
+	out.PlayerWon = playerWonTiebreak
+	return out
 }
 
 // simulateRound runs one round. Returns true if combat is over.
@@ -399,10 +454,12 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	// Spore cloud: enemy has 15% miss chance (decremented when enemy actually attacks)
 	sporeMiss := st.sporeRounds > 0 && rand.Float64() < 0.15
 
-	// Determine initiative
+	// Determine initiative. DM mood (Effusive/Hostile) biases the player's
+	// roll via player.Mods.InitiativeBias — +X means player goes first
+	// more often, -X means the enemy does.
 	playerSpeed := float64(player.Stats.Speed) * phase.SpeedWeight
 	enemySpeed := float64(enemy.Stats.Speed) * phase.SpeedWeight
-	playerInit := playerSpeed + rand.Float64()*10
+	playerInit := playerSpeed + rand.Float64()*10 + player.Mods.InitiativeBias
 	enemyInit := enemySpeed + rand.Float64()*10
 	playerFirst := playerInit >= enemyInit
 
@@ -483,10 +540,16 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 		})
 	}
 
-	// Consumable heal: triggers once when player drops below 50%
-	if !st.healUsed && player.Mods.HealItem > 0 &&
-		st.playerHP > 0 && st.playerHP < player.Stats.MaxHP/2 {
-		st.healUsed = true
+	// Consumable heal: triggers when player drops below 60% HP. Fires up
+	// to HealItemCharges times per fight (1 = legacy one-shot; bosses can
+	// stack from inventory).
+	//
+	// Threshold is 60% rather than 50% to give low-HP classes (cleric,
+	// mage) more breathing room — at 50% a cleric was bleeding into the
+	// danger zone before the heal fired.
+	if st.healChargesLeft > 0 && player.Mods.HealItem > 0 &&
+		st.playerHP > 0 && st.playerHP*5 < player.Stats.MaxHP*3 {
+		st.healChargesLeft--
 		healAmt := player.Mods.HealItem
 		st.playerHP = min(player.Stats.MaxHP, st.playerHP+healAmt)
 		st.events = append(st.events, CombatEvent{

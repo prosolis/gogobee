@@ -165,6 +165,11 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 		return p.SendDM(ctx.Sender,
 			"`!expedition start <zone> [Ns] [Md]` — pick from `!expedition list`. Example: `!expedition start goblin_warrens 2s` (2 standard packs).")
 	}
+	if remaining := restingLockoutRemaining(c); remaining > 0 {
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"🛌 You're still resting — %s remaining. Pack up after.",
+			formatRespecDuration(remaining)))
+	}
 	zoneTok, packTok := splitFirstWord(rest)
 	available := zonesForLevel(c.Level)
 	zoneID, ok := resolveZoneInput(zoneTok, available)

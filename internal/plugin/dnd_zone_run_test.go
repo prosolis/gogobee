@@ -158,8 +158,13 @@ func TestZoneRunFlow_AdvanceToBossAndComplete(t *testing.T) {
 	if got.IsActive() {
 		t.Error("expected run inactive")
 	}
-	if len(got.RoomsCleared) != got.TotalRooms {
-		t.Errorf("rooms cleared %d, total %d", len(got.RoomsCleared), got.TotalRooms)
+	// Phase G: branching graphs mean a single path through a diamond/fork
+	// zone may not visit every node. RoomsCleared counts traversed nodes;
+	// TotalRooms is the graph's total node count. Assert "reached boss" via
+	// BossDefeated above; here, just check we cleared a reasonable share.
+	if len(got.RoomsCleared) < 1 || len(got.RoomsCleared) > got.TotalRooms {
+		t.Errorf("rooms cleared %d, total %d (expected 1..total)",
+			len(got.RoomsCleared), got.TotalRooms)
 	}
 }
 

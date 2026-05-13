@@ -16,12 +16,17 @@ func DerivePlayerStats(
 ) (CombatStats, CombatModifiers) {
 	arenaSets := advEquippedArenaSets(equip)
 
-	// Base stats from combat level
+	// Stat baselines. CombatLevel is dead — player power keys off gear here
+	// and dnd_level / ability scores via applyDnDPlayerLayer afterwards.
+	// MaxHP is computed below only so the armor% / arena% / housing% bonus
+	// formulas have something to scale against; the base is subtracted out
+	// when we capture stats.HPBonus, so it never reaches combat.
+	const legacyBase = 50
 	stats := CombatStats{
-		MaxHP:     50 + char.CombatLevel*2,
-		Attack:    5 + char.CombatLevel + bonuses.CombatBonus,
-		Defense:   3 + char.CombatLevel/2 + bonuses.CombatBonus/2,
-		Speed:     5 + char.CombatLevel/3,
+		MaxHP:     legacyBase,
+		Attack:    5 + bonuses.CombatBonus,
+		Defense:   3 + bonuses.CombatBonus/2,
+		Speed:     5,
 		CritRate:  0.03,
 		DodgeRate: 0.02,
 		BlockRate: 0.02,
@@ -74,6 +79,13 @@ func DerivePlayerStats(
 
 	// Housing HP bonus
 	stats.MaxHP += int(float64(stats.MaxHP) * char.HouseHPBonus())
+
+	// Capture the equipment/arena/housing HP delta as fight-only headroom.
+	// applyDnDPlayerLayer adds this to c.HPMax to form combat MaxHP — gear
+	// power preserved, dnd_character.hp_current is the canonical wound store
+	// with no scale conversion. The legacy 50+CL*2 base is intentionally
+	// dropped; monster damage is tuned to the dnd HP scale.
+	stats.HPBonus = stats.MaxHP - legacyBase
 
 	// Streak bonuses
 	switch {
@@ -196,22 +208,19 @@ func DeriveArenaMonsterStats(monster *ArenaMonster) (CombatStats, CombatModifier
 }
 
 // DeriveDungeonMonsterStats synthesizes monster stats from a dungeon location.
-// Target: the stat block should produce a death rate roughly matching BaseDeathPct
-// when the player is at the location's MinLevel with tier-appropriate equipment.
-// The player typically has higher base stats, so monsters compensate with HP bulk
-// and just enough Attack to be threatening over the fight's duration.
+// Tuned to the dnd HP scale (post HP-unification): well-equipped players at
+// the location's MinLevel should win the vast majority of fights, with deaths
+// coming from bad luck (crits, hazards, initiative). Old quadratic Attack
+// formula assumed legacy ~100 HP players; the new linear scaling matches the
+// ~12–80 HP range of dnd-scale fighters.
 func DeriveDungeonMonsterStats(loc *AdvLocation) (CombatStats, CombatModifiers) {
 	t := float64(loc.Tier)
 	death := loc.BaseDeathPct // 8 to 60
 
-	// Well-equipped players at the right level should be dominant (win 85-95%+).
-	// Deaths come from bad luck: enemy crits, environmental hazards, unlucky initiative.
-	// Monster Attack needs to be high enough to threaten over multiple rounds via
-	// penetration damage, but not enough to kill quickly.
 	stats := CombatStats{
-		MaxHP:     25 + int(t*t*6+death*0.6),             // quadratic: T1=33, T5=187
-		Attack:    3 + int(death*0.2) + int(t*t*1.5),     // quadratic: T1=5, T5=49
-		Defense:   2 + int(t*1.5),
+		MaxHP:     12 + int(t*7+death*0.3),         // T1≈22, T5≈65 — sized so dnd-scale players can finish a kill within the phase budget
+		Attack:    int(t*1.5) + int(death*0.04),    // T1=1, T5=9 — tuned to dnd HP pools (players have 13–80 HP, not 100+)
+		Defense:   2 + int(t*1.2),
 		Speed:     4 + int(t*1.5),
 		CritRate:  0.03 + death*0.003,
 		DodgeRate: 0.02 + t*0.008,

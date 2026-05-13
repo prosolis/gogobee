@@ -23,20 +23,45 @@ func testChar(combatLevel int) *AdventureCharacter {
 	}
 }
 
+// balanceTestDnDChar synthesizes a fighter sheet at the given dnd level for
+// balance regression sims. Mirrors ensureDnDCharacterForCombat →
+// autoBuildCharacter. CombatLevel is dead — combat keys off this sheet
+// (HP/AC/AB/weapon dice) plus gear bonuses, nothing else.
+func balanceTestDnDChar(dndLevel int) *DnDCharacter {
+	scores := classStatPriority(ClassFighter)
+	c := &DnDCharacter{
+		Class: ClassFighter, Level: dndLevel,
+		STR: scores[0], DEX: scores[1], CON: scores[2],
+		INT: scores[3], WIS: scores[4], CHA: scores[5],
+	}
+	conMod := abilityModifier(c.CON)
+	dexMod := abilityModifier(c.DEX)
+	c.HPMax = computeMaxHP(c.Class, conMod, c.Level)
+	c.HPCurrent = c.HPMax
+	c.ArmorClass = computeAC(c.Class, dexMod)
+	return c
+}
+
 func zeroBonuses() *AdvBonusSummary {
 	return &AdvBonusSummary{}
 }
 
 func TestDerivePlayerStats_BaseStats(t *testing.T) {
+	// Post HP-unification + CL-strip: DerivePlayerStats no longer scales
+	// off CombatLevel. With zero gear, output is the constant baseline that
+	// applyDnDPlayerLayer then layers c.HPMax / weapon dice / etc. on top.
 	char := testChar(10)
 	equip := testEquip(0)
 	stats, _ := DerivePlayerStats(char, equip, zeroBonuses(), 0, 0, false)
 
-	if stats.MaxHP < 70 {
-		t.Errorf("level 10 base MaxHP = %d, want >= 70", stats.MaxHP)
+	if stats.MaxHP != 50 {
+		t.Errorf("zero-gear MaxHP = %d, want 50 (legacy base used only for HPBonus calc)", stats.MaxHP)
 	}
-	if stats.Attack < 15 {
-		t.Errorf("level 10 base Attack = %d, want >= 15", stats.Attack)
+	if stats.HPBonus != 0 {
+		t.Errorf("zero-gear HPBonus = %d, want 0 (no gear/arena/housing buffs)", stats.HPBonus)
+	}
+	if stats.Attack != 5 {
+		t.Errorf("zero-gear Attack = %d, want 5 (legacy fallback only; production uses weapon dice)", stats.Attack)
 	}
 }
 
@@ -249,12 +274,14 @@ func TestBalanceRegression_DungeonDeathRates(t *testing.T) {
 		maxDeath float64
 		minDeath float64
 	}
+	// `level` is the dnd_level (CombatLevel is no longer consulted for combat
+	// scaling — gear + dnd sheet drive everything).
 	cases := []tc{
-		{5, 1, advDungeons[0], 0.05, 0.0},    // T1: trivial with proper gear
-		{12, 2, advDungeons[1], 0.10, 0.0},    // T2: very easy at level
-		{25, 3, advDungeons[2], 0.15, 0.0},    // T3: low risk at level with T3 gear
-		{38, 4, advDungeons[3], 0.25, 0.0},    // T4: some risk even geared
-		{48, 5, advDungeons[4], 0.35, 0.01},   // T5: real danger — monster stats catch up. Lower bound is loose because the Sudden Death phase added round headroom that lets geared players close fights more often.
+		{1, 1, advDungeons[0], 0.05, 0.0},    // T1: trivial with proper gear
+		{2, 2, advDungeons[1], 0.10, 0.0},    // T2: very easy at level
+		{5, 3, advDungeons[2], 0.15, 0.0},    // T3: low risk at level with T3 gear
+		{7, 4, advDungeons[3], 0.25, 0.0},    // T4: some risk even geared
+		{9, 5, advDungeons[4], 0.35, 0.01},   // T5: real danger — monster stats catch up
 	}
 
 	for _, c := range cases {
@@ -263,6 +290,14 @@ func TestBalanceRegression_DungeonDeathRates(t *testing.T) {
 		bonuses := zeroBonuses()
 		stats, mods := DerivePlayerStats(char, equip, bonuses, 0, 0, false)
 		eStats, eMods := DeriveDungeonMonsterStats(&c.dungeon)
+
+		// Apply the D&D layers so the test reflects production combat
+		// HP/AC/AB/weapon-dice (post HP-unification, raw DerivePlayerStats
+		// no longer matches what players actually fight with).
+		dndChar := balanceTestDnDChar(c.level)
+		applyDnDPlayerLayer(&stats, dndChar)
+		applyDnDEquipmentLayer(&stats, dndChar, equip)
+		applyDnDDungeonMonsterLayer(&eStats, c.dungeon.Tier)
 
 		player := Combatant{Name: "Hero", Stats: stats, Mods: mods, IsPlayer: true}
 		enemy := Combatant{Name: c.dungeon.Name, Stats: eStats, Mods: eMods}
@@ -276,10 +311,10 @@ func TestBalanceRegression_DungeonDeathRates(t *testing.T) {
 			}
 		}
 		rate := float64(deaths) / float64(N)
-		t.Logf("%s (L%d T%d): P[HP=%d Atk=%d Def=%d Spd=%d] E[HP=%d Atk=%d Def=%d Spd=%d] → death=%.2f",
+		t.Logf("%s (L%d T%d): P[HP=%d AC=%d AB=%d Def=%d] E[HP=%d AC=%d AB=%d Atk=%d] → death=%.2f",
 			c.dungeon.Name, c.level, c.equipT,
-			stats.MaxHP, stats.Attack, stats.Defense, stats.Speed,
-			eStats.MaxHP, eStats.Attack, eStats.Defense, eStats.Speed,
+			stats.MaxHP, stats.AC, stats.AttackBonus, stats.Defense,
+			eStats.MaxHP, eStats.AC, eStats.AttackBonus, eStats.Attack,
 			rate)
 		if rate < c.minDeath || rate > c.maxDeath {
 			t.Errorf("  FAIL: death rate %.2f outside [%.2f, %.2f]",
@@ -297,11 +332,12 @@ func TestBalanceRegression_UnderleveledPlayers(t *testing.T) {
 		dungeon  AdvLocation
 		minDeath float64
 	}
+	// `level` is dnd_level. Underleveled = dnd_level low for the dungeon tier.
 	cases := []tc{
 		{"L1 in T2 dungeon", 1, 0, advDungeons[1], 0.40},
-		{"L8 in T3 dungeon", 8, 1, advDungeons[2], 0.30},
-		{"L20 in T4 dungeon, T2 gear", 20, 2, advDungeons[3], 0.25},
-		{"L30 in T5 dungeon, T3 gear", 30, 3, advDungeons[4], 0.30},
+		{"L2 in T3 dungeon", 2, 1, advDungeons[2], 0.30},
+		{"L4 in T4 dungeon, T2 gear", 4, 2, advDungeons[3], 0.25},
+		{"L6 in T5 dungeon, T3 gear", 6, 3, advDungeons[4], 0.30},
 	}
 
 	for _, c := range cases {
@@ -310,6 +346,14 @@ func TestBalanceRegression_UnderleveledPlayers(t *testing.T) {
 		bonuses := zeroBonuses()
 		stats, mods := DerivePlayerStats(char, equip, bonuses, 0, 0, false)
 		eStats, eMods := DeriveDungeonMonsterStats(&c.dungeon)
+
+		// Apply the D&D layers so the test reflects production combat
+		// HP/AC/AB/weapon-dice (post HP-unification, raw DerivePlayerStats
+		// no longer matches what players actually fight with).
+		dndChar := balanceTestDnDChar(c.level)
+		applyDnDPlayerLayer(&stats, dndChar)
+		applyDnDEquipmentLayer(&stats, dndChar, equip)
+		applyDnDDungeonMonsterLayer(&eStats, c.dungeon.Tier)
 
 		player := Combatant{Name: "Hero", Stats: stats, Mods: mods, IsPlayer: true}
 		enemy := Combatant{Name: c.dungeon.Name, Stats: eStats, Mods: eMods}
@@ -323,9 +367,9 @@ func TestBalanceRegression_UnderleveledPlayers(t *testing.T) {
 			}
 		}
 		rate := float64(deaths) / float64(N)
-		t.Logf("%s: P[HP=%d Atk=%d Def=%d] E[HP=%d Atk=%d Def=%d] → death=%.2f (want ≥%.2f)",
-			c.name, stats.MaxHP, stats.Attack, stats.Defense,
-			eStats.MaxHP, eStats.Attack, eStats.Defense, rate, c.minDeath)
+		t.Logf("%s: P[HP=%d AC=%d AB=%d] E[HP=%d AC=%d AB=%d Atk=%d] → death=%.2f (want ≥%.2f)",
+			c.name, stats.MaxHP, stats.AC, stats.AttackBonus,
+			eStats.MaxHP, eStats.AC, eStats.AttackBonus, eStats.Attack, rate, c.minDeath)
 		if rate < c.minDeath {
 			t.Errorf("  FAIL: death rate %.2f below minimum %.2f", rate, c.minDeath)
 		}

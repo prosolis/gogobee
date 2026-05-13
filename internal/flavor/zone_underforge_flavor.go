@@ -39,7 +39,7 @@ var RoomEntryUnderforge = []string{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var BossEntryEmberlordThyrak = []string{
-	"The chamber is the largest forge TwinBee has narrated and TwinBee has narrated several. Nine furnaces in a ring. A central anvil the size of a wagon. The figure at the anvil is twelve feet of articulated iron and inset rune-stones that pulse to a tempo TwinBee can feel in its plating. The hammer comes down. The strike rings the room. The figure does not turn — finishes the strike, then turns. The eyes are not eyes. They are vents. 'Visitor,' Thyrak says, and the word is a furnace door opening. TwinBee takes a half-step back and says, very evenly, 'Forge-golem. Three centuries of self-improvement. Don't fight him on the lava.'",
+	"The chamber is the largest forge TwinBee has ever narrated, and it has narrated several. Nine furnaces in a ring. A central anvil the size of a wagon. The figure at the anvil is twelve feet of articulated iron and inset rune-stones that pulse to a tempo TwinBee can feel in its plating. The hammer comes down. The strike rings the room. The figure does not turn — finishes the strike, then turns. The eyes are not eyes. They are vents. 'Visitor,' Thyrak says, and the word is a furnace door opening. TwinBee takes a half-step back and says, very evenly, 'Forge-golem. Three centuries of self-improvement. Don't fight him on the lava.'",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

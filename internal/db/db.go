@@ -313,6 +313,12 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE dnd_zone_run ADD COLUMN current_node TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE dnd_zone_run ADD COLUMN visited_nodes TEXT NOT NULL DEFAULT '[]'`,
 		`ALTER TABLE dnd_zone_run ADD COLUMN node_choices TEXT NOT NULL DEFAULT '{}'`,
+		// 2026-05-10 immersion pass: short rest = hit-dice charges (1/level),
+		// long rest restores them. resting_until gates !zone enter and
+		// !expedition start so a freshly-rested character can't immediately
+		// jump back into combat — they're actually resting for the duration.
+		`ALTER TABLE dnd_character ADD COLUMN short_rest_charges INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE dnd_character ADD COLUMN resting_until DATETIME`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

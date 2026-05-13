@@ -19,7 +19,7 @@ func TestSelectConsumables_TrivialFightSkips(t *testing.T) {
 	weak := CombatStats{MaxHP: 30, Attack: 5}
 	inv := makeInventory("Berry Poultice", "Coal Bomb")
 
-	selected := SelectConsumables(inv, strong, weak, 0, 0)
+	selected := SelectConsumables(inv, strong, weak, 0, 0, true)
 	if len(selected) != 0 {
 		t.Errorf("should skip consumables for trivial fight, got %d", len(selected))
 	}
@@ -30,7 +30,7 @@ func TestSelectConsumables_DangerousUsesHighTier(t *testing.T) {
 	strong := CombatStats{MaxHP: 200, Attack: 50}
 	inv := makeInventory("Berry Poultice", "Spirit Tonic", "Coal Bomb", "Ancient Artifact Oil")
 
-	selected := SelectConsumables(inv, weak, strong, 0, 0)
+	selected := SelectConsumables(inv, weak, strong, 0, 0, true)
 	if len(selected) != 2 {
 		t.Fatalf("expected 2 consumables, got %d", len(selected))
 	}
@@ -60,7 +60,7 @@ func TestSelectConsumables_MaxTwo(t *testing.T) {
 		"Coal Bomb", "Goblin Grease", "Blooper Ink Vial",
 	)
 
-	selected := SelectConsumables(inv, player, enemy, 0, 0)
+	selected := SelectConsumables(inv, player, enemy, 0, 0, true)
 	if len(selected) > 2 {
 		t.Errorf("max 2 consumables, got %d", len(selected))
 	}
@@ -87,7 +87,7 @@ func TestSelectConsumables_EasyUsesLowTier(t *testing.T) {
 
 	inv := makeInventory("Berry Poultice", "Spirit Tonic", "Coal Bomb", "Ancient Artifact Oil")
 
-	selected := SelectConsumables(inv, player, enemy, 0, 0)
+	selected := SelectConsumables(inv, player, enemy, 0, 0, true)
 	for _, s := range selected {
 		if s.Def.Tier > 2 {
 			t.Errorf("easy fight should use T1-T2, got %s (T%d)", s.Def.Name, s.Def.Tier)
@@ -101,8 +101,8 @@ func TestSelectConsumables_ArenaRoundEscalation(t *testing.T) {
 
 	inv := makeInventory("Berry Poultice", "Spirit Tonic", "Coal Bomb", "Sapphire Elixir")
 
-	r1 := SelectConsumables(inv, player, enemy, 1, 0)
-	r4 := SelectConsumables(inv, player, enemy, 4, 0)
+	r1 := SelectConsumables(inv, player, enemy, 1, 0, true)
+	r4 := SelectConsumables(inv, player, enemy, 4, 0, true)
 
 	maxTierR1 := 0
 	for _, s := range r1 {

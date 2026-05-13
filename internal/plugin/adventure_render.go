@@ -735,6 +735,15 @@ type AdvPlayerDaySummary struct {
 	LootValue      int64
 	IsDead         bool
 	DeadUntil      string
+	// DeadUntilHours is the integer hours-from-now until revival, used by
+	// the standout-death template's {hours} placeholder. Computed when
+	// the summary row is built; 0 if not dead or already past revival.
+	DeadUntilHours int
+	// DeadUntilDuration is the human-readable hours+minutes form of the
+	// remaining respawn time ("5h 27m", "47m", "2h"). Used by the
+	// {duration} placeholder for templates that want precision over the
+	// rounded {hours} count.
+	DeadUntilDuration string
 	IsResting      bool
 	SummaryLine    string
 	HolidayActions int // 0 = not holiday or no action; 1 = took one; 2 = took both
@@ -933,9 +942,19 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 			if lossLoc == "" {
 				lossLoc = worstPlayer.Location
 			}
+			hours := worstPlayer.DeadUntilHours
+			if hours <= 0 {
+				hours = 6 // canonical respawn duration when revival time isn't computable
+			}
+			duration := worstPlayer.DeadUntilDuration
+			if duration == "" {
+				duration = fmt.Sprintf("%dh", hours)
+			}
 			line = advSubstituteFlavor(line, map[string]string{
 				"{name}":     worstPlayer.DisplayName,
 				"{location}": lossLoc,
+				"{hours}":    fmt.Sprintf("%d", hours),
+				"{duration}": duration,
 			})
 			sb.WriteString(fmt.Sprintf("🏆 **Today's standout:** %s\n", line))
 		}

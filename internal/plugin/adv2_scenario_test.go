@@ -76,9 +76,10 @@ func TestAdv2Scenario_ZoneRunGoblinWarrens(t *testing.T) {
 	}
 
 	// Drive !zone advance until the run terminates (cleared, died, or
-	// abandoned). Cap iterations as a safety net in case advance becomes
-	// a no-op due to a regression.
-	maxSteps := run.TotalRooms + 4
+	// abandoned). When a fork is pending (Phase G branching graphs) auto-pick
+	// the first option via `!zone go 1` so the test doesn't stall on a
+	// diamond. Doubled iteration cap covers fork-then-advance pairs.
+	maxSteps := (run.TotalRooms + 4) * 2
 	clearedRoomTypes := []RoomType{}
 	for step := 0; step < maxSteps; step++ {
 		before, _ := getActiveZoneRun(uid)
@@ -93,6 +94,13 @@ func TestAdv2Scenario_ZoneRunGoblinWarrens(t *testing.T) {
 		}
 		t.Logf("step %d: in room %d/%d (%s), mood=%d, HP=%d",
 			step, before.CurrentRoom+1, before.TotalRooms, prevType, before.DMMood, prevHP)
+		if len(before.NodeChoices) > 0 {
+			// A fork is queued from the previous advance — commit it first.
+			if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "go 1"); err != nil {
+				t.Fatalf("zone go step %d: %v", step, err)
+			}
+			continue
+		}
 		if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "advance"); err != nil {
 			t.Fatalf("zone advance step %d: %v", step, err)
 		}

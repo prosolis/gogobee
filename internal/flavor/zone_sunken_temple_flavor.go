@@ -23,7 +23,7 @@ package flavor
 var RoomEntrySunkenTemple = []string{
 	"You step into water that's been in this room for thirty years. The floor is tiled and slick. The pillars are barnacled at chest height — that's the old waterline. The new waterline is at your ankles. TwinBee notes the temple is partway through deciding which it prefers.",
 	"The chamber is half-flooded and half-lit. Salt in the air, salt on the walls, salt in places nothing oceanic should be reaching. TwinBee files this under 'unwell' and proceeds.",
-	"Glyphs cover the far wall in a script that doesn't match anything TwinBee recognizes. The angles are wrong on purpose. TwinBee keeps reading anyway, because TwinBee always tries, and stops when the reading starts to feel reciprocal.",
+	"Glyphs cover the far wall in a script that doesn't match anything TwinBee recognizes. The angles are wrong on purpose. It keeps reading anyway, because it always tries, and stops when the reading starts to feel reciprocal.",
 	"The water in this room is not moving. Not the way still water doesn't move — the way a held breath doesn't move. TwinBee suggests not disturbing it more than necessary.",
 	"Pillars rise from water that goes deeper than the room should allow. TwinBee tests the depth with the haft of a polearm and stops at the point where the haft stops finding bottom.",
 	"A vaulted ceiling that's mostly intact. Water pools in places it shouldn't, drips from places it can't be coming from. TwinBee identifies the temple as 'wet on principle' and leaves it at that.",

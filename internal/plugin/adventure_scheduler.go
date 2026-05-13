@@ -272,6 +272,22 @@ func (p *AdventurePlugin) postDailySummary() {
 			ps.DeathLocation = c.DeathLocation
 			if c.DeadUntil != nil {
 				ps.DeadUntil = c.DeadUntil.Format("15:04") + " UTC"
+				remaining := time.Until(*c.DeadUntil)
+				if remaining > 0 {
+					hrs := int(remaining.Hours())
+					mins := int(remaining.Minutes()) - hrs*60
+					// {hours}: round half-up integer hours.
+					ps.DeadUntilHours = int(remaining.Hours() + 0.5)
+					// {duration}: precise — "5h 27m", "47m", "2h".
+					switch {
+					case hrs > 0 && mins > 0:
+						ps.DeadUntilDuration = fmt.Sprintf("%dh %dm", hrs, mins)
+					case hrs > 0:
+						ps.DeadUntilDuration = fmt.Sprintf("%dh", hrs)
+					default:
+						ps.DeadUntilDuration = fmt.Sprintf("%dm", mins)
+					}
+				}
 			}
 			if len(acts) > 0 {
 				last := acts[len(acts)-1]

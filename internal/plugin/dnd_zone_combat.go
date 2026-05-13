@@ -107,8 +107,13 @@ func zoneSelectorHash(runID string, roomIdx int) uint64 {
 // ── Combat runner ───────────────────────────────────────────────────────────
 
 // runZoneCombat sets up a Combatant pair from the player's full D&D
-// layer + a bestiary monster, runs SimulateCombat with dungeonCombatPhases,
-// and persists post-combat side effects (HP, subclass state, XP).
+// layer + a bestiary monster, runs SimulateCombat with the given phase
+// budget (nil = dungeonCombatPhases), and persists post-combat side
+// effects (HP, subclass state, XP).
+//
+// dmMood (0–100) drives the DM's combat tilt: Effusive softens monster
+// Attack and gives the player +InitiativeBias; Hostile sharpens monster
+// Attack and slows the player. Pass 50 (neutral) when no run context.
 //
 // Returns the engine result so the caller can branch on PlayerWon and
 // fold combat events into the per-room narration.
@@ -116,7 +121,13 @@ func (p *AdventurePlugin) runZoneCombat(
 	userID id.UserID,
 	monster DnDMonsterTemplate,
 	tier int,
+	phases []CombatPhase,
+	dmMood int,
 ) (CombatResult, error) {
+	if phases == nil {
+		phases = dungeonCombatPhases
+	}
+	tilt := dmMoodCombatTilt(dmMood)
 	char, err := loadAdvCharacter(userID)
 	if err != nil || char == nil {
 		return CombatResult{}, fmt.Errorf("load adv character: %w", err)
@@ -161,6 +172,19 @@ func (p *AdventurePlugin) runZoneCombat(
 	}
 	applyPendingCast(userID, dndChar, &playerStats, &playerMods, &enemyStats)
 
+	// Auto-consumable: panic heal only. Inventory healing items wire up
+	// the heal-at-<60%-HP trigger; offensive / buff consumables are NOT
+	// auto-burned (see dnd_boss_consumables.go for the rationale).
+	consumables := p.loadConsumableInventory(userID)
+	setupAutoHealFromInventory(consumables, &playerMods)
+
+	// DM mood tilts: monster Attack delta + player initiative bias.
+	enemyStats.Attack += tilt.EnemyAttackDelta
+	if enemyStats.Attack < 1 {
+		enemyStats.Attack = 1 // floor — keep some bite even for Elated DM
+	}
+	playerMods.InitiativeBias += tilt.InitiativeBias
+
 	displayName, _ := loadDisplayName(userID)
 	player := Combatant{
 		Name:     displayName,
@@ -175,7 +199,12 @@ func (p *AdventurePlugin) runZoneCombat(
 		Ability: monster.Ability,
 	}
 
-	result := SimulateCombat(player, enemy, dungeonCombatPhases)
+	result := SimulateCombat(player, enemy, phases)
+	dumpCombatEventsIfDebug(fmt.Sprintf("zone:%s vs %s", monster.ID, displayName), result)
+
+	// Remove the actual heal items consumed during combat (one inventory
+	// item per heal_item event fired). Cheapest-tier first.
+	consumeFiredHealingItems(userID, countHealEventsFired(result))
 
 	// Misty condition repair (post-combat, same 20% chance as arena/encounter
 	// paths in combat_bridge.go). Mirrors the buff's intent — gourmet food
@@ -187,7 +216,7 @@ func (p *AdventurePlugin) runZoneCombat(
 	}
 
 	p.grantCombatAchievements(userID, result)
-	persistDnDHPAfterCombat(userID, result.PlayerStartHP, result.PlayerEndHP)
+	persistDnDHPAfterCombat(userID, result.PlayerEndHP)
 	if err := persistDnDPostCombatSubclass(dndChar, playerMods.BerserkerRage, result, playerMods); err != nil {
 		slog.Error("dnd: post-combat subclass persist (zone)", "user", userID, "err", err)
 	}
@@ -368,10 +397,19 @@ func (p *AdventurePlugin) resolveTrapRoomLegacy(userID id.UserID, run *DungeonRu
 // (zone equipment registry wiring is a later content phase).
 func (p *AdventurePlugin) rollZoneLoot(userID id.UserID, run *DungeonRun, zone ZoneDefinition) []string {
 	rng := rand.New(rand.NewPCG(uint64(zoneSelectorHash(run.RunID, run.CurrentRoom)), 0x100712))
+	// DM mood tilts probabilistic drop chances. UniqueAlways entries are
+	// untouched — those are story drops, not flavor for the DM to gate.
+	moodMult := dmMoodCombatTilt(run.DMMood).LootQualityMod
+	if moodMult == 0 {
+		moodMult = 1.0
+	}
 	var granted []string
 	for _, entry := range zone.Loot {
-		if !entry.UniqueAlways && rng.Float64() > entry.DropChance {
-			continue
+		if !entry.UniqueAlways {
+			chance := entry.DropChance * moodMult
+			if rng.Float64() > chance {
+				continue
+			}
 		}
 		item, ok := zoneLootToInventory(entry, zone, rng)
 		if !ok {

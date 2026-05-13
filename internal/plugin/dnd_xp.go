@@ -116,6 +116,11 @@ func (p *AdventurePlugin) grantDnDXP(userID id.UserID, amount int) ([]LevelUpEve
 		if c.HPCurrent > c.HPMax {
 			c.HPCurrent = c.HPMax
 		}
+		// Level-up grants one extra hit-dice charge (matches max=Level cap).
+		c.ShortRestCharges++
+		if c.ShortRestCharges > c.Level {
+			c.ShortRestCharges = c.Level
+		}
 		// AC may change too if DEX-derived (unlikely without item changes).
 		c.ArmorClass = computeAC(c.Class, abilityModifier(c.DEX))
 

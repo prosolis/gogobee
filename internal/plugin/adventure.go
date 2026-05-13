@@ -205,6 +205,13 @@ func (p *AdventurePlugin) Init() error {
 	// columns from dnd_zone_run when the operator sets
 	// GOGOBEE_BRANCHING_PURGE=1. Default off; idempotent.
 	purgeLegacyZoneRunColumns()
+	// 2026-05-10 fun-pump: floor existing characters' DEX at 14 and
+	// recompute armor_class so armor upgrades actually translate into
+	// AC. One-shot, idempotent (WHERE dex_score < 14).
+	bumpDexFloorForExistingCharacters()
+	// 2026-05-10 immersion: seed short rest charges = dnd_level for any
+	// character not yet on the new charge system. One-shot, idempotent.
+	seedShortRestChargesForExistingCharacters()
 	// Phase R1 orphan-archive used to run here on every Init, but it
 	// over-archived: it treats any active dnd_zone_run row not linked to
 	// an active expedition as a legacy `!adventure dungeon` orphan, which

@@ -271,6 +271,7 @@ func (p *AdventurePlugin) dndSetupConfirm(ctx MessageContext) error {
 	c.HPCurrent = c.HPMax
 	c.TempHP = 0
 	c.ArmorClass = computeAC(c.Class, dexMod)
+	c.ShortRestCharges = c.Level
 	c.PendingSetup = false
 	c.AutoMigrated = false // manually confirmed — no longer an auto-migration
 	c.UpdatedAt = time.Now().UTC()

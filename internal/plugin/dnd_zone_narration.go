@@ -398,14 +398,17 @@ func complimentResponseLine(runID string, roomIdx int) string {
 	return "🎭 **TwinBee:** " + line
 }
 
-// moodAsidePool returns the mood-banded aside pool when the mood sits at
-// an extreme band (hostile or effusive), else nil. Mid-bands (grumpy /
-// neutral / friendly) intentionally surface no aside — flavor stays
-// strictly extra, never replacing the core narration.
+// moodAsidePool returns the mood-banded aside pool. Every band except
+// strict Neutral (40–59) surfaces flavor — Hostile/Effusive at the
+// extremes, Grumpy/Friendly in the mid-bands. Neutral stays silent.
 func moodAsidePool(mood int) []string {
 	switch moodBand(mood) {
 	case MoodBandHostile:
 		return flavor.MoodAsidesHostile
+	case MoodBandGrumpy:
+		return flavor.MoodAsidesGrumpy
+	case MoodBandFriendly:
+		return flavor.MoodAsidesFriendly
 	case MoodBandEffusive:
 		return flavor.MoodAsidesEffusive
 	}
@@ -517,6 +520,33 @@ func clampMood(s int) int {
 		return 100
 	}
 	return s
+}
+
+// DMMoodCombatTilt — what the DM's mood does to combat dials.
+//
+// Effusive: monsters miss more, hit softer; player goes first more often.
+// Hostile : monsters meaner, faster off the line.
+// Mid-bands: small or zero effects so the DM's voice still matters
+// without trivializing math at each step.
+type DMMoodCombatTilt struct {
+	EnemyAttackDelta int     // added to monster.Stats.Attack pre-fight
+	InitiativeBias   float64 // added to player initiative roll each round
+	LootQualityMod   float64 // multiplied into AdvBonusSummary.LootQuality
+}
+
+// dmMoodCombatTilt maps the run's DM mood score to the combat dials.
+func dmMoodCombatTilt(mood int) DMMoodCombatTilt {
+	switch moodBand(mood) {
+	case MoodBandEffusive:
+		return DMMoodCombatTilt{EnemyAttackDelta: -1, InitiativeBias: +5, LootQualityMod: 1.20}
+	case MoodBandFriendly:
+		return DMMoodCombatTilt{EnemyAttackDelta: 0, InitiativeBias: +2, LootQualityMod: 1.10}
+	case MoodBandGrumpy:
+		return DMMoodCombatTilt{EnemyAttackDelta: +1, InitiativeBias: -2, LootQualityMod: 0.90}
+	case MoodBandHostile:
+		return DMMoodCombatTilt{EnemyAttackDelta: +2, InitiativeBias: -5, LootQualityMod: 0.75}
+	}
+	return DMMoodCombatTilt{LootQualityMod: 1.0} // Neutral
 }
 
 // applyMoodDecayIfStale persists a passive-decay correction when the

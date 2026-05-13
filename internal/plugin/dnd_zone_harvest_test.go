@@ -48,7 +48,11 @@ func TestStandaloneHarvest_RoutesToZoneRun(t *testing.T) {
 	if raw == "" || raw == "{}" {
 		t.Errorf("expected harvest_nodes_json populated after standalone harvest, got %q", raw)
 	}
-	wantKey := "\"" + deriveLegacyNodeID(run.ZoneID, 0) + "\":"
+	// Phase G: the entry node id comes from the zone graph (e.g.
+	// "forest_shadows.entry"), not the legacy ".r1" derivation. Use the
+	// production helper so this stays in sync with whatever node id
+	// saveStandaloneHarvestNodes actually wrote.
+	wantKey := "\"" + harvestNodeIDFor(run) + "\":"
 	if !strings.Contains(raw, wantKey) {
 		t.Errorf("expected entry node %s in harvest table, got %q", wantKey, raw)
 	}

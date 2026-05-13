@@ -62,7 +62,7 @@ var EliteRoomEntryFeywildCrossing = []string{
 
 // Coven Magic: extra spell slots scaled by GM Mood (high mood = stronger Thornmother).
 var ThornmotherCovenLines = []string{
-	"Her slot pool scales with TwinBee's mood — Effusive TwinBee buys the Thornmother an extra round of high-tier casts. TwinBee says: 'My affection is taxable here. Sorry. Spread out.'",
+	"Her slot pool scales with TwinBee's mood — Effusive TwinBee buys the Thornmother an extra round of high-tier casts. 'My affection is taxable here,' it says. 'Sorry. Spread out.'",
 	"Coven Magic. The slots above her base list are mood-scaled — the better the mood at the run's start, the worse this fight runs late. TwinBee files this under 'cosmic irony' and notes the math is fixed at zone entry.",
 	"She has more spells than the sheet says. The extra ones come from the coven and the coven volume is set by TwinBee's mood. TwinBee tracks the count and warns the party when the bonus tier is in play.",
 }

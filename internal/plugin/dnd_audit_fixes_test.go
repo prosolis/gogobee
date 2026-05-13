@@ -294,11 +294,16 @@ func TestSetupStatus_NoStubOnFirstSetup(t *testing.T) {
 	}
 }
 
-func TestApplyDnDHPScaling_NeverExceedsOriginalMax(t *testing.T) {
-	stats := CombatStats{MaxHP: 100}
-	c := &DnDCharacter{HPMax: 50, HPCurrent: 100} // pathological: 200% — shouldn't happen but be safe
+func TestApplyDnDHPScaling_NeverExceedsCombatMax(t *testing.T) {
+	// Pathological: hp_current somehow above hp_max — early-return path
+	// (full HP) leaves MaxHP unchanged and StartHP unset.
+	stats := CombatStats{MaxHP: 100, HPBonus: 50}
+	c := &DnDCharacter{HPMax: 50, HPCurrent: 100}
 	applyDnDHPScaling(&stats, c)
-	if stats.MaxHP > 100 {
-		t.Errorf("clamp failed: MaxHP scaled to %d, original was 100", stats.MaxHP)
+	if stats.MaxHP != 100 {
+		t.Errorf("MaxHP clobbered: %d, want unchanged 100", stats.MaxHP)
+	}
+	if stats.StartHP > stats.MaxHP {
+		t.Errorf("StartHP=%d exceeds MaxHP=%d", stats.StartHP, stats.MaxHP)
 	}
 }

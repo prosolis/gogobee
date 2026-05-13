@@ -27,7 +27,7 @@ var HarvestMineSuccess = []string{
 }
 
 var HarvestScavengeSuccess = []string{
-	"There it is. Among the debris, the decay, the things that were left behind — something worth taking. TwinBee knew it was there. You found it. TwinBee is pleased.",
+	"There it is. Among the debris, the decay, the things that were left behind — something worth taking. TwinBee knew it was there. You found it. Pleased.",
 	"The room held something after all. TwinBee had estimated 60% odds and updates the estimate to 'correct.'",
 	"Like finding the secret item in a dungeon chest that looked empty — you checked anyway. That's the habit. That's the discipline. TwinBee notes both.",
 	"Scavenged. The word has a bad reputation it doesn't deserve. You found value in the discarded. TwinBee respects that entirely.",
@@ -136,7 +136,7 @@ var HarvestSunkenTemple = []string{
 var HarvestHauntedManor = []string{
 	"The manor keeps things. Has always kept things. TwinBee takes this one out of the keeping and into the useful, which is a small act of defiance against the house's whole philosophy.",
 	"Found among the things that have been here since the last person stopped being here. TwinBee notes the provenance without dwelling on it.",
-	"The house watches you take it. TwinBee watches the house watch you. A full triangle of observation, and TwinBee notes: the house blinks first.",
+	"The house watches you take it. TwinBee watches the house watch you. A full triangle of observation — the house blinks first.",
 }
 
 var HarvestUnderforge = []string{
@@ -152,7 +152,7 @@ var HarvestUnderdark = []string{
 }
 
 var HarvestFeywild = []string{
-	"The Feywild gives things away. That's the problem — it gives things away and sometimes what it gives isn't what you thought you were taking. TwinBee checks the material twice. It appears to be what it appears to be. TwinBee remains alert.",
+	"The Feywild gives things away. That's the problem — it gives things away and sometimes what it gives isn't what you thought you were taking. TwinBee checks the material twice. It appears to be what it appears to be. Remains alert.",
 	"Beautiful material from a zone that uses beauty as a weapon. TwinBee takes it carefully, like picking up something that might be watching.",
 	"The fey made this place generous on purpose. TwinBee is not going to complain about the generosity and is not going to stop watching for the catch.",
 }
@@ -221,7 +221,7 @@ var LootDropCommon = []string{
 var LootDropUncommon = []string{
 	"Better than expected. TwinBee examines the drop with slightly elevated interest. Uncommon rarity — someone made this with intent.",
 	"An uncommon drop from a common enemy. TwinBee notes the anomaly with satisfaction. The dungeon was generous in this room.",
-	"Uncommon. TwinBee turns it over once and nods. 'Keeper,' TwinBee says, which in TwinBee's vocabulary means: this changes your math.",
+	"Uncommon. TwinBee turns it over once and nods. 'Keeper,' it says, which in TwinBee's vocabulary means: this changes your math.",
 }
 
 var LootDropRare = []string{
@@ -231,7 +231,7 @@ var LootDropRare = []string{
 }
 
 var LootDropLegendary = []string{
-	"TwinBee goes very still. The drop sits in the light and TwinBee processes what it is seeing. 'Legendary,' TwinBee says eventually. One word. That's all it needs.",
+	"TwinBee goes very still. The drop sits in the light and it processes what it is seeing. 'Legendary,' TwinBee says eventually. One word. That's all it needs.",
 	"Legendary rarity. TwinBee has seen a few of these in a long career and each time — each time — there is a moment that is separate from everything else. This is that moment. Pick it up carefully.",
 	"The dungeon produced a legendary item. TwinBee notes the zone, the enemy, the day of the expedition, the Threat Clock value, the precise conditions. Some things deserve to be recorded completely.",
 }

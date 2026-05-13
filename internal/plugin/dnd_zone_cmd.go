@@ -175,6 +175,11 @@ func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest
 		return p.SendDM(ctx.Sender,
 			"`!zone enter <id|#>` — pick from `!zone list`. Example: `!zone enter goblin_warrens` or `!zone enter 1`.")
 	}
+	if remaining := restingLockoutRemaining(c); remaining > 0 {
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"🛌 You're still resting — %s remaining. The dungeon won't go anywhere.",
+			formatRespecDuration(remaining)))
+	}
 	available := zonesForLevel(c.Level)
 	id, ok := resolveZoneInput(rest, available)
 	if !ok {
@@ -202,6 +207,14 @@ func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest
 	zone := zoneOrFallback(run.ZoneID)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🗝 **Entering %s** _(T%d, %d rooms)_\n\n", zone.Display, int(zone.Tier), run.TotalRooms))
+	// Wounded-entry warning: if HP < 50% MaxHP at zone-enter time, flag it
+	// before the player advances into combat. Wounds carry across runs,
+	// monster damage tuning assumes near-full HP; entering at half or less
+	// is a death-spiral invitation.
+	if c.HPMax > 0 && c.HPCurrent*2 < c.HPMax {
+		b.WriteString(fmt.Sprintf("⚠️ _You're entering at **%d/%d HP**. Consider `!rest` first._\n\n",
+			c.HPCurrent, c.HPMax))
+	}
 	b.WriteString("_" + zone.Hook + "_\n\n")
 	if line := twinBeeLine(zone.ID, DMRoomEntry, run.RunID, narrationCadence(run)); line != "" {
 		b.WriteString(line)
@@ -573,10 +586,7 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		outcome = fmt.Sprintf("_(No %s roster entry — skipping.)_", map[bool]string{true: "elite", false: "exploration"}[elite])
 		return
 	}
-	// Capture D&D-scale HP before combat so the outcome line can show
-	// sheet HP rather than the engine's legacy-scale numbers.
-	preHP, _ := dndHPSnapshot(userID)
-	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier))
+	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier), nil, run.DMMood)
 	if rerr != nil {
 		err = rerr
 		return
@@ -629,12 +639,21 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	if !result.PlayerWon {
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
-		markAdventureDead(userID, "zone", zone.Display)
+		// Timeout loss = retreat; player took wounds but isn't actually
+		// dead. Don't fire markAdventureDead — that would trigger the 6h
+		// respawn timer for what is mechanically "ran out the clock".
+		if !result.TimedOut {
+			markAdventureDead(userID, "zone", zone.Display)
+		}
 		if line := twinBeeLine(zone.ID, DMPlayerDeath, run.RunID, narrationCadence(run)); line != "" {
 			ob.WriteString(line)
 			ob.WriteString("\n")
 		}
-		ob.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
+		if result.TimedOut {
+			ob.WriteString(fmt.Sprintf("⏳ The fight drags on. **%s** outlasts you. You retreat, wounded but alive.", monster.Name))
+		} else {
+			ob.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
+		}
 		if rollLine := dndRollSummaryLine(result); rollLine != "" {
 			ob.WriteString("\n")
 			ob.WriteString(rollLine)
@@ -647,7 +666,7 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		ob.WriteString(line)
 		ob.WriteString("\n")
 	}
-	ob.WriteString(fmt.Sprintf("✅ **%s** down (HP %d→%d / %d).", monster.Name, preHP, postHP, maxHP))
+	ob.WriteString(fmt.Sprintf("✅ **%s** down. You finished at **%d/%d HP**.", monster.Name, postHP, maxHP))
 	if rollLine := dndRollSummaryLine(result); rollLine != "" {
 		ob.WriteString("\n")
 		ob.WriteString(rollLine)
@@ -673,7 +692,9 @@ func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zon
 		return
 	}
 	preHP, _ := dndHPSnapshot(userID)
-	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier))
+	// Bosses use bossCombatPhases — wider Sudden Death budget so a player
+	// grinding the boss down has time to actually close the HP gap.
+	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier), bossCombatPhases, run.DMMood)
 	if rerr != nil {
 		err = rerr
 		return
@@ -702,12 +723,14 @@ func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zon
 		Nat20s:          nat20s,
 		Nat1s:           nat1s,
 		DefeatHeadline:  fmt.Sprintf("💀 **%s** stands over your body. Run ended.", monster.Name),
-		VictoryHeadline: fmt.Sprintf("🏆 **%s** falls (HP %d→%d / %d).", monster.Name, preHP, postHP, maxHP),
+		VictoryHeadline: fmt.Sprintf("🏆 **%s** falls. You finished at **%d/%d HP**.", monster.Name, postHP, maxHP),
 	})
 	if !result.PlayerWon {
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
-		markAdventureDead(userID, "zone", zone.Display)
+		if !result.TimedOut {
+			markAdventureDead(userID, "zone", zone.Display)
+		}
 		ended = true
 		return
 	}

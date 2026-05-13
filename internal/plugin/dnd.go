@@ -187,6 +187,11 @@ type DnDCharacter struct {
 	// long rest. 5e caps at 6 (death); we let it grow and let consumers
 	// clamp where needed.
 	Exhaustion               int
+	// 2026-05-10 immersion: short rest charges (1/level, restored on long
+	// rest). resting_until gates !zone enter / !expedition start while the
+	// character is "still resting" — short rest = 1h, long rest = 8h.
+	ShortRestCharges int
+	RestingUntil     *time.Time
 	LastRespecAt    *time.Time
 	LastShortRestAt *time.Time
 	LastLongRestAt  *time.Time
@@ -216,6 +221,7 @@ func LoadDnDCharacter(userID id.UserID) (*DnDCharacter, error) {
 		       pending_setup, auto_migrated, onboarding_sent, armed_ability,
 		       pending_cast, concentration_spell, concentration_expires_at,
 		       subclass, last_subclass_respec_at, exhaustion,
+		       short_rest_charges, resting_until,
 		       last_respec_at, last_short_rest_at, last_long_rest_at,
 		       created_at, updated_at
 		FROM dnd_character WHERE user_id = ?`, string(userID))
@@ -229,6 +235,7 @@ func LoadDnDCharacter(userID id.UserID) (*DnDCharacter, error) {
 		&pending, &autoMig, &onboard, &c.ArmedAbility,
 		&c.PendingCast, &c.ConcentrationSpell, &c.ConcentrationExpiresAt,
 		&subclassStr, &c.LastSubclassRespecAt, &c.Exhaustion,
+		&c.ShortRestCharges, &c.RestingUntil,
 		&c.LastRespecAt, &c.LastShortRestAt, &c.LastLongRestAt,
 		&c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -268,8 +275,9 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		    pending_setup, auto_migrated, onboarding_sent, armed_ability,
 		    pending_cast, concentration_spell, concentration_expires_at,
 		    subclass, last_subclass_respec_at, exhaustion,
+		    short_rest_charges, resting_until,
 		    last_respec_at, last_short_rest_at, last_long_rest_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(user_id) DO UPDATE SET
 		    race=excluded.race, class=excluded.class,
 		    dnd_level=excluded.dnd_level, dnd_xp=excluded.dnd_xp,
@@ -288,6 +296,8 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		    subclass=excluded.subclass,
 		    last_subclass_respec_at=excluded.last_subclass_respec_at,
 		    exhaustion=excluded.exhaustion,
+		    short_rest_charges=excluded.short_rest_charges,
+		    resting_until=excluded.resting_until,
 		    last_respec_at=excluded.last_respec_at,
 		    last_short_rest_at=excluded.last_short_rest_at,
 		    last_long_rest_at=excluded.last_long_rest_at,
@@ -298,6 +308,7 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		pending, autoMig, onboard, c.ArmedAbility,
 		c.PendingCast, c.ConcentrationSpell, c.ConcentrationExpiresAt,
 		string(c.Subclass), c.LastSubclassRespecAt, c.Exhaustion,
+		c.ShortRestCharges, c.RestingUntil,
 		c.LastRespecAt, c.LastShortRestAt, c.LastLongRestAt)
 	if err != nil {
 		return fmt.Errorf("save dnd_character: %w", err)
