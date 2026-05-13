@@ -98,6 +98,17 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			continue
 		}
 
+		// Active expedition: the expedition cycle delivers its own morning
+		// briefing at 06:00 UTC (deliverBriefing). The legacy overworld
+		// morning DM is irrelevant — and confusing — while underground.
+		if char.Alive {
+			if exp, err := getActiveExpedition(char.UserID); err != nil {
+				slog.Warn("adventure: failed to check active expedition for morning DM", "user", char.UserID, "err", err)
+			} else if exp != nil {
+				continue
+			}
+		}
+
 		// If still dead, send death status
 		if !char.Alive {
 			text := renderAdvDeathStatusDM(char.UserID)
@@ -372,6 +383,27 @@ func (p *AdventurePlugin) midnightReset() error {
 			// who were just revived at midnight (Alive already flipped to true by
 			// the reminder loop before midnightReset runs).
 			if char.LastDeathDate == today || char.LastDeathDate == yesterday {
+				continue
+			}
+
+			// Active expedition counts as activity. The expedition system tracks
+			// its own action flow (zone/harvest/combat/transit/extract) and never
+			// touches the legacy CombatActionsUsed/HarvestActionsUsed counters, so
+			// HasActedToday() reports false for expeditioners. Treat them like the
+			// acted-today branch below: advance the streak and bail out.
+			if exp, err := getActiveExpedition(char.UserID); err != nil {
+				slog.Warn("adventure: failed to check active expedition for idle reaper", "user", char.UserID, "err", err)
+			} else if exp != nil {
+				if char.LastActionDate == yesterday || char.LastActionDate == today {
+					char.CurrentStreak++
+				} else {
+					char.CurrentStreak = 1
+				}
+				if char.CurrentStreak > char.BestStreak {
+					char.BestStreak = char.CurrentStreak
+				}
+				char.LastActionDate = today
+				_ = saveAdvCharacter(&char)
 				continue
 			}
 

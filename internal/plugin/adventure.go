@@ -175,6 +175,7 @@ func (p *AdventurePlugin) Init() error {
 	// have a player_meta row. Idempotent. Required for DBs that didn't go
 	// through the L4-L5h dual-write soak (fresh deploys, restored backups).
 	bootstrapPlayerMetaFromLegacy()
+	bootstrapRestoreExpeditionStreakDecay()
 
 	// Rehydrate DM room mappings for existing characters
 	chars, err := loadAllAdvCharacters()
