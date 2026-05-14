@@ -96,6 +96,20 @@ type CombatStatuses struct {
 	AssassinateReroll bool `json:"assassinate_reroll_used,omitempty"`
 	AssassinateBonus  bool `json:"assassinate_bonus_used,omitempty"`
 
+	// Slice-3 stateful monster-ability effects — armed by applyAbility, read by
+	// the shared resolution primitives, round-tripped through combatState so a
+	// suspended/resumed fight (or a reaper auto-play) keeps the same effect
+	// state. EnemyEvadeNext is a one-shot; the rest persist for the fight.
+	EnemyEvadeNext     bool    `json:"enemy_evade_next,omitempty"`
+	EnemyBlockUp       bool    `json:"enemy_block_up,omitempty"`
+	EnemyAdvantage     bool    `json:"enemy_advantage,omitempty"`
+	EnemyRetaliateFrac float64 `json:"enemy_retaliate_frac,omitempty"`
+	EnemyRegen         int     `json:"enemy_regen,omitempty"`
+	EnemySurviveArmed  bool    `json:"enemy_survive_armed,omitempty"`
+	PlayerAtkDrain     int     `json:"player_atk_drain,omitempty"`
+	PlayerACDebuff     int     `json:"player_ac_debuff,omitempty"`
+	MaxHPDrain         int     `json:"max_hp_drain,omitempty"`
+
 	// Persistent stat buffs from mid-fight !cast / !consume, accumulated as
 	// deltas against the freshly-rebuilt combatant. applySessionBuffs folds
 	// these back onto the player every round; diffTurnBuff produces them.

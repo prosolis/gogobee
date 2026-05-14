@@ -144,6 +144,94 @@ func TestApplyAbility_Slice2Effects(t *testing.T) {
 	}
 }
 
+// TestApplyAbility_Slice3Effects covers the stateful monster-ability effects:
+// applyAbility arms a combatState flag/counter (and emits an announcement for
+// all but evade), and the shared resolution primitives read that state.
+func TestApplyAbility_Slice3Effects(t *testing.T) {
+	newState := func(playerHP, enemyHP int) (*combatState, Combatant, Combatant) {
+		st := &combatState{
+			playerHP: playerHP, enemyHP: enemyHP, round: 1,
+			rng: rand.New(rand.NewPCG(9, 9)),
+		}
+		return st, basePlayer(), baseEnemy()
+	}
+	phase := &turnCombatPhase
+	res := &CombatResult{}
+
+	// Each effect arms its combatState field and (except evade) announces itself.
+	st, pl, en := newState(100, 60)
+	en.Ability = &MonsterAbility{Name: "Scurry", Effect: "evade"}
+	applyAbility(st, &pl, &en, phase, res)
+	if !st.enemyEvadeNext || len(st.events) != 0 {
+		t.Errorf("evade: want enemyEvadeNext set and no event, got flag=%v events=%d", st.enemyEvadeNext, len(st.events))
+	}
+
+	armChecks := []struct {
+		effect string
+		armed  func(*combatState) bool
+	}{
+		{"block", func(s *combatState) bool { return s.enemyBlockUp }},
+		{"advantage", func(s *combatState) bool { return s.enemyAdvantage }},
+		{"retaliate", func(s *combatState) bool { return s.enemyRetaliateFrac > 0 }},
+		{"regenerate", func(s *combatState) bool { return s.enemyRegen > 0 }},
+		{"survive_at_1", func(s *combatState) bool { return s.enemySurviveArmed }},
+		{"stat_drain", func(s *combatState) bool { return s.playerAtkDrain > 0 }},
+		{"debuff", func(s *combatState) bool { return s.playerACDebuff > 0 }},
+	}
+	for _, c := range armChecks {
+		st, pl, en := newState(100, 60)
+		en.Ability = &MonsterAbility{Name: "Test " + c.effect, Effect: c.effect}
+		if applyAbility(st, &pl, &en, phase, res) {
+			t.Errorf("%s: should not down a full-HP player", c.effect)
+		}
+		if !c.armed(st) {
+			t.Errorf("%s: combatState flag not armed", c.effect)
+		}
+		if len(st.events) != 1 {
+			t.Errorf("%s: want one announcement event, got %d", c.effect, len(st.events))
+		}
+	}
+
+	// max_hp_drain lowers effective MaxHP and deals that much immediate damage.
+	stD, plD, enD := newState(100, 60)
+	enD.Ability = &MonsterAbility{Name: "Corrupting Touch", Effect: "max_hp_drain"}
+	applyAbility(stD, &plD, &enD, phase, res)
+	if stD.maxHPDrain <= 0 || stD.playerHP != 100-stD.maxHPDrain {
+		t.Errorf("max_hp_drain: drain=%d playerHP=%d, want playerHP = 100-drain", stD.maxHPDrain, stD.playerHP)
+	}
+
+	// enemyDown lets survive_at_1 cheat death exactly once.
+	stS := &combatState{enemyHP: 0, enemySurviveArmed: true}
+	if enemyDown(stS, "Duel") {
+		t.Error("survive_at_1: armed enemy at 0 HP should not be down")
+	}
+	if stS.enemyHP != 1 || stS.enemySurviveArmed {
+		t.Errorf("survive_at_1: want enemyHP=1 and flag cleared, got hp=%d armed=%v", stS.enemyHP, stS.enemySurviveArmed)
+	}
+	stS.enemyHP = 0
+	if !enemyDown(stS, "Duel") {
+		t.Error("survive_at_1: second drop to 0 should be lethal (one-shot spent)")
+	}
+
+	// evade is consumed by the next player weapon attack — a guaranteed miss.
+	stE, plE, enE := newState(100, 60)
+	stE.enemyEvadeNext = true
+	if resolvePlayerAttack(stE, &plE, &enE, phase, res) {
+		t.Error("evade: a whiffed attack should not end the fight")
+	}
+	if stE.enemyEvadeNext || stE.enemyHP != 60 {
+		t.Errorf("evade: want flag cleared and enemyHP unchanged, got flag=%v hp=%d", stE.enemyEvadeNext, stE.enemyHP)
+	}
+
+	// retaliate reflects a fraction of every player hit back at the player.
+	stR, plR, enR := newState(100, 60)
+	stR.enemyRetaliateFrac = 0.5
+	resolvePlayerAttack(stR, &plR, &enR, phase, res)
+	if stR.playerHP >= 100 {
+		t.Errorf("retaliate: player HP = %d, want < 100 (reflected damage)", stR.playerHP)
+	}
+}
+
 // TestTurnEngine_Multiattack drives a single enemy_turn and confirms a
 // registered multiattack creature resolves one attack roll per profile entry,
 // while an unregistered creature still resolves exactly one.

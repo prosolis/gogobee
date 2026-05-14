@@ -200,8 +200,11 @@ type MonsterAbility struct {
 	// Effect — the mechanic the ability applies. Implemented in applyAbility:
 	// stand-in attacks (cleave, lifesteal); riders on the normal attack (poison,
 	// enrage, armor_break, stun, bonus_damage, aoe, aoe_fire, death_aoe, execute,
-	// self_heal); flavor-only placeholders pending per-fight state (spell_resist,
-	// reveal_action, fear_immune, ally_buff). Anything else is a silent no-op.
+	// self_heal, max_hp_drain); stateful effects armed here and read by the
+	// shared resolution primitives (evade, block, advantage, retaliate,
+	// regenerate, survive_at_1, stat_drain, debuff); flavor-only placeholders
+	// (spell_resist, reveal_action, fear_immune, ally_buff). Anything else is a
+	// silent no-op.
 	Effect string
 }
 
@@ -283,6 +286,20 @@ type combatState struct {
 
 	// Phase 10 SUB2b — Abjuration Arcane Ward HP buffer.
 	arcaneWardHP int
+
+	// Phase 13 bestiary slice 3 — stateful monster-ability effects. Each is
+	// armed by applyAbility and read by the shared resolution primitives, so
+	// both engines honour them; the turn-based engine additionally round-trips
+	// them through CombatStatuses so they survive a suspend/resume.
+	enemyEvadeNext     bool    // evade: next player weapon attack auto-misses
+	enemyBlockUp       bool    // block: enemy holds a parry stance (~50% block on player hits)
+	enemyAdvantage     bool    // advantage: enemy rolls its attacks with advantage
+	enemyRetaliateFrac float64 // retaliate: fraction of a player hit reflected back
+	enemyRegen         int     // regenerate: enemy heals this much each round end
+	enemySurviveArmed  bool    // survive_at_1: enemy cheats death once, dropping to 1 HP
+	playerAtkDrain     int     // stat_drain: flat reduction to the player's hit damage
+	playerACDebuff     int     // debuff: flat reduction to the player's effective AC
+	maxHPDrain         int     // max_hp_drain: reduction to the player's effective MaxHP
 
 	round  int
 	events []CombatEvent
@@ -557,7 +574,7 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 			Round: st.round, Phase: phaseName, Actor: "pet", Action: "pet_attack",
 			Damage: petDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
-		if st.enemyHP <= 0 {
+		if enemyDown(st, phaseName) {
 			return true
 		}
 	}
@@ -565,7 +582,7 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	// Misty heal
 	if player.Mods.MistyHealProc > 0 && st.randFloat() < player.Mods.MistyHealProc {
 		healAmt := player.Mods.MistyHealAmt
-		st.playerHP = min(player.Stats.MaxHP, st.playerHP+healAmt)
+		st.playerHP = min(effPlayerMaxHP(player, st), st.playerHP+healAmt)
 		result.MistyHealed = true
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "npc", Action: "misty_heal",
@@ -585,10 +602,20 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 		st.playerHP > 0 && st.playerHP*5 < player.Stats.MaxHP*3 {
 		st.healChargesLeft--
 		healAmt := player.Mods.HealItem
-		st.playerHP = min(player.Stats.MaxHP, st.playerHP+healAmt)
+		st.playerHP = min(effPlayerMaxHP(player, st), st.playerHP+healAmt)
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "consumable", Action: "heal_item",
 			Damage: healAmt, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+	}
+
+	// Regenerate (monster ability): the enemy knits its wounds at the close of
+	// every round once the ability has armed st.enemyRegen.
+	if st.enemyRegen > 0 && st.enemyHP > 0 && st.enemyHP < enemy.Stats.MaxHP {
+		st.enemyHP = min(enemy.Stats.MaxHP, st.enemyHP+st.enemyRegen)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "regen_tick",
+			Damage: st.enemyRegen, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
 	}
 
@@ -608,6 +635,17 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		st.stunPlayer = false
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "player", Action: "stunned",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		return false
+	}
+
+	// Evade (monster ability): the enemy slipped out of reach — this swing
+	// finds nothing. Consumed here, armed by applyAbility's "evade" case.
+	if st.enemyEvadeNext {
+		st.enemyEvadeNext = false
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "evade",
 			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
 		return false
@@ -701,7 +739,19 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 			enemy.Stats.Defense, phase.DefenseWeight, enemy.Mods.DamageReduct)
 	}
 
+	// Stat drain (monster ability): the player's strength has been sapped — a
+	// flat, accumulating reduction to the damage every hit deals.
+	if st.playerAtkDrain > 0 {
+		dmg = max(1, dmg-st.playerAtkDrain)
+	}
+
 	blocked := enemy.Stats.BlockRate > 0 && st.randFloat() < enemy.Stats.BlockRate
+	// Parry stance (monster ability): an enemy holding a block stance rolls a
+	// further ~50% chance to halve the hit. Guarded by enemyBlockUp so the
+	// extra randFloat is only drawn once the ability has actually fired.
+	if !blocked && st.enemyBlockUp && st.randFloat() < 0.5 {
+		blocked = true
+	}
 	if blocked {
 		dmg = max(1, dmg/2)
 	}
@@ -714,7 +764,23 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		Roll: roll, RollAgainst: enemy.Stats.AC, Desc: desc,
 	})
-	return st.enemyHP <= 0
+
+	// Retaliate (monster ability): a damaging aura reflects a fraction of the
+	// hit straight back. Resolved per player hit; can drop the player, so this
+	// path can return true with the enemy still standing — callers disambiguate
+	// the outcome by inspecting HP (see stepPlayerTurn).
+	if st.enemyRetaliateFrac > 0 {
+		retal := max(1, int(float64(dmg)*st.enemyRetaliateFrac))
+		st.playerHP = max(0, st.playerHP-retal)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "retaliate",
+			Damage: retal, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.playerHP <= 0 && !trySave(st, player, phaseName) {
+			return true
+		}
+	}
+	return enemyDown(st, phaseName)
 }
 
 // resolveEnemyAttack — enemy rolls d20 + AttackBonus vs player AC.
@@ -744,11 +810,27 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	}
 
 	roll := 1 + st.roll(20)
+	// Advantage (monster ability): the enemy rolls a second d20 and keeps the
+	// better. Guarded by enemyAdvantage so the extra roll is only drawn once the
+	// ability has fired.
+	if st.enemyAdvantage {
+		if alt := 1 + st.roll(20); alt > roll {
+			roll = alt
+		}
+	}
 	isFumble := roll == 1
 	isNat20 := roll == 20
 	total := roll + effectiveAttackBonus(enemy.Stats)
 
-	if !attackConnects(roll, total, player.Stats.AC, 20) {
+	// Debuff (monster ability): a flat, accumulating reduction to the player's
+	// effective AC, so the enemy's attacks land more often. Floored at 1.
+	// Guarded so an undebuffed player's AC passes through untouched.
+	targetAC := player.Stats.AC
+	if st.playerACDebuff > 0 {
+		targetAC = max(1, player.Stats.AC-st.playerACDebuff)
+	}
+
+	if !attackConnects(roll, total, targetAC, 20) {
 		desc := ""
 		if isFumble {
 			desc = "fumble"
@@ -756,7 +838,7 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "miss",
 			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
-			Roll: roll, RollAgainst: player.Stats.AC, Desc: desc,
+			Roll: roll, RollAgainst: targetAC, Desc: desc,
 		})
 		return false
 	}
@@ -831,7 +913,7 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: phaseName, Actor: "enemy", Action: action,
 		Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
-		Roll: roll, RollAgainst: player.Stats.AC,
+		Roll: roll, RollAgainst: targetAC,
 	})
 
 	if st.reflectFrac > 0 {
@@ -842,7 +924,7 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 			Round: st.round, Phase: phaseName, Actor: "consumable", Action: "reflect_damage",
 			Damage: reflected, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
-		if st.enemyHP <= 0 {
+		if enemyDown(st, phaseName) {
 			return true
 		}
 	}
@@ -1008,6 +1090,108 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 			Damage: heal, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
 
+	case "evade":
+		// The enemy slips out of reach — its next-attacked-against weapon swing
+		// finds nothing. The flag is consumed (and the event emitted) by
+		// resolvePlayerAttack, so a fight log between here and there reads as the
+		// enemy turning evasive and the strike whiffing on the following beat.
+		st.enemyEvadeNext = true
+
+	case "block":
+		// The enemy settles into a parry stance for the rest of the fight: every
+		// player hit from here on rolls a ~50% chance to be halved (on top of any
+		// innate BlockRate). resolvePlayerAttack reads st.enemyBlockUp.
+		if !st.enemyBlockUp {
+			st.enemyBlockUp = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "parry_stance",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "advantage":
+		// The enemy gains the upper hand — it rolls its attacks with advantage
+		// (best of two d20s) for the rest of the fight. resolveEnemyAttack reads
+		// st.enemyAdvantage.
+		if !st.enemyAdvantage {
+			st.enemyAdvantage = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "advantage",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "retaliate":
+		// A damaging aura: from now on a fraction of every player hit is reflected
+		// straight back. resolvePlayerAttack applies the reflected damage per hit.
+		if st.enemyRetaliateFrac < 0.5 {
+			st.enemyRetaliateFrac = 0.5
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "retaliate_aura",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "regenerate":
+		// The enemy starts knitting its wounds every round. The actual healing
+		// ticks in the round_end phase (turn-based) / round start (auto-resolve);
+		// here we just arm it.
+		if st.enemyRegen == 0 {
+			st.enemyRegen = max(1, enemy.Stats.MaxHP/12)
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "regenerate",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "survive_at_1":
+		// The enemy cheats death once: the next blow that would drop it to 0
+		// leaves it at 1 HP instead (see enemyDown). Arm it the first time the
+		// ability procs; it stays armed until spent.
+		if !st.enemySurviveArmed {
+			st.enemySurviveArmed = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "survive_armed",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "stat_drain":
+		// Saps the player's strength — a flat, accumulating reduction to the
+		// damage their hits deal. Capped so a long fight can't zero them out.
+		drain := 2 + st.roll(3)
+		st.playerAtkDrain = min(12, st.playerAtkDrain+drain)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "stat_drain",
+			Damage: drain, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+
+	case "debuff":
+		// Fouls the player's defence — a flat, accumulating reduction to their
+		// effective AC, so the enemy's attacks land more often. Capped.
+		drain := 1 + st.roll(2)
+		st.playerACDebuff = min(6, st.playerACDebuff+drain)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "debuff",
+			Damage: drain, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+
+	case "max_hp_drain":
+		// Drains life force: lowers the player's effective MaxHP and deals that
+		// much immediate damage (the drain hits current HP too). Effective MaxHP
+		// is floored at 1 via the accumulating cap.
+		headroom := max(0, player.Stats.MaxHP-1-st.maxHPDrain)
+		drain := min(headroom, player.Stats.MaxHP/10+st.roll(max(1, player.Stats.MaxHP/20)))
+		st.maxHPDrain += drain
+		st.playerHP = max(0, st.playerHP-drain)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "max_hp_drain",
+			Damage: drain, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.playerHP <= 0 {
+			return !trySave(st, player, phaseName)
+		}
+
 	case "spell_resist", "reveal_action", "fear_immune", "ally_buff":
 		// Slice-2 placeholder: no mechanical effect yet (these need persistent
 		// per-fight state, deferred to the next slice), but the ability still
@@ -1065,6 +1249,36 @@ func playerDefense(player *Combatant, st *combatState) int {
 		def = int(float64(def) * (1 - st.armorBreakAmt))
 	}
 	return def
+}
+
+// effPlayerMaxHP is the player's MaxHP after any max_hp_drain monster ability,
+// floored at 1. Heal clamps use this so a drained player can't be topped back
+// up past the lowered ceiling. With no drain (every characterization scenario)
+// it returns player.Stats.MaxHP unchanged.
+func effPlayerMaxHP(player *Combatant, st *combatState) int {
+	return max(1, player.Stats.MaxHP-st.maxHPDrain)
+}
+
+// enemyDown reports whether the enemy is actually dead. It is the single choke
+// point every "did this drop the enemy" check routes through, so the
+// survive_at_1 ability can cheat death exactly once: an armed enemy at/below 0
+// HP is restored to 1, the flag is spent, and the fight continues. With no
+// ability armed (every auto-resolve characterization scenario), this is a plain
+// st.enemyHP <= 0 with no side effects.
+func enemyDown(st *combatState, phaseName string) bool {
+	if st.enemyHP > 0 {
+		return false
+	}
+	if st.enemySurviveArmed {
+		st.enemySurviveArmed = false
+		st.enemyHP = 1
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "survive_at_1",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		return false
+	}
+	return true
 }
 
 func trySave(st *combatState, player *Combatant, phaseName string) bool {

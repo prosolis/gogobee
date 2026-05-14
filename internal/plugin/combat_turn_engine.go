@@ -133,7 +133,18 @@ func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.R
 		firstAttackBonusUsed:  sess.Statuses.FirstAtkBonusUsed,
 		assassinateRerollUsed: sess.Statuses.AssassinateReroll,
 		assassinateBonusUsed:  sess.Statuses.AssassinateBonus,
-		rng:                   rng,
+		// Slice-3 stateful monster-ability effects — armed by applyAbility,
+		// round-tripped here so they survive a suspend/resume or reaper auto-play.
+		enemyEvadeNext:     sess.Statuses.EnemyEvadeNext,
+		enemyBlockUp:       sess.Statuses.EnemyBlockUp,
+		enemyAdvantage:     sess.Statuses.EnemyAdvantage,
+		enemyRetaliateFrac: sess.Statuses.EnemyRetaliateFrac,
+		enemyRegen:         sess.Statuses.EnemyRegen,
+		enemySurviveArmed:  sess.Statuses.EnemySurviveArmed,
+		playerAtkDrain:     sess.Statuses.PlayerAtkDrain,
+		playerACDebuff:     sess.Statuses.PlayerACDebuff,
+		maxHPDrain:         sess.Statuses.MaxHPDrain,
+		rng:                rng,
 	}
 	return &turnEngine{
 		sess:   sess,
@@ -181,10 +192,15 @@ func (te *turnEngine) stepPlayerTurn(action PlayerAction) {
 		te.stepPlayerActionEffect(action.Effect)
 		return
 	}
-	// Default: weapon attack. resolvePlayerAttack returns true once the
-	// enemy is down.
+	// Default: weapon attack. resolvePlayerAttack returns true once the fight
+	// is decided — usually the enemy is down, but a retaliate aura can drop the
+	// player on their own swing, so disambiguate the outcome by HP.
 	if resolvePlayerAttack(te.st, te.player, te.enemy, &turnCombatPhase, te.result) {
-		te.finish(CombatStatusWon)
+		if te.st.playerHP <= 0 {
+			te.finish(CombatStatusLost)
+		} else {
+			te.finish(CombatStatusWon)
+		}
 		return
 	}
 	if te.petStrike() {
@@ -213,7 +229,7 @@ func (te *turnEngine) petStrike() bool {
 		Round: st.round, Phase: turnCombatPhase.Name, Actor: "pet", Action: "pet_attack",
 		Damage: petDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 	})
-	return st.enemyHP <= 0
+	return enemyDown(st, turnCombatPhase.Name)
 }
 
 // rollCombatSessionPetProc makes the one-and-only per-fight pet-attack roll and
@@ -258,7 +274,10 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 		st.enemyHP = max(0, st.enemyHP-eff.EnemyDamage)
 	}
 	if eff.PlayerHeal > 0 {
-		st.playerHP = min(te.sess.PlayerHPMax, st.playerHP+eff.PlayerHeal)
+		// Respect any max_hp_drain monster ability — a drained player can't be
+		// healed back past the lowered ceiling.
+		hpCap := max(1, te.sess.PlayerHPMax-st.maxHPDrain)
+		st.playerHP = min(hpCap, st.playerHP+eff.PlayerHeal)
 	}
 	action := eff.Action
 	if action == "" {
@@ -268,7 +287,7 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 		Round: st.round, Phase: turnCombatPhase.Name, Actor: "player", Action: action,
 		Damage: eff.EnemyDamage, PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Desc: eff.Label,
 	})
-	if st.enemyHP <= 0 {
+	if enemyDown(st, turnCombatPhase.Name) {
 		te.finish(CombatStatusWon)
 		return
 	}
@@ -377,6 +396,14 @@ func (te *turnEngine) stepRoundEnd() {
 			}
 		}
 	}
+	// Regenerate (monster ability): the enemy knits its wounds at round end.
+	if st.enemyRegen > 0 && st.enemyHP > 0 && st.enemyHP < te.enemy.Stats.MaxHP {
+		st.enemyHP = min(te.enemy.Stats.MaxHP, st.enemyHP+st.enemyRegen)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: CombatPhaseRoundEnd, Actor: "enemy", Action: "regen_tick",
+			Damage: st.enemyRegen, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+	}
 	st.round++
 	te.sess.Phase = CombatPhasePlayerTurn
 }
@@ -422,6 +449,15 @@ func (te *turnEngine) commit() {
 	s.FirstAtkBonusUsed = st.firstAttackBonusUsed
 	s.AssassinateReroll = st.assassinateRerollUsed
 	s.AssassinateBonus = st.assassinateBonusUsed
+	s.EnemyEvadeNext = st.enemyEvadeNext
+	s.EnemyBlockUp = st.enemyBlockUp
+	s.EnemyAdvantage = st.enemyAdvantage
+	s.EnemyRetaliateFrac = st.enemyRetaliateFrac
+	s.EnemyRegen = st.enemyRegen
+	s.EnemySurviveArmed = st.enemySurviveArmed
+	s.PlayerAtkDrain = st.playerAtkDrain
+	s.PlayerACDebuff = st.playerACDebuff
+	s.MaxHPDrain = st.maxHPDrain
 	te.sess.TurnLog = append(te.sess.TurnLog, st.events...)
 }
 

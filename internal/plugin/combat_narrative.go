@@ -306,6 +306,32 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 	case "ability_flavor":
 		return pickRand(narrativeAbilityFlavor)
 
+	// Monster abilities — slice 3 stateful effects
+	case "evade":
+		return pickRand(narrativeEvade)
+	case "parry_stance":
+		return pickRand(narrativeParryStance)
+	case "advantage":
+		return pickRand(narrativeAdvantage)
+	case "retaliate_aura":
+		return pickRand(narrativeRetaliateAura)
+	case "retaliate":
+		return fmt.Sprintf(pickRand(narrativeRetaliate), e.Damage)
+	case "regenerate":
+		return pickRand(narrativeRegenerate)
+	case "regen_tick":
+		return fmt.Sprintf(pickRand(narrativeRegenTick), e.Damage)
+	case "survive_armed":
+		return pickRand(narrativeSurviveArmed)
+	case "survive_at_1":
+		return pickRand(narrativeSurvive)
+	case "stat_drain":
+		return pickRand(narrativeStatDrain)
+	case "debuff":
+		return pickRand(narrativeDebuff)
+	case "max_hp_drain":
+		return fmt.Sprintf(pickRand(narrativeMaxHPDrain), e.Damage)
+
 	case "timeout":
 		return pickRand(narrativeTimeout)
 
@@ -643,6 +669,78 @@ var narrativeAbilityFlavor = []string{
 	"🌀 The enemy does *something* — you feel the shape of it more than the effect. Stay wary.",
 	"🌀 The air shifts around the enemy. Whatever that was, it wasn't nothing.",
 	"🌀 The enemy invokes a power you can't quite read. File it under 'concerning'.",
+}
+
+var narrativeEvade = []string{
+	"💨 Your strike lands on nothing — the enemy was never quite where it looked.",
+	"💨 The enemy slips the blow. Your weapon finds only the air it left behind.",
+	"💨 A clean swing, a clean miss. The enemy ghosts aside at the last instant.",
+}
+
+var narrativeParryStance = []string{
+	"🛡️ The enemy settles into a tight defensive guard. Hits are going to come harder now.",
+	"🛡️ The enemy raises its guard and *means* it — every blow from here will have to earn it.",
+	"🛡️ The enemy shifts its stance, weapon angled to turn your strikes aside.",
+}
+
+var narrativeAdvantage = []string{
+	"🎯 The enemy reads your rhythm. Its strikes start coming with unsettling certainty.",
+	"🎯 Something clicks for the enemy — it's anticipating you now, and it shows.",
+	"🎯 The enemy presses an advantage you can't quite see. Its aim has sharpened.",
+}
+
+var narrativeRetaliateAura = []string{
+	"🔥 The enemy flares with a punishing aura. Hitting it is about to cost you.",
+	"🔥 A searing field wraps the enemy — every blow you land will bite back.",
+	"🔥 The enemy wreathes itself in retaliation. Strike it and you share the pain.",
+}
+
+var narrativeRetaliate = []string{
+	"🔥 The enemy's aura lashes back — %d damage for the privilege of hitting it.",
+	"🔥 Your strike lands, and the recoil burns. %d damage bounces straight back into you.",
+	"🔥 %d damage reflected. The enemy made you pay for that hit in real time.",
+}
+
+var narrativeRegenerate = []string{
+	"♻️ The enemy's wounds begin to close on their own. This just got slower.",
+	"♻️ Torn flesh knits and seals. The enemy has started regenerating.",
+	"♻️ The enemy's body refuses to stay damaged — it's healing between blows now.",
+}
+
+var narrativeRegenTick = []string{
+	"♻️ The enemy mends another %d HP. The damage you're doing keeps un-doing itself.",
+	"♻️ +%d HP for the enemy as its wounds seal over. Frustrating.",
+	"♻️ The enemy claws back %d HP. You'll have to out-pace the regeneration.",
+}
+
+var narrativeSurviveArmed = []string{
+	"🕯️ The enemy refuses the idea of dying. Something keeps it on its feet past where it should fall.",
+	"🕯️ A grim resilience settles over the enemy — it will not go down easy.",
+	"🕯️ The enemy digs in. Whatever's holding it together, it isn't ready to let go.",
+}
+
+var narrativeSurvive = []string{
+	"🕯️ The killing blow lands clean — and the enemy *stays standing* at 1 HP. Unbelievable.",
+	"🕯️ That should have ended it. The enemy clings to a single point of HP through sheer spite.",
+	"🕯️ The enemy by all rights should be down. It is, instead, very barely up.",
+}
+
+var narrativeStatDrain = []string{
+	"🩸 The enemy saps your strength — your swings feel heavier, weaker. (-%d hit damage)",
+	"🩸 Something drains out of your limbs. Your hits won't bite as deep now. (-%d damage)",
+	"🩸 The enemy leeches your vigour. -%d damage on every strike from here.",
+}
+
+var narrativeDebuff = []string{
+	"😖 The enemy fouls your footing — your guard slips. (-%d AC)",
+	"😖 A wave of something sickly rolls over you. Harder to defend now. (-%d AC)",
+	"😖 The enemy's effect frays your defence. -%d AC, and their hits will notice.",
+}
+
+var narrativeMaxHPDrain = []string{
+	"☠️ The enemy drains your life force — %d HP gone, and your maximum drops with it.",
+	"☠️ Something cold pulls %d HP out of you and won't give it back. Your ceiling just fell.",
+	"☠️ %d HP siphoned away, max and all. There's less of you to work with now.",
 }
 
 // Outcome flavor
