@@ -1,0 +1,20 @@
+GogoBee — third-party content attribution
+==========================================
+
+Open5e SRD data
+---------------
+Portions of GogoBee's spell data (and, as they land, bestiary and equipment
+data) are derived from the Open5e dataset, which republishes the Systems
+Reference Document (SRD) 5.1.
+
+  Source:   https://open5e.com  /  https://api.open5e.com
+  License:  Creative Commons Attribution 4.0 International (CC-BY-4.0)
+            https://creativecommons.org/licenses/by/4.0/
+  SRD 5.1:  © Wizards of the Coast LLC, released under CC-BY-4.0.
+
+The data is vendored into this repository (data/open5e/) and compiled into
+generated Go source (e.g. internal/plugin/dnd_spells_srd_data.go) by the
+cmd/open5e-import tool. GogoBee has no runtime dependency on the Open5e API.
+
+GogoBee's hand-authored balance tuning, classifiers, and game systems built
+on top of this data are not themselves SRD content.

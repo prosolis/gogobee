@@ -57,7 +57,7 @@ const (
 type SpellDefinition struct {
 	ID            string
 	Name          string
-	Level         int      // 0 = cantrip
+	Level         int // 0 = cantrip
 	School        string
 	Classes       []DnDClass
 	Effect        SpellEffectKind
@@ -83,8 +83,15 @@ type SpellDefinition struct {
 
 // ── Registry ─────────────────────────────────────────────────────────────────
 
+// dndSpellRegistry merges the vendored Open5e SRD dump with the hand-authored
+// spell list. SRD loads first as the broad baseline; buildSpellList() overlays
+// it and wins on any ID collision — the hand-authored entries carry the tuned
+// Effect/DamageDice/Upcast values, the SRD entry is just the fallback shape.
 var dndSpellRegistry = func() map[string]SpellDefinition {
-	out := make(map[string]SpellDefinition, 80)
+	out := make(map[string]SpellDefinition, 320)
+	for _, s := range buildSRDSpellList() {
+		out[s.ID] = s
+	}
 	for _, s := range buildSpellList() {
 		out[s.ID] = s
 	}
@@ -736,6 +743,97 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 		}
 		if maxSlot >= 3 {
 			out = append(out, "lightning_arrow", "conjure_barrage")
+		}
+		return out
+
+	// ── Open5e caster scaffold classes ───────────────────────────────────
+	// Picks are SRD spell IDs (dnd_spells_srd_data.go); a handful resolve to
+	// the hand-authored overlay on ID collision, which is fine. Each list
+	// gives the class a damage option, control, and a heal/buff where the
+	// class fantasy expects one.
+	case ClassDruid:
+		out := []string{"produce_flame", "shillelagh", "guidance", "mending"}
+		if level >= 1 {
+			out = append(out, "cure_wounds", "healing_word", "faerie_fire", "thunderwave", "entangle")
+		}
+		if maxSlot >= 2 {
+			out = append(out, "flaming_sphere", "heat_metal", "hold_person", "lesser_restoration")
+		}
+		if maxSlot >= 3 {
+			out = append(out, "call_lightning", "conjure_animals", "dispel_magic")
+		}
+		if maxSlot >= 4 {
+			out = append(out, "ice_storm", "polymorph")
+		}
+		if maxSlot >= 5 {
+			out = append(out, "insect_plague", "mass_cure_wounds")
+		}
+		return out
+	case ClassBard:
+		out := []string{"vicious_mockery", "minor_illusion", "message"}
+		if level >= 1 {
+			out = append(out, "cure_wounds", "healing_word", "heroism", "hideous_laughter", "faerie_fire")
+		}
+		if maxSlot >= 2 {
+			out = append(out, "hold_person", "shatter", "invisibility", "lesser_restoration")
+		}
+		if maxSlot >= 3 {
+			out = append(out, "hypnotic_pattern", "dispel_magic", "fear")
+		}
+		if maxSlot >= 4 {
+			out = append(out, "greater_invisibility", "polymorph")
+		}
+		if maxSlot >= 5 {
+			out = append(out, "hold_monster", "mass_cure_wounds")
+		}
+		return out
+	case ClassSorcerer:
+		out := []string{"fire_bolt", "ray_of_frost", "shocking_grasp", "mending"}
+		if level >= 1 {
+			out = append(out, "magic_missile", "burning_hands", "mage_armor", "shield", "thunderwave")
+		}
+		if maxSlot >= 2 {
+			out = append(out, "scorching_ray", "mirror_image", "misty_step", "hold_person")
+		}
+		if maxSlot >= 3 {
+			out = append(out, "fireball", "counterspell", "lightning_bolt", "haste")
+		}
+		if maxSlot >= 4 {
+			out = append(out, "ice_storm", "greater_invisibility")
+		}
+		if maxSlot >= 5 {
+			out = append(out, "cone_of_cold", "hold_monster")
+		}
+		return out
+	case ClassWarlock:
+		out := []string{"eldritch_blast", "chill_touch", "minor_illusion"}
+		if level >= 1 {
+			out = append(out, "hellish_rebuke", "command", "charm_person", "hideous_laughter")
+		}
+		if maxSlot >= 2 {
+			out = append(out, "scorching_ray", "misty_step", "hold_person", "invisibility")
+		}
+		if maxSlot >= 3 {
+			out = append(out, "counterspell", "fly", "vampiric_touch", "hypnotic_pattern")
+		}
+		if maxSlot >= 4 {
+			out = append(out, "banishment", "greater_invisibility")
+		}
+		if maxSlot >= 5 {
+			out = append(out, "hold_monster", "scrying")
+		}
+		return out
+	case ClassPaladin:
+		// Half-caster — no cantrips, no spells until level 2.
+		if level < 2 {
+			return nil
+		}
+		out := []string{"bless", "cure_wounds", "divine_favor", "shield_of_faith", "command"}
+		if maxSlot >= 2 {
+			out = append(out, "aid", "find_steed", "magic_weapon", "lesser_restoration")
+		}
+		if maxSlot >= 3 {
+			out = append(out, "revivify", "dispel_magic", "haste")
 		}
 		return out
 	}

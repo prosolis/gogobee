@@ -87,12 +87,13 @@ var dndClasses = []DnDClassInfo{
 	{ClassMage, "Mage", 6, 4, "INT", "WIS", true},
 	{ClassCleric, "Cleric", 8, 5, "WIS", "CHA", true},
 	{ClassRanger, "Ranger", 8, 5, "DEX", "WIS", true},
-	// Open5e caster scaffold — Playable=false until spell lists land.
-	{ClassDruid, "Druid", 8, 5, "WIS", "CON", false},
-	{ClassBard, "Bard", 8, 5, "CHA", "DEX", false},
-	{ClassSorcerer, "Sorcerer", 6, 4, "CHA", "CON", false},
-	{ClassWarlock, "Warlock", 8, 5, "CHA", "CON", false},
-	{ClassPaladin, "Paladin", 10, 6, "STR", "CHA", false},
+	// Open5e caster scaffold — Playable flipped on once the SRD spell import
+	// gave each of them a real spell list (see dnd_spells_srd_data.go).
+	{ClassDruid, "Druid", 8, 5, "WIS", "CON", true},
+	{ClassBard, "Bard", 8, 5, "CHA", "DEX", true},
+	{ClassSorcerer, "Sorcerer", 6, 4, "CHA", "CON", true},
+	{ClassWarlock, "Warlock", 8, 5, "CHA", "CON", true},
+	{ClassPaladin, "Paladin", 10, 6, "STR", "CHA", true},
 }
 
 func raceInfo(r DnDRace) (DnDRaceInfo, bool) {

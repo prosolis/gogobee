@@ -171,7 +171,10 @@ func TestSpellAttackBonus(t *testing.T) {
 // ── Default known list ──────────────────────────────────────────────────────
 
 func TestDefaultKnownSpellsExistInRegistry(t *testing.T) {
-	for _, class := range []DnDClass{ClassMage, ClassCleric, ClassRanger} {
+	for _, class := range []DnDClass{
+		ClassMage, ClassCleric, ClassRanger,
+		ClassDruid, ClassBard, ClassSorcerer, ClassWarlock, ClassPaladin,
+	} {
 		for _, lvl := range []int{1, 3, 5, 9, 13, 20} {
 			for _, sid := range defaultKnownSpells(class, lvl) {
 				if _, ok := lookupSpell(sid); !ok {
