@@ -88,34 +88,53 @@ func TestStartCombatSession_RejectsConcurrent(t *testing.T) {
 	}
 }
 
-func TestSweepExpiredCombatSessions(t *testing.T) {
+func TestListExpiredCombatSessions(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@combat-sweep:example.org")
+	fresh := id.UserID("@combat-fresh:example.org")
 	defer cleanupCombatSessions(uid)
+	defer cleanupCombatSessions(fresh)
 
 	s, err := startCombatSession(uid, "r", "n", "boss", 60, 60, 200, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Backdate expiry so the reaper considers it stale.
+	// A second, non-stale session should never show up in the list.
+	if _, err := startCombatSession(fresh, "r2", "n2", "rat", 40, 40, 20, 20); err != nil {
+		t.Fatal(err)
+	}
+	// Backdate expiry so the reaper considers the first one stale.
 	if _, err := db.Get().Exec(
 		`UPDATE combat_session SET expires_at = datetime('now', '-1 hour') WHERE session_id = ?`,
 		s.SessionID); err != nil {
 		t.Fatal(err)
 	}
-	n, err := sweepExpiredCombatSessions()
+
+	expired, err := listExpiredCombatSessions()
 	if err != nil {
-		t.Fatalf("sweep: %v", err)
+		t.Fatalf("list: %v", err)
 	}
-	if n < 1 {
-		t.Errorf("sweep count = %d, want >= 1", n)
+	if len(expired) != 1 {
+		t.Fatalf("expired count = %d, want 1", len(expired))
+	}
+	if expired[0].SessionID != s.SessionID {
+		t.Errorf("expired[0] = %q, want %q", expired[0].SessionID, s.SessionID)
+	}
+
+	// markCombatSessionExpired is the non-auto-play fallback path.
+	if err := markCombatSessionExpired(s.SessionID); err != nil {
+		t.Fatalf("mark expired: %v", err)
 	}
 	if active, _ := getActiveCombatSession(uid); active != nil {
-		t.Errorf("expected no active session after sweep, got %+v", active)
+		t.Errorf("expected no active session after mark, got %+v", active)
 	}
 	reaped, _ := getCombatSession(s.SessionID)
 	if reaped.Status != CombatStatusExpired || reaped.Phase != CombatPhaseOver {
 		t.Errorf("reaped session: status=%q phase=%q", reaped.Status, reaped.Phase)
+	}
+	// The non-stale session is untouched.
+	if again, _ := listExpiredCombatSessions(); len(again) != 0 {
+		t.Errorf("expected 0 expired after mark, got %d", len(again))
 	}
 }
 

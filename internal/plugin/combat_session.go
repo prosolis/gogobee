@@ -249,23 +249,42 @@ func saveCombatSession(s *CombatSession) error {
 	return nil
 }
 
-// sweepExpiredCombatSessions is the timeout reaper. It marks every active
-// session past its expires_at as 'expired' (a terminal status alongside
-// won/lost/fled) and parks it in the 'over' phase. Auto-playing an abandoned
-// fight to a real win/loss needs Combatant reconstruction, which lands with
-// the command-wiring PR; until then 'expired' is the safe terminal outcome —
-// no fatal-blow side effects, treated like a retreat. Returns the sweep count.
-func sweepExpiredCombatSessions() (int, error) {
-	res, err := db.Get().Exec(`
+// listExpiredCombatSessions returns every active session past its expires_at.
+// The timeout reaper (reapExpiredCombatSessions) auto-plays each of these to a
+// real win/loss from persisted mid-state — per the 2026-05-13 decision, an
+// abandoned fight is finished by the engine, not flatly marked as a retreat.
+func listExpiredCombatSessions() ([]*CombatSession, error) {
+	rows, err := db.Get().Query(`SELECT `+combatSessionCols+`
+		  FROM combat_session
+		 WHERE status = 'active'
+		   AND expires_at <= CURRENT_TIMESTAMP
+		 ORDER BY started_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*CombatSession
+	for rows.Next() {
+		s, err := scanCombatSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// markCombatSessionExpired is the fallback terminal outcome for a stale session
+// the reaper cannot auto-play (zone run gone, enemy missing from the bestiary,
+// or a runaway fight that won't converge). It parks the row in 'expired'/'over'
+// with no fatal-blow side effects — treated like a retreat.
+func markCombatSessionExpired(sessionID string) error {
+	_, err := db.Get().Exec(`
 		UPDATE combat_session
 		   SET status = 'expired',
 		       phase = 'over',
 		       last_action_at = CURRENT_TIMESTAMP
-		 WHERE status = 'active'
-		   AND expires_at <= CURRENT_TIMESTAMP`)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+		 WHERE session_id = ? AND status = 'active'`, sessionID)
+	return err
 }

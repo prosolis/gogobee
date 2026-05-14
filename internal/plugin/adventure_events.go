@@ -53,6 +53,9 @@ func (p *AdventurePlugin) eventTicker() {
 			// Expire stale pending events every tick
 			expireAdvPendingEvents()
 
+			// Auto-play any combat sessions past their 1h timeout.
+			p.reapExpiredCombatSessions()
+
 			advEventScheduleMu.Lock()
 			if advEventScheduleDay != dateKey {
 				advEventSchedule = make(map[string]int)
