@@ -171,6 +171,9 @@ func atoiSafe(s string) int {
 }
 
 func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest string) error {
+	if cs, _ := getActiveCombatSession(ctx.Sender); cs != nil {
+		return p.SendDM(ctx.Sender, "⚔️ Finish your fight first — `!attack` or `!flee`.")
+	}
 	if rest == "" {
 		return p.SendDM(ctx.Sender,
 			"`!zone enter <id|#>` — pick from `!zone list`. Example: `!zone enter goblin_warrens` or `!zone enter 1`.")
@@ -379,10 +382,35 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	if run == nil {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
+	if cs, _ := getActiveCombatSession(ctx.Sender); cs != nil {
+		return p.SendDM(ctx.Sender, "⚔️ Finish your fight first — `!attack` or `!flee`.")
+	}
 	_ = applyMoodDecayIfStale(run)
 	zone := zoneOrFallback(run.ZoneID)
 	prev := run.CurrentRoomType()
 	prevIdx := run.CurrentRoom
+
+	// Elite/Boss rooms are manual: !zone advance stops at the doorway and the
+	// player engages with !fight. Patrols don't roll while standing at the
+	// door — only on the advance that walked the player here, which already
+	// fired below on the previous room. A won CombatSession for the encounter
+	// means the fight's done; fall through so the graph clears the room.
+	if prev == RoomElite || prev == RoomBoss {
+		encID := encounterIDForRoom(prevIdx)
+		sess, serr := getCombatSessionForEncounter(run.RunID, encID)
+		if serr != nil {
+			return p.SendDM(ctx.Sender, "Couldn't read combat state: "+serr.Error())
+		}
+		if sess == nil || sess.Status != CombatStatusWon {
+			kind := "Elite"
+			if prev == RoomBoss {
+				kind = "Boss"
+			}
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"**Room %d/%d — %s.** Type `!fight` to engage.",
+				prevIdx+1, run.TotalRooms, kind))
+		}
+	}
 
 	// §4.1 Patrol Encounter: at Threat-Clock Alert+, patrols may move
 	// through cleared rooms. Roll on `!advance` *before* the next room's
@@ -562,10 +590,12 @@ func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone Zo
 		return
 	case RoomExploration:
 		return p.resolveCombatRoom(userID, run, zone, false)
-	case RoomElite:
-		return p.resolveCombatRoom(userID, run, zone, true)
-	case RoomBoss:
-		return p.resolveBossRoom(userID, run, zone)
+	case RoomElite, RoomBoss:
+		// Manual turn-based combat (!fight / !attack). zoneCmdAdvance only
+		// reaches resolveRoom for an Elite/Boss room once a won CombatSession
+		// exists for it — so there's nothing to resolve here. Return empty
+		// and let the caller advance the graph past the now-cleared room.
+		return
 	}
 	return
 }
@@ -678,71 +708,6 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		ob.WriteString(drop)
 	}
 	outcome = ob.String()
-	return
-}
-
-// resolveBossRoom runs the zone-boss bestiary entry through the same
-// combat path as room combat. Win → caller drops zone loot.
-//
-// Returns staged messages — see resolveCombatRoom for the contract.
-func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition) (intro string, phases []string, outcome string, ended bool, err error) {
-	monster, ok := dndBestiary[zone.Boss.BestiaryID]
-	if !ok {
-		outcome = fmt.Sprintf("_(Boss %s not in bestiary — skipping.)_", zone.Boss.Name)
-		return
-	}
-	preHP, _ := dndHPSnapshot(userID)
-	// Bosses use bossCombatPhases — wider Sudden Death budget so a player
-	// grinding the boss down has time to actually close the HP gap.
-	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier), bossCombatPhases, run.DMMood)
-	if rerr != nil {
-		err = rerr
-		return
-	}
-	postHP, maxHP := dndHPSnapshot(userID)
-	nat20s, nat1s := scanMoodEventsFromCombat(run.RunID, result)
-
-	intro = fmt.Sprintf("👑 **Boss — %s** (HP %d, AC %d)", monster.Name, monster.HP, monster.AC)
-
-	playerName := "You"
-	if name, _ := loadDisplayName(userID); name != "" {
-		playerName = name
-	}
-	phases = RenderCombatLog(result, playerName, monster.Name)
-
-	outcome = renderBossOutcome(BossOutcomeInputs{
-		ZoneID:          zone.ID,
-		RunID:           run.RunID,
-		RoomIdx:         run.CurrentRoom,
-		Monster:         monster,
-		Result:          result,
-		PreHP:           preHP,
-		PostHP:          postHP,
-		MaxHP:           maxHP,
-		PhaseTwoAt:      zone.Boss.PhaseTwoAt,
-		Nat20s:          nat20s,
-		Nat1s:           nat1s,
-		DefeatHeadline:  fmt.Sprintf("💀 **%s** stands over your body. Run ended.", monster.Name),
-		VictoryHeadline: fmt.Sprintf("🏆 **%s** falls. You finished at **%d/%d HP**.", monster.Name, postHP, maxHP),
-	})
-	if !result.PlayerWon {
-		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
-		_ = abandonZoneRun(userID)
-		if !result.TimedOut {
-			markAdventureDead(userID, "zone", zone.Display)
-		}
-		ended = true
-		return
-	}
-	recordZoneKillForUser(userID, monster.ID)
-	// §8.1: zone boss defeat drops expedition threat by 20. Silent
-	// no-op for standalone zone runs (no active expedition).
-	if exp, eerr := getActiveExpedition(userID); eerr == nil && exp != nil {
-		_ = applyBossDefeatThreat(exp.ID)
-	}
-	if drop := p.dropZoneLoot(userID, zone.ID, monster, true); drop != "" {
-		outcome = outcome + "\n" + drop
-	}
 	return
 }
 

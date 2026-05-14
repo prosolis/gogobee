@@ -179,6 +179,23 @@ func getCombatSession(sessionID string) (*CombatSession, error) {
 	return s, err
 }
 
+// getCombatSessionForEncounter returns the most recent session for a
+// (run, encounter) pair regardless of status, or (nil, nil) if none exists.
+// The room-resolution path uses it to tell "elite not yet fought" (nil) apart
+// from "elite already won" (a terminal session) without an active-only filter.
+func getCombatSessionForEncounter(runID, encounterID string) (*CombatSession, error) {
+	row := db.Get().QueryRow(`SELECT `+combatSessionCols+`
+		  FROM combat_session
+		 WHERE run_id = ? AND encounter_id = ?
+		 ORDER BY started_at DESC
+		 LIMIT 1`, runID, encounterID)
+	s, err := scanCombatSession(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return s, err
+}
+
 func scanCombatSession(row scanner) (*CombatSession, error) {
 	var (
 		s            CombatSession

@@ -127,7 +127,6 @@ func (p *AdventurePlugin) runZoneCombat(
 	if phases == nil {
 		phases = dungeonCombatPhases
 	}
-	tilt := dmMoodCombatTilt(dmMood)
 	char, err := loadAdvCharacter(userID)
 	if err != nil || char == nil {
 		return CombatResult{}, fmt.Errorf("load adv character: %w", err)
@@ -136,71 +135,23 @@ func (p *AdventurePlugin) runZoneCombat(
 	if err != nil {
 		return CombatResult{}, fmt.Errorf("load equipment: %w", err)
 	}
-	bonuses := p.loadCombatBonuses(userID, char)
-	chatLvl := p.chatLevel(userID)
 
-	playerStats, playerMods := DerivePlayerStats(char, equip, bonuses, chatLvl, char.CurrentStreak, false)
-
-	dndChar, _, err := ensureDnDCharacterForCombat(userID, char)
+	// Player/enemy Combatant pair — shared with the turn-based engine. The
+	// builder folds in the D&D layer, tier scaling, and the DM-mood tilt.
+	player, enemy, dndChar, err := p.buildZoneCombatants(userID, monster, tier, dmMood)
 	if err != nil {
-		return CombatResult{}, fmt.Errorf("ensure dnd character: %w", err)
-	}
-	applyDnDPlayerLayer(&playerStats, dndChar)
-	applyDnDEquipmentLayer(&playerStats, dndChar, equip)
-	applyDnDHPScaling(&playerStats, dndChar)
-	applyClassPassives(&playerStats, &playerMods, dndChar)
-	applyRacePassives(&playerStats, &playerMods, dndChar)
-	applySubclassPassives(&playerStats, &playerMods, dndChar)
-	if firedName, fired := applyArmedAbility(dndChar, &playerMods); fired {
-		slog.Info("dnd: armed ability fired (zone)", "user", userID, "ability", firedName)
+		return CombatResult{}, err
 	}
 
-	enemyStats, enemyMods := monster.toCombatStats()
-	// Tier scaling matches applyDnDDungeonMonsterLayer's intent: keep AC
-	// floor reasonable for higher-tier zones, but only bump if the bestiary
-	// stat block is below the floor — boss/elite stat blocks already encode
-	// their challenge, so we don't double-scale them.
-	if tier > 1 {
-		floorAC := dndDungeonACBase + tier
-		if enemyStats.AC < floorAC {
-			enemyStats.AC = floorAC
-		}
-		floorAB := dndDungeonAtkBase + tier
-		if enemyStats.AttackBonus < floorAB {
-			enemyStats.AttackBonus = floorAB
-		}
-	}
-	applyPendingCast(userID, dndChar, &playerStats, &playerMods, &enemyStats)
-
-	// Auto-consumable: panic heal only. Inventory healing items wire up
-	// the heal-at-<60%-HP trigger; offensive / buff consumables are NOT
-	// auto-burned (see dnd_boss_consumables.go for the rationale).
+	// Pre-combat one-shots that the turn-based path does NOT share: a queued
+	// spell and the panic-heal consumable trigger. Both mutate the Combatant
+	// pair once, before the fight runs.
+	applyPendingCast(userID, dndChar, &player.Stats, &player.Mods, &enemy.Stats)
 	consumables := p.loadConsumableInventory(userID)
-	setupAutoHealFromInventory(consumables, &playerMods)
-
-	// DM mood tilts: monster Attack delta + player initiative bias.
-	enemyStats.Attack += tilt.EnemyAttackDelta
-	if enemyStats.Attack < 1 {
-		enemyStats.Attack = 1 // floor — keep some bite even for Elated DM
-	}
-	playerMods.InitiativeBias += tilt.InitiativeBias
-
-	displayName, _ := loadDisplayName(userID)
-	player := Combatant{
-		Name:     displayName,
-		Stats:    playerStats,
-		Mods:     playerMods,
-		IsPlayer: true,
-	}
-	enemy := Combatant{
-		Name:    monster.Name,
-		Stats:   enemyStats,
-		Mods:    enemyMods,
-		Ability: monster.Ability,
-	}
+	setupAutoHealFromInventory(consumables, &player.Mods)
 
 	result := SimulateCombat(player, enemy, phases)
-	dumpCombatEventsIfDebug(fmt.Sprintf("zone:%s vs %s", monster.ID, displayName), result)
+	dumpCombatEventsIfDebug(fmt.Sprintf("zone:%s vs %s", monster.ID, player.Name), result)
 
 	// Remove the actual heal items consumed during combat (one inventory
 	// item per heal_item event fired). Cheapest-tier first.
@@ -217,7 +168,7 @@ func (p *AdventurePlugin) runZoneCombat(
 
 	p.grantCombatAchievements(userID, result)
 	persistDnDHPAfterCombat(userID, result.PlayerEndHP)
-	if err := persistDnDPostCombatSubclass(dndChar, playerMods.BerserkerRage, result, playerMods); err != nil {
+	if err := persistDnDPostCombatSubclass(dndChar, player.Mods.BerserkerRage, result, player.Mods); err != nil {
 		slog.Error("dnd: post-combat subclass persist (zone)", "user", userID, "err", err)
 	}
 
@@ -258,7 +209,14 @@ func zoneCombatXP(result CombatResult, cr float32, tier int) int {
 // triggers for nat-20s and nat-1s. Returns the count of each so the
 // caller can include the deltas in the rendered status line.
 func scanMoodEventsFromCombat(runID string, result CombatResult) (nat20s, nat1s int) {
-	for _, ev := range result.Events {
+	return scanMoodEventsFromEvents(runID, result.Events)
+}
+
+// scanMoodEventsFromEvents is the event-slice core of scanMoodEventsFromCombat
+// — used by the turn-based close-out, which has a CombatEvent log (the
+// session's accumulated TurnLog) rather than a one-shot CombatResult.
+func scanMoodEventsFromEvents(runID string, events []CombatEvent) (nat20s, nat1s int) {
+	for _, ev := range events {
 		if ev.Roll == 20 && ev.Actor == "player" {
 			nat20s++
 		}

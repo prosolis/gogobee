@@ -321,6 +321,15 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "zone") {
 		return p.handleDnDZoneCmd(ctx, p.GetArgs(ctx.Body, "zone"))
 	}
+	if p.IsCommand(ctx.Body, "fight") {
+		return p.handleFightCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "attack") {
+		return p.handleAttackCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "flee") {
+		return p.handleFleeCmd(ctx)
+	}
 	if p.IsCommand(ctx.Body, "expedition") {
 		return p.handleDnDExpeditionCmd(ctx, p.GetArgs(ctx.Body, "expedition"))
 	}
