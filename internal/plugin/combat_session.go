@@ -110,6 +110,13 @@ type CombatStatuses struct {
 	PlayerACDebuff     int     `json:"player_ac_debuff,omitempty"`
 	MaxHPDrain         int     `json:"max_hp_drain,omitempty"`
 
+	// Slice-4 monster-ability effects — the former flavor-only placeholders.
+	// EnemyRevealNext is a one-shot; the other three persist for the fight.
+	EnemySpellResist bool `json:"enemy_spell_resist,omitempty"`
+	EnemyRevealNext  bool `json:"enemy_reveal_next,omitempty"`
+	EnemyFearImmune  bool `json:"enemy_fear_immune,omitempty"`
+	EnemyAtkBuff     int  `json:"enemy_atk_buff,omitempty"`
+
 	// Persistent stat buffs from mid-fight !cast / !consume, accumulated as
 	// deltas against the freshly-rebuilt combatant. applySessionBuffs folds
 	// these back onto the player every round; diffTurnBuff produces them.

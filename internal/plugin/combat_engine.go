@@ -202,9 +202,8 @@ type MonsterAbility struct {
 	// enrage, armor_break, stun, bonus_damage, aoe, aoe_fire, death_aoe, execute,
 	// self_heal, max_hp_drain); stateful effects armed here and read by the
 	// shared resolution primitives (evade, block, advantage, retaliate,
-	// regenerate, survive_at_1, stat_drain, debuff); flavor-only placeholders
-	// (spell_resist, reveal_action, fear_immune, ally_buff). Anything else is a
-	// silent no-op.
+	// regenerate, survive_at_1, stat_drain, debuff, spell_resist, reveal_action,
+	// fear_immune, ally_buff). Anything else is a silent no-op.
 	Effect string
 }
 
@@ -301,6 +300,13 @@ type combatState struct {
 	playerACDebuff     int     // debuff: flat reduction to the player's effective AC
 	maxHPDrain         int     // max_hp_drain: reduction to the player's effective MaxHP
 
+	// Phase 13 bestiary slice 4 — the former flavor-only placeholders, now
+	// backed by real state.
+	enemySpellResist bool // spell_resist: player spell damage against this enemy is halved
+	enemyRevealNext  bool // reveal_action: the player's next weapon attack is rolled at disadvantage
+	enemyFearImmune  bool // fear_immune: player control spells (enemy-skip) fizzle against this enemy
+	enemyAtkBuff     int  // ally_buff: flat, accumulating bonus to the enemy's attack damage
+
 	round  int
 	events []CombatEvent
 
@@ -392,6 +398,10 @@ func simulateCombatWithRNG(player, enemy Combatant, phases []CombatPhase, rng *r
 	// runs — the modifiers carry the resolved damage and narrative hook.
 	if player.Mods.SpellPreDamageDesc != "" {
 		dmg := player.Mods.SpellPreDamage
+		resisted := dmg > 0 && enemyResistsSpells(&enemy, st)
+		if resisted {
+			dmg = max(1, dmg/2)
+		}
 		if dmg > 0 {
 			st.enemyHP = max(0, st.enemyHP-dmg)
 		}
@@ -400,6 +410,12 @@ func simulateCombatWithRNG(player, enemy Combatant, phases []CombatPhase, rng *r
 			Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 			Desc: player.Mods.SpellPreDamageDesc,
 		})
+		if resisted {
+			st.events = append(st.events, CombatEvent{
+				Round: 0, Phase: "pre_combat", Actor: "enemy", Action: "spell_fizzle",
+				Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
 		if st.enemyHP <= 0 {
 			return finalize(result, st, player, enemy)
 		}
@@ -455,11 +471,20 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	enemyHeldThisRound := false
 	if st.enemySkipFirst {
 		st.enemySkipFirst = false
-		enemyHeldThisRound = true
-		st.events = append(st.events, CombatEvent{
-			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "spell_held",
-			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
-		})
+		if enemyImmuneToControl(enemy, st) {
+			// fear_immune: the control spell can't take hold — the enemy acts
+			// as normal this round.
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "fear_resist",
+				PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		} else {
+			enemyHeldThisRound = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "spell_held",
+				PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
 	}
 
 	// Monster ability: check at round start
@@ -665,6 +690,18 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	}
 
 	roll := 1 + st.roll(20)
+	// Reveal action (monster ability): the enemy read this swing coming — it's
+	// rolled at disadvantage (2d20, keep the lower). One-shot, consumed here.
+	if st.enemyRevealNext {
+		st.enemyRevealNext = false
+		if alt := 1 + st.roll(20); alt < roll {
+			roll = alt
+		}
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "revealed",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+	}
 	// Halfling Lucky: reroll the first nat 1 of the fight.
 	if roll == 1 && player.Mods.LuckyReroll && !st.luckyUsed {
 		st.luckyUsed = true
@@ -856,7 +893,7 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	if st.enraged {
 		atkMult = 1.5
 	}
-	dmg := calcDamage(st.rng, int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
+	dmg := calcDamage(st.rng, enemyAttackStat(enemy, st, atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
 		playerDefense(player, st), phase.DefenseWeight, player.Mods.DamageReduct)
 
 	blocked := player.Stats.BlockRate > 0 && st.randFloat() < player.Stats.BlockRate
@@ -995,7 +1032,7 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 		if st.enraged {
 			atkMult = 1.5
 		}
-		dmg := calcDamage(st.rng, int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
+		dmg := calcDamage(st.rng, enemyAttackStat(enemy, st, atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
 			playerDefense(player, st), phase.DefenseWeight, player.Mods.DamageReduct)
 		dmg = max(1, dmg)
 		st.playerHP = max(0, st.playerHP-dmg)
@@ -1014,7 +1051,7 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 		if st.enraged {
 			atkMult = 1.5
 		}
-		dmg1 := calcDamage(st.rng, int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
+		dmg1 := calcDamage(st.rng, enemyAttackStat(enemy, st, atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
 			playerDefense(player, st), phase.DefenseWeight, player.Mods.DamageReduct)
 		dmg1 = max(1, dmg1)
 		st.playerHP = max(0, st.playerHP-dmg1)
@@ -1192,13 +1229,49 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 			return !trySave(st, player, phaseName)
 		}
 
-	case "spell_resist", "reveal_action", "fear_immune", "ally_buff":
-		// Slice-2 placeholder: no mechanical effect yet (these need persistent
-		// per-fight state, deferred to the next slice), but the ability still
-		// announces itself so the fight log doesn't silently swallow a proc.
+	case "spell_resist":
+		// Spell Immunity: the enemy is wrapped in anti-magic. Player spell damage
+		// (the pre-combat cast in auto-resolve, mid-fight !cast in the turn engine)
+		// is halved — read by enemyResistsSpells. Arm once; it's a passive, so a
+		// repeat proc is a silent no-op.
+		if !st.enemySpellResist {
+			st.enemySpellResist = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "spell_resist",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "reveal_action":
+		// The enemy reads the player's intent — their next weapon swing comes in
+		// at disadvantage (2d20 keep-lower). One-shot, consumed by the next
+		// resolvePlayerAttack. Re-armed (and re-announced) on every proc.
+		st.enemyRevealNext = true
 		st.events = append(st.events, CombatEvent{
-			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "ability_flavor",
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "reveal_armed",
 			Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+
+	case "fear_immune":
+		// The enemy's resolve can't be broken: player control spells (Hold Person,
+		// Sleep, Command — the enemy-skip mechanic) fizzle against it. Read by
+		// enemyImmuneToControl. Arm once; a passive, so a repeat proc is a no-op.
+		if !st.enemyFearImmune {
+			st.enemyFearImmune = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "fear_immune",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "ally_buff":
+		// The enemy rallies — a flat, accumulating bonus to the damage its attacks
+		// deal (read by enemyAttackStat). Capped so a long fight can't run away.
+		buff := 2 + st.roll(3)
+		st.enemyAtkBuff = min(15, st.enemyAtkBuff+buff)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "ally_buff",
+			Damage: buff, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
 	}
 
@@ -1211,11 +1284,11 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 // player's Defense applies (1.0 = a normal hit, lower = an armor-piercing
 // burst). Enrage's 1.5x attack multiplier is honored, matching cleave/lifesteal.
 func abilityHitDamage(st *combatState, player, enemy *Combatant, phase *CombatPhase, atkFrac, defFrac float64) int {
-	atk := float64(enemy.Stats.Attack) * atkFrac
+	mult := atkFrac
 	if st.enraged {
-		atk *= 1.5
+		mult *= 1.5
 	}
-	dmg := calcDamage(st.rng, int(atk), phase.AttackWeight, enemy.Mods.DamageBonus,
+	dmg := calcDamage(st.rng, enemyAttackStat(enemy, st, mult), phase.AttackWeight, enemy.Mods.DamageBonus,
 		playerDefense(player, st), phase.DefenseWeight*defFrac, player.Mods.DamageReduct)
 	return max(1, dmg)
 }
@@ -1249,6 +1322,29 @@ func playerDefense(player *Combatant, st *combatState) int {
 		def = int(float64(def) * (1 - st.armorBreakAmt))
 	}
 	return def
+}
+
+// enemyAttackStat is the enemy's effective Attack for a damage roll: the base
+// stat scaled by mult (1.0 = normal, 1.5 = enraged, <1 = a partial-power rider)
+// plus any accumulated ally_buff bonus. With no buff (every characterization
+// scenario) it collapses to the pre-slice-4 expression.
+func enemyAttackStat(enemy *Combatant, st *combatState, mult float64) int {
+	return max(1, int(float64(enemy.Stats.Attack)*mult)+st.enemyAtkBuff)
+}
+
+// enemyResistsSpells reports whether the enemy's spell_resist (Spell Immunity)
+// ability is in play. It's a passive — the per-round proc may not have armed
+// st.enemySpellResist yet, so the ability profile is checked too, letting the
+// pre-combat spell and a round-1 mid-fight cast be resisted all the same.
+func enemyResistsSpells(enemy *Combatant, st *combatState) bool {
+	return st.enemySpellResist || (enemy.Ability != nil && enemy.Ability.Effect == "spell_resist")
+}
+
+// enemyImmuneToControl reports whether the enemy's fear_immune ability is in
+// play. Like spell_resist it's a passive, so the ability profile is checked
+// alongside the armed flag.
+func enemyImmuneToControl(enemy *Combatant, st *combatState) bool {
+	return st.enemyFearImmune || (enemy.Ability != nil && enemy.Ability.Effect == "fear_immune")
 }
 
 // effPlayerMaxHP is the player's MaxHP after any max_hp_drain monster ability,

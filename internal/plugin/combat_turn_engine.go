@@ -144,7 +144,12 @@ func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.R
 		playerAtkDrain:     sess.Statuses.PlayerAtkDrain,
 		playerACDebuff:     sess.Statuses.PlayerACDebuff,
 		maxHPDrain:         sess.Statuses.MaxHPDrain,
-		rng:                rng,
+		// Slice-4 monster-ability effects — the former flavor-only placeholders.
+		enemySpellResist: sess.Statuses.EnemySpellResist,
+		enemyRevealNext:  sess.Statuses.EnemyRevealNext,
+		enemyFearImmune:  sess.Statuses.EnemyFearImmune,
+		enemyAtkBuff:     sess.Statuses.EnemyAtkBuff,
+		rng:              rng,
 	}
 	return &turnEngine{
 		sess:   sess,
@@ -270,8 +275,20 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 		te.sess.Phase = CombatPhaseEnemyTurn
 		return
 	}
-	if eff.EnemyDamage > 0 {
-		st.enemyHP = max(0, st.enemyHP-eff.EnemyDamage)
+	action := eff.Action
+	if action == "" {
+		action = "spell_cast"
+	}
+	// spell_resist (Spell Immunity): a spell's damage against the enemy is
+	// halved. Consumables that happen to deal damage are not spells, so the
+	// resist is gated on the spell_cast action.
+	enemyDmg := eff.EnemyDamage
+	spellFizzled := enemyDmg > 0 && action == "spell_cast" && enemyResistsSpells(te.enemy, st)
+	if spellFizzled {
+		enemyDmg = max(1, enemyDmg/2)
+	}
+	if enemyDmg > 0 {
+		st.enemyHP = max(0, st.enemyHP-enemyDmg)
 	}
 	if eff.PlayerHeal > 0 {
 		// Respect any max_hp_drain monster ability — a drained player can't be
@@ -279,14 +296,16 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 		hpCap := max(1, te.sess.PlayerHPMax-st.maxHPDrain)
 		st.playerHP = min(hpCap, st.playerHP+eff.PlayerHeal)
 	}
-	action := eff.Action
-	if action == "" {
-		action = "spell_cast"
-	}
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: turnCombatPhase.Name, Actor: "player", Action: action,
-		Damage: eff.EnemyDamage, PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Desc: eff.Label,
+		Damage: enemyDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Desc: eff.Label,
 	})
+	if spellFizzled {
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: turnCombatPhase.Name, Actor: "enemy", Action: "spell_fizzle",
+			Damage: enemyDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+	}
 	if enemyDown(st, turnCombatPhase.Name) {
 		te.finish(CombatStatusWon)
 		return
@@ -296,21 +315,38 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 		return
 	}
 	if eff.EnemySkip {
-		st.enemySkipFirst = true
+		// fear_immune enemies shrug off control spells — the skip never arms.
+		if enemyImmuneToControl(te.enemy, st) {
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: turnCombatPhase.Name, Actor: "enemy", Action: "fear_resist",
+				PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		} else {
+			st.enemySkipFirst = true
+		}
 	}
 	te.sess.Phase = CombatPhaseEnemyTurn
 }
 
 func (te *turnEngine) stepEnemyTurn() {
-	// A control spell cast last phase forfeits the enemy's attack this round.
+	// A control spell cast last phase forfeits the enemy's attack this round —
+	// unless the enemy is fear_immune, in which case the control fizzled and it
+	// acts as normal.
 	if te.st.enemySkipFirst {
 		te.st.enemySkipFirst = false
-		te.st.events = append(te.st.events, CombatEvent{
-			Round: te.st.round, Phase: turnCombatPhase.Name, Actor: "enemy", Action: "spell_held",
-			PlayerHP: te.st.playerHP, EnemyHP: te.st.enemyHP,
-		})
-		te.sess.Phase = CombatPhaseRoundEnd
-		return
+		if enemyImmuneToControl(te.enemy, te.st) {
+			te.st.events = append(te.st.events, CombatEvent{
+				Round: te.st.round, Phase: turnCombatPhase.Name, Actor: "enemy", Action: "fear_resist",
+				PlayerHP: te.st.playerHP, EnemyHP: te.st.enemyHP,
+			})
+		} else {
+			te.st.events = append(te.st.events, CombatEvent{
+				Round: te.st.round, Phase: turnCombatPhase.Name, Actor: "enemy", Action: "spell_held",
+				PlayerHP: te.st.playerHP, EnemyHP: te.st.enemyHP,
+			})
+			te.sess.Phase = CombatPhaseRoundEnd
+			return
+		}
 	}
 
 	// Monster ability fires at the top of the enemy turn. cleave / lifesteal
@@ -458,6 +494,10 @@ func (te *turnEngine) commit() {
 	s.PlayerAtkDrain = st.playerAtkDrain
 	s.PlayerACDebuff = st.playerACDebuff
 	s.MaxHPDrain = st.maxHPDrain
+	s.EnemySpellResist = st.enemySpellResist
+	s.EnemyRevealNext = st.enemyRevealNext
+	s.EnemyFearImmune = st.enemyFearImmune
+	s.EnemyAtkBuff = st.enemyAtkBuff
 	te.sess.TurnLog = append(te.sess.TurnLog, st.events...)
 }
 

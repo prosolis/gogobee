@@ -332,6 +332,22 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 	case "max_hp_drain":
 		return fmt.Sprintf(pickRand(narrativeMaxHPDrain), e.Damage)
 
+	// Monster abilities — slice 4 (former flavor-only placeholders)
+	case "spell_resist":
+		return pickRand(narrativeSpellResist)
+	case "spell_fizzle":
+		return fmt.Sprintf(pickRand(narrativeSpellFizzle), e.Damage)
+	case "reveal_armed":
+		return pickRand(narrativeRevealArmed)
+	case "revealed":
+		return pickRand(narrativeRevealed)
+	case "fear_immune":
+		return pickRand(narrativeFearImmune)
+	case "fear_resist":
+		return pickRand(narrativeFearResist)
+	case "ally_buff":
+		return pickRand(narrativeAllyBuff)
+
 	case "timeout":
 		return pickRand(narrativeTimeout)
 
@@ -741,6 +757,48 @@ var narrativeMaxHPDrain = []string{
 	"☠️ The enemy drains your life force — %d HP gone, and your maximum drops with it.",
 	"☠️ Something cold pulls %d HP out of you and won't give it back. Your ceiling just fell.",
 	"☠️ %d HP siphoned away, max and all. There's less of you to work with now.",
+}
+
+var narrativeSpellResist = []string{
+	"🚫 The enemy's form shimmers with anti-magic. Spells are going to land soft from here.",
+	"🚫 A warding sheen wraps the enemy — magic slides off it like rain off glass.",
+	"🚫 The enemy shrugs the weave aside. Whatever you cast, it'll only half-stick.",
+}
+
+var narrativeSpellFizzle = []string{
+	"🚫 Your spell breaks against the enemy's anti-magic — only %d damage bleeds through.",
+	"🚫 The weave fizzles on contact. The enemy's resistance eats half of it; %d lands.",
+	"🚫 Half your magic just evaporates. %d damage is all the enemy lets through.",
+}
+
+var narrativeRevealArmed = []string{
+	"👁️ The enemy's eyes track your intent — it knows what you're about to do.",
+	"👁️ The enemy reads you. Your next swing is telegraphed before you've thrown it.",
+	"👁️ Something behind the enemy's gaze clicks. It's already seen your next move.",
+}
+
+var narrativeRevealed = []string{
+	"👁️ The enemy saw it coming — your strike is forced wide before it begins.",
+	"👁️ Telegraphed and countered. The enemy was already moving as you committed.",
+	"👁️ Your swing meets a defence that read it a beat early. No clean angle left.",
+}
+
+var narrativeFearImmune = []string{
+	"🐲 The enemy's resolve is iron — nothing you do is going to rattle it.",
+	"🐲 Whatever fear you were counting on, the enemy doesn't have the receptors for it.",
+	"🐲 The enemy stands utterly unshaken. Control magic is going to slide right off.",
+}
+
+var narrativeFearResist = []string{
+	"🐲 Your control spell washes over the enemy and finds no purchase. It acts anyway.",
+	"🐲 The enemy shrugs off the compulsion mid-cast and keeps coming.",
+	"🐲 The spell should have held it. The enemy's will simply refuses the idea.",
+}
+
+var narrativeAllyBuff = []string{
+	"📢 The enemy rallies itself with a roar — its blows are about to hit harder. (+%d attack)",
+	"📢 Something emboldens the enemy. Its strikes pick up weight. (+%d attack)",
+	"📢 The enemy steadies and surges. Expect heavier hits from here. (+%d attack)",
 }
 
 // Outcome flavor

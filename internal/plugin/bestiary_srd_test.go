@@ -74,8 +74,8 @@ func TestTurnAbilityFires(t *testing.T) {
 }
 
 // TestApplyAbility_Slice2Effects covers the immediate-resolution monster
-// ability effects: damage riders, the enemy self-heal, and the flavor-only
-// placeholders. All resolve fully within applyAbility with no persistent state.
+// ability effects: damage riders and the enemy self-heal. All resolve fully
+// within applyAbility with no persistent state.
 func TestApplyAbility_Slice2Effects(t *testing.T) {
 	newState := func(playerHP, enemyHP int) (*combatState, Combatant, Combatant) {
 		st := &combatState{
@@ -121,19 +121,6 @@ func TestApplyAbility_Slice2Effects(t *testing.T) {
 	applyAbility(stHeal, &plH, &enH, phase, res)
 	if stHeal.enemyHP <= 30 || stHeal.enemyHP > enH.Stats.MaxHP {
 		t.Errorf("self_heal: enemy HP = %d, want in (30, %d]", stHeal.enemyHP, enH.Stats.MaxHP)
-	}
-
-	// Flavor-only placeholders emit an event but change no HP.
-	for _, eff := range []string{"spell_resist", "reveal_action", "fear_immune", "ally_buff"} {
-		st, player, enemy := newState(100, 60)
-		enemy.Ability = &MonsterAbility{Name: "Test " + eff, Effect: eff}
-		applyAbility(st, &player, &enemy, phase, res)
-		if st.playerHP != 100 || st.enemyHP != 60 {
-			t.Errorf("%s: HP changed (%d/%d), want 100/60 (flavor-only)", eff, st.playerHP, st.enemyHP)
-		}
-		if len(st.events) != 1 || st.events[0].Action != "ability_flavor" {
-			t.Errorf("%s: want one ability_flavor event, got %+v", eff, st.events)
-		}
 	}
 
 	// A damage rider that drops the player returns true (no death save armed).
@@ -229,6 +216,80 @@ func TestApplyAbility_Slice3Effects(t *testing.T) {
 	resolvePlayerAttack(stR, &plR, &enR, phase, res)
 	if stR.playerHP >= 100 {
 		t.Errorf("retaliate: player HP = %d, want < 100 (reflected damage)", stR.playerHP)
+	}
+}
+
+// TestApplyAbility_Slice4Effects covers the former flavor-only placeholders,
+// now backed by real state: applyAbility arms a combatState field and announces
+// itself, and the shared resolution primitives / helpers read that state.
+func TestApplyAbility_Slice4Effects(t *testing.T) {
+	newState := func(playerHP, enemyHP int) (*combatState, Combatant, Combatant) {
+		st := &combatState{
+			playerHP: playerHP, enemyHP: enemyHP, round: 1,
+			rng: rand.New(rand.NewPCG(11, 11)),
+		}
+		return st, basePlayer(), baseEnemy()
+	}
+	phase := &turnCombatPhase
+	res := &CombatResult{}
+
+	armChecks := []struct {
+		effect string
+		armed  func(*combatState) bool
+	}{
+		{"spell_resist", func(s *combatState) bool { return s.enemySpellResist }},
+		{"reveal_action", func(s *combatState) bool { return s.enemyRevealNext }},
+		{"fear_immune", func(s *combatState) bool { return s.enemyFearImmune }},
+		{"ally_buff", func(s *combatState) bool { return s.enemyAtkBuff > 0 }},
+	}
+	for _, c := range armChecks {
+		st, pl, en := newState(100, 60)
+		en.Ability = &MonsterAbility{Name: "Test " + c.effect, Effect: c.effect}
+		if applyAbility(st, &pl, &en, phase, res) {
+			t.Errorf("%s: should not down a full-HP player", c.effect)
+		}
+		if !c.armed(st) {
+			t.Errorf("%s: combatState field not armed", c.effect)
+		}
+		if st.playerHP != 100 || st.enemyHP != 60 {
+			t.Errorf("%s: HP changed (%d/%d), want 100/60", c.effect, st.playerHP, st.enemyHP)
+		}
+		if len(st.events) != 1 {
+			t.Errorf("%s: want one announcement event, got %d", c.effect, len(st.events))
+		}
+	}
+
+	// The passive immunities are honoured straight off the ability profile,
+	// before the per-round proc has armed the flag.
+	st, _, en := newState(100, 60)
+	en.Ability = &MonsterAbility{Name: "Spell Immunity", Effect: "spell_resist"}
+	if !enemyResistsSpells(&en, st) {
+		t.Error("enemyResistsSpells: should be true from the ability profile alone")
+	}
+	en.Ability = &MonsterAbility{Name: "Draconic Loyalty", Effect: "fear_immune"}
+	if !enemyImmuneToControl(&en, st) {
+		t.Error("enemyImmuneToControl: should be true from the ability profile alone")
+	}
+
+	// ally_buff accumulates but is capped.
+	stB, plB, enB := newState(100, 60)
+	enB.Ability = &MonsterAbility{Name: "Rally", Effect: "ally_buff"}
+	for i := 0; i < 20; i++ {
+		applyAbility(stB, &plB, &enB, phase, res)
+	}
+	if stB.enemyAtkBuff != 15 {
+		t.Errorf("ally_buff: accumulated to %d, want the 15 cap", stB.enemyAtkBuff)
+	}
+	if got := enemyAttackStat(&enB, stB, 1.0); got != enB.Stats.Attack+15 {
+		t.Errorf("enemyAttackStat: got %d, want %d (base + buff)", got, enB.Stats.Attack+15)
+	}
+
+	// reveal_action is consumed by the next player weapon attack.
+	stR, plR, enR := newState(100, 60)
+	stR.enemyRevealNext = true
+	resolvePlayerAttack(stR, &plR, &enR, phase, res)
+	if stR.enemyRevealNext {
+		t.Error("reveal_action: flag should be cleared after the player attack")
 	}
 }
 
