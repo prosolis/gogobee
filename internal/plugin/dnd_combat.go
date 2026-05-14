@@ -20,11 +20,16 @@ import (
 // Class-derived "weapon proficiency" bonus baked into AttackBonus.
 // Fighter is a martial class; Mage uses spell-attack baseline.
 var dndClassWeaponBonus = map[DnDClass]int{
-	ClassFighter: 2,
-	ClassRanger:  1,
-	ClassRogue:   1,
-	ClassCleric:  0,
-	ClassMage:    0,
+	ClassFighter:  2,
+	ClassPaladin:  2,
+	ClassRanger:   1,
+	ClassRogue:    1,
+	ClassDruid:    1,
+	ClassBard:     1,
+	ClassCleric:   0,
+	ClassMage:     0,
+	ClassSorcerer: 0,
+	ClassWarlock:  0,
 }
 
 // Monster AC formulas. Tuned so a typical L1 player (+5 attack bonus) hits
@@ -61,14 +66,16 @@ func proficiencyBonus(level int) int {
 // uses INT (spell attack), Cleric uses WIS.
 func classAttackStatMod(c *DnDCharacter) int {
 	switch c.Class {
-	case ClassFighter:
+	case ClassFighter, ClassPaladin:
 		return abilityModifier(c.STR)
 	case ClassRogue, ClassRanger:
 		return abilityModifier(c.DEX)
 	case ClassMage:
 		return abilityModifier(c.INT)
-	case ClassCleric:
+	case ClassCleric, ClassDruid:
 		return abilityModifier(c.WIS)
+	case ClassBard, ClassSorcerer, ClassWarlock:
+		return abilityModifier(c.CHA)
 	}
 	return abilityModifier(c.STR)
 }
@@ -196,6 +203,16 @@ func classStatPriority(class DnDClass) [6]int {
 		return [6]int{12, 14, 13, 8, 15, 10} // WIS, DEX, CON
 	case ClassRanger:
 		return [6]int{12, 15, 13, 10, 14, 8} // DEX, WIS, CON
+	case ClassDruid:
+		return [6]int{8, 14, 13, 10, 15, 12} // WIS, DEX, CON
+	case ClassBard:
+		return [6]int{8, 14, 13, 10, 12, 15} // CHA, DEX, CON
+	case ClassSorcerer:
+		return [6]int{8, 14, 13, 12, 10, 15} // CHA, DEX, CON
+	case ClassWarlock:
+		return [6]int{8, 14, 13, 12, 10, 15} // CHA, DEX, CON
+	case ClassPaladin:
+		return [6]int{15, 14, 13, 8, 10, 12} // STR, DEX, CON
 	}
 	return [6]int{15, 14, 13, 12, 10, 8} // fallback: martial-ish
 }

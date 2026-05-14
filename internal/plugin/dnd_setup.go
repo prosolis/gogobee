@@ -519,6 +519,11 @@ func parseClass(s string) (DnDClass, bool) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	for _, ci := range dndClasses {
 		if string(ci.Key) == s || strings.EqualFold(ci.Display, s) {
+			if !ci.Playable {
+				// Recognized class, but not yet selectable (Open5e
+				// caster scaffold — no spell list). Treat as no match.
+				return "", false
+			}
 			return ci.Key, true
 		}
 	}
@@ -565,6 +570,9 @@ func renderRaceMenu() string {
 func renderClassMenu() string {
 	var b strings.Builder
 	for _, ci := range dndClasses {
+		if !ci.Playable {
+			continue // Open5e caster scaffold — hidden until spell lists land.
+		}
 		b.WriteString(fmt.Sprintf("  • **%s** (d%d, %s/%s)\n", ci.Display, ci.HPDie, ci.PrimaryA, ci.PrimaryB))
 	}
 	return b.String()

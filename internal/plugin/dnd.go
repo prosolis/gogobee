@@ -35,6 +35,17 @@ const (
 	ClassMage    DnDClass = "mage"
 	ClassCleric  DnDClass = "cleric"
 	ClassRanger  DnDClass = "ranger"
+
+	// Caster classes added as structural scaffolding ahead of the Open5e
+	// spell-data import. They are wired through the mechanical layer (HP/AC,
+	// slot tables, spellcasting ability) but kept Playable=false — they have
+	// no spell list yet, so !setup hides them. Flip Playable once Open5e
+	// lands their spells. Subclasses are deferred to a later pass.
+	ClassDruid    DnDClass = "druid"
+	ClassBard     DnDClass = "bard"
+	ClassSorcerer DnDClass = "sorcerer"
+	ClassWarlock  DnDClass = "warlock"
+	ClassPaladin  DnDClass = "paladin"
 )
 
 type DnDRaceInfo struct {
@@ -54,6 +65,10 @@ type DnDClassInfo struct {
 	HPAvg    int    // per-level average after L1 (roundup of die/2 + 1)
 	PrimaryA string // primary stat for narrative (not mechanical in Phase 1)
 	PrimaryB string
+	// Playable gates whether the class is offered at !setup. The Open5e
+	// caster classes are wired through the engine but stay false until
+	// their spell lists exist — see the ClassDruid… block above.
+	Playable bool
 }
 
 var dndRaces = []DnDRaceInfo{
@@ -67,11 +82,17 @@ var dndRaces = []DnDRaceInfo{
 }
 
 var dndClasses = []DnDClassInfo{
-	{ClassFighter, "Fighter", 10, 6, "STR", "CON"},
-	{ClassRogue, "Rogue", 8, 5, "DEX", "INT"},
-	{ClassMage, "Mage", 6, 4, "INT", "WIS"},
-	{ClassCleric, "Cleric", 8, 5, "WIS", "CHA"},
-	{ClassRanger, "Ranger", 8, 5, "DEX", "WIS"},
+	{ClassFighter, "Fighter", 10, 6, "STR", "CON", true},
+	{ClassRogue, "Rogue", 8, 5, "DEX", "INT", true},
+	{ClassMage, "Mage", 6, 4, "INT", "WIS", true},
+	{ClassCleric, "Cleric", 8, 5, "WIS", "CHA", true},
+	{ClassRanger, "Ranger", 8, 5, "DEX", "WIS", true},
+	// Open5e caster scaffold — Playable=false until spell lists land.
+	{ClassDruid, "Druid", 8, 5, "WIS", "CON", false},
+	{ClassBard, "Bard", 8, 5, "CHA", "DEX", false},
+	{ClassSorcerer, "Sorcerer", 6, 4, "CHA", "CON", false},
+	{ClassWarlock, "Warlock", 8, 5, "CHA", "CON", false},
+	{ClassPaladin, "Paladin", 10, 6, "STR", "CHA", false},
 }
 
 func raceInfo(r DnDRace) (DnDRaceInfo, bool) {
@@ -137,11 +158,11 @@ func computeMaxHP(class DnDClass, conMod, level int) int {
 func computeAC(class DnDClass, dexMod int) int {
 	floor := 0
 	switch class {
-	case ClassFighter:
-		floor = 6 // medium-armor baseline
-	case ClassCleric, ClassRanger:
+	case ClassFighter, ClassPaladin:
+		floor = 6 // heavy/medium-armor baseline
+	case ClassCleric, ClassRanger, ClassDruid:
 		floor = 3
-	case ClassRogue:
+	case ClassRogue, ClassBard, ClassWarlock:
 		floor = 1
 	}
 	return 10 + dexMod + floor

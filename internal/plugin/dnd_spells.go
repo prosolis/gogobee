@@ -138,12 +138,16 @@ func slotsForClassLevel(class DnDClass, level int) map[int]int {
 		return nil
 	}
 	switch class {
-	case ClassMage:
-		return mageSlots(level)
+	case ClassMage, ClassDruid, ClassBard, ClassSorcerer:
+		// All 5e full casters share one slot progression.
+		return fullCasterSlots(level)
 	case ClassCleric:
 		return clericSlots(level)
-	case ClassRanger:
+	case ClassRanger, ClassPaladin:
+		// Half-casters share the Ranger progression: no slots until L2.
 		return rangerSlots(level)
+	case ClassWarlock:
+		return warlockSlots(level)
 	}
 	return nil
 }
@@ -191,8 +195,10 @@ func slotsForCharacter(c *DnDCharacter) map[int]int {
 
 // Tables transcribed from gogobee_spell_system.md §1. We interpolate
 // between the doc's milestone rows so every level 1..20 has a defined pool.
-func mageSlots(level int) map[int]int {
-	// Standard 5e full caster table (mage = wizard).
+// fullCasterSlots is the standard 5e full-caster slot progression, shared by
+// Mage, Druid, Bard and Sorcerer. (Was mageSlots — generalized when the
+// Open5e caster classes landed; output is byte-identical for Mage.)
+func fullCasterSlots(level int) map[int]int {
 	rows := [][6]int{
 		// L1, L2, L3, L4, L5
 		{2, 0, 0, 0, 0}, // 1
@@ -284,6 +290,41 @@ func rangerSlots(level int) map[int]int {
 	return packSlots(r[0], r[1], r[2], r[3], r[4])
 }
 
+// warlockSlots — simplified pool. Real 5e Pact Magic gives a tiny number of
+// slots that all sit at the highest level and recharge on a short rest; we
+// deliberately don't model that (see the Open5e class-scaffold decision —
+// "simplified pool, long-rest reset like everyone else"). Instead the Warlock
+// gets a modest long-rest pool that tops out at 4th-level slots.
+func warlockSlots(level int) map[int]int {
+	rows := [][6]int{
+		{1, 0, 0, 0, 0}, // 1
+		{2, 0, 0, 0, 0}, // 2
+		{2, 2, 0, 0, 0}, // 3
+		{2, 2, 0, 0, 0}, // 4
+		{2, 2, 2, 0, 0}, // 5
+		{2, 2, 2, 0, 0}, // 6
+		{2, 2, 2, 1, 0}, // 7
+		{2, 2, 2, 1, 0}, // 8
+		{2, 2, 2, 2, 0}, // 9
+		{2, 2, 2, 2, 0}, // 10
+		{3, 2, 2, 2, 0}, // 11
+		{3, 2, 2, 2, 0}, // 12
+		{3, 3, 2, 2, 0}, // 13
+		{3, 3, 2, 2, 0}, // 14
+		{3, 3, 3, 2, 0}, // 15
+		{3, 3, 3, 2, 0}, // 16
+		{4, 3, 3, 2, 0}, // 17
+		{4, 3, 3, 2, 0}, // 18
+		{4, 3, 3, 3, 0}, // 19
+		{4, 3, 3, 3, 0}, // 20
+	}
+	if level > len(rows) {
+		level = len(rows)
+	}
+	r := rows[level-1]
+	return packSlots(r[0], r[1], r[2], r[3], r[4])
+}
+
 func packSlots(l1, l2, l3, l4, l5 int) map[int]int {
 	out := map[int]int{}
 	for i, n := range []int{l1, l2, l3, l4, l5} {
@@ -304,8 +345,10 @@ func spellcastingMod(c *DnDCharacter) int {
 	switch c.Class {
 	case ClassMage:
 		return abilityModifier(c.INT)
-	case ClassCleric, ClassRanger:
+	case ClassCleric, ClassRanger, ClassDruid:
 		return abilityModifier(c.WIS)
+	case ClassBard, ClassSorcerer, ClassWarlock, ClassPaladin:
+		return abilityModifier(c.CHA)
 	case ClassRogue:
 		// Phase 10 SUB2-AT: Arcane Trickster is INT-based.
 		if c.Subclass == SubclassArcaneTrickster {
@@ -334,10 +377,14 @@ func spellAttackBonus(c *DnDCharacter) int {
 	return proficiencyBonus(c.Level) + spellcastingMod(c)
 }
 
-// classIsCaster returns true for the three caster classes Phase 9 covers.
+// classIsCaster returns true for every spellcasting class. The Open5e
+// scaffold classes (Druid/Bard/Sorcerer/Warlock/Paladin) are casters by the
+// engine's reckoning even while Playable=false — they have slot tables and a
+// spellcasting ability; they just have no spell list to know yet.
 func classIsCaster(class DnDClass) bool {
 	switch class {
-	case ClassMage, ClassCleric, ClassRanger:
+	case ClassMage, ClassCleric, ClassRanger,
+		ClassDruid, ClassBard, ClassSorcerer, ClassWarlock, ClassPaladin:
 		return true
 	}
 	return false
