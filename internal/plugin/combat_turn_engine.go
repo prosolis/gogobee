@@ -39,14 +39,31 @@ var turnCombatPhase = CombatPhase{
 
 // Player action kinds accepted by the state machine on a player_turn step.
 const (
-	ActionAttack = "attack"
-	ActionFlee   = "flee"
+	ActionAttack  = "attack"
+	ActionFlee    = "flee"
+	ActionCast    = "cast"
+	ActionConsume = "consume"
 )
 
 // PlayerAction is the player's choice for a player_turn step. It is ignored on
 // enemy_turn / round_end steps (pass the zero value).
 type PlayerAction struct {
 	Kind string
+	// Effect is set for ActionCast / ActionConsume: a pre-resolved outcome
+	// handed in by the command handler. The handler owns spell/item lookup,
+	// dice rolls, and the resource spend; the engine just applies the HP
+	// deltas and emits the event so the round flows on into the enemy turn.
+	Effect *turnActionEffect
+}
+
+// turnActionEffect is the resolved payload of a !cast / !consume player turn.
+// Damage, heal, and the one-round enemy-skip all land within the casting round.
+type turnActionEffect struct {
+	Label       string // "Fireball — crit!", "Berry Poultice"
+	Action      string // CombatEvent.Action: "spell_cast" or "use_consumable"
+	EnemyDamage int
+	PlayerHeal  int
+	EnemySkip   bool // control spell: enemy forfeits its attack this round
 }
 
 // turnEngine wraps a combatState reconstructed from a persisted CombatSession
@@ -89,16 +106,17 @@ func phaseOrdinal(phase string) uint64 {
 // rng is the deterministic source for this step (see combatSessionRNG).
 func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.Rand) *turnEngine {
 	st := &combatState{
-		playerHP:      sess.PlayerHP,
-		enemyHP:       sess.EnemyHP,
-		round:         sess.Round,
-		poisonTicks:   sess.Statuses.PoisonTicks,
-		poisonDmg:     sess.Statuses.PoisonDmg,
-		stunPlayer:    sess.Statuses.StunPlayer,
-		enraged:       sess.Statuses.Enraged,
-		armorBroken:   sess.Statuses.ArmorBroken,
-		armorBreakAmt: sess.Statuses.ArmorBreakAmt,
-		rng:           rng,
+		playerHP:       sess.PlayerHP,
+		enemyHP:        sess.EnemyHP,
+		round:          sess.Round,
+		poisonTicks:    sess.Statuses.PoisonTicks,
+		poisonDmg:      sess.Statuses.PoisonDmg,
+		stunPlayer:     sess.Statuses.StunPlayer,
+		enraged:        sess.Statuses.Enraged,
+		armorBroken:    sess.Statuses.ArmorBroken,
+		armorBreakAmt:  sess.Statuses.ArmorBreakAmt,
+		enemySkipFirst: sess.Statuses.EnemySkipNext,
+		rng:            rng,
 	}
 	return &turnEngine{
 		sess:   sess,
@@ -134,15 +152,20 @@ func (te *turnEngine) step(action PlayerAction) ([]CombatEvent, error) {
 }
 
 func (te *turnEngine) stepPlayerTurn(action PlayerAction) {
-	if action.Kind == ActionFlee {
+	switch action.Kind {
+	case ActionFlee:
 		te.st.events = append(te.st.events, CombatEvent{
 			Round: te.st.round, Phase: turnCombatPhase.Name, Actor: "player", Action: "flee",
 			PlayerHP: te.st.playerHP, EnemyHP: te.st.enemyHP,
 		})
 		te.finish(CombatStatusFled)
 		return
+	case ActionCast, ActionConsume:
+		te.stepPlayerActionEffect(action.Effect)
+		return
 	}
-	// resolvePlayerAttack returns true once the enemy is down.
+	// Default: weapon attack. resolvePlayerAttack returns true once the
+	// enemy is down.
 	if resolvePlayerAttack(te.st, te.player, te.enemy, &turnCombatPhase, te.result) {
 		te.finish(CombatStatusWon)
 		return
@@ -150,7 +173,53 @@ func (te *turnEngine) stepPlayerTurn(action PlayerAction) {
 	te.sess.Phase = CombatPhaseEnemyTurn
 }
 
+// stepPlayerActionEffect resolves a !cast / !consume turn: the command handler
+// has already rolled the spell / picked the item and spent the resource, so the
+// engine only applies the HP deltas and emits the event before handing off to
+// the enemy turn. A control-spell skip is parked in st.enemySkipFirst, which
+// commit() persists as Statuses.EnemySkipNext for the enemy_turn step to read.
+func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
+	st := te.st
+	if eff == nil {
+		// Defensive: a kind with no payload just passes the turn.
+		te.sess.Phase = CombatPhaseEnemyTurn
+		return
+	}
+	if eff.EnemyDamage > 0 {
+		st.enemyHP = max(0, st.enemyHP-eff.EnemyDamage)
+	}
+	if eff.PlayerHeal > 0 {
+		st.playerHP = min(te.sess.PlayerHPMax, st.playerHP+eff.PlayerHeal)
+	}
+	action := eff.Action
+	if action == "" {
+		action = "spell_cast"
+	}
+	st.events = append(st.events, CombatEvent{
+		Round: st.round, Phase: turnCombatPhase.Name, Actor: "player", Action: action,
+		Damage: eff.EnemyDamage, PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Desc: eff.Label,
+	})
+	if st.enemyHP <= 0 {
+		te.finish(CombatStatusWon)
+		return
+	}
+	if eff.EnemySkip {
+		st.enemySkipFirst = true
+	}
+	te.sess.Phase = CombatPhaseEnemyTurn
+}
+
 func (te *turnEngine) stepEnemyTurn() {
+	// A control spell cast last phase forfeits the enemy's attack this round.
+	if te.st.enemySkipFirst {
+		te.st.enemySkipFirst = false
+		te.st.events = append(te.st.events, CombatEvent{
+			Round: te.st.round, Phase: turnCombatPhase.Name, Actor: "enemy", Action: "spell_held",
+			PlayerHP: te.st.playerHP, EnemyHP: te.st.enemyHP,
+		})
+		te.sess.Phase = CombatPhaseRoundEnd
+		return
+	}
 	// resolveEnemyAttack returns true when the fight is decided — either the
 	// player went down without a death save, or a reflect consumable killed
 	// the enemy. Disambiguate by inspecting HP.
@@ -208,6 +277,7 @@ func (te *turnEngine) commit() {
 		Enraged:       st.enraged,
 		ArmorBroken:   st.armorBroken,
 		ArmorBreakAmt: st.armorBreakAmt,
+		EnemySkipNext: st.enemySkipFirst,
 	}
 	te.sess.TurnLog = append(te.sess.TurnLog, st.events...)
 }

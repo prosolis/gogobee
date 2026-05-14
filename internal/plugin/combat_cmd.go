@@ -3,6 +3,7 @@ package plugin
 import (
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"maunium.net/go/mautrix/id"
@@ -138,21 +139,25 @@ func (p *AdventurePlugin) handleCombatActionCmd(ctx MessageContext, action Playe
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't resolve the round: "+err.Error())
 	}
+	return p.SendDM(ctx.Sender, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
+}
 
+// renderRoundResult turns a resolved round into the player-facing block: the
+// play-by-play, then either the HP/turn-prompt footer (fight continues) or the
+// close-out block (terminal status). Shared by !attack/!flee, !cast, !consume.
+func (p *AdventurePlugin) renderRoundResult(userID id.UserID, sess *CombatSession, events []CombatEvent, playerName string, enemy Combatant) string {
 	var b strings.Builder
-	b.WriteString(renderCombatRound(events, player.Name, enemy.Name))
-
+	b.WriteString(renderCombatRound(events, playerName, enemy.Name))
 	if sess.IsActive() {
 		b.WriteString("\n\n")
 		b.WriteString(fmt.Sprintf("You: **%d/%d**  ·  %s: **%d/%d**\n",
 			sess.PlayerHP, sess.PlayerHPMax, enemy.Name, sess.EnemyHP, sess.EnemyHPMax))
 		b.WriteString(combatTurnPrompt(sess))
-		return p.SendDM(ctx.Sender, b.String())
+		return b.String()
 	}
-
 	b.WriteString("\n\n")
-	b.WriteString(p.finishCombatSession(ctx.Sender, sess, enemy))
-	return p.SendDM(ctx.Sender, b.String())
+	b.WriteString(p.finishCombatSession(userID, sess, enemy))
+	return b.String()
 }
 
 // runCombatRound resolves one full round: the player's chosen action, then the
@@ -178,7 +183,7 @@ func runCombatRound(sess *CombatSession, player, enemy *Combatant, action Player
 // combatTurnPrompt is the "your move" footer shown after every non-terminal
 // round and on the opening !fight message.
 func combatTurnPrompt(sess *CombatSession) string {
-	return fmt.Sprintf("**Round %d.** Your move — `!attack` or `!flee`.", sess.Round)
+	return fmt.Sprintf("**Round %d.** Your move — `!attack`, `!cast <spell>`, `!consume <item>`, or `!flee`.", sess.Round)
 }
 
 // ── close-out ───────────────────────────────────────────────────────────────
@@ -303,6 +308,16 @@ func renderCombatRoundEvent(ev CombatEvent, playerName, enemyName string) string
 			return fmt.Sprintf("✨ %s should be down — and isn't.", playerName)
 		case "flee":
 			return fmt.Sprintf("🏃 %s breaks off and runs.", playerName)
+		case "spell_cast":
+			if ev.Desc != "" {
+				return "✨ " + ev.Desc
+			}
+			return fmt.Sprintf("✨ %s casts a spell.", playerName)
+		case "use_consumable":
+			if ev.Desc != "" {
+				return "🧪 " + ev.Desc
+			}
+			return fmt.Sprintf("🧪 %s uses an item.", playerName)
 		}
 	case "enemy":
 		switch ev.Action {
@@ -326,10 +341,274 @@ func renderCombatRoundEvent(ev CombatEvent, playerName, enemyName string) string
 			return fmt.Sprintf("🧛 %s drains life from the wound.", enemyName)
 		case "cleave":
 			return fmt.Sprintf("🪓 %s cleaves into %s for **%d**.", enemyName, playerName, ev.Damage)
+		case "spell_held":
+			return fmt.Sprintf("🌀 %s is held fast — no attack this round.", enemyName)
 		}
 	}
 	if ev.Damage > 0 {
 		return fmt.Sprintf("• %s — %s (%d)", ev.Actor, ev.Action, ev.Damage)
 	}
 	return ""
+}
+
+// ── !cast (in-combat) ───────────────────────────────────────────────────────
+//
+// handleDnDCastCmd routes here when the player has an active CombatSession:
+// !cast resolves as the player's turn for the round instead of queuing for
+// "next combat". Out-of-combat !cast is unchanged.
+
+// parseCombatCast validates a !cast invocation for a caster mid-fight and
+// returns the spell plus the resolved slot level. errMsg is non-empty and
+// player-facing on any validation failure. It performs NO resource spend —
+// the caller debits the slot only once the round is about to resolve.
+func parseCombatCast(userID id.UserID, c *DnDCharacter, args string) (SpellDefinition, int, string) {
+	tokens := strings.Fields(args)
+	upcast := 0
+	var spellTokens []string
+	for i := 0; i < len(tokens); i++ {
+		switch tokens[i] {
+		case "--upcast":
+			if i+1 < len(tokens) {
+				if n, err := strconv.Atoi(tokens[i+1]); err == nil {
+					upcast = n
+				}
+				i++
+			}
+		case "--target":
+			if i+1 < len(tokens) {
+				i++
+			}
+		default:
+			spellTokens = append(spellTokens, tokens[i])
+		}
+	}
+	if len(spellTokens) == 0 {
+		return SpellDefinition{}, 0, "Usage: `!cast <spell> [--upcast N]` — casts as your turn this round. `!spells` lists options."
+	}
+	spell, ok := parseSpell(strings.Join(spellTokens, " "))
+	if !ok {
+		return SpellDefinition{}, 0, fmt.Sprintf("Unknown spell %q. Run `!spells` to list what you know.", strings.Join(spellTokens, " "))
+	}
+	// Class gate — Arcane Trickster Rogues use the Mage list.
+	effectiveClass := c.Class
+	if c.Class == ClassRogue && c.Subclass == SubclassArcaneTrickster {
+		effectiveClass = ClassMage
+	}
+	classOK := false
+	for _, cl := range spell.Classes {
+		if cl == effectiveClass {
+			classOK = true
+			break
+		}
+	}
+	if !classOK {
+		return SpellDefinition{}, 0, fmt.Sprintf("%s is not on the %s spell list.", spell.Name, titleClass(c.Class))
+	}
+	if c.Class == ClassRogue && c.Subclass == SubclassArcaneTrickster {
+		if mx := highestAvailableSlotForChar(c); spell.Level > mx {
+			return SpellDefinition{}, 0, fmt.Sprintf("Arcane Trickster L%d only has up to L%d slots.", c.Level, mx)
+		}
+	}
+	known, prepared, err := playerKnowsSpell(userID, spell.ID)
+	if err != nil {
+		return SpellDefinition{}, 0, "Couldn't check your spell list."
+	}
+	if !known {
+		return SpellDefinition{}, 0, fmt.Sprintf("You don't know %s yet.", spell.Name)
+	}
+	if !prepared {
+		return SpellDefinition{}, 0, fmt.Sprintf("%s isn't prepared today. Run `!prepare %s` first.", spell.Name, spell.ID)
+	}
+	slotLevel := spell.Level
+	if upcast > slotLevel && spell.Level > 0 {
+		slotLevel = upcast
+	}
+	if slotLevel < 0 || slotLevel > 5 {
+		return SpellDefinition{}, 0, "Slot level out of range (1–5)."
+	}
+	return spell, slotLevel, ""
+}
+
+func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) error {
+	userMu := p.advUserLock(ctx.Sender)
+	userMu.Lock()
+	defer userMu.Unlock()
+
+	sess, err := getActiveCombatSession(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't read combat state: "+err.Error())
+	}
+	if sess == nil {
+		// Race: the fight closed between the route check and the lock.
+		return p.SendDM(ctx.Sender, "You're not in a fight anymore.")
+	}
+
+	advChar, _ := loadAdvCharacter(ctx.Sender)
+	c, err := p.ensureCharForDnDCmd(ctx.Sender, advChar)
+	if err != nil || c == nil {
+		return p.SendDM(ctx.Sender, "Couldn't load your Adv 2.0 sheet.")
+	}
+	if !isSpellcaster(c) {
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"%s isn't a caster class. `!attack` or `!consume <item>` instead.", titleClass(c.Class)))
+	}
+
+	spell, slotLevel, errMsg := parseCombatCast(ctx.Sender, c, strings.TrimSpace(args))
+	if errMsg != "" {
+		return p.SendDM(ctx.Sender, errMsg)
+	}
+	if spell.Effect == EffectReaction {
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"%s is a reaction spell — those still aren't usable. Pick a damage, healing, or control spell.", spell.Name))
+	}
+
+	player, enemy, err := p.combatantsForSession(sess)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
+	}
+
+	out, supported := resolveTurnSpell(c, spell, slotLevel, &enemy.Stats)
+	if !supported {
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"%s is a buff/utility spell — those aren't usable in turn-based fights yet (they need cross-round tracking). Try a damage, healing, or control spell.", spell.Name))
+	}
+
+	// Material component cost (Revivify, Raise Dead — rare in a fight).
+	if spell.MaterialCost > 0 {
+		if p.euro == nil || !p.euro.Debit(ctx.Sender, float64(spell.MaterialCost), "dnd_spell_component") {
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"%s needs a %d-coin diamond component you can't afford.", spell.Name, spell.MaterialCost))
+		}
+	}
+	// Slot spend — audit pattern: debit, run the round, refund on failure.
+	if spell.Level > 0 {
+		ok, serr := consumeSpellSlot(ctx.Sender, slotLevel)
+		if serr != nil {
+			return p.SendDM(ctx.Sender, "Couldn't consume slot: "+serr.Error())
+		}
+		if !ok {
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"No L%d slot available. %s", slotLevel, renderSlotsBrief(ctx.Sender)))
+		}
+	}
+
+	eff := &turnActionEffect{
+		Label:       out.Desc,
+		Action:      "spell_cast",
+		EnemyDamage: out.EnemyDamage,
+		PlayerHeal:  out.PlayerHeal,
+		EnemySkip:   out.EnemySkip,
+	}
+	events, err := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionCast, Effect: eff})
+	if err != nil {
+		if spell.Level > 0 {
+			_ = refundSpellSlot(ctx.Sender, slotLevel)
+		}
+		return p.SendDM(ctx.Sender, "Couldn't resolve the round: "+err.Error())
+	}
+	return p.SendDM(ctx.Sender, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
+}
+
+// ── !consume (in-combat) ────────────────────────────────────────────────────
+//
+// !consume <item> spends one combat consumable as the player's turn. Heal and
+// flat-damage items resolve fully within the round; buff-type items (ward,
+// atk/def boost, spore, reflect, auto-crit) need cross-round stat tracking and
+// are refused for now.
+
+// matchConsumable resolves a player-typed name against the player's consumable
+// inventory: case-insensitive exact match first, then a unique prefix match.
+func matchConsumable(inv []ConsumableItem, query string) (*ConsumableItem, string) {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return nil, ""
+	}
+	var prefix []*ConsumableItem
+	for i := range inv {
+		name := strings.ToLower(inv[i].Def.Name)
+		if name == q {
+			return &inv[i], ""
+		}
+		if strings.HasPrefix(name, q) {
+			prefix = append(prefix, &inv[i])
+		}
+	}
+	switch len(prefix) {
+	case 0:
+		return nil, ""
+	case 1:
+		return prefix[0], ""
+	default:
+		names := make([]string, len(prefix))
+		for i, c := range prefix {
+			names[i] = c.Def.Name
+		}
+		return nil, "Ambiguous — matches: " + strings.Join(names, ", ") + "."
+	}
+}
+
+func (p *AdventurePlugin) handleConsumeCmd(ctx MessageContext, args string) error {
+	userMu := p.advUserLock(ctx.Sender)
+	userMu.Lock()
+	defer userMu.Unlock()
+
+	sess, err := getActiveCombatSession(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't read combat state: "+err.Error())
+	}
+	if sess == nil {
+		return p.SendDM(ctx.Sender, "`!consume <item>` spends an item on your turn in an Elite or Boss fight. You're not in one — outside combat, consumables fire automatically.")
+	}
+
+	inv := p.loadConsumableInventory(ctx.Sender)
+	args = strings.TrimSpace(args)
+	if args == "" {
+		if len(inv) == 0 {
+			return p.SendDM(ctx.Sender, "You have no combat consumables. `!attack` / `!cast` / `!flee`.")
+		}
+		names := make([]string, len(inv))
+		for i, c := range inv {
+			names[i] = c.Def.Name
+		}
+		return p.SendDM(ctx.Sender, "Usage: `!consume <item>`. You're carrying: "+strings.Join(names, ", ")+".")
+	}
+
+	item, ambig := matchConsumable(inv, args)
+	if ambig != "" {
+		return p.SendDM(ctx.Sender, ambig)
+	}
+	if item == nil {
+		return p.SendDM(ctx.Sender, fmt.Sprintf("No consumable matching %q in your inventory.", args))
+	}
+
+	def := item.Def
+	eff := &turnActionEffect{Action: "use_consumable"}
+	switch def.Effect {
+	case EffectHeal:
+		eff.PlayerHeal = int(def.Value)
+		eff.Label = fmt.Sprintf("%s — +%d HP", def.Name, eff.PlayerHeal)
+	case EffectFlatDmg:
+		eff.EnemyDamage = int(def.Value)
+		eff.Label = fmt.Sprintf("%s — %d damage", def.Name, eff.EnemyDamage)
+	default:
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"**%s** is a buff-type consumable — those aren't usable in turn-based fights yet. Healing and damage items (Berry Poultice, Coal Bomb, …) work.", def.Name))
+	}
+
+	player, enemy, err := p.combatantsForSession(sess)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
+	}
+
+	events, err := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionConsume, Effect: eff})
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't resolve the round: "+err.Error())
+	}
+	// Round resolved and persisted — now burn the item. A removal failure here
+	// leaves the player a free use (logged, rare); better than charging them
+	// for a round that errored out.
+	if rerr := removeAdvInventoryItem(item.InventoryID); rerr != nil {
+		slog.Error("combat: consume remove inventory item failed", "user", ctx.Sender, "item", def.Name, "err", rerr)
+	}
+	return p.SendDM(ctx.Sender, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
 }

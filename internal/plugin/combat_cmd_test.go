@@ -141,6 +141,100 @@ func TestRunCombatRound_PlayerWinsTerminates(t *testing.T) {
 	}
 }
 
+// ── runCombatRound: !cast / !consume turn effects ─────────────────────────
+
+func TestRunCombatRound_ConsumeHealClampsToMax(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@combat-heal:example.org")
+	defer cleanupCombatSessions(uid)
+
+	// Player at 10/50, big enemy pool so the round can't end the fight.
+	sess, err := startCombatSession(uid, "r", "room0", "goblin", 10, 50, 100000, 100000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	player, enemy := basePlayer(), baseEnemy()
+
+	eff := &turnActionEffect{Action: "use_consumable", Label: "Spirit Tonic", PlayerHeal: 1000}
+	if _, err := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionConsume, Effect: eff}); err != nil {
+		t.Fatal(err)
+	}
+	// Heal of 1000 must clamp to PlayerHPMax, even after the enemy's swing this
+	// round chipped some HP back off.
+	if sess.PlayerHP > sess.PlayerHPMax {
+		t.Errorf("playerHP = %d exceeds max %d", sess.PlayerHP, sess.PlayerHPMax)
+	}
+	if sess.PlayerHP <= 10 {
+		t.Errorf("playerHP = %d, expected the heal to raise it above the 10 it started at", sess.PlayerHP)
+	}
+}
+
+func TestRunCombatRound_CastDamageKillsEnemy(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@combat-cast-kill:example.org")
+	defer cleanupCombatSessions(uid)
+
+	sess, err := startCombatSession(uid, "r", "room0", "goblin", 100000, 100000, 30, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	player, enemy := basePlayer(), baseEnemy()
+
+	eff := &turnActionEffect{Action: "spell_cast", Label: "Fireball — 99 dmg", EnemyDamage: 99}
+	events, err := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionCast, Effect: eff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != CombatStatusWon || sess.Phase != CombatPhaseOver {
+		t.Errorf("after lethal cast: status=%q phase=%q", sess.Status, sess.Phase)
+	}
+	if sess.EnemyHP > 0 {
+		t.Errorf("enemyHP = %d, want 0", sess.EnemyHP)
+	}
+	if len(events) != 1 || events[0].Action != "spell_cast" {
+		t.Errorf("expected a single spell_cast event, got %+v", events)
+	}
+}
+
+func TestRunCombatRound_CastControlSkipsEnemyTurn(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@combat-control:example.org")
+	defer cleanupCombatSessions(uid)
+
+	sess, err := startCombatSession(uid, "r", "room0", "goblin", 200, 200, 100000, 100000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	player, enemy := basePlayer(), baseEnemy()
+	hpBefore := sess.PlayerHP
+
+	eff := &turnActionEffect{Action: "spell_cast", Label: "Hold Person — controlled", EnemySkip: true}
+	events, err := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionCast, Effect: eff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The enemy forfeits its swing this round, so the player takes no damage.
+	if sess.PlayerHP != hpBefore {
+		t.Errorf("playerHP = %d, want unchanged %d (enemy was held)", sess.PlayerHP, hpBefore)
+	}
+	held := false
+	for _, ev := range events {
+		if ev.Action == "spell_held" {
+			held = true
+		}
+	}
+	if !held {
+		t.Errorf("expected a spell_held event, got %+v", events)
+	}
+	// The skip is a one-round effect — it must not persist into the next round.
+	if sess.Statuses.EnemySkipNext {
+		t.Error("EnemySkipNext should be cleared once the enemy turn consumed it")
+	}
+	if !sess.IsActive() || sess.Phase != CombatPhasePlayerTurn {
+		t.Errorf("fight should continue: status=%q phase=%q", sess.Status, sess.Phase)
+	}
+}
+
 // ── renderCombatRound ──────────────────────────────────────────────────────
 
 func TestRenderCombatRound(t *testing.T) {

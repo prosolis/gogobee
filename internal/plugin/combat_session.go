@@ -55,6 +55,11 @@ type CombatStatuses struct {
 	Enraged       bool    `json:"enraged,omitempty"`
 	ArmorBroken   bool    `json:"armor_broken,omitempty"`
 	ArmorBreakAmt float64 `json:"armor_break_amt,omitempty"`
+	// EnemySkipNext carries a control-spell skip (Hold Person, Sleep) from the
+	// player_turn phase it was cast in to the enemy_turn phase that consumes it
+	// — those phases resolve as separate engine steps with separate in-memory
+	// combatState, so the flag must survive the commit between them.
+	EnemySkipNext bool `json:"enemy_skip_next,omitempty"`
 }
 
 // CombatSession is the in-memory shape of a combat_session row.

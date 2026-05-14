@@ -330,6 +330,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "flee") {
 		return p.handleFleeCmd(ctx)
 	}
+	if p.IsCommand(ctx.Body, "consume") {
+		return p.handleConsumeCmd(ctx, p.GetArgs(ctx.Body, "consume"))
+	}
 	if p.IsCommand(ctx.Body, "expedition") {
 		return p.handleDnDExpeditionCmd(ctx, p.GetArgs(ctx.Body, "expedition"))
 	}
