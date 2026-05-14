@@ -641,3 +641,84 @@ var narrativeCloseLoss = []string{
 	"You gave it everything. It wasn't quite sufficient. Sufficiency is the enemy's department today.",
 	"The enemy earned that one. So did you. Only one of you gets paid.",
 }
+
+// ── Turn-based per-round narration ───────────────────────────────────────────
+//
+// RenderTurnRound narrates one resolved round of a manual elite/boss fight.
+// Where RenderCombatLog (auto-resolve) groups a whole fight into phased,
+// multi-message blocks, a turn-based round is one message: the events from
+// player_turn → enemy_turn → round_end, in order. The shared hit/crit/miss/
+// ability events the turn engine emits through the same primitives as
+// auto-resolve fall through to renderEvent and reuse the full narrative pools,
+// so TwinBee's voice is identical across both engines. Only the four
+// turn-specific actions (flee, spell_cast, use_consumable, spell_held) get
+// their own pools here.
+//
+// A fresh actionPicker per round is intentional: a round emits at most a
+// handful of events, and across a long boss fight the picker resetting each
+// round reads as variety rather than staleness.
+func RenderTurnRound(events []CombatEvent, playerName, enemyName string) string {
+	picker := newActionPicker()
+	var lines []string
+	for _, e := range events {
+		line := renderTurnEvent(e, playerName, enemyName, picker)
+		if line == "" {
+			continue
+		}
+		if roll := rollAnnotation(e); roll != "" {
+			line += " " + roll
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return "_The round passes without a clean blow landed._"
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderTurnEvent(e CombatEvent, playerName, enemyName string, picker *actionPicker) string {
+	switch e.Action {
+	case "flee":
+		return pickRand(narrativeTurnFlee)
+	case "spell_held":
+		return pickRand(narrativeTurnSpellHeld)
+	case "spell_cast":
+		label := e.Desc
+		if label == "" {
+			label = "a spell"
+		}
+		return fmt.Sprintf(pickRand(narrativeTurnSpellCast), label)
+	case "use_consumable":
+		label := e.Desc
+		if label == "" {
+			label = "an item"
+		}
+		return fmt.Sprintf(pickRand(narrativeTurnConsumable), label)
+	}
+	return renderEvent(e, playerName, enemyName, CombatResult{}, picker)
+}
+
+var narrativeTurnFlee = []string{
+	"🏃 You break off and run. No shame in it — the dead don't get a sequel.",
+	"🏃 You decide this fight isn't yours to win and make for the exit. TwinBee respects the math.",
+	"🏃 You disengage and bolt. The enemy doesn't chase. The enemy didn't have to.",
+}
+
+var narrativeTurnSpellHeld = []string{
+	"🌀 The enemy strains against the spell and gets nowhere. No attack this round.",
+	"🌀 Held fast. The enemy's turn dissolves into furious, useless effort.",
+	"🌀 The control holds. The enemy spends the round being a statue with opinions.",
+}
+
+var narrativeTurnSpellCast = []string{
+	"✨ You loose the spell. **%s**.",
+	"✨ The weave answers. **%s**.",
+	"✨ Words, gesture, intent — **%s**.",
+	"✨ You spend the magic where it counts. **%s**.",
+}
+
+var narrativeTurnConsumable = []string{
+	"🧪 You crack it open mid-fight. **%s**.",
+	"🧪 No time to be precious about it. **%s**.",
+	"🧪 You burn a consumable on the spot. **%s**.",
+}

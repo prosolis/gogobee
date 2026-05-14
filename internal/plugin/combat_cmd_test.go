@@ -235,10 +235,10 @@ func TestRunCombatRound_CastControlSkipsEnemyTurn(t *testing.T) {
 	}
 }
 
-// ── renderCombatRound ──────────────────────────────────────────────────────
+// ── RenderTurnRound ────────────────────────────────────────────────────────
 
-func TestRenderCombatRound(t *testing.T) {
-	if got := renderCombatRound(nil, "Hero", "Goblin"); !strings.Contains(got, "without a clean blow") {
+func TestRenderTurnRound(t *testing.T) {
+	if got := RenderTurnRound(nil, "Hero", "Goblin"); !strings.Contains(got, "without a clean blow") {
 		t.Errorf("empty events render = %q", got)
 	}
 	events := []CombatEvent{
@@ -246,18 +246,28 @@ func TestRenderCombatRound(t *testing.T) {
 		{Actor: "enemy", Action: "miss"},
 		{Actor: "enemy", Action: "poison_tick", Damage: 3},
 	}
-	got := renderCombatRound(events, "Hero", "Goblin")
-	if !strings.Contains(got, "Hero") || !strings.Contains(got, "9") {
-		t.Errorf("player hit not rendered: %q", got)
+	got := RenderTurnRound(events, "Hero", "Goblin")
+	// One line per event (damage events interpolate their amount; the random
+	// pool choice is what varies, so assert structure + the damage numbers
+	// rather than specific flavor strings).
+	if lines := strings.Count(got, "\n"); lines != 2 {
+		t.Errorf("expected 3 lines, got %d: %q", lines+1, got)
 	}
-	if !strings.Contains(got, "misses") {
-		t.Errorf("enemy miss not rendered: %q", got)
+	if !strings.Contains(got, "9") {
+		t.Errorf("player hit damage not rendered: %q", got)
 	}
-	if !strings.Contains(got, "Poison") {
-		t.Errorf("poison tick not rendered: %q", got)
+	if !strings.Contains(got, "3") {
+		t.Errorf("poison tick damage not rendered: %q", got)
 	}
-	// Unknown actor/action with no damage renders nothing (not a blank line).
-	if line := renderCombatRoundEvent(CombatEvent{Actor: "system", Action: "timeout"}, "Hero", "Goblin"); line != "" {
-		t.Errorf("unknown zero-damage event should render empty, got %q", line)
+	// Turn-specific actions get their own pools.
+	cast := RenderTurnRound([]CombatEvent{
+		{Actor: "player", Action: "spell_cast", Desc: "Fireball — 24 dmg", Damage: 24},
+	}, "Hero", "Goblin")
+	if !strings.Contains(cast, "Fireball — 24 dmg") {
+		t.Errorf("spell_cast label not rendered: %q", cast)
+	}
+	flee := RenderTurnRound([]CombatEvent{{Actor: "player", Action: "flee"}}, "Hero", "Goblin")
+	if flee == "" || strings.Contains(flee, "without a clean blow") {
+		t.Errorf("flee should render a line: %q", flee)
 	}
 }

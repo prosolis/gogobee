@@ -155,7 +155,7 @@ func (p *AdventurePlugin) handleCombatActionCmd(ctx MessageContext, action Playe
 // close-out block (terminal status). Shared by !attack/!flee, !cast, !consume.
 func (p *AdventurePlugin) renderRoundResult(userID id.UserID, sess *CombatSession, events []CombatEvent, playerName string, enemy Combatant) string {
 	var b strings.Builder
-	b.WriteString(renderCombatRound(events, playerName, enemy.Name))
+	b.WriteString(RenderTurnRound(events, playerName, enemy.Name))
 	if sess.IsActive() {
 		b.WriteString("\n\n")
 		b.WriteString(fmt.Sprintf("You: **%d/%d**  ·  %s: **%d/%d**\n",
@@ -276,87 +276,6 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 		b.WriteString("The fight is over.")
 	}
 	return b.String()
-}
-
-// ── rendering ───────────────────────────────────────────────────────────────
-
-// renderCombatRound turns one round's events into a compact play-by-play
-// block. Full TwinBee per-round narration is a later sub-phase; this is the
-// functional MVP renderer.
-func renderCombatRound(events []CombatEvent, playerName, enemyName string) string {
-	var lines []string
-	for _, ev := range events {
-		if line := renderCombatRoundEvent(ev, playerName, enemyName); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	if len(lines) == 0 {
-		return "_The round passes without a clean blow landed._"
-	}
-	return strings.Join(lines, "\n")
-}
-
-func renderCombatRoundEvent(ev CombatEvent, playerName, enemyName string) string {
-	switch ev.Actor {
-	case "player":
-		switch ev.Action {
-		case "hit":
-			return fmt.Sprintf("⚔️ %s lands a hit for **%d**.", playerName, ev.Damage)
-		case "crit":
-			return fmt.Sprintf("💥 %s **crits** for **%d**!", playerName, ev.Damage)
-		case "block":
-			return fmt.Sprintf("⚔️ %s pushes through the guard for **%d**.", playerName, ev.Damage)
-		case "miss":
-			return fmt.Sprintf("… %s swings and misses.", playerName)
-		case "stunned":
-			return fmt.Sprintf("😵 %s is stunned and loses the turn.", playerName)
-		case "rage":
-			return fmt.Sprintf("🔥 %s's blood is up — rage takes hold.", playerName)
-		case "death_save":
-			return fmt.Sprintf("✨ %s should be down — and isn't.", playerName)
-		case "flee":
-			return fmt.Sprintf("🏃 %s breaks off and runs.", playerName)
-		case "spell_cast":
-			if ev.Desc != "" {
-				return "✨ " + ev.Desc
-			}
-			return fmt.Sprintf("✨ %s casts a spell.", playerName)
-		case "use_consumable":
-			if ev.Desc != "" {
-				return "🧪 " + ev.Desc
-			}
-			return fmt.Sprintf("🧪 %s uses an item.", playerName)
-		}
-	case "enemy":
-		switch ev.Action {
-		case "hit":
-			return fmt.Sprintf("🩸 %s hits %s for **%d**.", enemyName, playerName, ev.Damage)
-		case "crit":
-			return fmt.Sprintf("🩸 %s **crits** %s for **%d**!", enemyName, playerName, ev.Damage)
-		case "miss":
-			return fmt.Sprintf("… %s attacks, but misses.", enemyName)
-		case "poison_tick":
-			return fmt.Sprintf("☠️ Poison saps **%d** from %s.", ev.Damage, playerName)
-		case "poison":
-			return fmt.Sprintf("☠️ %s's strike leaves a poison festering.", enemyName)
-		case "enrage":
-			return fmt.Sprintf("😡 %s flies into a rage.", enemyName)
-		case "armor_break":
-			return fmt.Sprintf("🛡️ %s cracks %s's armor.", enemyName, playerName)
-		case "stun":
-			return fmt.Sprintf("💫 %s lands a stunning blow.", enemyName)
-		case "lifesteal":
-			return fmt.Sprintf("🧛 %s drains life from the wound.", enemyName)
-		case "cleave":
-			return fmt.Sprintf("🪓 %s cleaves into %s for **%d**.", enemyName, playerName, ev.Damage)
-		case "spell_held":
-			return fmt.Sprintf("🌀 %s is held fast — no attack this round.", enemyName)
-		}
-	}
-	if ev.Damage > 0 {
-		return fmt.Sprintf("• %s — %s (%d)", ev.Actor, ev.Action, ev.Damage)
-	}
-	return ""
 }
 
 // ── !cast (in-combat) ───────────────────────────────────────────────────────
