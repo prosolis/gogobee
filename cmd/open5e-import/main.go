@@ -4,11 +4,13 @@
 // It is a pull-once / use-many tool — the generated files are committed, so
 // the running bot has no runtime dependency on the Open5e API.
 //
-//	open5e-import fetch spells   # vendor data/open5e/spells.json from the API
-//	open5e-import gen spells     # classify → internal/plugin/dnd_spells_srd_data.go
+//	open5e-import fetch spells     # vendor data/open5e/spells.json from the API
+//	open5e-import gen spells       # classify → internal/plugin/dnd_spells_srd_data.go
+//	open5e-import fetch bestiary   # vendor data/open5e/monsters.json from the API
+//	open5e-import gen bestiary     # classify → internal/plugin/bestiary_srd_data.go
 //
-// `bestiary` and `equipment` subcommands are planned; the dispatch below is
-// structured to grow into them without reshuffling.
+// `equipment` subcommands are planned; the dispatch below is structured to
+// grow into them without reshuffling.
 package main
 
 import (
@@ -25,6 +27,10 @@ const (
 	spellsAPIBase = "https://api.open5e.com/v1/spells/?document__slug=wotc-srd&limit=50"
 	spellsJSON    = "data/open5e/spells.json"
 	spellsGenGo   = "internal/plugin/dnd_spells_srd_data.go"
+
+	monstersAPIBase = "https://api.open5e.com/v1/monsters/?document__slug=wotc-srd&limit=50"
+	monstersJSON    = "data/open5e/monsters.json"
+	bestiaryGenGo   = "internal/plugin/bestiary_srd_data.go"
 )
 
 func main() {
@@ -37,6 +43,8 @@ func main() {
 		switch noun {
 		case "spells":
 			must(fetchSpells())
+		case "bestiary":
+			must(fetchMonsters())
 		default:
 			usage()
 		}
@@ -44,6 +52,8 @@ func main() {
 		switch noun {
 		case "spells":
 			must(genSpells())
+		case "bestiary":
+			must(genBestiary())
 		default:
 			usage()
 		}
@@ -53,7 +63,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: open5e-import (fetch|gen) (spells)")
+	fmt.Fprintln(os.Stderr, "usage: open5e-import (fetch|gen) (spells|bestiary)")
 	os.Exit(2)
 }
 
