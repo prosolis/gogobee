@@ -645,18 +645,9 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		}
 	}
 	isFumble := roll == 1
-	// Phase 10 SUB2a — Champion Improved Critical lowers the crit floor.
-	// CritThreshold==0 means "use default" (nat 20). Champion sets 19.
-	critFloor := 20
-	if player.Mods.CritThreshold > 0 && player.Mods.CritThreshold < 20 {
-		critFloor = player.Mods.CritThreshold
-	}
+	critFloor := attackCritFloor(player.Mods)
 	isCritRoll := roll >= critFloor
-	// Class proficiency penalty (appendix §8): -4 attack with a non-proficient weapon.
-	attackBonus := player.Stats.AttackBonus
-	if player.Stats.Weapon != nil && !player.Stats.WeaponProficient {
-		attackBonus -= 4
-	}
+	attackBonus := effectiveAttackBonus(player.Stats)
 	// Phase 10 SUB2a-ii — Battle Master Precision Attack: +d8 (modeled as
 	// flat +4) to the first attack roll only. Consumed even on miss.
 	if player.Mods.FirstAttackBonus > 0 && !st.firstAttackBonusUsed {
@@ -665,7 +656,7 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	}
 	total := roll + attackBonus
 
-	if isFumble || (!isCritRoll && total < enemy.Stats.AC) {
+	if !attackConnects(roll, total, enemy.Stats.AC, critFloor) {
 		desc := ""
 		if isFumble {
 			desc = "fumble"
@@ -706,66 +697,7 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		dmg = max(1, dmg/2)
 	}
 
-	isCrit := isCritRoll
-	autoCritFired := false
-	if !isCritRoll && st.autoCrit {
-		isCrit = true
-		autoCritFired = true
-		st.autoCrit = false
-	} else if st.autoCrit && isCritRoll {
-		// Natural crit consumes the auto-crit charge but doesn't get the
-		// "passive fired" flavor — the dice already explain it.
-		st.autoCrit = false
-	}
-	if isCrit {
-		// Crit: double damage. (5e rolls extra dice; we double total to
-		// match the engine's pre-Phase-8 crit semantics.)
-		dmg *= 2
-	}
-	// Orc Rage: +50% damage on this attack, then consume.
-	if st.pendingRageAttack {
-		dmg = int(float64(dmg) * 1.5)
-		st.pendingRageAttack = false
-	}
-	// Phase 10 SUB2a — Berserker rage: +flat per hit, plus Frenzy
-	// multiplicative bump that approximates the bonus-attack-per-turn we
-	// can't model in one-shot combat.
-	if player.Mods.BerserkerRage {
-		if player.Mods.RageMeleeDmg > 0 {
-			dmg += player.Mods.RageMeleeDmg
-		}
-		if player.Mods.FrenzyDmgBonus > 0 {
-			dmg = int(float64(dmg) * (1 + player.Mods.FrenzyDmgBonus))
-		}
-	}
-	// Phase 10 SUB3c — Divine Strike. Flat per-hit bonus on weapon hits only
-	// (5e specs "weapon hit"; no Weapon means we're on the legacy/non-weapon
-	// damage path and Divine Strike doesn't apply). Lands every hit because
-	// our 1v1 model has no concept of "once per turn" turn boundaries.
-	if player.Mods.DivineStrikePerHit > 0 && player.Stats.Weapon != nil {
-		dmg += player.Mods.DivineStrikePerHit
-	}
-	// Phase 10 SUB2a-ii — Assassin Death Strike proxy: bonus damage on the
-	// first hit only. Stacks on top of the Rogue's Sneak Attack auto-crit
-	// (which already doubled the base damage above) — the bonus itself is
-	// applied AFTER the crit doubling so the math is "double base + flat
-	// surprise damage". Consumed on first hit regardless of crit status.
-	if player.Mods.AssassinateBonusDmg > 0 && !st.assassinateBonusUsed {
-		dmg += player.Mods.AssassinateBonusDmg
-		st.assassinateBonusUsed = true
-	}
-	dmg = max(1, dmg)
-
-	action := "hit"
-	desc := ""
-	if isCrit {
-		action = "crit"
-		if autoCritFired {
-			desc = "auto_crit"
-		}
-	} else if blocked {
-		action = "block"
-	}
+	dmg, action, desc := applyPlayerHitDamageMods(st, player, dmg, isCritRoll, blocked)
 
 	st.enemyHP = max(0, st.enemyHP-dmg)
 	st.events = append(st.events, CombatEvent{
@@ -805,9 +737,9 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	roll := 1 + st.roll(20)
 	isFumble := roll == 1
 	isNat20 := roll == 20
-	total := roll + enemy.Stats.AttackBonus
+	total := roll + effectiveAttackBonus(enemy.Stats)
 
-	if isFumble || (!isNat20 && total < player.Stats.AC) {
+	if !attackConnects(roll, total, player.Stats.AC, 20) {
 		desc := ""
 		if isFumble {
 			desc = "fumble"
