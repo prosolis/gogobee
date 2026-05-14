@@ -219,17 +219,27 @@ func TestApplyClassPassives(t *testing.T) {
 		wantAtkBonusAdd int
 		wantAutoCrit    bool
 		wantHealItem    int
+		wantDmgReduct   float64
+		wantFlatStart   int
+		wantInitBias    float64
 	}{
-		{ClassFighter, 0.05, 0, false, 0},
-		{ClassRogue, 0, 0, true, 0},
-		{ClassMage, 0, 1, false, 0},
-		{ClassCleric, 0, 0, false, 5},
-		{ClassRanger, 0.05, 1, false, 0},
+		{ClassFighter, 0.05, 0, false, 0, 1.0, 0, 0},
+		{ClassRogue, 0, 0, true, 0, 1.0, 0, 0},
+		{ClassMage, 0, 1, false, 0, 1.0, 0, 0},
+		{ClassCleric, 0, 0, false, 5, 1.0, 0, 0},
+		{ClassRanger, 0.05, 1, false, 0, 1.0, 0, 0},
+		// Open5e caster scaffold. CHA 10 → +0 mod, so Sorcerer's FlatDmgStart
+		// is the flat 3; Paladin at L1 is 4 + 0.
+		{ClassDruid, 0, 0, false, 0, 0.95, 0, 0},
+		{ClassBard, 0, 0, false, 0, 1.0, 0, 1},
+		{ClassSorcerer, 0, 0, false, 0, 1.0, 3, 0},
+		{ClassWarlock, 0.10, 0, false, 0, 1.0, 0, 0},
+		{ClassPaladin, 0, 0, false, 0, 1.0, 4, 0},
 	}
 	for _, tc := range cases {
 		stats := CombatStats{AttackBonus: 5}
-		mods := CombatModifiers{}
-		applyClassPassives(&stats, &mods, &DnDCharacter{Class: tc.class})
+		mods := CombatModifiers{DamageReduct: 1.0}
+		applyClassPassives(&stats, &mods, &DnDCharacter{Class: tc.class, Level: 1, CHA: 10})
 		if mods.DamageBonus != tc.wantDmgBonus {
 			t.Errorf("%s: DamageBonus=%v, want %v", tc.class, mods.DamageBonus, tc.wantDmgBonus)
 		}
@@ -241,6 +251,15 @@ func TestApplyClassPassives(t *testing.T) {
 		}
 		if mods.HealItem != tc.wantHealItem {
 			t.Errorf("%s: HealItem=%d, want %d", tc.class, mods.HealItem, tc.wantHealItem)
+		}
+		if mods.DamageReduct != tc.wantDmgReduct {
+			t.Errorf("%s: DamageReduct=%v, want %v", tc.class, mods.DamageReduct, tc.wantDmgReduct)
+		}
+		if mods.FlatDmgStart != tc.wantFlatStart {
+			t.Errorf("%s: FlatDmgStart=%d, want %d", tc.class, mods.FlatDmgStart, tc.wantFlatStart)
+		}
+		if mods.InitiativeBias != tc.wantInitBias {
+			t.Errorf("%s: InitiativeBias=%v, want %v", tc.class, mods.InitiativeBias, tc.wantInitBias)
 		}
 	}
 }

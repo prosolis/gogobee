@@ -39,6 +39,26 @@ const (
 	SubclassHunter       DnDSubclass = "hunter"
 	SubclassBeastMaster  DnDSubclass = "beast_master"
 	SubclassGloomStalker DnDSubclass = "gloom_stalker"
+	// Druid — Open5e caster scaffold
+	SubclassCircleLand     DnDSubclass = "circle_land"
+	SubclassCircleMoon     DnDSubclass = "circle_moon"
+	SubclassCircleShepherd DnDSubclass = "circle_shepherd"
+	// Bard
+	SubclassCollegeLore    DnDSubclass = "college_lore"
+	SubclassCollegeValor   DnDSubclass = "college_valor"
+	SubclassCollegeGlamour DnDSubclass = "college_glamour"
+	// Sorcerer
+	SubclassDraconicBloodline DnDSubclass = "draconic_bloodline"
+	SubclassWildMagic         DnDSubclass = "wild_magic"
+	SubclassStormSorcery      DnDSubclass = "storm_sorcery"
+	// Warlock
+	SubclassFiendPatron   DnDSubclass = "fiend_patron"
+	SubclassArchfeyPatron DnDSubclass = "archfey_patron"
+	SubclassGreatOldOne   DnDSubclass = "great_old_one"
+	// Paladin
+	SubclassOathDevotion  DnDSubclass = "oath_devotion"
+	SubclassOathVengeance DnDSubclass = "oath_vengeance"
+	SubclassOathAncients  DnDSubclass = "oath_ancients"
 )
 
 // DnDSubclassInfo — registry row. Tagline summarizes identity in one line
@@ -52,9 +72,14 @@ type DnDSubclassInfo struct {
 	Flavor  string
 }
 
-// dndSubclassRegistry — 15 entries, ordered first by class (Fighter,
-// Rogue, Mage, Cleric, Ranger) then by the design doc's listed order
-// within each class. The selection prompt presents them in this order.
+// dndSubclassRegistry — 30 entries (3 per class × 10 classes), ordered
+// first by class (Fighter, Rogue, Mage, Cleric, Ranger, then the Open5e
+// caster scaffold: Druid, Bard, Sorcerer, Warlock, Paladin) then by the
+// design doc's listed order within each class. The selection prompt
+// presents them in this order. The caster subclasses use canonical 5e
+// archetype names, consistent with the original fifteen — see the
+// avoid-dnd-naming note: the naming concern is code identifiers and
+// marketing, not in-game content.
 var dndSubclassRegistry = []DnDSubclassInfo{
 	// Fighter
 	{SubclassChampion, ClassFighter, "Champion",
@@ -110,6 +135,61 @@ var dndSubclassRegistry = []DnDSubclassInfo{
 	{SubclassGloomStalker, ClassRanger, "Gloom Stalker",
 		"Darkness specialist. Exceptional underground.",
 		"You were already good in the dark. Now you're better. TwinBee notes: the Underdark is waiting."},
+
+	// Druid — Open5e caster scaffold
+	{SubclassCircleLand, ClassDruid, "Circle of the Land",
+		"Versatile caster; recovery and warding.",
+		"The land remembers you, and answers when you call. A measured path — and a durable one."},
+	{SubclassCircleMoon, ClassDruid, "Circle of the Moon",
+		"Combat shapeshifter; tanky beast forms.",
+		"You don't cast at the fight so much as become it. Tooth, claw, and a great deal of hide."},
+	{SubclassCircleShepherd, ClassDruid, "Circle of the Shepherd",
+		"Summoner; spirit totems and conjured allies.",
+		"You never walk into a fight alone — the wild walks in with you."},
+
+	// Bard
+	{SubclassCollegeLore, ClassBard, "College of Lore",
+		"Knowledge and control; turn the enemy's edge dull.",
+		"You've read the room, the foe, and three books about both. The fight is half-won before it starts."},
+	{SubclassCollegeValor, ClassBard, "College of Valor",
+		"Combat bard; songs that sharpen sword and shield.",
+		"A song with a blade in it. The old kind of bard — the kind that came back from the war."},
+	{SubclassCollegeGlamour, ClassBard, "College of Glamour",
+		"Charm and majesty; enthrall and disarm the foe.",
+		"You wear the Feywild's glamour like a borrowed coat. Few can bear to strike at something so dazzling."},
+
+	// Sorcerer
+	{SubclassDraconicBloodline, ClassSorcerer, "Draconic Bloodline",
+		"Durable blaster; draconic scales and elemental punch.",
+		"There's a dragon somewhere back down your line, and it left the door unlocked."},
+	{SubclassWildMagic, ClassSorcerer, "Wild Magic",
+		"Chaotic burst; luck bent hard in your favor.",
+		"Your magic doesn't take orders so much as suggestions. Loud, unpredictable, occasionally glorious."},
+	{SubclassStormSorcery, ClassSorcerer, "Storm Sorcery",
+		"Mobile elemental caster; wind, speed, and thunder.",
+		"You move first because the storm always does. Everything after is just weather."},
+
+	// Warlock
+	{SubclassFiendPatron, ClassWarlock, "The Fiend",
+		"Damage and grit; power borrowed from the lower planes.",
+		"The bargain was steep, the firepower is steeper. Try not to read the fine print mid-fight."},
+	{SubclassArchfeyPatron, ClassWarlock, "The Archfey",
+		"Charm and escape; fey tricks that unmake the attack.",
+		"Your patron deals in glamour and misdirection — and so, now, do you. Hard to hit what won't hold still."},
+	{SubclassGreatOldOne, ClassWarlock, "The Great Old One",
+		"Psychic control; minds bent, foes unmade from within.",
+		"Something vast and distant is half-listening through you. Best not to think too hard about which half."},
+
+	// Paladin
+	{SubclassOathDevotion, ClassPaladin, "Oath of Devotion",
+		"Holy warrior; sacred weapon and protective auras.",
+		"You took the oath and meant every word of it. The light leans your way for it."},
+	{SubclassOathVengeance, ClassPaladin, "Oath of Vengeance",
+		"Relentless attacker; mark a foe and bring it down.",
+		"Someone, somewhere, has earned this. You've simply volunteered to deliver it."},
+	{SubclassOathAncients, ClassPaladin, "Oath of the Ancients",
+		"Resilient nature-paladin; warding light, hard to fell.",
+		"You guard the green and growing things, and the old light guards you back. Stubbornly."},
 }
 
 // subclassInfo returns the registry row for id, or (zero, false).

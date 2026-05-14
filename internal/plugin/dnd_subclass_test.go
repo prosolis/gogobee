@@ -12,9 +12,9 @@ import (
 
 // ── Registry sanity ──────────────────────────────────────────────────────
 
-func TestSubclassRegistry_FifteenEntriesThreePerClass(t *testing.T) {
-	if got := len(dndSubclassRegistry); got != 15 {
-		t.Fatalf("registry size: got %d, want 15", got)
+func TestSubclassRegistry_ThirtyEntriesThreePerClass(t *testing.T) {
+	if got := len(dndSubclassRegistry); got != 30 {
+		t.Fatalf("registry size: got %d, want 30", got)
 	}
 	perClass := map[DnDClass]int{}
 	for _, s := range dndSubclassRegistry {
@@ -23,7 +23,10 @@ func TestSubclassRegistry_FifteenEntriesThreePerClass(t *testing.T) {
 			t.Errorf("incomplete entry: %+v", s)
 		}
 	}
-	for _, cls := range []DnDClass{ClassFighter, ClassRogue, ClassMage, ClassCleric, ClassRanger} {
+	for _, cls := range []DnDClass{
+		ClassFighter, ClassRogue, ClassMage, ClassCleric, ClassRanger,
+		ClassDruid, ClassBard, ClassSorcerer, ClassWarlock, ClassPaladin,
+	} {
 		if perClass[cls] != 3 {
 			t.Errorf("%s: %d subclasses, want 3", cls, perClass[cls])
 		}

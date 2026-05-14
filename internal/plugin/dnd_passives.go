@@ -39,6 +39,28 @@ var dndClassAbilities = map[DnDClass]DnDClassAbility{
 		Name:        "Hunter's Mark",
 		Description: "You read your prey's weak points: +5% damage and +1 to attack rolls.",
 	},
+	// Open5e caster scaffold — one signature passive each, riding existing
+	// CombatModifiers channels the same way the original five do.
+	ClassDruid: {
+		Name:        "Wild Resilience",
+		Description: "The wild lends you its toughness: incoming damage is reduced 5%.",
+	},
+	ClassBard: {
+		Name:        "Bardic Inspiration",
+		Description: "Quick wit keeps you a step ahead: +1 to your initiative each round.",
+	},
+	ClassSorcerer: {
+		Name:        "Innate Sorcery",
+		Description: "Raw magic spills out as the fight begins, dealing immediate damage scaled by your Charisma.",
+	},
+	ClassWarlock: {
+		Name:        "Agonizing Blast",
+		Description: "Your pact-fueled eldritch power adds +10% to all damage you deal.",
+	},
+	ClassPaladin: {
+		Name:        "Divine Smite",
+		Description: "You channel a burst of radiant power on engagement, dealing flat damage that grows with your level.",
+	},
 }
 
 // applyRacePassives sets the combat-impacting flags from the player's race.
@@ -85,5 +107,22 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 	case ClassRanger:
 		mods.DamageBonus += 0.05
 		stats.AttackBonus++
+	case ClassDruid:
+		// Wild Resilience — multiplicative, so it stacks cleanly with the
+		// subclass DamageReduct riders. DamageReduct is initialized to 1.0
+		// by DerivePlayerStats before passives run.
+		mods.DamageReduct *= 0.95
+	case ClassBard:
+		mods.InitiativeBias += 1
+	case ClassSorcerer:
+		// Innate Sorcery — pre-combat burst, CHA-scaled like the Sorcerer's
+		// spellcasting stat. Floors at the flat 3 for low-CHA builds.
+		mods.FlatDmgStart += 3 + abilityModifier(c.CHA)
+	case ClassWarlock:
+		mods.DamageBonus += 0.10
+	case ClassPaladin:
+		// Divine Smite — radiant burst on engage, scaling with level so it
+		// stays relevant against tougher foes.
+		mods.FlatDmgStart += 4 + c.Level/2
 	}
 }
