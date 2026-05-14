@@ -236,19 +236,71 @@ func (te *turnEngine) stepEnemyTurn() {
 		te.sess.Phase = CombatPhaseRoundEnd
 		return
 	}
-	// resolveEnemyAttack returns true when the fight is decided — either the
-	// player went down without a death save, or a reflect consumable killed
-	// the enemy. Disambiguate by inspecting HP.
-	decided := resolveEnemyAttack(te.st, te.player, te.enemy, &turnCombatPhase, te.result, false, false, false)
-	if te.st.playerHP <= 0 {
-		te.finish(CombatStatusLost)
-		return
+
+	// Monster ability fires at the top of the enemy turn. cleave / lifesteal
+	// resolve their own damage and stand in for the attack action this round;
+	// every other effect (poison / stun / enrage / armor_break) is a rider that
+	// leaves the multiattack below intact. applyAbility returns true when the
+	// player went down without a save.
+	abilityDealtDamage := false
+	if te.enemy.Ability != nil && turnAbilityFires(te.enemy.Ability, te.st, te.enemy) {
+		if applyAbility(te.st, te.player, te.enemy, &turnCombatPhase, te.result) {
+			te.finish(CombatStatusLost)
+			return
+		}
+		switch te.enemy.Ability.Effect {
+		case "cleave", "lifesteal":
+			abilityDealtDamage = true
+		}
 	}
-	if decided {
-		te.finish(CombatStatusWon)
-		return
+
+	if !abilityDealtDamage {
+		// SRD multiattack: each profile entry is one attack roll resolved
+		// through the shared primitive. A registered elite/boss swings its full
+		// profile; everyone else gets a single attack from the template stats.
+		// resolveEnemyAttack returns true when the fight is decided — either the
+		// player went down without a death save, or a reflect consumable killed
+		// the enemy. Disambiguate by inspecting HP.
+		for _, atk := range enemyAttackProfile(te.sess.EnemyID, te.enemy.Stats) {
+			swing := *te.enemy
+			swing.Stats.Attack = atk.Damage
+			swing.Stats.AttackBonus = atk.AttackBonus
+			decided := resolveEnemyAttack(te.st, te.player, &swing, &turnCombatPhase, te.result, false, false, false)
+			if te.st.playerHP <= 0 {
+				te.finish(CombatStatusLost)
+				return
+			}
+			if decided || te.st.enemyHP <= 0 {
+				te.finish(CombatStatusWon)
+				return
+			}
+		}
 	}
 	te.sess.Phase = CombatPhaseRoundEnd
+}
+
+// turnAbilityFires decides whether a monster ability triggers this enemy turn.
+// The auto-resolve engine gates abilities on its named phase clock (Opening /
+// Clash / Decisive); the turn-based duel has no phase clock, so the phase tag
+// is remapped to fight progress: "opening" is round-1 only, "decisive" unlocks
+// once the enemy is bloodied (<40% HP), "clash" covers the rounds in between,
+// and "any" is always eligible. ProcChance is rolled once eligible.
+func turnAbilityFires(ability *MonsterAbility, st *combatState, enemy *Combatant) bool {
+	eligible := false
+	switch ability.Phase {
+	case "any":
+		eligible = true
+	case "opening":
+		eligible = st.round <= 1
+	case "clash":
+		eligible = st.round > 1
+	case "decisive":
+		eligible = st.enemyHP < int(float64(enemy.Stats.MaxHP)*0.4)
+	}
+	if !eligible {
+		return false
+	}
+	return st.randFloat() < ability.ProcChance
 }
 
 // stepRoundEnd applies between-round status effects, then opens the next round.
