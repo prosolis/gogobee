@@ -239,13 +239,13 @@ func dndClassArmorProficiency(class DnDClass, a *ArmorProfile) bool {
 // + magic bonus. If twoHanded is true and the weapon is versatile, rolls
 // the larger versatile die instead. Returns the unmodified dice total too
 // for the crit doubling math.
-func rollWeaponDamage(w *WeaponProfile, abilityMod int, twoHanded bool) (total, dice int) {
+func rollWeaponDamage(rng *rand.Rand, w *WeaponProfile, abilityMod int, twoHanded bool) (total, dice int) {
 	count, sides := w.DamageCount, w.DamageSides
 	if twoHanded && w.HasProperty(PropVersatile) && w.VersaCount > 0 {
 		count, sides = w.VersaCount, w.VersaSides
 	}
 	for i := 0; i < count; i++ {
-		dice += 1 + rand.IntN(sides)
+		dice += 1 + rngIntN(rng, sides)
 	}
 	total = dice + abilityMod + w.MagicBonus
 	if total < 1 {

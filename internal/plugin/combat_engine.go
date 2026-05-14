@@ -277,7 +277,22 @@ type combatState struct {
 
 	round  int
 	events []CombatEvent
+
+	// rng, when non-nil, is the deterministic source the turn-based engine
+	// and the timeout reaper seed per session so a fight can be resumed and
+	// replayed reproducibly. Auto-resolve (SimulateCombat called without a
+	// session) leaves this nil and the engine falls back to the package
+	// global — behaviorally identical to the pre-injection code.
+	rng *rand.Rand
 }
+
+// roll / randFloat draw from the session's injected rng when present,
+// else the package global (see rngIntN / rngFloat in dnd_zone_loot.go).
+// Auto-resolve leaves st.rng nil — behaviorally identical to the
+// pre-injection code; the turn-based engine and the timeout reaper seed
+// it per session so a fight can be resumed and replayed reproducibly.
+func (st *combatState) roll(n int) int     { return rngIntN(st.rng, n) }
+func (st *combatState) randFloat() float64 { return rngFloat(st.rng) }
 
 func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult {
 	playerStart := player.Stats.MaxHP
@@ -313,7 +328,7 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 	}
 
 	// Pre-combat: Arina sniper check
-	if player.Mods.SniperKillProc > 0 && rand.Float64() < player.Mods.SniperKillProc {
+	if player.Mods.SniperKillProc > 0 && st.randFloat() < player.Mods.SniperKillProc {
 		st.enemyHP = 0
 		st.events = append(st.events, CombatEvent{
 			Round: 0, Phase: "pre_combat", Actor: "npc", Action: "sniper_kill",
@@ -361,7 +376,7 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 		roundsThisPhase := phase.Rounds
 		// Add slight variance: ±1 round for non-Decisive phases
 		if phase.Name != "Decisive" && roundsThisPhase > 1 {
-			roundsThisPhase += rand.IntN(2) // 0 or +1
+			roundsThisPhase += st.roll(2) // 0 or +1
 		}
 		for r := 0; r < roundsThisPhase; r++ {
 			st.round++
@@ -444,23 +459,23 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	}
 
 	// Pet whiff: if proc'd, enemy's attack this round is a guaranteed miss
-	petWhiff := player.Mods.PetWhiffProc > 0 && rand.Float64() < player.Mods.PetWhiffProc
+	petWhiff := player.Mods.PetWhiffProc > 0 && st.randFloat() < player.Mods.PetWhiffProc
 	// Pet deflect: halves incoming damage to player this round
-	petDeflect := player.Mods.PetDeflectProc > 0 && rand.Float64() < player.Mods.PetDeflectProc
+	petDeflect := player.Mods.PetDeflectProc > 0 && st.randFloat() < player.Mods.PetDeflectProc
 	if petDeflect {
 		result.PetDeflected = true
 	}
 
 	// Spore cloud: enemy has 15% miss chance (decremented when enemy actually attacks)
-	sporeMiss := st.sporeRounds > 0 && rand.Float64() < 0.15
+	sporeMiss := st.sporeRounds > 0 && st.randFloat() < 0.15
 
 	// Determine initiative. DM mood (Effusive/Hostile) biases the player's
 	// roll via player.Mods.InitiativeBias — +X means player goes first
 	// more often, -X means the enemy does.
 	playerSpeed := float64(player.Stats.Speed) * phase.SpeedWeight
 	enemySpeed := float64(enemy.Stats.Speed) * phase.SpeedWeight
-	playerInit := playerSpeed + rand.Float64()*10 + player.Mods.InitiativeBias
-	enemyInit := enemySpeed + rand.Float64()*10
+	playerInit := playerSpeed + st.randFloat()*10 + player.Mods.InitiativeBias
+	enemyInit := enemySpeed + st.randFloat()*10
 	playerFirst := playerInit >= enemyInit
 
 	if playerFirst {
@@ -484,8 +499,8 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	}
 
 	// Environmental hazard
-	if phase.EnvironmentProc > 0 && rand.Float64() < phase.EnvironmentProc {
-		envDmg := 2 + rand.IntN(5)
+	if phase.EnvironmentProc > 0 && st.randFloat() < phase.EnvironmentProc {
+		envDmg := 2 + st.roll(5)
 		st.playerHP = max(0, st.playerHP-envDmg)
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "environment", Action: "environmental",
@@ -499,7 +514,7 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	}
 
 	// Misty crowd revenge (debuff for declining Misty)
-	if player.Mods.CrowdRevengeProc > 0 && rand.Float64() < player.Mods.CrowdRevengeProc {
+	if player.Mods.CrowdRevengeProc > 0 && st.randFloat() < player.Mods.CrowdRevengeProc {
 		dmg := player.Mods.CrowdRevengeDmg
 		st.playerHP = max(0, st.playerHP-dmg)
 		st.events = append(st.events, CombatEvent{
@@ -515,8 +530,8 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	}
 
 	// Pet attack
-	if player.Mods.PetAttackProc > 0 && rand.Float64() < player.Mods.PetAttackProc {
-		petDmg := player.Mods.PetAttackDmg + rand.IntN(5)
+	if player.Mods.PetAttackProc > 0 && st.randFloat() < player.Mods.PetAttackProc {
+		petDmg := player.Mods.PetAttackDmg + st.roll(5)
 		st.enemyHP = max(0, st.enemyHP-petDmg)
 		result.PetAttacked = true
 		st.events = append(st.events, CombatEvent{
@@ -529,7 +544,7 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	}
 
 	// Misty heal
-	if player.Mods.MistyHealProc > 0 && rand.Float64() < player.Mods.MistyHealProc {
+	if player.Mods.MistyHealProc > 0 && st.randFloat() < player.Mods.MistyHealProc {
 		healAmt := player.Mods.MistyHealAmt
 		st.playerHP = min(player.Stats.MaxHP, st.playerHP+healAmt)
 		result.MistyHealed = true
@@ -592,11 +607,11 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		})
 	}
 
-	roll := 1 + rand.IntN(20)
+	roll := 1 + st.roll(20)
 	// Halfling Lucky: reroll the first nat 1 of the fight.
 	if roll == 1 && player.Mods.LuckyReroll && !st.luckyUsed {
 		st.luckyUsed = true
-		newRoll := 1 + rand.IntN(20)
+		newRoll := 1 + st.roll(20)
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "player", Action: "lucky_reroll",
 			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
@@ -609,7 +624,7 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	// creatures that haven't acted yet" applied to the opening strike only.
 	if player.Mods.AssassinateAdvantage && !st.assassinateRerollUsed {
 		st.assassinateRerollUsed = true
-		alt := 1 + rand.IntN(20)
+		alt := 1 + st.roll(20)
 		if alt > roll {
 			st.events = append(st.events, CombatEvent{
 				Round: st.round, Phase: phaseName, Actor: "player", Action: "assassinate_advantage",
@@ -661,7 +676,7 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		if !player.Stats.WeaponProficient {
 			mod = 0
 		}
-		total, _ := rollWeaponDamage(player.Stats.Weapon, mod, player.Stats.TwoHandedMode)
+		total, _ := rollWeaponDamage(st.rng, player.Stats.Weapon, mod, player.Stats.TwoHandedMode)
 		dmg = total
 		// Class damage bonus / streak bonus / etc. layered on top via DamageBonus.
 		if player.Mods.DamageBonus > 0 {
@@ -672,11 +687,11 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 			dmg = int(float64(dmg) * enemy.Mods.DamageReduct)
 		}
 	} else {
-		dmg = calcDamage(player.Stats.Attack, phase.AttackWeight, player.Mods.DamageBonus,
+		dmg = calcDamage(st.rng, player.Stats.Attack, phase.AttackWeight, player.Mods.DamageBonus,
 			enemy.Stats.Defense, phase.DefenseWeight, enemy.Mods.DamageReduct)
 	}
 
-	blocked := enemy.Stats.BlockRate > 0 && rand.Float64() < enemy.Stats.BlockRate
+	blocked := enemy.Stats.BlockRate > 0 && st.randFloat() < enemy.Stats.BlockRate
 	if blocked {
 		dmg = max(1, dmg/2)
 	}
@@ -777,7 +792,7 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 		return false
 	}
 
-	roll := 1 + rand.IntN(20)
+	roll := 1 + st.roll(20)
 	isFumble := roll == 1
 	isNat20 := roll == 20
 	total := roll + enemy.Stats.AttackBonus
@@ -808,10 +823,10 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	if st.enraged {
 		atkMult = 1.5
 	}
-	dmg := calcDamage(int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
+	dmg := calcDamage(st.rng, int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
 		playerDefense(player, st), phase.DefenseWeight, player.Mods.DamageReduct)
 
-	blocked := player.Stats.BlockRate > 0 && rand.Float64() < player.Stats.BlockRate
+	blocked := player.Stats.BlockRate > 0 && st.randFloat() < player.Stats.BlockRate
 	if blocked {
 		dmg = max(1, dmg/2)
 	}
@@ -897,7 +912,7 @@ func abilityFires(ability *MonsterAbility, phaseName string, st *combatState) bo
 	if !phaseMatch {
 		return false
 	}
-	return rand.Float64() < ability.ProcChance
+	return st.randFloat() < ability.ProcChance
 }
 
 func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase, result *CombatResult) bool {
@@ -907,7 +922,7 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 	switch ab.Effect {
 	case "poison":
 		st.poisonTicks = 2
-		st.poisonDmg = 3 + rand.IntN(3)
+		st.poisonDmg = 3 + st.roll(3)
 		if player.Mods.PoisonResist {
 			st.poisonDmg = max(1, st.poisonDmg/2)
 		}
@@ -947,7 +962,7 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 		if st.enraged {
 			atkMult = 1.5
 		}
-		dmg := calcDamage(int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
+		dmg := calcDamage(st.rng, int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
 			playerDefense(player, st), phase.DefenseWeight, player.Mods.DamageReduct)
 		dmg = max(1, dmg)
 		st.playerHP = max(0, st.playerHP-dmg)
@@ -966,7 +981,7 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 		if st.enraged {
 			atkMult = 1.5
 		}
-		dmg1 := calcDamage(int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
+		dmg1 := calcDamage(st.rng, int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
 			playerDefense(player, st), phase.DefenseWeight, player.Mods.DamageReduct)
 		dmg1 = max(1, dmg1)
 		st.playerHP = max(0, st.playerHP-dmg1)
@@ -1004,13 +1019,13 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 //
 // A ±15% per-hit jitter is applied so successive hits in the same phase don't
 // produce identical numbers — the previous flat-damage output read as scripted.
-func calcDamage(attack int, atkWeight, dmgBonus float64, defense int, defWeight, dmgReduct float64) int {
+func calcDamage(rng *rand.Rand, attack int, atkWeight, dmgBonus float64, defense int, defWeight, dmgReduct float64) int {
 	const K = 40.0
 	rawAtk := float64(attack) * atkWeight * (1 + dmgBonus)
 	effectiveDef := float64(defense) * defWeight * dmgReduct
 	reduction := K / (K + effectiveDef)
 	dmg := rawAtk * reduction
-	jitter := 0.85 + rand.Float64()*0.30 // 0.85 .. 1.15
+	jitter := 0.85 + rngFloat(rng)*0.30 // 0.85 .. 1.15
 	dmg *= jitter
 	if dmg < 1 {
 		return 1

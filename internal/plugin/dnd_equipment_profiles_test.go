@@ -179,7 +179,7 @@ func TestComputeArmorAC_MagicBonus(t *testing.T) {
 func TestRollWeaponDamage_Bounds(t *testing.T) {
 	greatsword := weaponByID("wpn_greatsword") // 2d6
 	for i := 0; i < 1000; i++ {
-		total, dice := rollWeaponDamage(greatsword, 3, false)
+		total, dice := rollWeaponDamage(nil, greatsword, 3, false)
 		if dice < 2 || dice > 12 {
 			t.Fatalf("greatsword dice out of [2,12]: %d", dice)
 		}
@@ -193,14 +193,14 @@ func TestRollWeaponDamage_VersatileTwoHanded(t *testing.T) {
 	longsword := weaponByID("wpn_longsword") // 1d8 / 1d10
 	// One-handed
 	for i := 0; i < 100; i++ {
-		_, dice := rollWeaponDamage(longsword, 0, false)
+		_, dice := rollWeaponDamage(nil, longsword, 0, false)
 		if dice < 1 || dice > 8 {
 			t.Errorf("longsword 1H dice = %d, want [1,8]", dice)
 		}
 	}
 	// Two-handed (versatile)
 	for i := 0; i < 100; i++ {
-		_, dice := rollWeaponDamage(longsword, 0, true)
+		_, dice := rollWeaponDamage(nil, longsword, 0, true)
 		if dice < 1 || dice > 10 {
 			t.Errorf("longsword 2H dice = %d, want [1,10]", dice)
 		}
@@ -211,7 +211,7 @@ func TestRollWeaponDamage_FloorAt1(t *testing.T) {
 	// Pathological: 1d4 with -10 mod always rolls 1+(-10) = negative, floored to 1.
 	dagger := weaponByID("wpn_dagger")
 	for i := 0; i < 100; i++ {
-		total, _ := rollWeaponDamage(dagger, -10, false)
+		total, _ := rollWeaponDamage(nil, dagger, -10, false)
 		if total < 1 {
 			t.Errorf("damage floor violated: %d", total)
 		}
