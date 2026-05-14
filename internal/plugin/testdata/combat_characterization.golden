@@ -1,0 +1,2047 @@
+=== basic seed=1 ===
+result: won=true timedOut=false rounds=8
+  hp: playerStart=100 playerEntry=100 playerEnd=43 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.5700
+  [00] r1 Opening      player   hit              dmg=9     php=100  ehp=51   roll=3/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=5     php=95   ehp=51   roll=9/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=95   ehp=43   roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=91   ehp=43   roll=6/0 desc=""
+  [04] r3 Opening      player   hit              dmg=7     php=91   ehp=36   roll=6/0 desc=""
+  [05] r3 Opening      enemy    hit              dmg=5     php=86   ehp=36   roll=12/0 desc=""
+  [06] r4 Clash        player   hit              dmg=15    php=86   ehp=21   roll=9/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=11    php=75   ehp=21   roll=13/0 desc=""
+  [08] r5 Clash        player   hit              dmg=14    php=75   ehp=7    roll=8/0 desc=""
+  [09] r5 Clash        enemy    hit              dmg=9     php=66   ehp=7    roll=19/0 desc=""
+  [10] r6 Clash        player   miss             dmg=0     php=66   ehp=7    roll=1/0 desc="fumble"
+  [11] r6 Clash        enemy    hit              dmg=9     php=57   ehp=7    roll=9/0 desc=""
+  [12] r7 Clash        player   miss             dmg=0     php=57   ehp=7    roll=1/0 desc="fumble"
+  [13] r7 Clash        enemy    hit              dmg=11    php=46   ehp=7    roll=17/0 desc=""
+  [14] r7 Clash        environment environmental    dmg=3     php=43   ehp=7    roll=0/0 desc=""
+  [15] r8 Decisive     player   crit             dmg=30    php=43   ehp=0    roll=20/0 desc=""
+
+=== basic seed=2 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=60 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4000
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=52   roll=4/0 desc=""
+  [02] r2 Opening      player   hit              dmg=7     php=96   ehp=45   roll=16/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=5     php=91   ehp=45   roll=12/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=6     php=85   ehp=45   roll=0/0 desc=""
+  [05] r3 Clash        player   hit              dmg=16    php=85   ehp=29   roll=7/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=10    php=75   ehp=29   roll=16/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=11    php=64   ehp=29   roll=18/0 desc=""
+  [08] r4 Clash        player   hit              dmg=14    php=64   ehp=15   roll=2/0 desc=""
+  [09] r4 Clash        environment environmental    dmg=4     php=60   ehp=15   roll=0/0 desc=""
+  [10] r5 Clash        player   hit              dmg=16    php=60   ehp=0    roll=3/0 desc=""
+
+=== basic seed=3 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=74 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2600
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=53   roll=12/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=96   ehp=45   roll=10/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=92   ehp=45   roll=14/0 desc=""
+  [04] r3 Clash        enemy    hit              dmg=9     php=83   ehp=45   roll=15/0 desc=""
+  [05] r3 Clash        player   hit              dmg=17    php=83   ehp=28   roll=2/0 desc=""
+  [06] r4 Clash        enemy    hit              dmg=9     php=74   ehp=28   roll=2/0 desc=""
+  [07] r4 Clash        player   hit              dmg=16    php=74   ehp=12   roll=17/0 desc=""
+  [08] r5 Clash        player   hit              dmg=14    php=74   ehp=0    roll=6/0 desc=""
+
+=== basic seed=7 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=63 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3700
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=11/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=52   roll=15/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=96   ehp=44   roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=92   ehp=44   roll=19/0 desc=""
+  [04] r3 Clash        player   hit              dmg=17    php=92   ehp=27   roll=13/0 desc=""
+  [05] r3 Clash        enemy    crit             dmg=20    php=72   ehp=27   roll=20/0 desc=""
+  [06] r4 Clash        player   hit              dmg=17    php=72   ehp=10   roll=8/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=9     php=63   ehp=10   roll=8/0 desc=""
+  [08] r5 Clash        player   hit              dmg=16    php=63   ehp=0    roll=11/0 desc=""
+
+=== basic seed=42 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=77 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2300
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=18/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=52   roll=17/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=96   ehp=44   roll=18/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=5     php=91   ehp=44   roll=6/0 desc=""
+  [04] r3 Clash        player   hit              dmg=18    php=91   ehp=26   roll=16/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=9     php=82   ehp=26   roll=6/0 desc=""
+  [06] r4 Clash        enemy    block            dmg=5     php=77   ehp=26   roll=9/0 desc=""
+  [07] r4 Clash        player   hit              dmg=15    php=77   ehp=11   roll=19/0 desc=""
+  [08] r5 Clash        player   hit              dmg=14    php=77   ehp=0    roll=5/0 desc=""
+
+=== dungeon_phases seed=1 ===
+result: won=true timedOut=true rounds=8
+  hp: playerStart=100 playerEntry=100 playerEnd=23 enemyStart=60 enemyEntry=60 enemyEnd=1
+  flags: nearDeath=true pet=false petDeflect=false sniper=false misty=false closeness=0.9833
+  [00] r1 Opening      enemy    hit              dmg=6     php=94   ehp=60   roll=9/0 desc=""
+  [01] r1 Opening      player   hit              dmg=9     php=94   ehp=51   roll=11/0 desc=""
+  [02] r2 Clash        player   hit              dmg=13    php=94   ehp=38   roll=8/0 desc=""
+  [03] r2 Clash        enemy    hit              dmg=7     php=87   ehp=38   roll=6/0 desc=""
+  [04] r3 Clash        player   hit              dmg=11    php=87   ehp=27   roll=6/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=8     php=79   ehp=27   roll=12/0 desc=""
+  [06] r4 Decisive     enemy    hit              dmg=8     php=71   ehp=27   roll=4/0 desc=""
+  [07] r4 Decisive     player   hit              dmg=13    php=71   ehp=14   roll=2/0 desc=""
+  [08] r5 Sudden Death player   hit              dmg=13    php=71   ehp=1    roll=8/0 desc=""
+  [09] r5 Sudden Death enemy    hit              dmg=9     php=62   ehp=1    roll=19/0 desc=""
+  [10] r6 Sudden Death player   miss             dmg=0     php=62   ehp=1    roll=1/0 desc="fumble"
+  [11] r6 Sudden Death enemy    hit              dmg=9     php=53   ehp=1    roll=9/0 desc=""
+  [12] r7 Sudden Death player   miss             dmg=0     php=53   ehp=1    roll=1/0 desc="fumble"
+  [13] r7 Sudden Death enemy    hit              dmg=10    php=43   ehp=1    roll=17/0 desc=""
+  [14] r8 Sudden Death player   miss             dmg=0     php=43   ehp=1    roll=1/0 desc="fumble"
+  [15] r8 Sudden Death enemy    crit             dmg=20    php=23   ehp=1    roll=20/0 desc=""
+  [16] r8 exhaust      system   timeout          dmg=0     php=23   ehp=1    roll=0/0 desc=""
+
+=== dungeon_phases seed=2 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=54 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4600
+  [00] r1 Opening      player   hit              dmg=10    php=100  ehp=50   roll=16/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=7     php=93   ehp=50   roll=16/0 desc=""
+  [02] r2 Clash        player   hit              dmg=12    php=93   ehp=38   roll=16/0 desc=""
+  [03] r2 Clash        enemy    hit              dmg=8     php=85   ehp=38   roll=12/0 desc=""
+  [04] r3 Clash        enemy    crit             dmg=16    php=69   ehp=38   roll=20/0 desc=""
+  [05] r3 Clash        player   hit              dmg=13    php=69   ehp=25   roll=4/0 desc=""
+  [06] r4 Clash        player   hit              dmg=15    php=69   ehp=10   roll=15/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=9     php=60   ehp=10   roll=6/0 desc=""
+  [08] r4 Clash        environment environmental    dmg=2     php=58   ehp=10   roll=0/0 desc=""
+  [09] r5 Decisive     enemy    block            dmg=4     php=54   ehp=10   roll=14/0 desc=""
+  [10] r5 Decisive     player   miss             dmg=0     php=54   ehp=10   roll=1/0 desc="fumble"
+  [11] r6 Sudden Death player   hit              dmg=14    php=54   ehp=0    roll=12/0 desc=""
+
+=== dungeon_phases seed=3 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=70 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3000
+  [00] r1 Opening      player   block            dmg=6     php=100  ehp=54   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=7     php=93   ehp=54   roll=8/0 desc=""
+  [02] r2 Clash        player   hit              dmg=14    php=93   ehp=40   roll=10/0 desc=""
+  [03] r2 Clash        enemy    hit              dmg=7     php=86   ehp=40   roll=14/0 desc=""
+  [04] r3 Clash        player   hit              dmg=13    php=86   ehp=27   roll=9/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=9     php=77   ehp=27   roll=18/0 desc=""
+  [06] r4 Decisive     player   hit              dmg=14    php=77   ehp=13   roll=13/0 desc=""
+  [07] r4 Decisive     enemy    hit              dmg=7     php=70   ehp=13   roll=18/0 desc=""
+  [08] r5 Sudden Death player   hit              dmg=13    php=70   ehp=0    roll=6/0 desc=""
+
+=== dungeon_phases seed=7 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=69 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3100
+  [00] r1 Opening      enemy    miss             dmg=0     php=100  ehp=60   roll=1/0 desc="fumble"
+  [01] r1 Opening      player   hit              dmg=11    php=100  ehp=49   roll=11/0 desc=""
+  [02] r2 Clash        player   hit              dmg=13    php=100  ehp=36   roll=15/0 desc=""
+  [03] r2 Clash        enemy    hit              dmg=9     php=91   ehp=36   roll=7/0 desc=""
+  [04] r2 Clash        environment environmental    dmg=5     php=86   ehp=36   roll=0/0 desc=""
+  [05] r3 Clash        player   hit              dmg=13    php=86   ehp=23   roll=4/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=9     php=77   ehp=23   roll=6/0 desc=""
+  [07] r4 Clash        player   hit              dmg=12    php=77   ehp=11   roll=6/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=8     php=69   ehp=11   roll=18/0 desc=""
+  [09] r5 Decisive     player   hit              dmg=13    php=69   ehp=0    roll=8/0 desc=""
+
+=== dungeon_phases seed=42 ===
+result: won=true timedOut=false rounds=7
+  hp: playerStart=100 playerEntry=100 playerEnd=45 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.5500
+  [00] r1 Opening      enemy    hit              dmg=6     php=94   ehp=60   roll=11/0 desc=""
+  [01] r1 Opening      player   miss             dmg=0     php=94   ehp=60   roll=1/0 desc="fumble"
+  [02] r1 Opening      environment environmental    dmg=3     php=91   ehp=60   roll=0/0 desc=""
+  [03] r2 Clash        player   hit              dmg=12    php=91   ehp=48   roll=15/0 desc=""
+  [04] r2 Clash        enemy    hit              dmg=8     php=83   ehp=48   roll=9/0 desc=""
+  [05] r3 Clash        player   hit              dmg=14    php=83   ehp=34   roll=2/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=8     php=75   ehp=34   roll=9/0 desc=""
+  [07] r4 Clash        player   hit              dmg=15    php=75   ehp=19   roll=6/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=7     php=68   ehp=19   roll=12/0 desc=""
+  [09] r5 Decisive     player   miss             dmg=0     php=68   ehp=19   roll=1/0 desc="fumble"
+  [10] r5 Decisive     enemy    hit              dmg=8     php=60   ehp=19   roll=16/0 desc=""
+  [11] r6 Sudden Death player   hit              dmg=14    php=60   ehp=5    roll=15/0 desc=""
+  [12] r6 Sudden Death enemy    hit              dmg=10    php=50   ehp=5    roll=14/0 desc=""
+  [13] r6 Sudden Death environment environmental    dmg=5     php=45   ehp=5    roll=0/0 desc=""
+  [14] r7 Sudden Death player   hit              dmg=17    php=45   ehp=0    roll=12/0 desc=""
+
+=== boss_phases seed=1 ===
+result: won=false timedOut=false rounds=7
+  hp: playerStart=100 playerEntry=100 playerEnd=0 enemyStart=220 enemyEntry=220 enemyEnd=134
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3909
+  [00] r1 Opening      enemy    hit              dmg=14    php=86   ehp=220  roll=9/0 desc=""
+  [01] r1 Opening      player   hit              dmg=9     php=86   ehp=211  roll=11/0 desc=""
+  [02] r2 Clash        player   hit              dmg=13    php=86   ehp=198  roll=8/0 desc=""
+  [03] r2 Clash        enemy    hit              dmg=16    php=70   ehp=198  roll=6/0 desc=""
+  [04] r3 Clash        player   hit              dmg=11    php=70   ehp=187  roll=6/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=18    php=52   ehp=187  roll=12/0 desc=""
+  [06] r4 Clash        enemy    hit              dmg=16    php=36   ehp=187  roll=4/0 desc=""
+  [07] r4 Clash        player   hit              dmg=13    php=36   ehp=174  roll=2/0 desc=""
+  [08] r5 Decisive     player   hit              dmg=12    php=36   ehp=162  roll=19/0 desc=""
+  [09] r5 Decisive     enemy    hit              dmg=17    php=19   ehp=162  roll=4/0 desc=""
+  [10] r6 Decisive     player   hit              dmg=12    php=19   ehp=150  roll=15/0 desc=""
+  [11] r6 Decisive     enemy    hit              dmg=18    php=1    ehp=150  roll=13/0 desc=""
+  [12] r7 Sudden Death player   hit              dmg=16    php=1    ehp=134  roll=6/0 desc=""
+  [13] r7 Sudden Death enemy    hit              dmg=21    php=0    ehp=134  roll=5/0 desc=""
+
+=== boss_phases seed=2 ===
+result: won=false timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=0 enemyStart=220 enemyEntry=220 enemyEnd=170
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2273
+  [00] r1 Opening      player   hit              dmg=10    php=100  ehp=210  roll=16/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=16    php=84   ehp=210  roll=16/0 desc=""
+  [02] r2 Clash        player   hit              dmg=12    php=84   ehp=198  roll=16/0 desc=""
+  [03] r2 Clash        enemy    hit              dmg=18    php=66   ehp=198  roll=12/0 desc=""
+  [04] r3 Clash        enemy    crit             dmg=36    php=30   ehp=198  roll=20/0 desc=""
+  [05] r3 Clash        player   hit              dmg=13    php=30   ehp=185  roll=4/0 desc=""
+  [06] r4 Clash        player   hit              dmg=15    php=30   ehp=170  roll=15/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=20    php=10   ehp=170  roll=6/0 desc=""
+  [08] r4 Clash        environment environmental    dmg=2     php=8    ehp=170  roll=0/0 desc=""
+  [09] r5 Clash        enemy    block            dmg=9     php=0    ehp=170  roll=14/0 desc=""
+
+=== boss_phases seed=3 ===
+result: won=false timedOut=false rounds=7
+  hp: playerStart=100 playerEntry=100 playerEnd=0 enemyStart=220 enemyEntry=220 enemyEnd=145
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3409
+  [00] r1 Opening      player   block            dmg=6     php=100  ehp=214  roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=16    php=84   ehp=214  roll=8/0 desc=""
+  [02] r2 Clash        player   hit              dmg=14    php=84   ehp=200  roll=10/0 desc=""
+  [03] r2 Clash        enemy    hit              dmg=16    php=68   ehp=200  roll=14/0 desc=""
+  [04] r3 Clash        player   hit              dmg=13    php=68   ehp=187  roll=9/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=20    php=48   ehp=187  roll=18/0 desc=""
+  [06] r4 Clash        player   hit              dmg=13    php=48   ehp=174  roll=13/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=15    php=33   ehp=174  roll=18/0 desc=""
+  [08] r5 Decisive     player   hit              dmg=13    php=33   ehp=161  roll=9/0 desc=""
+  [09] r5 Decisive     enemy    block            dmg=8     php=25   ehp=161  roll=4/0 desc=""
+  [10] r6 Decisive     player   hit              dmg=16    php=25   ehp=145  roll=19/0 desc=""
+  [11] r6 Decisive     enemy    hit              dmg=19    php=6    ehp=145  roll=12/0 desc=""
+  [12] r7 Sudden Death enemy    hit              dmg=23    php=0    ehp=145  roll=12/0 desc=""
+
+=== boss_phases seed=7 ===
+result: won=false timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=0 enemyStart=220 enemyEntry=220 enemyEnd=144
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3455
+  [00] r1 Opening      enemy    miss             dmg=0     php=100  ehp=220  roll=1/0 desc="fumble"
+  [01] r1 Opening      player   hit              dmg=11    php=100  ehp=209  roll=11/0 desc=""
+  [02] r2 Clash        player   hit              dmg=13    php=100  ehp=196  roll=15/0 desc=""
+  [03] r2 Clash        enemy    hit              dmg=20    php=80   ehp=196  roll=7/0 desc=""
+  [04] r2 Clash        environment environmental    dmg=5     php=75   ehp=196  roll=0/0 desc=""
+  [05] r3 Clash        player   hit              dmg=13    php=75   ehp=183  roll=4/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=20    php=55   ehp=183  roll=6/0 desc=""
+  [07] r4 Clash        player   hit              dmg=12    php=55   ehp=171  roll=6/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=17    php=38   ehp=171  roll=18/0 desc=""
+  [09] r5 Clash        player   hit              dmg=13    php=38   ehp=158  roll=8/0 desc=""
+  [10] r5 Clash        enemy    hit              dmg=19    php=19   ehp=158  roll=5/0 desc=""
+  [11] r6 Decisive     player   hit              dmg=14    php=19   ehp=144  roll=5/0 desc=""
+  [12] r6 Decisive     enemy    hit              dmg=20    php=0    ehp=144  roll=16/0 desc=""
+
+=== boss_phases seed=42 ===
+result: won=false timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=0 enemyStart=220 enemyEntry=220 enemyEnd=167
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2409
+  [00] r1 Opening      enemy    hit              dmg=14    php=86   ehp=220  roll=11/0 desc=""
+  [01] r1 Opening      player   miss             dmg=0     php=86   ehp=220  roll=1/0 desc="fumble"
+  [02] r1 Opening      environment environmental    dmg=3     php=83   ehp=220  roll=0/0 desc=""
+  [03] r2 Clash        player   hit              dmg=12    php=83   ehp=208  roll=15/0 desc=""
+  [04] r2 Clash        enemy    hit              dmg=17    php=66   ehp=208  roll=9/0 desc=""
+  [05] r3 Clash        player   hit              dmg=14    php=66   ehp=194  roll=2/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=18    php=48   ehp=194  roll=9/0 desc=""
+  [07] r4 Clash        player   hit              dmg=15    php=48   ehp=179  roll=6/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=15    php=33   ehp=179  roll=12/0 desc=""
+  [09] r5 Clash        player   miss             dmg=0     php=33   ehp=179  roll=1/0 desc="fumble"
+  [10] r5 Clash        enemy    hit              dmg=17    php=16   ehp=179  roll=16/0 desc=""
+  [11] r6 Decisive     player   hit              dmg=12    php=16   ehp=167  roll=19/0 desc=""
+  [12] r6 Decisive     enemy    crit             dmg=36    php=0    ehp=167  roll=20/0 desc=""
+
+=== strong_enemy seed=1 ===
+result: won=false timedOut=false rounds=4
+  hp: playerStart=50 playerEntry=50 playerEnd=0 enemyStart=200 enemyEntry=200 enemyEnd=183
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0850
+  [00] r1 Opening      player   hit              dmg=4     php=50   ehp=196  roll=3/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=15    php=35   ehp=196  roll=9/0 desc=""
+  [02] r2 Opening      player   hit              dmg=3     php=35   ehp=193  roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=13    php=22   ehp=193  roll=6/0 desc=""
+  [04] r3 Opening      player   hit              dmg=3     php=22   ehp=190  roll=6/0 desc=""
+  [05] r3 Opening      enemy    hit              dmg=16    php=6    ehp=190  roll=12/0 desc=""
+  [06] r4 Clash        player   hit              dmg=7     php=6    ehp=183  roll=9/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=33    php=0    ehp=183  roll=13/0 desc=""
+
+=== strong_enemy seed=2 ===
+result: won=false timedOut=false rounds=3
+  hp: playerStart=50 playerEntry=50 playerEnd=0 enemyStart=200 enemyEntry=200 enemyEnd=187
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0650
+  [00] r1 Opening      player   hit              dmg=3     php=50   ehp=197  roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=14    php=36   ehp=197  roll=4/0 desc=""
+  [02] r2 Opening      player   hit              dmg=3     php=36   ehp=194  roll=16/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=15    php=21   ehp=194  roll=12/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=6     php=15   ehp=194  roll=0/0 desc=""
+  [05] r3 Clash        player   hit              dmg=7     php=15   ehp=187  roll=7/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=31    php=0    ehp=187  roll=16/0 desc=""
+
+=== strong_enemy seed=3 ===
+result: won=false timedOut=false rounds=3
+  hp: playerStart=50 playerEntry=50 playerEnd=0 enemyStart=200 enemyEntry=200 enemyEnd=193
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0350
+  [00] r1 Opening      player   hit              dmg=3     php=50   ehp=197  roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=14    php=36   ehp=197  roll=12/0 desc=""
+  [02] r2 Opening      player   hit              dmg=4     php=36   ehp=193  roll=10/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=14    php=22   ehp=193  roll=14/0 desc=""
+  [04] r3 Clash        enemy    hit              dmg=28    php=0    ehp=193  roll=15/0 desc=""
+
+=== strong_enemy seed=7 ===
+result: won=false timedOut=false rounds=3
+  hp: playerStart=50 playerEntry=50 playerEnd=0 enemyStart=200 enemyEntry=200 enemyEnd=185
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0750
+  [00] r1 Opening      player   hit              dmg=3     php=50   ehp=197  roll=11/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=13    php=37   ehp=197  roll=15/0 desc=""
+  [02] r2 Opening      player   hit              dmg=4     php=37   ehp=193  roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=13    php=24   ehp=193  roll=19/0 desc=""
+  [04] r3 Clash        player   hit              dmg=8     php=24   ehp=185  roll=13/0 desc=""
+  [05] r3 Clash        enemy    crit             dmg=62    php=0    ehp=185  roll=20/0 desc=""
+
+=== strong_enemy seed=42 ===
+result: won=false timedOut=false rounds=3
+  hp: playerStart=50 playerEntry=50 playerEnd=0 enemyStart=200 enemyEntry=200 enemyEnd=185
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0750
+  [00] r1 Opening      player   hit              dmg=3     php=50   ehp=197  roll=18/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=14    php=36   ehp=197  roll=17/0 desc=""
+  [02] r2 Opening      player   hit              dmg=4     php=36   ehp=193  roll=18/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=16    php=20   ehp=193  roll=6/0 desc=""
+  [04] r3 Clash        player   hit              dmg=8     php=20   ehp=185  roll=16/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=29    php=0    ehp=185  roll=6/0 desc=""
+
+=== sniper_kill seed=1 ===
+result: won=true timedOut=false rounds=0
+  hp: playerStart=100 playerEntry=100 playerEnd=100 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=true misty=false closeness=0.0000
+  [00] r0 pre_combat   npc      sniper_kill      dmg=60    php=100  ehp=0    roll=0/0 desc="Arina"
+
+=== sniper_kill seed=2 ===
+result: won=true timedOut=false rounds=0
+  hp: playerStart=100 playerEntry=100 playerEnd=100 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=true misty=false closeness=0.0000
+  [00] r0 pre_combat   npc      sniper_kill      dmg=60    php=100  ehp=0    roll=0/0 desc="Arina"
+
+=== sniper_kill seed=3 ===
+result: won=true timedOut=false rounds=0
+  hp: playerStart=100 playerEntry=100 playerEnd=100 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=true misty=false closeness=0.0000
+  [00] r0 pre_combat   npc      sniper_kill      dmg=60    php=100  ehp=0    roll=0/0 desc="Arina"
+
+=== sniper_kill seed=7 ===
+result: won=true timedOut=false rounds=0
+  hp: playerStart=100 playerEntry=100 playerEnd=100 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=true misty=false closeness=0.0000
+  [00] r0 pre_combat   npc      sniper_kill      dmg=60    php=100  ehp=0    roll=0/0 desc="Arina"
+
+=== sniper_kill seed=42 ===
+result: won=true timedOut=false rounds=0
+  hp: playerStart=100 playerEntry=100 playerEnd=100 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=true misty=false closeness=0.0000
+  [00] r0 pre_combat   npc      sniper_kill      dmg=60    php=100  ehp=0    roll=0/0 desc="Arina"
+
+=== flat_dmg_start seed=1 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=75 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2500
+  [00] r0 pre_combat   consumable flat_damage      dmg=20    php=100  ehp=40   roll=0/0 desc=""
+  [01] r1 Opening      player   hit              dmg=9     php=100  ehp=31   roll=3/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=5     php=95   ehp=31   roll=9/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=95   ehp=23   roll=8/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=4     php=91   ehp=23   roll=6/0 desc=""
+  [05] r3 Opening      player   hit              dmg=7     php=91   ehp=16   roll=6/0 desc=""
+  [06] r3 Opening      enemy    hit              dmg=5     php=86   ehp=16   roll=12/0 desc=""
+  [07] r4 Clash        player   hit              dmg=15    php=86   ehp=1    roll=9/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=11    php=75   ehp=1    roll=13/0 desc=""
+  [09] r5 Clash        player   hit              dmg=14    php=75   ehp=0    roll=8/0 desc=""
+
+=== flat_dmg_start seed=2 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=64 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3600
+  [00] r0 pre_combat   consumable flat_damage      dmg=20    php=100  ehp=40   roll=0/0 desc=""
+  [01] r1 Opening      player   hit              dmg=8     php=100  ehp=32   roll=5/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=4     php=96   ehp=32   roll=4/0 desc=""
+  [03] r2 Opening      player   hit              dmg=7     php=96   ehp=25   roll=16/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=5     php=91   ehp=25   roll=12/0 desc=""
+  [05] r2 Opening      environment environmental    dmg=6     php=85   ehp=25   roll=0/0 desc=""
+  [06] r3 Clash        player   hit              dmg=16    php=85   ehp=9    roll=7/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=10    php=75   ehp=9    roll=16/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=11    php=64   ehp=9    roll=18/0 desc=""
+  [09] r4 Clash        player   hit              dmg=14    php=64   ehp=0    roll=2/0 desc=""
+
+=== flat_dmg_start seed=3 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=74 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2600
+  [00] r0 pre_combat   consumable flat_damage      dmg=20    php=100  ehp=40   roll=0/0 desc=""
+  [01] r1 Opening      player   hit              dmg=7     php=100  ehp=33   roll=5/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=4     php=96   ehp=33   roll=12/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=96   ehp=25   roll=10/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=4     php=92   ehp=25   roll=14/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=9     php=83   ehp=25   roll=15/0 desc=""
+  [06] r3 Clash        player   hit              dmg=17    php=83   ehp=8    roll=2/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=9     php=74   ehp=8    roll=2/0 desc=""
+  [08] r4 Clash        player   hit              dmg=16    php=74   ehp=0    roll=17/0 desc=""
+
+=== flat_dmg_start seed=7 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=72 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2800
+  [00] r0 pre_combat   consumable flat_damage      dmg=20    php=100  ehp=40   roll=0/0 desc=""
+  [01] r1 Opening      player   hit              dmg=8     php=100  ehp=32   roll=11/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=4     php=96   ehp=32   roll=15/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=96   ehp=24   roll=8/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=4     php=92   ehp=24   roll=19/0 desc=""
+  [05] r3 Clash        player   hit              dmg=17    php=92   ehp=7    roll=13/0 desc=""
+  [06] r3 Clash        enemy    crit             dmg=20    php=72   ehp=7    roll=20/0 desc=""
+  [07] r4 Clash        player   hit              dmg=17    php=72   ehp=0    roll=8/0 desc=""
+
+=== flat_dmg_start seed=42 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=77 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2300
+  [00] r0 pre_combat   consumable flat_damage      dmg=20    php=100  ehp=40   roll=0/0 desc=""
+  [01] r1 Opening      player   hit              dmg=8     php=100  ehp=32   roll=18/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=4     php=96   ehp=32   roll=17/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=96   ehp=24   roll=18/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=5     php=91   ehp=24   roll=6/0 desc=""
+  [05] r3 Clash        player   hit              dmg=18    php=91   ehp=6    roll=16/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=9     php=82   ehp=6    roll=6/0 desc=""
+  [07] r4 Clash        enemy    block            dmg=5     php=77   ehp=6    roll=9/0 desc=""
+  [08] r4 Clash        player   hit              dmg=15    php=77   ehp=0    roll=19/0 desc=""
+
+=== spell_pre_damage seed=1 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=75 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2500
+  [00] r0 pre_combat   player   spell_cast       dmg=18    php=100  ehp=42   roll=0/0 desc="Fireball"
+  [01] r1 Opening      player   hit              dmg=9     php=100  ehp=33   roll=3/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=5     php=95   ehp=33   roll=9/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=95   ehp=25   roll=8/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=4     php=91   ehp=25   roll=6/0 desc=""
+  [05] r3 Opening      player   hit              dmg=7     php=91   ehp=18   roll=6/0 desc=""
+  [06] r3 Opening      enemy    hit              dmg=5     php=86   ehp=18   roll=12/0 desc=""
+  [07] r4 Clash        player   hit              dmg=15    php=86   ehp=3    roll=9/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=11    php=75   ehp=3    roll=13/0 desc=""
+  [09] r5 Clash        player   hit              dmg=14    php=75   ehp=0    roll=8/0 desc=""
+
+=== spell_pre_damage seed=2 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=64 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3600
+  [00] r0 pre_combat   player   spell_cast       dmg=18    php=100  ehp=42   roll=0/0 desc="Fireball"
+  [01] r1 Opening      player   hit              dmg=8     php=100  ehp=34   roll=5/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=4     php=96   ehp=34   roll=4/0 desc=""
+  [03] r2 Opening      player   hit              dmg=7     php=96   ehp=27   roll=16/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=5     php=91   ehp=27   roll=12/0 desc=""
+  [05] r2 Opening      environment environmental    dmg=6     php=85   ehp=27   roll=0/0 desc=""
+  [06] r3 Clash        player   hit              dmg=16    php=85   ehp=11   roll=7/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=10    php=75   ehp=11   roll=16/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=11    php=64   ehp=11   roll=18/0 desc=""
+  [09] r4 Clash        player   hit              dmg=14    php=64   ehp=0    roll=2/0 desc=""
+
+=== spell_pre_damage seed=3 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=74 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2600
+  [00] r0 pre_combat   player   spell_cast       dmg=18    php=100  ehp=42   roll=0/0 desc="Fireball"
+  [01] r1 Opening      player   hit              dmg=7     php=100  ehp=35   roll=5/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=4     php=96   ehp=35   roll=12/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=96   ehp=27   roll=10/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=4     php=92   ehp=27   roll=14/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=9     php=83   ehp=27   roll=15/0 desc=""
+  [06] r3 Clash        player   hit              dmg=17    php=83   ehp=10   roll=2/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=9     php=74   ehp=10   roll=2/0 desc=""
+  [08] r4 Clash        player   hit              dmg=16    php=74   ehp=0    roll=17/0 desc=""
+
+=== spell_pre_damage seed=7 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=72 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2800
+  [00] r0 pre_combat   player   spell_cast       dmg=18    php=100  ehp=42   roll=0/0 desc="Fireball"
+  [01] r1 Opening      player   hit              dmg=8     php=100  ehp=34   roll=11/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=4     php=96   ehp=34   roll=15/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=96   ehp=26   roll=8/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=4     php=92   ehp=26   roll=19/0 desc=""
+  [05] r3 Clash        player   hit              dmg=17    php=92   ehp=9    roll=13/0 desc=""
+  [06] r3 Clash        enemy    crit             dmg=20    php=72   ehp=9    roll=20/0 desc=""
+  [07] r4 Clash        player   hit              dmg=17    php=72   ehp=0    roll=8/0 desc=""
+
+=== spell_pre_damage seed=42 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=77 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2300
+  [00] r0 pre_combat   player   spell_cast       dmg=18    php=100  ehp=42   roll=0/0 desc="Fireball"
+  [01] r1 Opening      player   hit              dmg=8     php=100  ehp=34   roll=18/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=4     php=96   ehp=34   roll=17/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=96   ehp=26   roll=18/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=5     php=91   ehp=26   roll=6/0 desc=""
+  [05] r3 Clash        player   hit              dmg=18    php=91   ehp=8    roll=16/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=9     php=82   ehp=8    roll=6/0 desc=""
+  [07] r4 Clash        enemy    block            dmg=5     php=77   ehp=8    roll=9/0 desc=""
+  [08] r4 Clash        player   hit              dmg=15    php=77   ehp=0    roll=19/0 desc=""
+
+=== spell_enemy_skip_first seed=1 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=69 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3100
+  [00] r0 pre_combat   player   spell_cast       dmg=5     php=100  ehp=55   roll=0/0 desc="Hold Person"
+  [01] r1 Opening      enemy    spell_held       dmg=0     php=100  ehp=55   roll=0/0 desc=""
+  [02] r1 Opening      player   hit              dmg=9     php=100  ehp=46   roll=3/0 desc=""
+  [03] r1 Opening      environment environmental    dmg=3     php=97   ehp=46   roll=0/0 desc=""
+  [04] r2 Opening      player   hit              dmg=8     php=97   ehp=38   roll=4/0 desc=""
+  [05] r2 Opening      enemy    hit              dmg=5     php=92   ehp=38   roll=12/0 desc=""
+  [06] r2 Opening      environment environmental    dmg=5     php=87   ehp=38   roll=0/0 desc=""
+  [07] r3 Opening      player   hit              dmg=9     php=87   ehp=29   roll=6/0 desc=""
+  [08] r3 Opening      enemy    hit              dmg=4     php=83   ehp=29   roll=15/0 desc=""
+  [09] r3 Opening      environment environmental    dmg=3     php=80   ehp=29   roll=0/0 desc=""
+  [10] r4 Clash        player   hit              dmg=15    php=80   ehp=14   roll=9/0 desc=""
+  [11] r4 Clash        enemy    hit              dmg=11    php=69   ehp=14   roll=13/0 desc=""
+  [12] r5 Clash        player   hit              dmg=14    php=69   ehp=0    roll=8/0 desc=""
+
+=== spell_enemy_skip_first seed=2 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=84 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.1600
+  [00] r0 pre_combat   player   spell_cast       dmg=5     php=100  ehp=55   roll=0/0 desc="Hold Person"
+  [01] r1 Opening      enemy    spell_held       dmg=0     php=100  ehp=55   roll=0/0 desc=""
+  [02] r1 Opening      player   hit              dmg=8     php=100  ehp=47   roll=5/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=100  ehp=39   roll=4/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=4     php=96   ehp=39   roll=16/0 desc=""
+  [05] r2 Opening      environment environmental    dmg=2     php=94   ehp=39   roll=0/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=10    php=84   ehp=39   roll=10/0 desc=""
+  [07] r3 Clash        player   hit              dmg=16    php=84   ehp=23   roll=7/0 desc=""
+  [08] r4 Clash        player   crit             dmg=32    php=84   ehp=0    roll=20/0 desc=""
+
+=== spell_enemy_skip_first seed=3 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=62 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3800
+  [00] r0 pre_combat   player   spell_cast       dmg=5     php=100  ehp=55   roll=0/0 desc="Hold Person"
+  [01] r1 Opening      enemy    spell_held       dmg=0     php=100  ehp=55   roll=0/0 desc=""
+  [02] r1 Opening      player   hit              dmg=7     php=100  ehp=48   roll=5/0 desc=""
+  [03] r2 Opening      player   hit              dmg=7     php=100  ehp=41   roll=3/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=5     php=95   ehp=41   roll=10/0 desc=""
+  [05] r3 Clash        player   hit              dmg=15    php=95   ehp=26   roll=5/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=9     php=86   ehp=26   roll=15/0 desc=""
+  [07] r4 Clash        player   hit              dmg=16    php=86   ehp=10   roll=16/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=9     php=77   ehp=10   roll=2/0 desc=""
+  [09] r4 Clash        environment environmental    dmg=6     php=71   ehp=10   roll=0/0 desc=""
+  [10] r5 Clash        enemy    hit              dmg=9     php=62   ehp=10   roll=16/0 desc=""
+  [11] r5 Clash        player   hit              dmg=17    php=62   ehp=0    roll=17/0 desc=""
+
+=== spell_enemy_skip_first seed=7 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=67 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3300
+  [00] r0 pre_combat   player   spell_cast       dmg=5     php=100  ehp=55   roll=0/0 desc="Hold Person"
+  [01] r1 Opening      enemy    spell_held       dmg=0     php=100  ehp=55   roll=0/0 desc=""
+  [02] r1 Opening      player   hit              dmg=8     php=100  ehp=47   roll=11/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=96   ehp=47   roll=6/0 desc=""
+  [04] r2 Opening      player   hit              dmg=8     php=96   ehp=39   roll=8/0 desc=""
+  [05] r3 Clash        player   hit              dmg=15    php=96   ehp=24   roll=11/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=10    php=86   ehp=24   roll=13/0 desc=""
+  [07] r4 Clash        player   hit              dmg=18    php=86   ehp=6    roll=13/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=10    php=76   ehp=6    roll=8/0 desc=""
+  [09] r5 Clash        enemy    hit              dmg=9     php=67   ehp=6    roll=12/0 desc=""
+  [10] r5 Clash        player   hit              dmg=16    php=67   ehp=0    roll=11/0 desc=""
+
+=== spell_enemy_skip_first seed=42 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=65 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3500
+  [00] r0 pre_combat   player   spell_cast       dmg=5     php=100  ehp=55   roll=0/0 desc="Hold Person"
+  [01] r1 Opening      enemy    spell_held       dmg=0     php=100  ehp=55   roll=0/0 desc=""
+  [02] r1 Opening      player   hit              dmg=8     php=100  ehp=47   roll=18/0 desc=""
+  [03] r1 Opening      environment environmental    dmg=3     php=97   ehp=47   roll=0/0 desc=""
+  [04] r2 Opening      player   hit              dmg=7     php=97   ehp=40   roll=12/0 desc=""
+  [05] r2 Opening      enemy    hit              dmg=5     php=92   ehp=40   roll=13/0 desc=""
+  [06] r3 Clash        player   hit              dmg=16    php=92   ehp=24   roll=2/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=10    php=82   ehp=24   roll=9/0 desc=""
+  [08] r4 Clash        player   hit              dmg=18    php=82   ehp=6    roll=6/0 desc=""
+  [09] r4 Clash        enemy    hit              dmg=8     php=74   ehp=6    roll=12/0 desc=""
+  [10] r5 Clash        player   miss             dmg=0     php=74   ehp=6    roll=1/0 desc="fumble"
+  [11] r5 Clash        enemy    hit              dmg=9     php=65   ehp=6    roll=16/0 desc=""
+  [12] r6 Clash        player   hit              dmg=14    php=65   ehp=0    roll=19/0 desc=""
+
+=== heal_item seed=1 ===
+result: won=true timedOut=false rounds=8
+  hp: playerStart=100 playerEntry=100 playerEnd=17 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.8300
+  [00] r1 Opening      player   hit              dmg=9     php=100  ehp=51   roll=3/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=10    php=90   ehp=51   roll=9/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=90   ehp=43   roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=9     php=81   ehp=43   roll=6/0 desc=""
+  [04] r3 Opening      player   hit              dmg=7     php=81   ehp=36   roll=6/0 desc=""
+  [05] r3 Opening      enemy    hit              dmg=10    php=71   ehp=36   roll=12/0 desc=""
+  [06] r4 Clash        player   hit              dmg=15    php=71   ehp=21   roll=9/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=22    php=49   ehp=21   roll=13/0 desc=""
+  [08] r4 Clash        consumable heal_item        dmg=30    php=79   ehp=21   roll=0/0 desc=""
+  [09] r5 Clash        player   hit              dmg=14    php=79   ehp=7    roll=8/0 desc=""
+  [10] r5 Clash        enemy    hit              dmg=18    php=61   ehp=7    roll=19/0 desc=""
+  [11] r6 Clash        player   miss             dmg=0     php=61   ehp=7    roll=1/0 desc="fumble"
+  [12] r6 Clash        enemy    hit              dmg=19    php=42   ehp=7    roll=9/0 desc=""
+  [13] r7 Clash        player   miss             dmg=0     php=42   ehp=7    roll=1/0 desc="fumble"
+  [14] r7 Clash        enemy    hit              dmg=22    php=20   ehp=7    roll=17/0 desc=""
+  [15] r7 Clash        environment environmental    dmg=3     php=17   ehp=7    roll=0/0 desc=""
+  [16] r8 Decisive     player   crit             dmg=30    php=17   ehp=0    roll=20/0 desc=""
+
+=== heal_item seed=2 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=58 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4200
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=9     php=91   ehp=52   roll=4/0 desc=""
+  [02] r2 Opening      player   hit              dmg=7     php=91   ehp=45   roll=16/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=10    php=81   ehp=45   roll=12/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=6     php=75   ehp=45   roll=0/0 desc=""
+  [05] r3 Clash        player   hit              dmg=16    php=75   ehp=29   roll=7/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=21    php=54   ehp=29   roll=16/0 desc=""
+  [07] r3 Clash        consumable heal_item        dmg=30    php=84   ehp=29   roll=0/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=22    php=62   ehp=29   roll=18/0 desc=""
+  [09] r4 Clash        player   hit              dmg=14    php=62   ehp=15   roll=2/0 desc=""
+  [10] r4 Clash        environment environmental    dmg=4     php=58   ehp=15   roll=0/0 desc=""
+  [11] r5 Clash        player   hit              dmg=16    php=58   ehp=0    roll=3/0 desc=""
+
+=== heal_item seed=3 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=75 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2500
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=9     php=91   ehp=53   roll=12/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=91   ehp=45   roll=10/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=9     php=82   ehp=45   roll=14/0 desc=""
+  [04] r3 Clash        enemy    hit              dmg=18    php=64   ehp=45   roll=15/0 desc=""
+  [05] r3 Clash        player   hit              dmg=17    php=64   ehp=28   roll=2/0 desc=""
+  [06] r4 Clash        enemy    hit              dmg=19    php=45   ehp=28   roll=2/0 desc=""
+  [07] r4 Clash        player   hit              dmg=16    php=45   ehp=12   roll=17/0 desc=""
+  [08] r4 Clash        consumable heal_item        dmg=30    php=75   ehp=12   roll=0/0 desc=""
+  [09] r5 Clash        player   hit              dmg=14    php=75   ehp=0    roll=6/0 desc=""
+
+=== heal_item seed=7 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=55 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4500
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=11/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=9     php=91   ehp=52   roll=15/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=91   ehp=44   roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=8     php=83   ehp=44   roll=19/0 desc=""
+  [04] r3 Clash        player   hit              dmg=17    php=83   ehp=27   roll=13/0 desc=""
+  [05] r3 Clash        enemy    crit             dmg=40    php=43   ehp=27   roll=20/0 desc=""
+  [06] r3 Clash        consumable heal_item        dmg=30    php=73   ehp=27   roll=0/0 desc=""
+  [07] r4 Clash        player   hit              dmg=17    php=73   ehp=10   roll=8/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=18    php=55   ehp=10   roll=8/0 desc=""
+  [09] r5 Clash        player   hit              dmg=16    php=55   ehp=0    roll=11/0 desc=""
+
+=== heal_item seed=42 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=81 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.1900
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=18/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=9     php=91   ehp=52   roll=17/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=91   ehp=44   roll=18/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=10    php=81   ehp=44   roll=6/0 desc=""
+  [04] r3 Clash        player   hit              dmg=18    php=81   ehp=26   roll=16/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=19    php=62   ehp=26   roll=6/0 desc=""
+  [06] r4 Clash        enemy    block            dmg=11    php=51   ehp=26   roll=9/0 desc=""
+  [07] r4 Clash        player   hit              dmg=15    php=51   ehp=11   roll=19/0 desc=""
+  [08] r4 Clash        consumable heal_item        dmg=30    php=81   ehp=11   roll=0/0 desc=""
+  [09] r5 Clash        player   hit              dmg=14    php=81   ehp=0    roll=5/0 desc=""
+
+=== ward_absorb seed=1 ===
+result: won=false timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=0 enemyStart=60 enemyEntry=60 enemyEnd=5
+  flags: nearDeath=true pet=false petDeflect=false sniper=false misty=false closeness=0.9167
+  [00] r1 Opening      player   hit              dmg=9     php=100  ehp=51   roll=3/0 desc=""
+  [01] r1 Opening      consumable ward_absorb      dmg=0     php=100  ehp=51   roll=0/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=100  ehp=43   roll=4/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=17    php=83   ehp=43   roll=12/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=5     php=78   ehp=43   roll=0/0 desc=""
+  [05] r3 Opening      player   hit              dmg=9     php=78   ehp=34   roll=6/0 desc=""
+  [06] r3 Opening      enemy    hit              dmg=14    php=64   ehp=34   roll=15/0 desc=""
+  [07] r3 Opening      environment environmental    dmg=3     php=61   ehp=34   roll=0/0 desc=""
+  [08] r4 Clash        player   hit              dmg=15    php=61   ehp=19   roll=9/0 desc=""
+  [09] r4 Clash        enemy    hit              dmg=33    php=28   ehp=19   roll=13/0 desc=""
+  [10] r5 Clash        player   hit              dmg=14    php=28   ehp=5    roll=8/0 desc=""
+  [11] r5 Clash        enemy    hit              dmg=28    php=0    ehp=5    roll=19/0 desc=""
+
+=== ward_absorb seed=2 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=62 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3800
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=5/0 desc=""
+  [01] r1 Opening      consumable ward_absorb      dmg=0     php=100  ehp=52   roll=0/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=100  ehp=44   roll=13/0 desc=""
+  [03] r2 Opening      enemy    block            dmg=7     php=93   ehp=44   roll=5/0 desc=""
+  [04] r3 Clash        enemy    hit              dmg=31    php=62   ehp=44   roll=10/0 desc=""
+  [05] r3 Clash        player   hit              dmg=16    php=62   ehp=28   roll=7/0 desc=""
+  [06] r4 Clash        player   crit             dmg=32    php=62   ehp=0    roll=20/0 desc=""
+
+=== ward_absorb seed=3 ===
+result: won=false timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=0 enemyStart=60 enemyEntry=60 enemyEnd=13
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.7833
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=5/0 desc=""
+  [01] r1 Opening      consumable ward_absorb      dmg=0     php=100  ehp=53   roll=0/0 desc=""
+  [02] r2 Opening      player   hit              dmg=7     php=100  ehp=46   roll=6/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=16    php=84   ehp=46   roll=5/0 desc=""
+  [04] r3 Clash        enemy    hit              dmg=34    php=50   ehp=46   roll=5/0 desc=""
+  [05] r3 Clash        player   hit              dmg=16    php=50   ehp=30   roll=11/0 desc=""
+  [06] r4 Clash        player   hit              dmg=17    php=50   ehp=13   roll=2/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=31    php=19   ehp=13   roll=19/0 desc=""
+  [08] r5 Clash        enemy    hit              dmg=29    php=0    ehp=13   roll=16/0 desc=""
+
+=== ward_absorb seed=7 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=32 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.6800
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=11/0 desc=""
+  [01] r1 Opening      consumable ward_absorb      dmg=0     php=100  ehp=52   roll=0/0 desc=""
+  [02] r1 Opening      environment environmental    dmg=5     php=95   ehp=52   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=7     php=95   ehp=45   roll=16/0 desc=""
+  [04] r2 Opening      enemy    block            dmg=8     php=87   ehp=45   roll=11/0 desc=""
+  [05] r3 Clash        player   hit              dmg=17    php=87   ehp=28   roll=15/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=27    php=60   ehp=28   roll=2/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=28    php=32   ehp=28   roll=9/0 desc=""
+  [08] r4 Clash        player   hit              dmg=14    php=32   ehp=14   roll=10/0 desc=""
+  [09] r5 Clash        player   hit              dmg=18    php=32   ehp=0    roll=11/0 desc=""
+
+=== ward_absorb seed=42 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=1 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=true pet=false petDeflect=false sniper=false misty=false closeness=0.9900
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=18/0 desc=""
+  [01] r1 Opening      consumable ward_absorb      dmg=0     php=100  ehp=52   roll=0/0 desc=""
+  [02] r2 Opening      player   hit              dmg=7     php=100  ehp=45   roll=12/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=16    php=84   ehp=45   roll=13/0 desc=""
+  [04] r3 Clash        player   hit              dmg=16    php=84   ehp=29   roll=2/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=30    php=54   ehp=29   roll=9/0 desc=""
+  [06] r4 Clash        player   hit              dmg=18    php=54   ehp=11   roll=6/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=25    php=29   ehp=11   roll=12/0 desc=""
+  [08] r5 Clash        player   miss             dmg=0     php=29   ehp=11   roll=1/0 desc="fumble"
+  [09] r5 Clash        enemy    hit              dmg=28    php=1    ehp=11   roll=16/0 desc=""
+  [10] r6 Clash        player   hit              dmg=14    php=1    ehp=0    roll=19/0 desc=""
+
+=== spore_cloud seed=1 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=59 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4100
+  [00] r1 Opening      player   hit              dmg=9     php=100  ehp=51   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=7     php=93   ehp=51   roll=5/0 desc=""
+  [02] r1 Opening      environment environmental    dmg=4     php=89   ehp=51   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=7     php=89   ehp=44   roll=6/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=8     php=81   ehp=44   roll=2/0 desc=""
+  [05] r3 Opening      player   hit              dmg=7     php=81   ehp=37   roll=8/0 desc=""
+  [06] r3 Opening      consumable spore_miss       dmg=0     php=81   ehp=37   roll=0/0 desc=""
+  [07] r3 Opening      environment environmental    dmg=6     php=75   ehp=37   roll=0/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=16    php=59   ehp=37   roll=13/0 desc=""
+  [09] r4 Clash        player   hit              dmg=15    php=59   ehp=22   roll=15/0 desc=""
+  [10] r5 Clash        player   hit              dmg=17    php=59   ehp=5    roll=18/0 desc=""
+  [11] r5 Clash        consumable spore_miss       dmg=0     php=59   ehp=5    roll=0/0 desc=""
+  [12] r6 Clash        player   hit              dmg=16    php=59   ehp=0    roll=13/0 desc=""
+
+=== spore_cloud seed=2 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=35 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.6500
+  [00] r1 Opening      player   hit              dmg=9     php=100  ehp=51   roll=12/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=7     php=93   ehp=51   roll=3/0 desc=""
+  [02] r2 Opening      player   miss             dmg=0     php=93   ehp=51   roll=1/0 desc="fumble"
+  [03] r2 Opening      enemy    hit              dmg=7     php=86   ehp=51   roll=12/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=6     php=80   ehp=51   roll=0/0 desc=""
+  [05] r3 Clash        player   hit              dmg=16    php=80   ehp=35   roll=4/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=16    php=64   ehp=35   roll=2/0 desc=""
+  [07] r4 Clash        player   hit              dmg=15    php=64   ehp=20   roll=19/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=13    php=51   ehp=20   roll=2/0 desc=""
+  [09] r5 Clash        enemy    hit              dmg=16    php=35   ehp=20   roll=12/0 desc=""
+  [10] r5 Clash        player   hit              dmg=16    php=35   ehp=4    roll=19/0 desc=""
+  [11] r6 Clash        player   hit              dmg=16    php=35   ehp=0    roll=16/0 desc=""
+
+=== spore_cloud seed=3 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=51 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4900
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=11/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=7     php=93   ehp=53   roll=5/0 desc=""
+  [02] r1 Opening      environment environmental    dmg=3     php=90   ehp=53   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=7     php=90   ehp=46   roll=14/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=8     php=82   ehp=46   roll=8/0 desc=""
+  [05] r3 Clash        player   hit              dmg=16    php=82   ehp=30   roll=12/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=16    php=66   ehp=30   roll=2/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=15    php=51   ehp=30   roll=2/0 desc=""
+  [08] r4 Clash        player   hit              dmg=16    php=51   ehp=14   roll=9/0 desc=""
+  [09] r5 Clash        consumable spore_miss       dmg=0     php=51   ehp=14   roll=0/0 desc=""
+  [10] r5 Clash        player   hit              dmg=15    php=51   ehp=0    roll=12/0 desc=""
+
+=== spore_cloud seed=7 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=72 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2800
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=10/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=8     php=92   ehp=52   roll=3/0 desc=""
+  [02] r2 Opening      enemy    block            dmg=4     php=88   ehp=52   roll=11/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=88   ehp=44   roll=16/0 desc=""
+  [04] r3 Clash        player   crit             dmg=32    php=88   ehp=12   roll=20/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=16    php=72   ehp=12   roll=13/0 desc=""
+  [06] r4 Clash        player   hit              dmg=18    php=72   ehp=0    roll=6/0 desc=""
+
+=== spore_cloud seed=42 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=45 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.5500
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=13/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=7     php=93   ehp=53   roll=5/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=93   ehp=45   roll=9/0 desc=""
+  [03] r2 Opening      enemy    miss             dmg=0     php=93   ehp=45   roll=1/0 desc="fumble"
+  [04] r3 Clash        player   hit              dmg=16    php=93   ehp=29   roll=9/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=17    php=76   ehp=29   roll=19/0 desc=""
+  [06] r4 Clash        player   hit              dmg=15    php=76   ehp=14   roll=3/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=14    php=62   ehp=14   roll=3/0 desc=""
+  [08] r5 Clash        enemy    hit              dmg=17    php=45   ehp=14   roll=4/0 desc=""
+  [09] r5 Clash        player   hit              dmg=15    php=45   ehp=0    roll=15/0 desc=""
+
+=== reflect_next seed=1 ===
+result: won=false timedOut=false rounds=7
+  hp: playerStart=100 playerEntry=100 playerEnd=0 enemyStart=60 enemyEntry=60 enemyEnd=2
+  flags: nearDeath=true pet=false petDeflect=false sniper=false misty=false closeness=0.9667
+  [00] r1 Opening      player   hit              dmg=9     php=100  ehp=51   roll=3/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=10    php=90   ehp=51   roll=9/0 desc=""
+  [02] r1 Opening      consumable reflect_damage   dmg=5     php=90   ehp=46   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=90   ehp=38   roll=8/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=9     php=81   ehp=38   roll=6/0 desc=""
+  [05] r3 Opening      player   hit              dmg=7     php=81   ehp=31   roll=6/0 desc=""
+  [06] r3 Opening      enemy    hit              dmg=10    php=71   ehp=31   roll=12/0 desc=""
+  [07] r4 Clash        player   hit              dmg=15    php=71   ehp=16   roll=9/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=22    php=49   ehp=16   roll=13/0 desc=""
+  [09] r5 Clash        player   hit              dmg=14    php=49   ehp=2    roll=8/0 desc=""
+  [10] r5 Clash        enemy    hit              dmg=18    php=31   ehp=2    roll=19/0 desc=""
+  [11] r6 Clash        player   miss             dmg=0     php=31   ehp=2    roll=1/0 desc="fumble"
+  [12] r6 Clash        enemy    hit              dmg=19    php=12   ehp=2    roll=9/0 desc=""
+  [13] r7 Clash        player   miss             dmg=0     php=12   ehp=2    roll=1/0 desc="fumble"
+  [14] r7 Clash        enemy    hit              dmg=22    php=0    ehp=2    roll=17/0 desc=""
+
+=== reflect_next seed=2 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=28 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.7200
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=9     php=91   ehp=52   roll=4/0 desc=""
+  [02] r1 Opening      consumable reflect_damage   dmg=4     php=91   ehp=48   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=7     php=91   ehp=41   roll=16/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=10    php=81   ehp=41   roll=12/0 desc=""
+  [05] r2 Opening      environment environmental    dmg=6     php=75   ehp=41   roll=0/0 desc=""
+  [06] r3 Clash        player   hit              dmg=16    php=75   ehp=25   roll=7/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=21    php=54   ehp=25   roll=16/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=22    php=32   ehp=25   roll=18/0 desc=""
+  [09] r4 Clash        player   hit              dmg=14    php=32   ehp=11   roll=2/0 desc=""
+  [10] r4 Clash        environment environmental    dmg=4     php=28   ehp=11   roll=0/0 desc=""
+  [11] r5 Clash        player   hit              dmg=16    php=28   ehp=0    roll=3/0 desc=""
+
+=== reflect_next seed=3 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=45 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.5500
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=9     php=91   ehp=53   roll=12/0 desc=""
+  [02] r1 Opening      consumable reflect_damage   dmg=4     php=91   ehp=49   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=91   ehp=41   roll=10/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=9     php=82   ehp=41   roll=14/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=18    php=64   ehp=41   roll=15/0 desc=""
+  [06] r3 Clash        player   hit              dmg=17    php=64   ehp=24   roll=2/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=19    php=45   ehp=24   roll=2/0 desc=""
+  [08] r4 Clash        player   hit              dmg=16    php=45   ehp=8    roll=17/0 desc=""
+  [09] r5 Clash        player   hit              dmg=14    php=45   ehp=0    roll=6/0 desc=""
+
+=== reflect_next seed=7 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=25 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.7500
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=11/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=9     php=91   ehp=52   roll=15/0 desc=""
+  [02] r1 Opening      consumable reflect_damage   dmg=4     php=91   ehp=48   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=91   ehp=40   roll=8/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=8     php=83   ehp=40   roll=19/0 desc=""
+  [05] r3 Clash        player   hit              dmg=17    php=83   ehp=23   roll=13/0 desc=""
+  [06] r3 Clash        enemy    crit             dmg=40    php=43   ehp=23   roll=20/0 desc=""
+  [07] r4 Clash        player   hit              dmg=17    php=43   ehp=6    roll=8/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=18    php=25   ehp=6    roll=8/0 desc=""
+  [09] r5 Clash        player   hit              dmg=16    php=25   ehp=0    roll=11/0 desc=""
+
+=== reflect_next seed=42 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=51 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4900
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=18/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=9     php=91   ehp=52   roll=17/0 desc=""
+  [02] r1 Opening      consumable reflect_damage   dmg=4     php=91   ehp=48   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=91   ehp=40   roll=18/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=10    php=81   ehp=40   roll=6/0 desc=""
+  [05] r3 Clash        player   hit              dmg=18    php=81   ehp=22   roll=16/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=19    php=62   ehp=22   roll=6/0 desc=""
+  [07] r4 Clash        enemy    block            dmg=11    php=51   ehp=22   roll=9/0 desc=""
+  [08] r4 Clash        player   hit              dmg=15    php=51   ehp=7    roll=19/0 desc=""
+  [09] r5 Clash        player   hit              dmg=14    php=51   ehp=0    roll=5/0 desc=""
+
+=== auto_crit_first seed=1 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=75 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2500
+  [00] r1 Opening      player   crit             dmg=18    php=100  ehp=42   roll=3/0 desc="auto_crit"
+  [01] r1 Opening      enemy    hit              dmg=5     php=95   ehp=42   roll=9/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=95   ehp=34   roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=91   ehp=34   roll=6/0 desc=""
+  [04] r3 Opening      player   hit              dmg=7     php=91   ehp=27   roll=6/0 desc=""
+  [05] r3 Opening      enemy    hit              dmg=5     php=86   ehp=27   roll=12/0 desc=""
+  [06] r4 Clash        player   hit              dmg=15    php=86   ehp=12   roll=9/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=11    php=75   ehp=12   roll=13/0 desc=""
+  [08] r5 Clash        player   hit              dmg=14    php=75   ehp=0    roll=8/0 desc=""
+
+=== auto_crit_first seed=2 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=60 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4000
+  [00] r1 Opening      player   crit             dmg=16    php=100  ehp=44   roll=5/0 desc="auto_crit"
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=44   roll=4/0 desc=""
+  [02] r2 Opening      player   hit              dmg=7     php=96   ehp=37   roll=16/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=5     php=91   ehp=37   roll=12/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=6     php=85   ehp=37   roll=0/0 desc=""
+  [05] r3 Clash        player   hit              dmg=16    php=85   ehp=21   roll=7/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=10    php=75   ehp=21   roll=16/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=11    php=64   ehp=21   roll=18/0 desc=""
+  [08] r4 Clash        player   hit              dmg=14    php=64   ehp=7    roll=2/0 desc=""
+  [09] r4 Clash        environment environmental    dmg=4     php=60   ehp=7    roll=0/0 desc=""
+  [10] r5 Clash        player   hit              dmg=16    php=60   ehp=0    roll=3/0 desc=""
+
+=== auto_crit_first seed=3 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=74 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2600
+  [00] r1 Opening      player   crit             dmg=14    php=100  ehp=46   roll=5/0 desc="auto_crit"
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=46   roll=12/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=96   ehp=38   roll=10/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=92   ehp=38   roll=14/0 desc=""
+  [04] r3 Clash        enemy    hit              dmg=9     php=83   ehp=38   roll=15/0 desc=""
+  [05] r3 Clash        player   hit              dmg=17    php=83   ehp=21   roll=2/0 desc=""
+  [06] r4 Clash        enemy    hit              dmg=9     php=74   ehp=21   roll=2/0 desc=""
+  [07] r4 Clash        player   hit              dmg=16    php=74   ehp=5    roll=17/0 desc=""
+  [08] r5 Clash        player   hit              dmg=14    php=74   ehp=0    roll=6/0 desc=""
+
+=== auto_crit_first seed=7 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=63 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3700
+  [00] r1 Opening      player   crit             dmg=16    php=100  ehp=44   roll=11/0 desc="auto_crit"
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=44   roll=15/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=96   ehp=36   roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=92   ehp=36   roll=19/0 desc=""
+  [04] r3 Clash        player   hit              dmg=17    php=92   ehp=19   roll=13/0 desc=""
+  [05] r3 Clash        enemy    crit             dmg=20    php=72   ehp=19   roll=20/0 desc=""
+  [06] r4 Clash        player   hit              dmg=17    php=72   ehp=2    roll=8/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=9     php=63   ehp=2    roll=8/0 desc=""
+  [08] r5 Clash        player   hit              dmg=16    php=63   ehp=0    roll=11/0 desc=""
+
+=== auto_crit_first seed=42 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=77 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2300
+  [00] r1 Opening      player   crit             dmg=16    php=100  ehp=44   roll=18/0 desc="auto_crit"
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=44   roll=17/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=96   ehp=36   roll=18/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=5     php=91   ehp=36   roll=6/0 desc=""
+  [04] r3 Clash        player   hit              dmg=18    php=91   ehp=18   roll=16/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=9     php=82   ehp=18   roll=6/0 desc=""
+  [06] r4 Clash        enemy    block            dmg=5     php=77   ehp=18   roll=9/0 desc=""
+  [07] r4 Clash        player   hit              dmg=15    php=77   ehp=3    roll=19/0 desc=""
+  [08] r5 Clash        player   hit              dmg=14    php=77   ehp=0    roll=5/0 desc=""
+
+=== pet_attack seed=1 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=85 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=true petDeflect=false sniper=false misty=false closeness=0.1500
+  [00] r1 Opening      player   hit              dmg=9     php=100  ehp=51   roll=3/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=5     php=95   ehp=51   roll=9/0 desc=""
+  [02] r1 Opening      pet      pet_attack       dmg=12    php=95   ehp=39   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=7     php=95   ehp=32   roll=12/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=5     php=90   ehp=32   roll=14/0 desc=""
+  [05] r2 Opening      pet      pet_attack       dmg=11    php=90   ehp=21   roll=0/0 desc=""
+  [06] r3 Opening      player   hit              dmg=7     php=90   ehp=14   roll=8/0 desc=""
+  [07] r3 Opening      enemy    hit              dmg=5     php=85   ehp=14   roll=8/0 desc=""
+  [08] r3 Opening      pet      pet_attack       dmg=10    php=85   ehp=4    roll=0/0 desc=""
+  [09] r4 Clash        player   hit              dmg=15    php=85   ehp=0    roll=15/0 desc=""
+
+=== pet_attack seed=2 ===
+result: won=true timedOut=false rounds=3
+  hp: playerStart=100 playerEntry=100 playerEnd=76 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=true petDeflect=false sniper=false misty=false closeness=0.2400
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=52   roll=4/0 desc=""
+  [02] r1 Opening      pet      pet_attack       dmg=14    php=96   ehp=38   roll=0/0 desc=""
+  [03] r2 Opening      player   miss             dmg=0     php=96   ehp=38   roll=1/0 desc="fumble"
+  [04] r2 Opening      enemy    hit              dmg=5     php=91   ehp=38   roll=12/0 desc=""
+  [05] r2 Opening      environment environmental    dmg=6     php=85   ehp=38   roll=0/0 desc=""
+  [06] r2 Opening      pet      pet_attack       dmg=14    php=85   ehp=24   roll=0/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=9     php=76   ehp=24   roll=5/0 desc=""
+  [08] r3 Clash        player   hit              dmg=16    php=76   ehp=8    roll=3/0 desc=""
+  [09] r3 Clash        pet      pet_attack       dmg=11    php=76   ehp=0    roll=0/0 desc=""
+
+=== pet_attack seed=3 ===
+result: won=true timedOut=false rounds=3
+  hp: playerStart=100 playerEntry=100 playerEnd=82 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=true petDeflect=false sniper=false misty=false closeness=0.1800
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=53   roll=12/0 desc=""
+  [02] r1 Opening      pet      pet_attack       dmg=11    php=96   ehp=42   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=7     php=96   ehp=35   roll=16/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=4     php=92   ehp=35   roll=13/0 desc=""
+  [05] r2 Opening      pet      pet_attack       dmg=13    php=92   ehp=22   roll=0/0 desc=""
+  [06] r3 Clash        player   hit              dmg=16    php=92   ehp=6    roll=12/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=10    php=82   ehp=6    roll=2/0 desc=""
+  [08] r3 Clash        pet      pet_attack       dmg=14    php=82   ehp=0    roll=0/0 desc=""
+
+=== pet_attack seed=7 ===
+result: won=true timedOut=false rounds=3
+  hp: playerStart=100 playerEntry=100 playerEnd=85 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=true petDeflect=false sniper=false misty=false closeness=0.1500
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=11/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=52   roll=15/0 desc=""
+  [02] r1 Opening      pet      pet_attack       dmg=13    php=96   ehp=39   roll=0/0 desc=""
+  [03] r2 Opening      enemy    block            dmg=2     php=94   ehp=39   roll=11/0 desc=""
+  [04] r2 Opening      player   hit              dmg=8     php=94   ehp=31   roll=16/0 desc=""
+  [05] r2 Opening      pet      pet_attack       dmg=13    php=94   ehp=18   roll=0/0 desc=""
+  [06] r3 Clash        player   hit              dmg=17    php=94   ehp=1    roll=18/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=9     php=85   ehp=1    roll=6/0 desc=""
+  [08] r3 Clash        pet      pet_attack       dmg=11    php=85   ehp=0    roll=0/0 desc=""
+
+=== pet_attack seed=42 ===
+result: won=true timedOut=false rounds=3
+  hp: playerStart=100 playerEntry=100 playerEnd=86 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=true petDeflect=false sniper=false misty=false closeness=0.1400
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=18/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=52   roll=17/0 desc=""
+  [02] r1 Opening      pet      pet_attack       dmg=13    php=96   ehp=39   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=96   ehp=31   roll=9/0 desc=""
+  [04] r2 Opening      enemy    miss             dmg=0     php=96   ehp=31   roll=1/0 desc="fumble"
+  [05] r2 Opening      pet      pet_attack       dmg=10    php=96   ehp=21   roll=0/0 desc=""
+  [06] r3 Clash        player   hit              dmg=16    php=96   ehp=5    roll=2/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=10    php=86   ehp=5    roll=2/0 desc=""
+  [08] r3 Clash        pet      pet_attack       dmg=12    php=86   ehp=0    roll=0/0 desc=""
+
+=== misty_heal seed=1 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=91 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=true closeness=0.0900
+  [00] r1 Opening      player   hit              dmg=9     php=100  ehp=51   roll=3/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=7     php=93   ehp=51   roll=9/0 desc=""
+  [02] r1 Opening      npc      misty_heal       dmg=10    php=100  ehp=51   roll=0/0 desc="Misty"
+  [03] r2 Opening      player   hit              dmg=9     php=100  ehp=42   roll=12/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=7     php=93   ehp=42   roll=16/0 desc=""
+  [05] r2 Opening      npc      misty_heal       dmg=10    php=100  ehp=42   roll=0/0 desc="Misty"
+  [06] r3 Opening      player   hit              dmg=7     php=100  ehp=35   roll=15/0 desc=""
+  [07] r3 Opening      enemy    hit              dmg=7     php=93   ehp=35   roll=8/0 desc=""
+  [08] r3 Opening      npc      misty_heal       dmg=10    php=100  ehp=35   roll=0/0 desc="Misty"
+  [09] r4 Clash        enemy    hit              dmg=16    php=84   ehp=35   roll=13/0 desc=""
+  [10] r4 Clash        player   hit              dmg=15    php=84   ehp=20   roll=15/0 desc=""
+  [11] r4 Clash        npc      misty_heal       dmg=10    php=94   ehp=20   roll=0/0 desc="Misty"
+  [12] r5 Clash        player   hit              dmg=17    php=94   ehp=3    roll=18/0 desc=""
+  [13] r5 Clash        enemy    hit              dmg=13    php=81   ehp=3    roll=3/0 desc=""
+  [14] r5 Clash        npc      misty_heal       dmg=10    php=91   ehp=3    roll=0/0 desc="Misty"
+  [15] r6 Clash        player   hit              dmg=18    php=91   ehp=0    roll=7/0 desc=""
+
+=== misty_heal seed=2 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=75 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=true closeness=0.2500
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=7     php=93   ehp=52   roll=4/0 desc=""
+  [02] r1 Opening      npc      misty_heal       dmg=10    php=100  ehp=52   roll=0/0 desc="Misty"
+  [03] r2 Opening      player   hit              dmg=8     php=100  ehp=44   roll=5/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=7     php=93   ehp=44   roll=2/0 desc=""
+  [05] r2 Opening      npc      misty_heal       dmg=10    php=100  ehp=44   roll=0/0 desc="Misty"
+  [06] r3 Clash        player   hit              dmg=16    php=100  ehp=28   roll=4/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=16    php=84   ehp=28   roll=2/0 desc=""
+  [08] r3 Clash        npc      misty_heal       dmg=10    php=94   ehp=28   roll=0/0 desc="Misty"
+  [09] r4 Clash        player   hit              dmg=15    php=94   ehp=13   roll=19/0 desc=""
+  [10] r4 Clash        enemy    hit              dmg=13    php=81   ehp=13   roll=2/0 desc=""
+  [11] r4 Clash        npc      misty_heal       dmg=10    php=91   ehp=13   roll=0/0 desc="Misty"
+  [12] r5 Clash        enemy    hit              dmg=16    php=75   ehp=13   roll=12/0 desc=""
+  [13] r5 Clash        player   hit              dmg=16    php=75   ehp=0    roll=19/0 desc=""
+
+=== misty_heal seed=3 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=92 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=true closeness=0.0800
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=7     php=93   ehp=53   roll=12/0 desc=""
+  [02] r1 Opening      npc      misty_heal       dmg=10    php=100  ehp=53   roll=0/0 desc="Misty"
+  [03] r2 Opening      player   hit              dmg=8     php=100  ehp=45   roll=5/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=8     php=92   ehp=45   roll=13/0 desc=""
+  [05] r2 Opening      npc      misty_heal       dmg=10    php=100  ehp=45   roll=0/0 desc="Misty"
+  [06] r3 Clash        player   hit              dmg=17    php=100  ehp=28   roll=18/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=13    php=87   ehp=28   roll=17/0 desc=""
+  [08] r3 Clash        npc      misty_heal       dmg=10    php=97   ehp=28   roll=0/0 desc="Misty"
+  [09] r4 Clash        enemy    hit              dmg=15    php=82   ehp=28   roll=17/0 desc=""
+  [10] r4 Clash        player   hit              dmg=18    php=82   ehp=10   roll=3/0 desc=""
+  [11] r4 Clash        npc      misty_heal       dmg=10    php=92   ehp=10   roll=0/0 desc="Misty"
+  [12] r5 Clash        player   hit              dmg=16    php=92   ehp=0    roll=8/0 desc=""
+
+=== misty_heal seed=7 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=94 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=true closeness=0.0600
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=11/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=6     php=94   ehp=52   roll=15/0 desc=""
+  [02] r1 Opening      npc      misty_heal       dmg=10    php=100  ehp=52   roll=0/0 desc="Misty"
+  [03] r2 Opening      player   hit              dmg=9     php=100  ehp=43   roll=7/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=7     php=93   ehp=43   roll=3/0 desc=""
+  [05] r2 Opening      environment environmental    dmg=2     php=91   ehp=43   roll=0/0 desc=""
+  [06] r2 Opening      npc      misty_heal       dmg=10    php=100  ehp=43   roll=0/0 desc="Misty"
+  [07] r3 Clash        player   crit             dmg=32    php=100  ehp=11   roll=20/0 desc=""
+  [08] r3 Clash        enemy    hit              dmg=16    php=84   ehp=11   roll=13/0 desc=""
+  [09] r3 Clash        npc      misty_heal       dmg=10    php=94   ehp=11   roll=0/0 desc="Misty"
+  [10] r4 Clash        player   hit              dmg=18    php=94   ehp=0    roll=6/0 desc=""
+
+=== misty_heal seed=42 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=83 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=true closeness=0.1700
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=18/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=7     php=93   ehp=52   roll=17/0 desc=""
+  [02] r1 Opening      npc      misty_heal       dmg=10    php=100  ehp=52   roll=0/0 desc="Misty"
+  [03] r2 Opening      player   hit              dmg=8     php=100  ehp=44   roll=13/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=8     php=92   ehp=44   roll=19/0 desc=""
+  [05] r2 Opening      npc      misty_heal       dmg=10    php=100  ehp=44   roll=0/0 desc="Misty"
+  [06] r3 Clash        player   hit              dmg=16    php=100  ehp=28   roll=2/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=15    php=85   ehp=28   roll=2/0 desc=""
+  [08] r3 Clash        npc      misty_heal       dmg=10    php=95   ehp=28   roll=0/0 desc="Misty"
+  [09] r4 Clash        player   hit              dmg=15    php=95   ehp=13   roll=19/0 desc=""
+  [10] r4 Clash        enemy    hit              dmg=15    php=80   ehp=13   roll=14/0 desc=""
+  [11] r4 Clash        npc      misty_heal       dmg=10    php=90   ehp=13   roll=0/0 desc="Misty"
+  [12] r5 Clash        enemy    block            dmg=7     php=83   ehp=13   roll=15/0 desc=""
+  [13] r5 Clash        player   hit              dmg=18    php=83   ehp=0    roll=16/0 desc=""
+
+=== death_save seed=1 ===
+result: won=false timedOut=false rounds=3
+  hp: playerStart=30 playerEntry=30 playerEnd=0 enemyStart=200 enemyEntry=200 enemyEnd=176
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.1200
+  [00] r1 Opening      player   hit              dmg=9     php=30   ehp=191  roll=3/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=20    php=10   ehp=191  roll=9/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=10   ehp=183  roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=18    php=0    ehp=183  roll=6/0 desc=""
+  [04] r2 Opening      player   death_save       dmg=0     php=1    ehp=183  roll=0/0 desc="Sovereign"
+  [05] r3 Opening      player   hit              dmg=7     php=1    ehp=176  roll=6/0 desc=""
+  [06] r3 Opening      enemy    hit              dmg=21    php=0    ehp=176  roll=12/0 desc=""
+
+=== death_save seed=2 ===
+result: won=false timedOut=false rounds=2
+  hp: playerStart=30 playerEntry=30 playerEnd=0 enemyStart=200 enemyEntry=200 enemyEnd=185
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0750
+  [00] r1 Opening      player   hit              dmg=8     php=30   ehp=192  roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=18    php=12   ehp=192  roll=4/0 desc=""
+  [02] r2 Opening      player   hit              dmg=7     php=12   ehp=185  roll=16/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=20    php=0    ehp=185  roll=12/0 desc=""
+  [04] r2 Opening      player   death_save       dmg=0     php=1    ehp=185  roll=0/0 desc="Sovereign"
+  [05] r2 Opening      environment environmental    dmg=6     php=0    ehp=185  roll=0/0 desc=""
+
+=== death_save seed=3 ===
+result: won=false timedOut=false rounds=3
+  hp: playerStart=30 playerEntry=30 playerEnd=0 enemyStart=200 enemyEntry=200 enemyEnd=185
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0750
+  [00] r1 Opening      player   hit              dmg=7     php=30   ehp=193  roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=19    php=11   ehp=193  roll=12/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=11   ehp=185  roll=10/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=19    php=0    ehp=185  roll=14/0 desc=""
+  [04] r2 Opening      player   death_save       dmg=0     php=1    ehp=185  roll=0/0 desc="Sovereign"
+  [05] r3 Clash        enemy    hit              dmg=37    php=0    ehp=185  roll=15/0 desc=""
+
+=== death_save seed=7 ===
+result: won=false timedOut=false rounds=3
+  hp: playerStart=30 playerEntry=30 playerEnd=0 enemyStart=200 enemyEntry=200 enemyEnd=167
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.1650
+  [00] r1 Opening      player   hit              dmg=8     php=30   ehp=192  roll=11/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=18    php=12   ehp=192  roll=15/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=12   ehp=184  roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=17    php=0    ehp=184  roll=19/0 desc=""
+  [04] r2 Opening      player   death_save       dmg=0     php=1    ehp=184  roll=0/0 desc="Sovereign"
+  [05] r3 Clash        player   hit              dmg=17    php=1    ehp=167  roll=13/0 desc=""
+  [06] r3 Clash        enemy    crit             dmg=82    php=0    ehp=167  roll=20/0 desc=""
+
+=== death_save seed=42 ===
+result: won=false timedOut=false rounds=3
+  hp: playerStart=30 playerEntry=30 playerEnd=0 enemyStart=200 enemyEntry=200 enemyEnd=166
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.1700
+  [00] r1 Opening      player   hit              dmg=8     php=30   ehp=192  roll=18/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=19    php=11   ehp=192  roll=17/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=11   ehp=184  roll=18/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=21    php=0    ehp=184  roll=6/0 desc=""
+  [04] r2 Opening      player   death_save       dmg=0     php=1    ehp=184  roll=0/0 desc="Sovereign"
+  [05] r3 Clash        player   hit              dmg=18    php=1    ehp=166  roll=16/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=39    php=0    ehp=166  roll=6/0 desc=""
+
+=== ability_poison seed=1 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=36 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.6400
+  [00] r1 Opening      enemy    poison           dmg=0     php=100  ehp=60   roll=0/0 desc="Venom Bite"
+  [01] r1 Opening      enemy    poison_tick      dmg=4     php=96   ehp=60   roll=0/0 desc=""
+  [02] r1 Opening      player   hit              dmg=7     php=96   ehp=53   roll=11/0 desc=""
+  [03] r1 Opening      enemy    hit              dmg=4     php=92   ehp=53   roll=3/0 desc=""
+  [04] r2 Opening      enemy    poison           dmg=0     php=92   ehp=53   roll=0/0 desc="Venom Bite"
+  [05] r2 Opening      enemy    poison_tick      dmg=4     php=88   ehp=53   roll=0/0 desc=""
+  [06] r2 Opening      player   hit              dmg=7     php=88   ehp=46   roll=16/0 desc=""
+  [07] r2 Opening      enemy    hit              dmg=5     php=83   ehp=46   roll=19/0 desc=""
+  [08] r2 Opening      environment environmental    dmg=5     php=78   ehp=46   roll=0/0 desc=""
+  [09] r3 Opening      enemy    poison           dmg=0     php=78   ehp=46   roll=0/0 desc="Venom Bite"
+  [10] r3 Opening      enemy    poison_tick      dmg=4     php=74   ehp=46   roll=0/0 desc=""
+  [11] r3 Opening      player   hit              dmg=8     php=74   ehp=38   roll=8/0 desc=""
+  [12] r3 Opening      enemy    hit              dmg=4     php=70   ehp=38   roll=9/0 desc=""
+  [13] r4 Clash        enemy    poison           dmg=0     php=70   ehp=38   roll=0/0 desc="Venom Bite"
+  [14] r4 Clash        enemy    poison_tick      dmg=5     php=65   ehp=38   roll=0/0 desc=""
+  [15] r4 Clash        player   hit              dmg=14    php=65   ehp=24   roll=8/0 desc=""
+  [16] r4 Clash        enemy    hit              dmg=9     php=56   ehp=24   roll=19/0 desc=""
+  [17] r5 Clash        enemy    poison           dmg=0     php=56   ehp=24   roll=0/0 desc="Venom Bite"
+  [18] r5 Clash        enemy    poison_tick      dmg=5     php=51   ehp=24   roll=0/0 desc=""
+  [19] r5 Clash        player   hit              dmg=16    php=51   ehp=8    roll=13/0 desc=""
+  [20] r5 Clash        enemy    hit              dmg=11    php=40   ehp=8    roll=7/0 desc=""
+  [21] r6 Clash        enemy    poison           dmg=0     php=40   ehp=8    roll=0/0 desc="Venom Bite"
+  [22] r6 Clash        enemy    poison_tick      dmg=4     php=36   ehp=8    roll=0/0 desc=""
+  [23] r6 Clash        player   hit              dmg=15    php=36   ehp=0    roll=11/0 desc=""
+
+=== ability_poison seed=2 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=50 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.5000
+  [00] r1 Opening      enemy    poison           dmg=0     php=100  ehp=60   roll=0/0 desc="Venom Bite"
+  [01] r1 Opening      enemy    poison_tick      dmg=5     php=95   ehp=60   roll=0/0 desc=""
+  [02] r1 Opening      player   hit              dmg=8     php=95   ehp=52   roll=16/0 desc=""
+  [03] r1 Opening      enemy    hit              dmg=5     php=90   ehp=52   roll=7/0 desc=""
+  [04] r2 Opening      enemy    poison           dmg=0     php=90   ehp=52   roll=0/0 desc="Venom Bite"
+  [05] r2 Opening      enemy    poison_tick      dmg=3     php=87   ehp=52   roll=0/0 desc=""
+  [06] r2 Opening      player   hit              dmg=7     php=87   ehp=45   roll=2/0 desc=""
+  [07] r2 Opening      enemy    hit              dmg=5     php=82   ehp=45   roll=18/0 desc=""
+  [08] r3 Clash        enemy    poison           dmg=0     php=82   ehp=45   roll=0/0 desc="Venom Bite"
+  [09] r3 Clash        enemy    poison_tick      dmg=3     php=79   ehp=45   roll=0/0 desc=""
+  [10] r3 Clash        player   hit              dmg=16    php=79   ehp=29   roll=3/0 desc=""
+  [11] r3 Clash        enemy    hit              dmg=10    php=69   ehp=29   roll=17/0 desc=""
+  [12] r4 Clash        enemy    poison           dmg=0     php=69   ehp=29   roll=0/0 desc="Venom Bite"
+  [13] r4 Clash        enemy    poison_tick      dmg=4     php=65   ehp=29   roll=0/0 desc=""
+  [14] r4 Clash        player   hit              dmg=15    php=65   ehp=14   roll=11/0 desc=""
+  [15] r4 Clash        enemy    hit              dmg=10    php=55   ehp=14   roll=3/0 desc=""
+  [16] r5 Clash        enemy    poison           dmg=0     php=55   ehp=14   roll=0/0 desc="Venom Bite"
+  [17] r5 Clash        enemy    poison_tick      dmg=5     php=50   ehp=14   roll=0/0 desc=""
+  [18] r5 Clash        player   hit              dmg=17    php=50   ehp=0    roll=2/0 desc=""
+
+=== ability_poison seed=3 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=52 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4800
+  [00] r1 Opening      enemy    poison           dmg=0     php=100  ehp=60   roll=0/0 desc="Venom Bite"
+  [01] r1 Opening      enemy    poison_tick      dmg=3     php=97   ehp=60   roll=0/0 desc=""
+  [02] r1 Opening      player   hit              dmg=9     php=97   ehp=51   roll=8/0 desc=""
+  [03] r1 Opening      enemy    hit              dmg=4     php=93   ehp=51   roll=18/0 desc=""
+  [04] r2 Opening      enemy    poison           dmg=0     php=93   ehp=51   roll=0/0 desc="Venom Bite"
+  [05] r2 Opening      enemy    poison_tick      dmg=3     php=90   ehp=51   roll=0/0 desc=""
+  [06] r2 Opening      player   hit              dmg=9     php=90   ehp=42   roll=13/0 desc=""
+  [07] r2 Opening      enemy    hit              dmg=4     php=86   ehp=42   roll=5/0 desc=""
+  [08] r3 Clash        enemy    poison           dmg=0     php=86   ehp=42   roll=0/0 desc="Venom Bite"
+  [09] r3 Clash        enemy    poison_tick      dmg=3     php=83   ehp=42   roll=0/0 desc=""
+  [10] r3 Clash        player   hit              dmg=16    php=83   ehp=26   roll=16/0 desc=""
+  [11] r3 Clash        enemy    hit              dmg=9     php=74   ehp=26   roll=2/0 desc=""
+  [12] r3 Clash        environment environmental    dmg=6     php=68   ehp=26   roll=0/0 desc=""
+  [13] r4 Clash        enemy    poison           dmg=0     php=68   ehp=26   roll=0/0 desc="Venom Bite"
+  [14] r4 Clash        enemy    poison_tick      dmg=3     php=65   ehp=26   roll=0/0 desc=""
+  [15] r4 Clash        player   hit              dmg=14    php=65   ehp=12   roll=6/0 desc=""
+  [16] r4 Clash        enemy    hit              dmg=8     php=57   ehp=12   roll=4/0 desc=""
+  [17] r5 Clash        enemy    poison           dmg=0     php=57   ehp=12   roll=0/0 desc="Venom Bite"
+  [18] r5 Clash        enemy    poison_tick      dmg=5     php=52   ehp=12   roll=0/0 desc=""
+  [19] r5 Clash        player   hit              dmg=16    php=52   ehp=0    roll=12/0 desc=""
+
+=== ability_poison seed=7 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=44 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.5600
+  [00] r1 Opening      enemy    poison           dmg=0     php=100  ehp=60   roll=0/0 desc="Venom Bite"
+  [01] r1 Opening      enemy    poison_tick      dmg=3     php=97   ehp=60   roll=0/0 desc=""
+  [02] r1 Opening      player   hit              dmg=7     php=97   ehp=53   roll=6/0 desc=""
+  [03] r1 Opening      enemy    hit              dmg=5     php=92   ehp=53   roll=16/0 desc=""
+  [04] r2 Opening      enemy    poison           dmg=0     php=92   ehp=53   roll=0/0 desc="Venom Bite"
+  [05] r2 Opening      enemy    poison_tick      dmg=3     php=89   ehp=53   roll=0/0 desc=""
+  [06] r2 Opening      player   hit              dmg=7     php=89   ehp=46   roll=3/0 desc=""
+  [07] r2 Opening      enemy    hit              dmg=4     php=85   ehp=46   roll=11/0 desc=""
+  [08] r3 Clash        enemy    poison           dmg=0     php=85   ehp=46   roll=0/0 desc="Venom Bite"
+  [09] r3 Clash        enemy    poison_tick      dmg=5     php=80   ehp=46   roll=0/0 desc=""
+  [10] r3 Clash        player   hit              dmg=18    php=80   ehp=28   roll=13/0 desc=""
+  [11] r3 Clash        enemy    hit              dmg=10    php=70   ehp=28   roll=8/0 desc=""
+  [12] r4 Clash        enemy    poison           dmg=0     php=70   ehp=28   roll=0/0 desc="Venom Bite"
+  [13] r4 Clash        enemy    poison_tick      dmg=3     php=67   ehp=28   roll=0/0 desc=""
+  [14] r4 Clash        player   hit              dmg=18    php=67   ehp=10   roll=11/0 desc=""
+  [15] r4 Clash        enemy    crit             dmg=20    php=47   ehp=10   roll=20/0 desc=""
+  [16] r5 Clash        enemy    poison           dmg=0     php=47   ehp=10   roll=0/0 desc="Venom Bite"
+  [17] r5 Clash        enemy    poison_tick      dmg=3     php=44   ehp=10   roll=0/0 desc=""
+  [18] r5 Clash        player   hit              dmg=16    php=44   ehp=0    roll=16/0 desc=""
+
+=== ability_poison seed=42 ===
+result: won=true timedOut=false rounds=7
+  hp: playerStart=100 playerEntry=100 playerEnd=34 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.6600
+  [00] r1 Opening      enemy    poison           dmg=0     php=100  ehp=60   roll=0/0 desc="Venom Bite"
+  [01] r1 Opening      enemy    poison_tick      dmg=4     php=96   ehp=60   roll=0/0 desc=""
+  [02] r1 Opening      player   miss             dmg=0     php=96   ehp=60   roll=1/0 desc="fumble"
+  [03] r1 Opening      enemy    hit              dmg=4     php=92   ehp=60   roll=17/0 desc=""
+  [04] r2 Opening      enemy    poison           dmg=0     php=92   ehp=60   roll=0/0 desc="Venom Bite"
+  [05] r2 Opening      enemy    poison_tick      dmg=5     php=87   ehp=60   roll=0/0 desc=""
+  [06] r2 Opening      player   hit              dmg=8     php=87   ehp=52   roll=9/0 desc=""
+  [07] r2 Opening      enemy    miss             dmg=0     php=87   ehp=52   roll=1/0 desc="fumble"
+  [08] r3 Clash        enemy    poison           dmg=0     php=87   ehp=52   roll=0/0 desc="Venom Bite"
+  [09] r3 Clash        enemy    poison_tick      dmg=5     php=82   ehp=52   roll=0/0 desc=""
+  [10] r3 Clash        player   hit              dmg=16    php=82   ehp=36   roll=2/0 desc=""
+  [11] r3 Clash        enemy    hit              dmg=10    php=72   ehp=36   roll=2/0 desc=""
+  [12] r4 Clash        enemy    poison           dmg=0     php=72   ehp=36   roll=0/0 desc="Venom Bite"
+  [13] r4 Clash        enemy    poison_tick      dmg=4     php=68   ehp=36   roll=0/0 desc=""
+  [14] r4 Clash        enemy    hit              dmg=10    php=58   ehp=36   roll=18/0 desc=""
+  [15] r4 Clash        player   miss             dmg=0     php=58   ehp=36   roll=1/0 desc="fumble"
+  [16] r5 Clash        enemy    poison           dmg=0     php=58   ehp=36   roll=0/0 desc="Venom Bite"
+  [17] r5 Clash        enemy    poison_tick      dmg=4     php=54   ehp=36   roll=0/0 desc=""
+  [18] r5 Clash        enemy    block            dmg=4     php=50   ehp=36   roll=15/0 desc=""
+  [19] r5 Clash        player   hit              dmg=18    php=50   ehp=18   roll=16/0 desc=""
+  [20] r6 Decisive     enemy    poison           dmg=0     php=50   ehp=18   roll=0/0 desc="Venom Bite"
+  [21] r6 Decisive     enemy    poison_tick      dmg=3     php=47   ehp=18   roll=0/0 desc=""
+  [22] r6 Decisive     player   hit              dmg=14    php=47   ehp=4    roll=11/0 desc=""
+  [23] r6 Decisive     enemy    miss             dmg=0     php=47   ehp=4    roll=1/0 desc="fumble"
+  [24] r7 Sudden Death enemy    poison           dmg=0     php=47   ehp=4    roll=0/0 desc="Venom Bite"
+  [25] r7 Sudden Death enemy    poison_tick      dmg=3     php=44   ehp=4    roll=0/0 desc=""
+  [26] r7 Sudden Death enemy    hit              dmg=10    php=34   ehp=4    roll=17/0 desc=""
+  [27] r7 Sudden Death player   hit              dmg=14    php=34   ehp=0    roll=9/0 desc=""
+
+=== ability_enrage seed=1 ===
+result: won=true timedOut=false rounds=7
+  hp: playerStart=100 playerEntry=100 playerEnd=66 enemyStart=50 enemyEntry=50 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3400
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=43   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=3     php=97   ehp=43   roll=5/0 desc=""
+  [02] r1 Opening      environment environmental    dmg=4     php=93   ehp=43   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=5     php=93   ehp=38   roll=6/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=3     php=90   ehp=38   roll=2/0 desc=""
+  [05] r3 Opening      player   hit              dmg=5     php=90   ehp=33   roll=8/0 desc=""
+  [06] r3 Opening      enemy    hit              dmg=3     php=87   ehp=33   roll=8/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=6     php=81   ehp=33   roll=13/0 desc=""
+  [08] r4 Clash        player   hit              dmg=11    php=81   ehp=22   roll=19/0 desc=""
+  [09] r5 Clash        enemy    hit              dmg=6     php=75   ehp=22   roll=17/0 desc=""
+  [10] r5 Clash        player   miss             dmg=0     php=75   ehp=22   roll=1/0 desc="fumble"
+  [11] r6 Clash        player   hit              dmg=14    php=75   ehp=8    roll=7/0 desc=""
+  [12] r6 Clash        enemy    hit              dmg=6     php=69   ehp=8    roll=17/0 desc=""
+  [13] r6 Clash        environment environmental    dmg=3     php=66   ehp=8    roll=0/0 desc=""
+  [14] r7 Decisive     enemy    enrage           dmg=0     php=66   ehp=8    roll=0/0 desc="Berserk"
+  [15] r7 Decisive     player   hit              dmg=11    php=66   ehp=0    roll=7/0 desc=""
+
+=== ability_enrage seed=2 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=67 enemyStart=50 enemyEntry=50 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3300
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=43   roll=12/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=3     php=97   ehp=43   roll=3/0 desc=""
+  [02] r2 Opening      player   miss             dmg=0     php=97   ehp=43   roll=1/0 desc="fumble"
+  [03] r2 Opening      enemy    hit              dmg=3     php=94   ehp=43   roll=12/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=6     php=88   ehp=43   roll=0/0 desc=""
+  [05] r3 Clash        player   hit              dmg=13    php=88   ehp=30   roll=4/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=6     php=82   ehp=30   roll=2/0 desc=""
+  [07] r4 Clash        player   hit              dmg=12    php=82   ehp=18   roll=19/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=5     php=77   ehp=18   roll=2/0 desc=""
+  [09] r5 Clash        enemy    enrage           dmg=0     php=77   ehp=18   roll=0/0 desc="Berserk"
+  [10] r5 Clash        enemy    hit              dmg=10    php=67   ehp=18   roll=12/0 desc=""
+  [11] r5 Clash        player   hit              dmg=13    php=67   ehp=5    roll=19/0 desc=""
+  [12] r6 Clash        player   hit              dmg=13    php=67   ehp=0    roll=16/0 desc=""
+
+=== ability_enrage seed=3 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=72 enemyStart=50 enemyEntry=50 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2800
+  [00] r1 Opening      player   hit              dmg=6     php=100  ehp=44   roll=11/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=2     php=98   ehp=44   roll=5/0 desc=""
+  [02] r1 Opening      environment environmental    dmg=3     php=95   ehp=44   roll=0/0 desc=""
+  [03] r2 Opening      player   hit              dmg=6     php=95   ehp=38   roll=14/0 desc=""
+  [04] r2 Opening      enemy    hit              dmg=3     php=92   ehp=38   roll=8/0 desc=""
+  [05] r3 Clash        player   hit              dmg=13    php=92   ehp=25   roll=12/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=6     php=86   ehp=25   roll=2/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=6     php=80   ehp=25   roll=2/0 desc=""
+  [08] r4 Clash        player   hit              dmg=13    php=80   ehp=12   roll=9/0 desc=""
+  [09] r5 Clash        enemy    enrage           dmg=0     php=80   ehp=12   roll=0/0 desc="Berserk"
+  [10] r5 Clash        enemy    hit              dmg=8     php=72   ehp=12   roll=12/0 desc=""
+  [11] r5 Clash        player   hit              dmg=11    php=72   ehp=1    roll=14/0 desc=""
+  [12] r6 Decisive     player   hit              dmg=11    php=72   ehp=0    roll=14/0 desc=""
+
+=== ability_enrage seed=7 ===
+result: won=true timedOut=false rounds=4
+  hp: playerStart=100 playerEntry=100 playerEnd=90 enemyStart=50 enemyEntry=50 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.1000
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=43   roll=10/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=3     php=97   ehp=43   roll=3/0 desc=""
+  [02] r2 Opening      enemy    block            dmg=1     php=96   ehp=43   roll=11/0 desc=""
+  [03] r2 Opening      player   hit              dmg=6     php=96   ehp=37   roll=16/0 desc=""
+  [04] r3 Clash        player   crit             dmg=26    php=96   ehp=11   roll=20/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=6     php=90   ehp=11   roll=13/0 desc=""
+  [06] r4 Clash        enemy    enrage           dmg=0     php=90   ehp=11   roll=0/0 desc="Berserk"
+  [07] r4 Clash        player   hit              dmg=14    php=90   ehp=0    roll=6/0 desc=""
+
+=== ability_enrage seed=42 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=77 enemyStart=50 enemyEntry=50 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2300
+  [00] r1 Opening      player   hit              dmg=5     php=100  ehp=45   roll=13/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=2     php=98   ehp=45   roll=5/0 desc=""
+  [02] r2 Opening      player   hit              dmg=6     php=98   ehp=39   roll=9/0 desc=""
+  [03] r2 Opening      enemy    miss             dmg=0     php=98   ehp=39   roll=1/0 desc="fumble"
+  [04] r3 Clash        player   hit              dmg=13    php=98   ehp=26   roll=9/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=6     php=92   ehp=26   roll=19/0 desc=""
+  [06] r4 Clash        player   hit              dmg=12    php=92   ehp=14   roll=3/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=5     php=87   ehp=14   roll=3/0 desc=""
+  [08] r5 Clash        enemy    enrage           dmg=0     php=87   ehp=14   roll=0/0 desc="Berserk"
+  [09] r5 Clash        enemy    hit              dmg=10    php=77   ehp=14   roll=4/0 desc=""
+  [10] r5 Clash        player   hit              dmg=12    php=77   ehp=2    roll=15/0 desc=""
+  [11] r6 Decisive     player   hit              dmg=9     php=77   ehp=0    roll=13/0 desc=""
+
+=== ability_armor_break seed=1 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=61 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.3900
+  [00] r1 Opening      enemy    armor_break      dmg=0     php=100  ehp=60   roll=0/0 desc="Rend"
+  [01] r1 Opening      player   hit              dmg=9     php=100  ehp=51   roll=5/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=5     php=95   ehp=51   roll=5/0 desc=""
+  [03] r1 Opening      environment environmental    dmg=4     php=91   ehp=51   roll=0/0 desc=""
+  [04] r2 Opening      player   hit              dmg=7     php=91   ehp=44   roll=6/0 desc=""
+  [05] r2 Opening      enemy    hit              dmg=5     php=86   ehp=44   roll=2/0 desc=""
+  [06] r3 Opening      player   hit              dmg=7     php=86   ehp=37   roll=8/0 desc=""
+  [07] r3 Opening      enemy    hit              dmg=5     php=81   ehp=37   roll=8/0 desc=""
+  [08] r4 Clash        player   hit              dmg=15    php=81   ehp=22   roll=13/0 desc=""
+  [09] r4 Clash        enemy    hit              dmg=9     php=72   ehp=22   roll=12/0 desc=""
+  [10] r4 Clash        environment environmental    dmg=2     php=70   ehp=22   roll=0/0 desc=""
+  [11] r5 Clash        player   hit              dmg=18    php=70   ehp=4    roll=6/0 desc=""
+  [12] r5 Clash        enemy    hit              dmg=9     php=61   ehp=4    roll=15/0 desc=""
+  [13] r6 Clash        player   hit              dmg=18    php=61   ehp=0    roll=7/0 desc=""
+
+=== ability_armor_break seed=2 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=35 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.6500
+  [00] r1 Opening      enemy    armor_break      dmg=0     php=100  ehp=60   roll=0/0 desc="Rend"
+  [01] r1 Opening      player   hit              dmg=9     php=100  ehp=51   roll=12/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=5     php=95   ehp=51   roll=3/0 desc=""
+  [03] r2 Opening      player   miss             dmg=0     php=95   ehp=51   roll=1/0 desc="fumble"
+  [04] r2 Opening      enemy    hit              dmg=5     php=90   ehp=51   roll=12/0 desc=""
+  [05] r2 Opening      environment environmental    dmg=6     php=84   ehp=51   roll=0/0 desc=""
+  [06] r3 Clash        player   hit              dmg=16    php=84   ehp=35   roll=7/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=11    php=73   ehp=35   roll=16/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=11    php=62   ehp=35   roll=18/0 desc=""
+  [09] r4 Clash        player   hit              dmg=14    php=62   ehp=21   roll=2/0 desc=""
+  [10] r4 Clash        environment environmental    dmg=4     php=58   ehp=21   roll=0/0 desc=""
+  [11] r5 Clash        player   hit              dmg=16    php=58   ehp=5    roll=3/0 desc=""
+  [12] r5 Clash        enemy    hit              dmg=11    php=47   ehp=5    roll=16/0 desc=""
+  [13] r6 Clash        enemy    hit              dmg=12    php=35   ehp=5    roll=9/0 desc=""
+  [14] r6 Clash        player   hit              dmg=16    php=35   ehp=0    roll=16/0 desc=""
+
+=== ability_armor_break seed=3 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=58 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4200
+  [00] r1 Opening      enemy    armor_break      dmg=0     php=100  ehp=60   roll=0/0 desc="Rend"
+  [01] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=11/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=5     php=95   ehp=53   roll=5/0 desc=""
+  [03] r1 Opening      environment environmental    dmg=3     php=92   ehp=53   roll=0/0 desc=""
+  [04] r2 Opening      player   hit              dmg=7     php=92   ehp=46   roll=14/0 desc=""
+  [05] r2 Opening      enemy    hit              dmg=5     php=87   ehp=46   roll=8/0 desc=""
+  [06] r3 Clash        player   hit              dmg=17    php=87   ehp=29   roll=2/0 desc=""
+  [07] r3 Clash        enemy    hit              dmg=10    php=77   ehp=29   roll=16/0 desc=""
+  [08] r4 Clash        enemy    hit              dmg=10    php=67   ehp=29   roll=17/0 desc=""
+  [09] r4 Clash        player   hit              dmg=18    php=67   ehp=11   roll=3/0 desc=""
+  [10] r5 Clash        enemy    hit              dmg=9     php=58   ehp=11   roll=4/0 desc=""
+  [11] r5 Clash        player   hit              dmg=15    php=58   ehp=0    roll=12/0 desc=""
+
+=== ability_armor_break seed=7 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=72 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2800
+  [00] r1 Opening      enemy    armor_break      dmg=0     php=100  ehp=60   roll=0/0 desc="Rend"
+  [01] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=10/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=6     php=94   ehp=52   roll=3/0 desc=""
+  [03] r2 Opening      enemy    block            dmg=3     php=91   ehp=52   roll=11/0 desc=""
+  [04] r2 Opening      player   hit              dmg=8     php=91   ehp=44   roll=16/0 desc=""
+  [05] r3 Clash        player   hit              dmg=15    php=91   ehp=29   roll=2/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=10    php=81   ehp=29   roll=16/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=9     php=72   ehp=29   roll=10/0 desc=""
+  [08] r4 Clash        player   hit              dmg=15    php=72   ehp=14   roll=4/0 desc=""
+  [09] r5 Clash        player   crit             dmg=34    php=72   ehp=0    roll=20/0 desc=""
+
+=== ability_armor_break seed=42 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=80 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.2000
+  [00] r1 Opening      enemy    armor_break      dmg=0     php=100  ehp=60   roll=0/0 desc="Rend"
+  [01] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=13/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=5     php=95   ehp=53   roll=5/0 desc=""
+  [03] r2 Opening      player   hit              dmg=8     php=95   ehp=45   roll=9/0 desc=""
+  [04] r2 Opening      enemy    miss             dmg=0     php=95   ehp=45   roll=1/0 desc="fumble"
+  [05] r3 Clash        player   hit              dmg=18    php=95   ehp=27   roll=16/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=10    php=85   ehp=27   roll=6/0 desc=""
+  [07] r4 Clash        enemy    block            dmg=5     php=80   ehp=27   roll=9/0 desc=""
+  [08] r4 Clash        player   hit              dmg=15    php=80   ehp=12   roll=19/0 desc=""
+  [09] r5 Clash        player   hit              dmg=14    php=80   ehp=0    roll=5/0 desc=""
+
+=== ability_stun seed=1 ===
+result: won=false timedOut=true rounds=11
+  hp: playerStart=100 playerEntry=100 playerEnd=19 enemyStart=60 enemyEntry=60 enemyEnd=60
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0000
+  [00] r1 Opening      enemy    stun             dmg=0     php=100  ehp=60   roll=0/0 desc="Bash"
+  [01] r1 Opening      player   stunned          dmg=0     php=100  ehp=60   roll=0/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=5     php=95   ehp=60   roll=5/0 desc=""
+  [03] r2 Opening      enemy    stun             dmg=0     php=95   ehp=60   roll=0/0 desc="Bash"
+  [04] r2 Opening      player   stunned          dmg=0     php=95   ehp=60   roll=0/0 desc=""
+  [05] r2 Opening      enemy    hit              dmg=5     php=90   ehp=60   roll=11/0 desc=""
+  [06] r3 Opening      enemy    stun             dmg=0     php=90   ehp=60   roll=0/0 desc="Bash"
+  [07] r3 Opening      player   stunned          dmg=0     php=90   ehp=60   roll=0/0 desc=""
+  [08] r3 Opening      enemy    hit              dmg=5     php=85   ehp=60   roll=2/0 desc=""
+  [09] r4 Clash        enemy    stun             dmg=0     php=85   ehp=60   roll=0/0 desc="Bash"
+  [10] r4 Clash        enemy    hit              dmg=9     php=76   ehp=60   roll=8/0 desc=""
+  [11] r4 Clash        player   stunned          dmg=0     php=76   ehp=60   roll=0/0 desc=""
+  [12] r5 Clash        enemy    stun             dmg=0     php=76   ehp=60   roll=0/0 desc="Bash"
+  [13] r5 Clash        player   stunned          dmg=0     php=76   ehp=60   roll=0/0 desc=""
+  [14] r5 Clash        enemy    hit              dmg=9     php=67   ehp=60   roll=2/0 desc=""
+  [15] r6 Clash        enemy    stun             dmg=0     php=67   ehp=60   roll=0/0 desc="Bash"
+  [16] r6 Clash        player   stunned          dmg=0     php=67   ehp=60   roll=0/0 desc=""
+  [17] r6 Clash        enemy    hit              dmg=8     php=59   ehp=60   roll=8/0 desc=""
+  [18] r7 Decisive     enemy    stun             dmg=0     php=59   ehp=60   roll=0/0 desc="Bash"
+  [19] r7 Decisive     player   stunned          dmg=0     php=59   ehp=60   roll=0/0 desc=""
+  [20] r7 Decisive     enemy    hit              dmg=7     php=52   ehp=60   roll=3/0 desc=""
+  [21] r8 Sudden Death enemy    stun             dmg=0     php=52   ehp=60   roll=0/0 desc="Bash"
+  [22] r8 Sudden Death enemy    hit              dmg=9     php=43   ehp=60   roll=8/0 desc=""
+  [23] r8 Sudden Death player   stunned          dmg=0     php=43   ehp=60   roll=0/0 desc=""
+  [24] r9 Sudden Death enemy    stun             dmg=0     php=43   ehp=60   roll=0/0 desc="Bash"
+  [25] r9 Sudden Death player   stunned          dmg=0     php=43   ehp=60   roll=0/0 desc=""
+  [26] r9 Sudden Death enemy    hit              dmg=9     php=34   ehp=60   roll=11/0 desc=""
+  [27] r10 Sudden Death enemy    stun             dmg=0     php=34   ehp=60   roll=0/0 desc="Bash"
+  [28] r10 Sudden Death player   stunned          dmg=0     php=34   ehp=60   roll=0/0 desc=""
+  [29] r10 Sudden Death enemy    block            dmg=5     php=29   ehp=60   roll=19/0 desc=""
+  [30] r11 Sudden Death enemy    stun             dmg=0     php=29   ehp=60   roll=0/0 desc="Bash"
+  [31] r11 Sudden Death player   stunned          dmg=0     php=29   ehp=60   roll=0/0 desc=""
+  [32] r11 Sudden Death enemy    hit              dmg=10    php=19   ehp=60   roll=16/0 desc=""
+  [33] r11 exhaust      system   timeout          dmg=0     php=19   ehp=60   roll=0/0 desc=""
+
+=== ability_stun seed=2 ===
+result: won=false timedOut=true rounds=10
+  hp: playerStart=100 playerEntry=100 playerEnd=35 enemyStart=60 enemyEntry=60 enemyEnd=60
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0000
+  [00] r1 Opening      enemy    stun             dmg=0     php=100  ehp=60   roll=0/0 desc="Bash"
+  [01] r1 Opening      player   stunned          dmg=0     php=100  ehp=60   roll=0/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=5     php=95   ehp=60   roll=12/0 desc=""
+  [03] r2 Opening      enemy    stun             dmg=0     php=95   ehp=60   roll=0/0 desc="Bash"
+  [04] r2 Opening      player   stunned          dmg=0     php=95   ehp=60   roll=0/0 desc=""
+  [05] r2 Opening      enemy    crit             dmg=10    php=85   ehp=60   roll=20/0 desc=""
+  [06] r3 Clash        enemy    stun             dmg=0     php=85   ehp=60   roll=0/0 desc="Bash"
+  [07] r3 Clash        player   stunned          dmg=0     php=85   ehp=60   roll=0/0 desc=""
+  [08] r3 Clash        enemy    hit              dmg=11    php=74   ehp=60   roll=18/0 desc=""
+  [09] r4 Clash        enemy    stun             dmg=0     php=74   ehp=60   roll=0/0 desc="Bash"
+  [10] r4 Clash        player   stunned          dmg=0     php=74   ehp=60   roll=0/0 desc=""
+  [11] r4 Clash        enemy    hit              dmg=10    php=64   ehp=60   roll=16/0 desc=""
+  [12] r5 Clash        enemy    stun             dmg=0     php=64   ehp=60   roll=0/0 desc="Bash"
+  [13] r5 Clash        player   stunned          dmg=0     php=64   ehp=60   roll=0/0 desc=""
+  [14] r5 Clash        enemy    hit              dmg=11    php=53   ehp=60   roll=6/0 desc=""
+  [15] r5 Clash        environment environmental    dmg=2     php=51   ehp=60   roll=0/0 desc=""
+  [16] r6 Decisive     enemy    stun             dmg=0     php=51   ehp=60   roll=0/0 desc="Bash"
+  [17] r6 Decisive     player   stunned          dmg=0     php=51   ehp=60   roll=0/0 desc=""
+  [18] r6 Decisive     enemy    hit              dmg=7     php=44   ehp=60   roll=15/0 desc=""
+  [19] r7 Sudden Death enemy    stun             dmg=0     php=44   ehp=60   roll=0/0 desc="Bash"
+  [20] r7 Sudden Death player   stunned          dmg=0     php=44   ehp=60   roll=0/0 desc=""
+  [21] r7 Sudden Death enemy    miss             dmg=0     php=44   ehp=60   roll=1/0 desc="fumble"
+  [22] r8 Sudden Death enemy    stun             dmg=0     php=44   ehp=60   roll=0/0 desc="Bash"
+  [23] r8 Sudden Death player   stunned          dmg=0     php=44   ehp=60   roll=0/0 desc=""
+  [24] r8 Sudden Death enemy    hit              dmg=9     php=35   ehp=60   roll=16/0 desc=""
+  [25] r9 Sudden Death enemy    stun             dmg=0     php=35   ehp=60   roll=0/0 desc="Bash"
+  [26] r9 Sudden Death player   stunned          dmg=0     php=35   ehp=60   roll=0/0 desc=""
+  [27] r9 Sudden Death enemy    miss             dmg=0     php=35   ehp=60   roll=1/0 desc="fumble"
+  [28] r10 Sudden Death enemy    stun             dmg=0     php=35   ehp=60   roll=0/0 desc="Bash"
+  [29] r10 Sudden Death player   stunned          dmg=0     php=35   ehp=60   roll=0/0 desc=""
+  [30] r10 Sudden Death enemy    miss             dmg=0     php=35   ehp=60   roll=1/0 desc="fumble"
+  [31] r10 exhaust      system   timeout          dmg=0     php=35   ehp=60   roll=0/0 desc=""
+
+=== ability_stun seed=3 ===
+result: won=false timedOut=true rounds=11
+  hp: playerStart=100 playerEntry=100 playerEnd=20 enemyStart=60 enemyEntry=60 enemyEnd=60
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0000
+  [00] r1 Opening      enemy    stun             dmg=0     php=100  ehp=60   roll=0/0 desc="Bash"
+  [01] r1 Opening      player   stunned          dmg=0     php=100  ehp=60   roll=0/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=4     php=96   ehp=60   roll=11/0 desc=""
+  [03] r2 Opening      enemy    stun             dmg=0     php=96   ehp=60   roll=0/0 desc="Bash"
+  [04] r2 Opening      player   stunned          dmg=0     php=96   ehp=60   roll=0/0 desc=""
+  [05] r2 Opening      enemy    hit              dmg=5     php=91   ehp=60   roll=8/0 desc=""
+  [06] r3 Clash        enemy    stun             dmg=0     php=91   ehp=60   roll=0/0 desc="Bash"
+  [07] r3 Clash        player   stunned          dmg=0     php=91   ehp=60   roll=0/0 desc=""
+  [08] r3 Clash        enemy    hit              dmg=9     php=82   ehp=60   roll=5/0 desc=""
+  [09] r4 Clash        enemy    stun             dmg=0     php=82   ehp=60   roll=0/0 desc="Bash"
+  [10] r4 Clash        player   stunned          dmg=0     php=82   ehp=60   roll=0/0 desc=""
+  [11] r4 Clash        enemy    hit              dmg=9     php=73   ehp=60   roll=12/0 desc=""
+  [12] r5 Clash        enemy    stun             dmg=0     php=73   ehp=60   roll=0/0 desc="Bash"
+  [13] r5 Clash        player   stunned          dmg=0     php=73   ehp=60   roll=0/0 desc=""
+  [14] r5 Clash        enemy    hit              dmg=8     php=65   ehp=60   roll=18/0 desc=""
+  [15] r6 Clash        enemy    stun             dmg=0     php=65   ehp=60   roll=0/0 desc="Bash"
+  [16] r6 Clash        player   stunned          dmg=0     php=65   ehp=60   roll=0/0 desc=""
+  [17] r6 Clash        enemy    hit              dmg=8     php=57   ehp=60   roll=6/0 desc=""
+  [18] r7 Decisive     enemy    stun             dmg=0     php=57   ehp=60   roll=0/0 desc="Bash"
+  [19] r7 Decisive     player   stunned          dmg=0     php=57   ehp=60   roll=0/0 desc=""
+  [20] r7 Decisive     enemy    hit              dmg=9     php=48   ehp=60   roll=8/0 desc=""
+  [21] r8 Sudden Death enemy    stun             dmg=0     php=48   ehp=60   roll=0/0 desc="Bash"
+  [22] r8 Sudden Death player   stunned          dmg=0     php=48   ehp=60   roll=0/0 desc=""
+  [23] r8 Sudden Death enemy    hit              dmg=8     php=40   ehp=60   roll=16/0 desc=""
+  [24] r9 Sudden Death enemy    stun             dmg=0     php=40   ehp=60   roll=0/0 desc="Bash"
+  [25] r9 Sudden Death player   stunned          dmg=0     php=40   ehp=60   roll=0/0 desc=""
+  [26] r9 Sudden Death enemy    miss             dmg=0     php=40   ehp=60   roll=1/0 desc="fumble"
+  [27] r10 Sudden Death enemy    stun             dmg=0     php=40   ehp=60   roll=0/0 desc="Bash"
+  [28] r10 Sudden Death player   stunned          dmg=0     php=40   ehp=60   roll=0/0 desc=""
+  [29] r10 Sudden Death enemy    hit              dmg=9     php=31   ehp=60   roll=12/0 desc=""
+  [30] r11 Sudden Death enemy    stun             dmg=0     php=31   ehp=60   roll=0/0 desc="Bash"
+  [31] r11 Sudden Death player   stunned          dmg=0     php=31   ehp=60   roll=0/0 desc=""
+  [32] r11 Sudden Death enemy    hit              dmg=11    php=20   ehp=60   roll=13/0 desc=""
+  [33] r11 exhaust      system   timeout          dmg=0     php=20   ehp=60   roll=0/0 desc=""
+
+=== ability_stun seed=7 ===
+result: won=false timedOut=true rounds=10
+  hp: playerStart=100 playerEntry=100 playerEnd=13 enemyStart=60 enemyEntry=60 enemyEnd=60
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0000
+  [00] r1 Opening      enemy    stun             dmg=0     php=100  ehp=60   roll=0/0 desc="Bash"
+  [01] r1 Opening      player   stunned          dmg=0     php=100  ehp=60   roll=0/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=5     php=95   ehp=60   roll=10/0 desc=""
+  [03] r1 Opening      environment environmental    dmg=5     php=90   ehp=60   roll=0/0 desc=""
+  [04] r2 Opening      enemy    stun             dmg=0     php=90   ehp=60   roll=0/0 desc="Bash"
+  [05] r2 Opening      player   stunned          dmg=0     php=90   ehp=60   roll=0/0 desc=""
+  [06] r2 Opening      enemy    hit              dmg=5     php=85   ehp=60   roll=8/0 desc=""
+  [07] r3 Clash        enemy    stun             dmg=0     php=85   ehp=60   roll=0/0 desc="Bash"
+  [08] r3 Clash        player   stunned          dmg=0     php=85   ehp=60   roll=0/0 desc=""
+  [09] r3 Clash        enemy    hit              dmg=9     php=76   ehp=60   roll=4/0 desc=""
+  [10] r4 Clash        enemy    stun             dmg=0     php=76   ehp=60   roll=0/0 desc="Bash"
+  [11] r4 Clash        enemy    hit              dmg=9     php=67   ehp=60   roll=16/0 desc=""
+  [12] r4 Clash        player   stunned          dmg=0     php=67   ehp=60   roll=0/0 desc=""
+  [13] r5 Clash        enemy    stun             dmg=0     php=67   ehp=60   roll=0/0 desc="Bash"
+  [14] r5 Clash        player   stunned          dmg=0     php=67   ehp=60   roll=0/0 desc=""
+  [15] r5 Clash        enemy    hit              dmg=9     php=58   ehp=60   roll=8/0 desc=""
+  [16] r6 Decisive     enemy    stun             dmg=0     php=58   ehp=60   roll=0/0 desc="Bash"
+  [17] r6 Decisive     enemy    hit              dmg=9     php=49   ehp=60   roll=5/0 desc=""
+  [18] r6 Decisive     player   stunned          dmg=0     php=49   ehp=60   roll=0/0 desc=""
+  [19] r7 Sudden Death enemy    stun             dmg=0     php=49   ehp=60   roll=0/0 desc="Bash"
+  [20] r7 Sudden Death enemy    hit              dmg=10    php=39   ehp=60   roll=9/0 desc=""
+  [21] r7 Sudden Death player   stunned          dmg=0     php=39   ehp=60   roll=0/0 desc=""
+  [22] r8 Sudden Death enemy    stun             dmg=0     php=39   ehp=60   roll=0/0 desc="Bash"
+  [23] r8 Sudden Death player   stunned          dmg=0     php=39   ehp=60   roll=0/0 desc=""
+  [24] r8 Sudden Death enemy    hit              dmg=9     php=30   ehp=60   roll=2/0 desc=""
+  [25] r9 Sudden Death enemy    stun             dmg=0     php=30   ehp=60   roll=0/0 desc="Bash"
+  [26] r9 Sudden Death player   stunned          dmg=0     php=30   ehp=60   roll=0/0 desc=""
+  [27] r9 Sudden Death enemy    hit              dmg=8     php=22   ehp=60   roll=5/0 desc=""
+  [28] r10 Sudden Death enemy    stun             dmg=0     php=22   ehp=60   roll=0/0 desc="Bash"
+  [29] r10 Sudden Death player   stunned          dmg=0     php=22   ehp=60   roll=0/0 desc=""
+  [30] r10 Sudden Death enemy    hit              dmg=9     php=13   ehp=60   roll=13/0 desc=""
+  [31] r10 exhaust      system   timeout          dmg=0     php=13   ehp=60   roll=0/0 desc=""
+
+=== ability_stun seed=42 ===
+result: won=false timedOut=true rounds=9
+  hp: playerStart=100 playerEntry=100 playerEnd=20 enemyStart=60 enemyEntry=60 enemyEnd=60
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.0000
+  [00] r1 Opening      enemy    stun             dmg=0     php=100  ehp=60   roll=0/0 desc="Bash"
+  [01] r1 Opening      player   stunned          dmg=0     php=100  ehp=60   roll=0/0 desc=""
+  [02] r1 Opening      enemy    hit              dmg=4     php=96   ehp=60   roll=13/0 desc=""
+  [03] r2 Opening      enemy    stun             dmg=0     php=96   ehp=60   roll=0/0 desc="Bash"
+  [04] r2 Opening      player   stunned          dmg=0     php=96   ehp=60   roll=0/0 desc=""
+  [05] r2 Opening      enemy    hit              dmg=4     php=92   ehp=60   roll=15/0 desc=""
+  [06] r3 Clash        enemy    stun             dmg=0     php=92   ehp=60   roll=0/0 desc="Bash"
+  [07] r3 Clash        player   stunned          dmg=0     php=92   ehp=60   roll=0/0 desc=""
+  [08] r3 Clash        enemy    hit              dmg=10    php=82   ehp=60   roll=13/0 desc=""
+  [09] r4 Clash        enemy    stun             dmg=0     php=82   ehp=60   roll=0/0 desc="Bash"
+  [10] r4 Clash        player   stunned          dmg=0     php=82   ehp=60   roll=0/0 desc=""
+  [11] r4 Clash        enemy    hit              dmg=11    php=71   ehp=60   roll=19/0 desc=""
+  [12] r5 Clash        enemy    stun             dmg=0     php=71   ehp=60   roll=0/0 desc="Bash"
+  [13] r5 Clash        player   stunned          dmg=0     php=71   ehp=60   roll=0/0 desc=""
+  [14] r5 Clash        enemy    hit              dmg=9     php=62   ehp=60   roll=3/0 desc=""
+  [15] r6 Decisive     enemy    stun             dmg=0     php=62   ehp=60   roll=0/0 desc="Bash"
+  [16] r6 Decisive     player   stunned          dmg=0     php=62   ehp=60   roll=0/0 desc=""
+  [17] r6 Decisive     enemy    hit              dmg=7     php=55   ehp=60   roll=5/0 desc=""
+  [18] r7 Sudden Death enemy    stun             dmg=0     php=55   ehp=60   roll=0/0 desc="Bash"
+  [19] r7 Sudden Death player   stunned          dmg=0     php=55   ehp=60   roll=0/0 desc=""
+  [20] r7 Sudden Death enemy    crit             dmg=18    php=37   ehp=60   roll=20/0 desc=""
+  [21] r8 Sudden Death enemy    stun             dmg=0     php=37   ehp=60   roll=0/0 desc="Bash"
+  [22] r8 Sudden Death player   stunned          dmg=0     php=37   ehp=60   roll=0/0 desc=""
+  [23] r8 Sudden Death enemy    hit              dmg=9     php=28   ehp=60   roll=11/0 desc=""
+  [24] r9 Sudden Death enemy    stun             dmg=0     php=28   ehp=60   roll=0/0 desc="Bash"
+  [25] r9 Sudden Death enemy    hit              dmg=8     php=20   ehp=60   roll=5/0 desc=""
+  [26] r9 Sudden Death player   stunned          dmg=0     php=20   ehp=60   roll=0/0 desc=""
+  [27] r9 exhaust      system   timeout          dmg=0     php=20   ehp=60   roll=0/0 desc=""
+
+=== ability_lifesteal seed=1 ===
+result: won=true timedOut=true rounds=11
+  hp: playerStart=100 playerEntry=100 playerEnd=12 enemyStart=100 enemyEntry=100 enemyEnd=9
+  flags: nearDeath=true pet=false petDeflect=false sniper=false misty=false closeness=0.9100
+  [00] r1 Opening      enemy    lifesteal        dmg=5     php=95   ehp=100  roll=0/0 desc="Drain"
+  [01] r1 Opening      player   hit              dmg=7     php=95   ehp=93   roll=11/0 desc=""
+  [02] r2 Opening      enemy    lifesteal        dmg=4     php=91   ehp=95   roll=0/0 desc="Drain"
+  [03] r2 Opening      player   hit              dmg=9     php=91   ehp=86   roll=12/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=5     php=86   ehp=86   roll=0/0 desc=""
+  [05] r3 Opening      enemy    lifesteal        dmg=5     php=81   ehp=88   roll=0/0 desc="Drain"
+  [06] r3 Opening      player   hit              dmg=8     php=81   ehp=80   roll=7/0 desc=""
+  [07] r4 Clash        enemy    lifesteal        dmg=8     php=73   ehp=84   roll=0/0 desc="Drain"
+  [08] r4 Clash        player   hit              dmg=15    php=73   ehp=69   roll=9/0 desc=""
+  [09] r5 Clash        enemy    lifesteal        dmg=9     php=64   ehp=73   roll=0/0 desc="Drain"
+  [10] r5 Clash        player   hit              dmg=14    php=64   ehp=59   roll=19/0 desc=""
+  [11] r6 Clash        enemy    lifesteal        dmg=9     php=55   ehp=63   roll=0/0 desc="Drain"
+  [12] r6 Clash        player   hit              dmg=14    php=55   ehp=49   roll=3/0 desc=""
+  [13] r7 Clash        enemy    lifesteal        dmg=9     php=46   ehp=53   roll=0/0 desc="Drain"
+  [14] r7 Clash        player   hit              dmg=15    php=46   ehp=38   roll=8/0 desc=""
+  [15] r8 Decisive     enemy    lifesteal        dmg=7     php=39   ehp=41   roll=0/0 desc="Drain"
+  [16] r8 Decisive     player   miss             dmg=0     php=39   ehp=41   roll=1/0 desc="fumble"
+  [17] r9 Sudden Death enemy    lifesteal        dmg=10    php=29   ehp=46   roll=0/0 desc="Drain"
+  [18] r9 Sudden Death player   hit              dmg=13    php=29   ehp=33   roll=7/0 desc=""
+  [19] r10 Sudden Death enemy    lifesteal        dmg=9     php=20   ehp=37   roll=0/0 desc="Drain"
+  [20] r10 Sudden Death player   hit              dmg=17    php=20   ehp=20   roll=11/0 desc=""
+  [21] r11 Sudden Death enemy    lifesteal        dmg=8     php=12   ehp=24   roll=0/0 desc="Drain"
+  [22] r11 Sudden Death player   hit              dmg=15    php=12   ehp=9    roll=5/0 desc=""
+  [23] r11 exhaust      system   timeout          dmg=0     php=12   ehp=9    roll=0/0 desc=""
+
+=== ability_lifesteal seed=2 ===
+result: won=false timedOut=true rounds=11
+  hp: playerStart=100 playerEntry=100 playerEnd=6 enemyStart=100 enemyEntry=100 enemyEnd=15
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.8500
+  [00] r1 Opening      enemy    lifesteal        dmg=5     php=95   ehp=100  roll=0/0 desc="Drain"
+  [01] r1 Opening      player   hit              dmg=8     php=95   ehp=92   roll=16/0 desc=""
+  [02] r2 Opening      enemy    lifesteal        dmg=5     php=90   ehp=94   roll=0/0 desc="Drain"
+  [03] r2 Opening      player   hit              dmg=8     php=90   ehp=86   roll=5/0 desc=""
+  [04] r3 Clash        enemy    lifesteal        dmg=9     php=81   ehp=90   roll=0/0 desc="Drain"
+  [05] r3 Clash        player   hit              dmg=14    php=81   ehp=76   roll=18/0 desc=""
+  [06] r4 Clash        enemy    lifesteal        dmg=10    php=71   ehp=81   roll=0/0 desc="Drain"
+  [07] r4 Clash        player   hit              dmg=18    php=71   ehp=63   roll=15/0 desc=""
+  [08] r5 Clash        enemy    lifesteal        dmg=9     php=62   ehp=67   roll=0/0 desc="Drain"
+  [09] r5 Clash        player   hit              dmg=18    php=62   ehp=49   roll=17/0 desc=""
+  [10] r6 Clash        enemy    lifesteal        dmg=10    php=52   ehp=54   roll=0/0 desc="Drain"
+  [11] r6 Clash        player   hit              dmg=15    php=52   ehp=39   roll=7/0 desc=""
+  [12] r7 Decisive     enemy    lifesteal        dmg=9     php=43   ehp=43   roll=0/0 desc="Drain"
+  [13] r7 Decisive     player   hit              dmg=13    php=43   ehp=30   roll=16/0 desc=""
+  [14] r8 Sudden Death enemy    lifesteal        dmg=9     php=34   ehp=34   roll=0/0 desc="Drain"
+  [15] r8 Sudden Death player   miss             dmg=0     php=34   ehp=34   roll=1/0 desc="fumble"
+  [16] r9 Sudden Death enemy    lifesteal        dmg=10    php=24   ehp=39   roll=0/0 desc="Drain"
+  [17] r9 Sudden Death player   miss             dmg=0     php=24   ehp=39   roll=1/0 desc="fumble"
+  [18] r10 Sudden Death enemy    lifesteal        dmg=9     php=15   ehp=43   roll=0/0 desc="Drain"
+  [19] r10 Sudden Death player   hit              dmg=16    php=15   ehp=27   roll=5/0 desc=""
+  [20] r11 Sudden Death enemy    lifesteal        dmg=9     php=6    ehp=31   roll=0/0 desc="Drain"
+  [21] r11 Sudden Death player   hit              dmg=16    php=6    ehp=15   roll=12/0 desc=""
+  [22] r11 exhaust      system   timeout          dmg=0     php=6    ehp=15   roll=0/0 desc=""
+
+=== ability_lifesteal seed=3 ===
+result: won=true timedOut=true rounds=9
+  hp: playerStart=100 playerEntry=100 playerEnd=27 enemyStart=100 enemyEntry=100 enemyEnd=9
+  flags: nearDeath=true pet=false petDeflect=false sniper=false misty=false closeness=0.9100
+  [00] r1 Opening      enemy    lifesteal        dmg=5     php=95   ehp=100  roll=0/0 desc="Drain"
+  [01] r1 Opening      player   hit              dmg=9     php=95   ehp=91   roll=8/0 desc=""
+  [02] r2 Opening      enemy    lifesteal        dmg=4     php=91   ehp=93   roll=0/0 desc="Drain"
+  [03] r2 Opening      player   hit              dmg=8     php=91   ehp=85   roll=5/0 desc=""
+  [04] r3 Clash        enemy    lifesteal        dmg=10    php=81   ehp=90   roll=0/0 desc="Drain"
+  [05] r3 Clash        player   hit              dmg=15    php=81   ehp=75   roll=15/0 desc=""
+  [06] r4 Clash        enemy    lifesteal        dmg=9     php=72   ehp=79   roll=0/0 desc="Drain"
+  [07] r4 Clash        player   hit              dmg=16    php=72   ehp=63   roll=13/0 desc=""
+  [08] r5 Clash        enemy    lifesteal        dmg=10    php=62   ehp=68   roll=0/0 desc="Drain"
+  [09] r5 Clash        player   hit              dmg=16    php=62   ehp=52   roll=16/0 desc=""
+  [10] r6 Decisive     enemy    lifesteal        dmg=7     php=55   ehp=55   roll=0/0 desc="Drain"
+  [11] r6 Decisive     player   hit              dmg=13    php=55   ehp=42   roll=12/0 desc=""
+  [12] r7 Sudden Death enemy    lifesteal        dmg=10    php=45   ehp=47   roll=0/0 desc="Drain"
+  [13] r7 Sudden Death player   hit              dmg=13    php=45   ehp=34   roll=16/0 desc=""
+  [14] r8 Sudden Death enemy    lifesteal        dmg=9     php=36   ehp=38   roll=0/0 desc="Drain"
+  [15] r8 Sudden Death player   hit              dmg=17    php=36   ehp=21   roll=7/0 desc=""
+  [16] r9 Sudden Death enemy    lifesteal        dmg=9     php=27   ehp=25   roll=0/0 desc="Drain"
+  [17] r9 Sudden Death player   hit              dmg=16    php=27   ehp=9    roll=6/0 desc=""
+  [18] r9 exhaust      system   timeout          dmg=0     php=27   ehp=9    roll=0/0 desc=""
+
+=== ability_lifesteal seed=7 ===
+result: won=true timedOut=true rounds=10
+  hp: playerStart=100 playerEntry=100 playerEnd=13 enemyStart=100 enemyEntry=100 enemyEnd=10
+  flags: nearDeath=true pet=false petDeflect=false sniper=false misty=false closeness=0.9000
+  [00] r1 Opening      enemy    lifesteal        dmg=5     php=95   ehp=100  roll=0/0 desc="Drain"
+  [01] r1 Opening      player   hit              dmg=7     php=95   ehp=93   roll=6/0 desc=""
+  [02] r2 Opening      enemy    lifesteal        dmg=4     php=91   ehp=95   roll=0/0 desc="Drain"
+  [03] r2 Opening      player   hit              dmg=9     php=91   ehp=86   roll=7/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=5     php=86   ehp=86   roll=0/0 desc=""
+  [05] r3 Clash        enemy    lifesteal        dmg=9     php=77   ehp=90   roll=0/0 desc="Drain"
+  [06] r3 Clash        player   hit              dmg=18    php=77   ehp=72   roll=6/0 desc=""
+  [07] r4 Clash        enemy    lifesteal        dmg=9     php=68   ehp=76   roll=0/0 desc="Drain"
+  [08] r4 Clash        player   hit              dmg=17    php=68   ehp=59   roll=8/0 desc=""
+  [09] r5 Clash        enemy    lifesteal        dmg=11    php=57   ehp=64   roll=0/0 desc="Drain"
+  [10] r5 Clash        player   hit              dmg=18    php=57   ehp=46   roll=11/0 desc=""
+  [11] r6 Decisive     enemy    lifesteal        dmg=7     php=50   ehp=49   roll=0/0 desc="Drain"
+  [12] r6 Decisive     player   hit              dmg=14    php=50   ehp=35   roll=5/0 desc=""
+  [13] r7 Sudden Death enemy    lifesteal        dmg=11    php=39   ehp=40   roll=0/0 desc="Drain"
+  [14] r7 Sudden Death player   hit              dmg=15    php=39   ehp=25   roll=2/0 desc=""
+  [15] r8 Sudden Death enemy    lifesteal        dmg=8     php=31   ehp=29   roll=0/0 desc="Drain"
+  [16] r8 Sudden Death player   miss             dmg=0     php=31   ehp=29   roll=1/0 desc="fumble"
+  [17] r9 Sudden Death enemy    lifesteal        dmg=8     php=23   ehp=33   roll=0/0 desc="Drain"
+  [18] r9 Sudden Death player   hit              dmg=15    php=23   ehp=18   roll=13/0 desc=""
+  [19] r10 Sudden Death enemy    lifesteal        dmg=10    php=13   ehp=23   roll=0/0 desc="Drain"
+  [20] r10 Sudden Death player   hit              dmg=13    php=13   ehp=10   roll=4/0 desc=""
+  [21] r10 exhaust      system   timeout          dmg=0     php=13   ehp=10   roll=0/0 desc=""
+
+=== ability_lifesteal seed=42 ===
+result: won=true timedOut=false rounds=11
+  hp: playerStart=100 playerEntry=100 playerEnd=4 enemyStart=100 enemyEntry=100 enemyEnd=0
+  flags: nearDeath=true pet=false petDeflect=false sniper=false misty=false closeness=0.9600
+  [00] r1 Opening      enemy    lifesteal        dmg=4     php=96   ehp=100  roll=0/0 desc="Drain"
+  [01] r1 Opening      player   miss             dmg=0     php=96   ehp=100  roll=1/0 desc="fumble"
+  [02] r1 Opening      environment environmental    dmg=3     php=93   ehp=100  roll=0/0 desc=""
+  [03] r2 Opening      enemy    lifesteal        dmg=4     php=89   ehp=100  roll=0/0 desc="Drain"
+  [04] r2 Opening      player   hit              dmg=8     php=89   ehp=92   roll=18/0 desc=""
+  [05] r3 Clash        enemy    lifesteal        dmg=10    php=79   ehp=97   roll=0/0 desc="Drain"
+  [06] r3 Clash        player   hit              dmg=17    php=79   ehp=80   roll=15/0 desc=""
+  [07] r4 Clash        enemy    lifesteal        dmg=9     php=70   ehp=84   roll=0/0 desc="Drain"
+  [08] r4 Clash        player   hit              dmg=18    php=70   ehp=66   roll=6/0 desc=""
+  [09] r5 Clash        enemy    lifesteal        dmg=9     php=61   ehp=70   roll=0/0 desc="Drain"
+  [10] r5 Clash        player   hit              dmg=17    php=61   ehp=53   roll=14/0 desc=""
+  [11] r6 Clash        enemy    lifesteal        dmg=10    php=51   ehp=58   roll=0/0 desc="Drain"
+  [12] r6 Clash        player   hit              dmg=14    php=51   ehp=44   roll=19/0 desc=""
+  [13] r7 Decisive     enemy    lifesteal        dmg=9     php=42   ehp=48   roll=0/0 desc="Drain"
+  [14] r7 Decisive     player   hit              dmg=12    php=42   ehp=36   roll=13/0 desc=""
+  [15] r8 Sudden Death enemy    lifesteal        dmg=9     php=33   ehp=40   roll=0/0 desc="Drain"
+  [16] r8 Sudden Death player   hit              dmg=13    php=33   ehp=27   roll=5/0 desc=""
+  [17] r9 Sudden Death enemy    lifesteal        dmg=10    php=23   ehp=32   roll=0/0 desc="Drain"
+  [18] r9 Sudden Death player   hit              dmg=16    php=23   ehp=16   roll=18/0 desc=""
+  [19] r10 Sudden Death enemy    lifesteal        dmg=10    php=13   ehp=21   roll=0/0 desc="Drain"
+  [20] r10 Sudden Death player   hit              dmg=14    php=13   ehp=7    roll=4/0 desc=""
+  [21] r11 Sudden Death enemy    lifesteal        dmg=9     php=4    ehp=11   roll=0/0 desc="Drain"
+  [22] r11 Sudden Death player   hit              dmg=16    php=4    ehp=0    roll=9/0 desc=""
+
+=== ability_cleave seed=1 ===
+result: won=true timedOut=false rounds=7
+  hp: playerStart=100 playerEntry=100 playerEnd=31 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.6900
+  [00] r1 Opening      player   hit              dmg=9     php=100  ehp=51   roll=3/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=5     php=95   ehp=51   roll=9/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=95   ehp=43   roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=91   ehp=43   roll=6/0 desc=""
+  [04] r3 Opening      player   hit              dmg=7     php=91   ehp=36   roll=6/0 desc=""
+  [05] r3 Opening      enemy    hit              dmg=5     php=86   ehp=36   roll=12/0 desc=""
+  [06] r4 Clash        enemy    cleave           dmg=9     php=77   ehp=36   roll=0/0 desc="Cleave"
+  [07] r4 Clash        enemy    cleave           dmg=4     php=73   ehp=36   roll=0/0 desc="Cleave (follow-up)"
+  [08] r4 Clash        player   hit              dmg=16    php=73   ehp=20   roll=2/0 desc=""
+  [09] r5 Clash        enemy    cleave           dmg=9     php=64   ehp=20   roll=0/0 desc="Cleave"
+  [10] r5 Clash        enemy    cleave           dmg=4     php=60   ehp=20   roll=0/0 desc="Cleave (follow-up)"
+  [11] r5 Clash        player   hit              dmg=17    php=60   ehp=3    roll=4/0 desc=""
+  [12] r6 Clash        enemy    cleave           dmg=11    php=49   ehp=3    roll=0/0 desc="Cleave"
+  [13] r6 Clash        enemy    cleave           dmg=5     php=44   ehp=3    roll=0/0 desc="Cleave (follow-up)"
+  [14] r6 Clash        player   miss             dmg=0     php=44   ehp=3    roll=1/0 desc="fumble"
+  [15] r7 Clash        enemy    cleave           dmg=9     php=35   ehp=3    roll=0/0 desc="Cleave"
+  [16] r7 Clash        enemy    cleave           dmg=4     php=31   ehp=3    roll=0/0 desc="Cleave (follow-up)"
+  [17] r7 Clash        player   hit              dmg=15    php=31   ehp=0    roll=8/0 desc=""
+
+=== ability_cleave seed=2 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=39 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.6100
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=52   roll=4/0 desc=""
+  [02] r2 Opening      player   hit              dmg=7     php=96   ehp=45   roll=16/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=5     php=91   ehp=45   roll=12/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=6     php=85   ehp=45   roll=0/0 desc=""
+  [05] r3 Clash        enemy    cleave           dmg=10    php=75   ehp=45   roll=0/0 desc="Cleave"
+  [06] r3 Clash        enemy    cleave           dmg=5     php=70   ehp=45   roll=0/0 desc="Cleave (follow-up)"
+  [07] r3 Clash        player   hit              dmg=16    php=70   ehp=29   roll=5/0 desc=""
+  [08] r4 Clash        enemy    cleave           dmg=9     php=61   ehp=29   roll=0/0 desc="Cleave"
+  [09] r4 Clash        enemy    cleave           dmg=4     php=57   ehp=29   roll=0/0 desc="Cleave (follow-up)"
+  [10] r4 Clash        player   hit              dmg=18    php=57   ehp=11   roll=6/0 desc=""
+  [11] r4 Clash        environment environmental    dmg=2     php=55   ehp=11   roll=0/0 desc=""
+  [12] r5 Clash        enemy    cleave           dmg=11    php=44   ehp=11   roll=0/0 desc="Cleave"
+  [13] r5 Clash        enemy    cleave           dmg=5     php=39   ehp=11   roll=0/0 desc="Cleave (follow-up)"
+  [14] r5 Clash        player   hit              dmg=16    php=39   ehp=0    roll=3/0 desc=""
+
+=== ability_cleave seed=3 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=48 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.5200
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=53   roll=12/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=96   ehp=45   roll=10/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=92   ehp=45   roll=14/0 desc=""
+  [04] r3 Clash        enemy    cleave           dmg=11    php=81   ehp=45   roll=0/0 desc="Cleave"
+  [05] r3 Clash        enemy    cleave           dmg=5     php=76   ehp=45   roll=0/0 desc="Cleave (follow-up)"
+  [06] r3 Clash        player   hit              dmg=17    php=76   ehp=28   roll=18/0 desc=""
+  [07] r4 Clash        enemy    cleave           dmg=9     php=67   ehp=28   roll=0/0 desc="Cleave"
+  [08] r4 Clash        enemy    cleave           dmg=4     php=63   ehp=28   roll=0/0 desc="Cleave (follow-up)"
+  [09] r4 Clash        player   hit              dmg=17    php=63   ehp=11   roll=19/0 desc=""
+  [10] r5 Clash        enemy    cleave           dmg=10    php=53   ehp=11   roll=0/0 desc="Cleave"
+  [11] r5 Clash        enemy    cleave           dmg=5     php=48   ehp=11   roll=0/0 desc="Cleave (follow-up)"
+  [12] r5 Clash        player   hit              dmg=14    php=48   ehp=0    roll=6/0 desc=""
+
+=== ability_cleave seed=7 ===
+result: won=true timedOut=false rounds=5
+  hp: playerStart=100 playerEntry=100 playerEnd=50 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.5000
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=11/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=52   roll=15/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=96   ehp=44   roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=92   ehp=44   roll=19/0 desc=""
+  [04] r3 Clash        enemy    cleave           dmg=9     php=83   ehp=44   roll=0/0 desc="Cleave"
+  [05] r3 Clash        enemy    cleave           dmg=4     php=79   ehp=44   roll=0/0 desc="Cleave (follow-up)"
+  [06] r3 Clash        player   hit              dmg=15    php=79   ehp=29   roll=2/0 desc=""
+  [07] r4 Clash        enemy    cleave           dmg=11    php=68   ehp=29   roll=0/0 desc="Cleave"
+  [08] r4 Clash        enemy    cleave           dmg=5     php=63   ehp=29   roll=0/0 desc="Cleave (follow-up)"
+  [09] r4 Clash        player   hit              dmg=15    php=63   ehp=14   roll=18/0 desc=""
+  [10] r5 Clash        enemy    cleave           dmg=9     php=54   ehp=14   roll=0/0 desc="Cleave"
+  [11] r5 Clash        enemy    cleave           dmg=4     php=50   ehp=14   roll=0/0 desc="Cleave (follow-up)"
+  [12] r5 Clash        player   hit              dmg=16    php=50   ehp=0    roll=11/0 desc=""
+
+=== ability_cleave seed=42 ===
+result: won=true timedOut=false rounds=6
+  hp: playerStart=100 playerEntry=100 playerEnd=48 enemyStart=60 enemyEntry=60 enemyEnd=0
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.5200
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=18/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=52   roll=17/0 desc=""
+  [02] r2 Opening      player   hit              dmg=8     php=96   ehp=44   roll=18/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=5     php=91   ehp=44   roll=6/0 desc=""
+  [04] r3 Clash        enemy    cleave           dmg=10    php=81   ehp=44   roll=0/0 desc="Cleave"
+  [05] r3 Clash        enemy    cleave           dmg=5     php=76   ehp=44   roll=0/0 desc="Cleave (follow-up)"
+  [06] r3 Clash        player   hit              dmg=16    php=76   ehp=28   roll=2/0 desc=""
+  [07] r4 Clash        enemy    cleave           dmg=10    php=66   ehp=28   roll=0/0 desc="Cleave"
+  [08] r4 Clash        enemy    cleave           dmg=5     php=61   ehp=28   roll=0/0 desc="Cleave (follow-up)"
+  [09] r4 Clash        player   hit              dmg=13    php=61   ehp=15   roll=12/0 desc=""
+  [10] r5 Clash        enemy    cleave           dmg=9     php=52   ehp=15   roll=0/0 desc="Cleave"
+  [11] r5 Clash        enemy    cleave           dmg=4     php=48   ehp=15   roll=0/0 desc="Cleave (follow-up)"
+  [12] r5 Clash        player   hit              dmg=14    php=48   ehp=1    roll=5/0 desc=""
+  [13] r6 Decisive     player   hit              dmg=13    php=48   ehp=0    roll=15/0 desc=""
+
+=== weapon_profile seed=1 ===
+result: won=false timedOut=false rounds=12
+  hp: playerStart=100 playerEntry=100 playerEnd=0 enemyStart=60 enemyEntry=60 enemyEnd=11
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.8167
+  [00] r1 Opening      player   miss             dmg=0     php=100  ehp=60   roll=3/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=5     php=95   ehp=60   roll=5/0 desc=""
+  [02] r2 Opening      player   hit              dmg=7     php=95   ehp=53   roll=4/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=5     php=90   ehp=53   roll=12/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=5     php=85   ehp=53   roll=0/0 desc=""
+  [05] r3 Opening      player   hit              dmg=6     php=85   ehp=47   roll=6/0 desc=""
+  [06] r3 Opening      enemy    hit              dmg=4     php=81   ehp=47   roll=15/0 desc=""
+  [07] r3 Opening      environment environmental    dmg=3     php=78   ehp=47   roll=0/0 desc=""
+  [08] r4 Clash        player   hit              dmg=3     php=78   ehp=44   roll=9/0 desc=""
+  [09] r4 Clash        enemy    hit              dmg=11    php=67   ehp=44   roll=13/0 desc=""
+  [10] r5 Clash        player   hit              dmg=7     php=67   ehp=37   roll=8/0 desc=""
+  [11] r5 Clash        enemy    hit              dmg=9     php=58   ehp=37   roll=19/0 desc=""
+  [12] r6 Clash        player   miss             dmg=0     php=58   ehp=37   roll=1/0 desc="fumble"
+  [13] r6 Clash        enemy    hit              dmg=9     php=49   ehp=37   roll=9/0 desc=""
+  [14] r7 Clash        player   miss             dmg=0     php=49   ehp=37   roll=1/0 desc="fumble"
+  [15] r7 Clash        enemy    hit              dmg=11    php=38   ehp=37   roll=17/0 desc=""
+  [16] r7 Clash        environment environmental    dmg=3     php=35   ehp=37   roll=0/0 desc=""
+  [17] r8 Decisive     player   crit             dmg=14    php=35   ehp=23   roll=20/0 desc=""
+  [18] r8 Decisive     enemy    hit              dmg=8     php=27   ehp=23   roll=14/0 desc=""
+  [19] r9 Sudden Death enemy    hit              dmg=9     php=18   ehp=23   roll=3/0 desc=""
+  [20] r9 Sudden Death player   miss             dmg=0     php=18   ehp=23   roll=2/0 desc=""
+  [21] r10 Sudden Death player   crit             dmg=8     php=18   ehp=15   roll=20/0 desc=""
+  [22] r10 Sudden Death enemy    hit              dmg=8     php=10   ehp=15   roll=8/0 desc=""
+  [23] r11 Sudden Death enemy    hit              dmg=9     php=1    ehp=15   roll=10/0 desc=""
+  [24] r11 Sudden Death player   miss             dmg=0     php=1    ehp=15   roll=3/0 desc=""
+  [25] r12 Sudden Death player   hit              dmg=4     php=1    ehp=11   roll=19/0 desc=""
+  [26] r12 Sudden Death enemy    hit              dmg=10    php=0    ehp=11   roll=6/0 desc=""
+
+=== weapon_profile seed=2 ===
+result: won=false timedOut=true rounds=10
+  hp: playerStart=100 playerEntry=100 playerEnd=7 enemyStart=60 enemyEntry=60 enemyEnd=31
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4833
+  [00] r1 Opening      player   hit              dmg=8     php=100  ehp=52   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=52   roll=4/0 desc=""
+  [02] r2 Opening      player   hit              dmg=3     php=96   ehp=49   roll=16/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=5     php=91   ehp=49   roll=12/0 desc=""
+  [04] r2 Opening      environment environmental    dmg=6     php=85   ehp=49   roll=0/0 desc=""
+  [05] r3 Clash        player   hit              dmg=1     php=85   ehp=48   roll=7/0 desc=""
+  [06] r3 Clash        enemy    hit              dmg=10    php=75   ehp=48   roll=16/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=11    php=64   ehp=48   roll=18/0 desc=""
+  [08] r4 Clash        player   miss             dmg=0     php=64   ehp=48   roll=2/0 desc=""
+  [09] r4 Clash        environment environmental    dmg=2     php=62   ehp=48   roll=0/0 desc=""
+  [10] r5 Clash        enemy    block            dmg=5     php=57   ehp=48   roll=14/0 desc=""
+  [11] r5 Clash        player   miss             dmg=0     php=57   ehp=48   roll=1/0 desc="fumble"
+  [12] r6 Clash        player   hit              dmg=5     php=57   ehp=43   roll=19/0 desc=""
+  [13] r6 Clash        enemy    hit              dmg=10    php=47   ehp=43   roll=2/0 desc=""
+  [14] r7 Decisive     player   hit              dmg=4     php=47   ehp=39   roll=5/0 desc=""
+  [15] r7 Decisive     enemy    hit              dmg=8     php=39   ehp=39   roll=15/0 desc=""
+  [16] r8 Sudden Death player   miss             dmg=0     php=39   ehp=39   roll=1/0 desc="fumble"
+  [17] r8 Sudden Death enemy    hit              dmg=11    php=28   ehp=39   roll=2/0 desc=""
+  [18] r9 Sudden Death player   hit              dmg=4     php=28   ehp=35   roll=11/0 desc=""
+  [19] r9 Sudden Death enemy    hit              dmg=10    php=18   ehp=35   roll=4/0 desc=""
+  [20] r10 Sudden Death player   hit              dmg=4     php=18   ehp=31   roll=18/0 desc=""
+  [21] r10 Sudden Death enemy    hit              dmg=11    php=7    ehp=31   roll=9/0 desc=""
+  [22] r10 exhaust      system   timeout          dmg=0     php=7    ehp=31   roll=0/0 desc=""
+
+=== weapon_profile seed=3 ===
+result: won=false timedOut=true rounds=10
+  hp: playerStart=100 playerEntry=100 playerEnd=14 enemyStart=60 enemyEntry=60 enemyEnd=15
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.7500
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=5/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=53   roll=12/0 desc=""
+  [02] r2 Opening      player   hit              dmg=4     php=96   ehp=49   roll=10/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=92   ehp=49   roll=14/0 desc=""
+  [04] r3 Clash        enemy    hit              dmg=9     php=83   ehp=49   roll=15/0 desc=""
+  [05] r3 Clash        player   miss             dmg=0     php=83   ehp=49   roll=2/0 desc=""
+  [06] r4 Clash        player   miss             dmg=0     php=83   ehp=49   roll=2/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=10    php=73   ehp=49   roll=13/0 desc=""
+  [08] r5 Clash        enemy    hit              dmg=10    php=63   ehp=49   roll=2/0 desc=""
+  [09] r5 Clash        player   hit              dmg=6     php=63   ehp=43   roll=9/0 desc=""
+  [10] r6 Decisive     player   crit             dmg=10    php=63   ehp=33   roll=20/0 desc=""
+  [11] r6 Decisive     enemy    hit              dmg=10    php=53   ehp=33   roll=19/0 desc=""
+  [12] r7 Sudden Death player   hit              dmg=1     php=53   ehp=32   roll=16/0 desc=""
+  [13] r7 Sudden Death enemy    hit              dmg=10    php=43   ehp=32   roll=12/0 desc=""
+  [14] r7 Sudden Death environment environmental    dmg=2     php=41   ehp=32   roll=0/0 desc=""
+  [15] r8 Sudden Death enemy    hit              dmg=9     php=32   ehp=32   roll=4/0 desc=""
+  [16] r8 Sudden Death player   hit              dmg=7     php=32   ehp=25   roll=6/0 desc=""
+  [17] r9 Sudden Death player   hit              dmg=7     php=32   ehp=18   roll=13/0 desc=""
+  [18] r9 Sudden Death enemy    hit              dmg=9     php=23   ehp=18   roll=19/0 desc=""
+  [19] r10 Sudden Death player   hit              dmg=3     php=23   ehp=15   roll=11/0 desc=""
+  [20] r10 Sudden Death enemy    hit              dmg=9     php=14   ehp=15   roll=5/0 desc=""
+  [21] r10 exhaust      system   timeout          dmg=0     php=14   ehp=15   roll=0/0 desc=""
+
+=== weapon_profile seed=7 ===
+result: won=false timedOut=true rounds=10
+  hp: playerStart=100 playerEntry=100 playerEnd=7 enemyStart=60 enemyEntry=60 enemyEnd=19
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.6833
+  [00] r1 Opening      player   hit              dmg=7     php=100  ehp=53   roll=11/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=53   roll=15/0 desc=""
+  [02] r2 Opening      player   hit              dmg=3     php=96   ehp=50   roll=8/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=4     php=92   ehp=50   roll=19/0 desc=""
+  [04] r3 Clash        player   hit              dmg=2     php=92   ehp=48   roll=13/0 desc=""
+  [05] r3 Clash        enemy    crit             dmg=20    php=72   ehp=48   roll=20/0 desc=""
+  [06] r4 Clash        player   hit              dmg=8     php=72   ehp=40   roll=8/0 desc=""
+  [07] r4 Clash        enemy    hit              dmg=9     php=63   ehp=40   roll=8/0 desc=""
+  [08] r5 Clash        player   hit              dmg=6     php=63   ehp=34   roll=11/0 desc=""
+  [09] r5 Clash        enemy    hit              dmg=8     php=55   ehp=34   roll=17/0 desc=""
+  [10] r6 Clash        enemy    hit              dmg=11    php=44   ehp=34   roll=9/0 desc=""
+  [11] r6 Clash        player   miss             dmg=0     php=44   ehp=34   roll=3/0 desc=""
+  [12] r7 Decisive     player   miss             dmg=0     php=44   ehp=34   roll=2/0 desc=""
+  [13] r7 Decisive     enemy    hit              dmg=8     php=36   ehp=34   roll=6/0 desc=""
+  [14] r8 Sudden Death player   miss             dmg=0     php=36   ehp=34   roll=1/0 desc="fumble"
+  [15] r8 Sudden Death enemy    hit              dmg=10    php=26   ehp=34   roll=11/0 desc=""
+  [16] r9 Sudden Death enemy    hit              dmg=9     php=17   ehp=34   roll=9/0 desc=""
+  [17] r9 Sudden Death player   hit              dmg=7     php=17   ehp=27   roll=18/0 desc=""
+  [18] r10 Sudden Death player   hit              dmg=8     php=17   ehp=19   roll=10/0 desc=""
+  [19] r10 Sudden Death enemy    hit              dmg=10    php=7    ehp=19   roll=14/0 desc=""
+  [20] r10 exhaust      system   timeout          dmg=0     php=7    ehp=19   roll=0/0 desc=""
+
+=== weapon_profile seed=42 ===
+result: won=false timedOut=true rounds=10
+  hp: playerStart=100 playerEntry=100 playerEnd=4 enemyStart=60 enemyEntry=60 enemyEnd=32
+  flags: nearDeath=false pet=false petDeflect=false sniper=false misty=false closeness=0.4667
+  [00] r1 Opening      player   hit              dmg=1     php=100  ehp=59   roll=18/0 desc=""
+  [01] r1 Opening      enemy    hit              dmg=4     php=96   ehp=59   roll=17/0 desc=""
+  [02] r2 Opening      player   hit              dmg=2     php=96   ehp=57   roll=18/0 desc=""
+  [03] r2 Opening      enemy    hit              dmg=5     php=91   ehp=57   roll=6/0 desc=""
+  [04] r3 Clash        player   hit              dmg=8     php=91   ehp=49   roll=16/0 desc=""
+  [05] r3 Clash        enemy    hit              dmg=9     php=82   ehp=49   roll=6/0 desc=""
+  [06] r4 Clash        enemy    block            dmg=5     php=77   ehp=49   roll=9/0 desc=""
+  [07] r4 Clash        player   hit              dmg=5     php=77   ehp=44   roll=19/0 desc=""
+  [08] r5 Clash        player   hit              dmg=3     php=77   ehp=41   roll=5/0 desc=""
+  [09] r5 Clash        enemy    hit              dmg=11    php=66   ehp=41   roll=4/0 desc=""
+  [10] r5 Clash        environment environmental    dmg=5     php=61   ehp=41   roll=0/0 desc=""
+  [11] r6 Decisive     player   hit              dmg=1     php=61   ehp=40   roll=5/0 desc=""
+  [12] r6 Decisive     enemy    hit              dmg=7     php=54   ehp=40   roll=13/0 desc=""
+  [13] r7 Sudden Death player   hit              dmg=6     php=54   ehp=34   roll=15/0 desc=""
+  [14] r7 Sudden Death enemy    hit              dmg=10    php=44   ehp=34   roll=12/0 desc=""
+  [15] r8 Sudden Death player   miss             dmg=0     php=44   ehp=34   roll=2/0 desc=""
+  [16] r8 Sudden Death enemy    hit              dmg=10    php=34   ehp=34   roll=18/0 desc=""
+  [17] r9 Sudden Death enemy    crit             dmg=20    php=14   ehp=34   roll=20/0 desc=""
+  [18] r9 Sudden Death player   hit              dmg=2     php=14   ehp=32   roll=18/0 desc=""
+  [19] r10 Sudden Death player   miss             dmg=0     php=14   ehp=32   roll=1/0 desc="fumble"
+  [20] r10 Sudden Death enemy    hit              dmg=10    php=4    ehp=32   roll=9/0 desc=""
+  [21] r10 exhaust      system   timeout          dmg=0     php=4    ehp=32   roll=0/0 desc=""
+

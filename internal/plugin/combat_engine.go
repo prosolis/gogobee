@@ -5,11 +5,11 @@ import "math/rand/v2"
 // ── Core Types ───────────────────────────────────────────────────────────────
 
 type CombatStats struct {
-	MaxHP     int
+	MaxHP int
 	// StartHP is the HP the combatant *enters* this fight at. Zero means
 	// "use MaxHP" (full health). Wounded carry-over uses this so MaxHP
 	// stays stable across fights — display reads "100/123", not "100/100".
-	StartHP   int
+	StartHP int
 	// HPBonus is the absolute HP players gain from equipment / arena sets /
 	// housing on top of their D&D character sheet HP. DerivePlayerStats
 	// computes this; applyDnDPlayerLayer adds it to c.HPMax to form the
@@ -39,29 +39,29 @@ type CombatStats struct {
 }
 
 type CombatModifiers struct {
-	DamageBonus    float64 // additive: 0 = neutral, 0.25 = +25% damage. Applied as (1 + DamageBonus).
-	DamageReduct   float64 // multiplicative damage-taken reduction, 1.0 = neutral
-	DeathSave      bool    // Sovereign reprieve — survive one lethal hit
-	PetAttackProc  float64
-	PetAttackDmg   int
-	PetDeflectProc float64
-	PetWhiffProc   float64 // pet distracts enemy → guaranteed miss
-	SniperKillProc float64 // Arina instant-kill
-	MistyHealProc  float64
-	MistyHealAmt   int
+	DamageBonus      float64 // additive: 0 = neutral, 0.25 = +25% damage. Applied as (1 + DamageBonus).
+	DamageReduct     float64 // multiplicative damage-taken reduction, 1.0 = neutral
+	DeathSave        bool    // Sovereign reprieve — survive one lethal hit
+	PetAttackProc    float64
+	PetAttackDmg     int
+	PetDeflectProc   float64
+	PetWhiffProc     float64 // pet distracts enemy → guaranteed miss
+	SniperKillProc   float64 // Arina instant-kill
+	MistyHealProc    float64
+	MistyHealAmt     int
 	CrowdRevengeProc float64 // Misty debuff: chance per round of crowd damage
-	CrowdRevengeDmg  int    // Misty debuff: damage per proc
-	HealItem         int    // consumable: HP restored per heal trigger
+	CrowdRevengeDmg  int     // Misty debuff: damage per proc
+	HealItem         int     // consumable: HP restored per heal trigger
 	// HealItemCharges is the number of times the heal-at-<50%-HP trigger
 	// can fire. 1 = legacy one-shot. Boss fights set this from inventory
 	// healing-item count so a stocked-up player can sustain through long
 	// fights instead of the heal becoming a single weak trigger.
-	HealItemCharges  int
+	HealItemCharges int
 	// InitiativeBias adds to the player's initiative roll each round.
 	// Used by the DM mood system to tilt who-goes-first: positive favors
 	// the player (Effusive mood), negative favors the enemy (Hostile).
-	InitiativeBias   float64
-	WardCharges      int    // consumable: hits fully absorbed
+	InitiativeBias float64
+	WardCharges    int     // consumable: hits fully absorbed
 	SporeCloud     int     // consumable: rounds of 15% enemy miss chance
 	ReflectNext    float64 // consumable: fraction of next hit reflected
 	AutoCritFirst  bool    // consumable: first player hit is auto-crit
@@ -164,7 +164,7 @@ type CombatEvent struct {
 }
 
 type CombatResult struct {
-	PlayerWon     bool
+	PlayerWon bool
 	// TimedOut is true when the fight ran out the phase clock without a
 	// kill on either side and was decided by the HP-percentage tiebreak.
 	// Callers should treat a timeout loss as a retreat / escape — the
@@ -195,9 +195,9 @@ type CombatResult struct {
 
 type MonsterAbility struct {
 	Name       string
-	Phase      string  // "opening", "clash", "decisive", "any"
+	Phase      string // "opening", "clash", "decisive", "any"
 	ProcChance float64
-	Effect     string  // "poison", "enrage", "armor_break", "stun", "lifesteal", "cleave"
+	Effect     string // "poison", "enrage", "armor_break", "stun", "lifesteal", "cleave"
 }
 
 // ── Default Phase Definitions ────────────────────────────────────────────────
@@ -242,17 +242,17 @@ type combatState struct {
 
 	// Consumable one-shots
 	healChargesLeft int // remaining heal-at-<50% triggers
-	wardCharges int
-	sporeRounds int
-	reflectFrac float64
-	autoCrit    bool
+	wardCharges     int
+	sporeRounds     int
+	reflectFrac     float64
+	autoCrit        bool
 
 	// Monster ability effects
-	poisonTicks  int
-	poisonDmg    int
-	stunPlayer   bool
-	enraged      bool
-	armorBroken  bool
+	poisonTicks   int
+	poisonDmg     int
+	stunPlayer    bool
+	enraged       bool
+	armorBroken   bool
 	armorBreakAmt float64
 
 	// Sovereign reprieve
@@ -295,6 +295,15 @@ func (st *combatState) roll(n int) int     { return rngIntN(st.rng, n) }
 func (st *combatState) randFloat() float64 { return rngFloat(st.rng) }
 
 func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult {
+	return simulateCombatWithRNG(player, enemy, phases, nil)
+}
+
+// simulateCombatWithRNG is the deterministic core of the auto-resolve engine.
+// SimulateCombat passes nil (package-global rand — production auto-resolve).
+// The characterization test and the turn-based engine pass a seeded *rand.Rand
+// so a fight is fully reproducible. Passing nil is behaviorally identical to
+// the pre-injection code.
+func simulateCombatWithRNG(player, enemy Combatant, phases []CombatPhase, rng *rand.Rand) CombatResult {
 	playerStart := player.Stats.MaxHP
 	if player.Stats.StartHP > 0 && player.Stats.StartHP < player.Stats.MaxHP {
 		playerStart = player.Stats.StartHP
@@ -304,14 +313,15 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 		enemyStart = enemy.Stats.StartHP
 	}
 	st := &combatState{
-		playerHP:    playerStart,
-		enemyHP:     enemyStart,
+		playerHP:       playerStart,
+		enemyHP:        enemyStart,
 		wardCharges:    player.Mods.WardCharges,
 		sporeRounds:    player.Mods.SporeCloud,
 		reflectFrac:    player.Mods.ReflectNext,
 		autoCrit:       player.Mods.AutoCritFirst,
 		enemySkipFirst: player.Mods.SpellEnemySkipFirst,
 		arcaneWardHP:   player.Mods.ArcaneWardHP,
+		rng:            rng,
 	}
 	// HealItemCharges: explicit count overrides legacy one-shot. Backfill
 	// to 1 charge if the caller set a HealItem amount but no count.
