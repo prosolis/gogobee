@@ -73,6 +73,77 @@ func TestTurnAbilityFires(t *testing.T) {
 	}
 }
 
+// TestApplyAbility_Slice2Effects covers the immediate-resolution monster
+// ability effects: damage riders, the enemy self-heal, and the flavor-only
+// placeholders. All resolve fully within applyAbility with no persistent state.
+func TestApplyAbility_Slice2Effects(t *testing.T) {
+	newState := func(playerHP, enemyHP int) (*combatState, Combatant, Combatant) {
+		st := &combatState{
+			playerHP: playerHP, enemyHP: enemyHP, round: 1,
+			rng: rand.New(rand.NewPCG(7, 7)),
+		}
+		return st, basePlayer(), baseEnemy()
+	}
+	phase := &turnCombatPhase
+	res := &CombatResult{}
+
+	damageEffects := []string{"bonus_damage", "aoe", "aoe_fire", "death_aoe", "execute"}
+	for _, eff := range damageEffects {
+		st, player, enemy := newState(100, 60)
+		enemy.Ability = &MonsterAbility{Name: "Test " + eff, Effect: eff}
+		if applyAbility(st, &player, &enemy, phase, res) {
+			t.Errorf("%s: should not down a full-HP player", eff)
+		}
+		if st.playerHP >= 100 {
+			t.Errorf("%s: player HP = %d, want < 100 (damage rider)", eff, st.playerHP)
+		}
+		if len(st.events) != 1 || st.events[0].Damage <= 0 {
+			t.Errorf("%s: want one event with positive damage, got %+v", eff, st.events)
+		}
+	}
+
+	// execute hits harder once the player is under 30% HP.
+	stLow, pl, en := newState(20, 60)
+	en.Ability = &MonsterAbility{Name: "Wail", Effect: "execute"}
+	applyAbility(stLow, &pl, &en, phase, res)
+	lowDmg := 20 - stLow.playerHP
+	stHigh, pl2, en2 := newState(100, 60)
+	en2.Ability = &MonsterAbility{Name: "Wail", Effect: "execute"}
+	applyAbility(stHigh, &pl2, &en2, phase, res)
+	highDmg := 100 - stHigh.playerHP
+	if lowDmg <= highDmg {
+		t.Errorf("execute: low-HP damage %d should exceed full-HP damage %d", lowDmg, highDmg)
+	}
+
+	// self_heal restores enemy HP, capped at MaxHP.
+	stHeal, plH, enH := newState(100, 30)
+	enH.Ability = &MonsterAbility{Name: "Regrow", Effect: "self_heal"}
+	applyAbility(stHeal, &plH, &enH, phase, res)
+	if stHeal.enemyHP <= 30 || stHeal.enemyHP > enH.Stats.MaxHP {
+		t.Errorf("self_heal: enemy HP = %d, want in (30, %d]", stHeal.enemyHP, enH.Stats.MaxHP)
+	}
+
+	// Flavor-only placeholders emit an event but change no HP.
+	for _, eff := range []string{"spell_resist", "reveal_action", "fear_immune", "ally_buff"} {
+		st, player, enemy := newState(100, 60)
+		enemy.Ability = &MonsterAbility{Name: "Test " + eff, Effect: eff}
+		applyAbility(st, &player, &enemy, phase, res)
+		if st.playerHP != 100 || st.enemyHP != 60 {
+			t.Errorf("%s: HP changed (%d/%d), want 100/60 (flavor-only)", eff, st.playerHP, st.enemyHP)
+		}
+		if len(st.events) != 1 || st.events[0].Action != "ability_flavor" {
+			t.Errorf("%s: want one ability_flavor event, got %+v", eff, st.events)
+		}
+	}
+
+	// A damage rider that drops the player returns true (no death save armed).
+	stKill, plK, enK := newState(1, 60)
+	enK.Ability = &MonsterAbility{Name: "Smash", Effect: "bonus_damage"}
+	if !applyAbility(stKill, &plK, &enK, phase, res) {
+		t.Error("bonus_damage: lethal hit on a 1-HP player should return true")
+	}
+}
+
 // TestTurnEngine_Multiattack drives a single enemy_turn and confirms a
 // registered multiattack creature resolves one attack roll per profile entry,
 // while an unregistered creature still resolves exactly one.

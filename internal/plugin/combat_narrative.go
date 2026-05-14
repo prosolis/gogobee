@@ -295,6 +295,16 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 		return fmt.Sprintf(pickRand(narrativeLifesteal), e.Damage)
 	case "cleave":
 		return fmt.Sprintf(pickRand(narrativeCleave), e.Damage)
+	case "bonus_damage":
+		return fmt.Sprintf(pickRand(narrativeBonusDamage), e.Damage)
+	case "aoe":
+		return fmt.Sprintf(pickRand(narrativeAoE), e.Damage)
+	case "execute":
+		return fmt.Sprintf(pickRand(narrativeExecute), e.Damage)
+	case "self_heal":
+		return fmt.Sprintf(pickRand(narrativeSelfHeal), e.Damage)
+	case "ability_flavor":
+		return pickRand(narrativeAbilityFlavor)
 
 	case "timeout":
 		return pickRand(narrativeTimeout)
@@ -603,6 +613,36 @@ var narrativeCleave = []string{
 	"⚔️⚔️ The enemy strikes twice in rapid succession. %d damage from the double blow. That should not be legal.",
 	"⚔️⚔️ **Cleave!** Two strikes before you can react. %d damage total. One hit was enough. They did two.",
 	"⚔️⚔️ A devastating combo. %d damage from both hits. The second one was personal.",
+}
+
+var narrativeBonusDamage = []string{
+	"💢 The enemy finds an opening you didn't know you'd left. %d extra damage. Lesson noted.",
+	"💢 A second strike slips past your guard before the first one finished. %d damage on top.",
+	"💢 The enemy presses the advantage — %d more damage than the round had any right to deal.",
+}
+
+var narrativeAoE = []string{
+	"💥 The attack erupts outward. %d damage, and your armor barely slows it. Nowhere to dodge.",
+	"💥 A burst of force washes over you. %d damage — there was no good way to stand for that.",
+	"💥 The enemy unleashes something wide and indiscriminate. %d damage. Cover would have been nice.",
+}
+
+var narrativeExecute = []string{
+	"☠️ The enemy goes for the kill — %d damage aimed squarely at finishing you.",
+	"☠️ A finishing blow. %d damage. The enemy can smell the end of this fight.",
+	"☠️ The enemy commits everything to one last strike. %d damage. They want this over.",
+}
+
+var narrativeSelfHeal = []string{
+	"✨ The enemy knits its wounds closed. +%d HP. That's going to make this longer.",
+	"✨ The enemy mends itself before your eyes. +%d HP restored. Rude.",
+	"✨ Something restorative passes over the enemy. +%d HP. The progress bar moved the wrong way.",
+}
+
+var narrativeAbilityFlavor = []string{
+	"🌀 The enemy does *something* — you feel the shape of it more than the effect. Stay wary.",
+	"🌀 The air shifts around the enemy. Whatever that was, it wasn't nothing.",
+	"🌀 The enemy invokes a power you can't quite read. File it under 'concerning'.",
 }
 
 // Outcome flavor

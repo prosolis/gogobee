@@ -197,7 +197,12 @@ type MonsterAbility struct {
 	Name       string
 	Phase      string // "opening", "clash", "decisive", "any"
 	ProcChance float64
-	Effect     string // "poison", "enrage", "armor_break", "stun", "lifesteal", "cleave"
+	// Effect — the mechanic the ability applies. Implemented in applyAbility:
+	// stand-in attacks (cleave, lifesteal); riders on the normal attack (poison,
+	// enrage, armor_break, stun, bonus_damage, aoe, aoe_fire, death_aoe, execute,
+	// self_heal); flavor-only placeholders pending per-fight state (spell_resist,
+	// reveal_action, fear_immune, ally_buff). Anything else is a silent no-op.
+	Effect string
 }
 
 // ── Default Phase Definitions ────────────────────────────────────────────────
@@ -951,9 +956,84 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 				return !trySave(st, player, phaseName)
 			}
 		}
+
+	case "bonus_damage":
+		// A single extra strike riding on top of the round's normal attack —
+		// the multiattack below is left intact (this is a rider, not a stand-in).
+		dmg := abilityHitDamage(st, player, enemy, phase, 0.6, 1.0)
+		st.playerHP = max(0, st.playerHP-dmg)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "bonus_damage",
+			Damage: dmg, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.playerHP <= 0 {
+			return !trySave(st, player, phaseName)
+		}
+
+	case "aoe", "aoe_fire", "death_aoe":
+		// An area burst that partly bypasses armor (defWeight cut to 0.4), so a
+		// high-defense build still feels it. Rider on top of the normal attack.
+		dmg := abilityHitDamage(st, player, enemy, phase, 0.7, 0.4)
+		st.playerHP = max(0, st.playerHP-dmg)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "aoe",
+			Damage: dmg, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.playerHP <= 0 {
+			return !trySave(st, player, phaseName)
+		}
+
+	case "execute":
+		// Finishing blow: lands hard once the player is under 30% HP, a glancing
+		// hit otherwise so the ability isn't dead weight at full health.
+		mult := 0.5
+		if st.playerHP*100 < player.Stats.MaxHP*30 {
+			mult = 1.3
+		}
+		dmg := abilityHitDamage(st, player, enemy, phase, mult, 0.7)
+		st.playerHP = max(0, st.playerHP-dmg)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "execute",
+			Damage: dmg, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.playerHP <= 0 {
+			return !trySave(st, player, phaseName)
+		}
+
+	case "self_heal":
+		heal := enemy.Stats.MaxHP/5 + st.roll(max(1, enemy.Stats.MaxHP/10))
+		st.enemyHP = min(enemy.Stats.MaxHP, st.enemyHP+heal)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "self_heal",
+			Damage: heal, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+
+	case "spell_resist", "reveal_action", "fear_immune", "ally_buff":
+		// Slice-2 placeholder: no mechanical effect yet (these need persistent
+		// per-fight state, deferred to the next slice), but the ability still
+		// announces itself so the fight log doesn't silently swallow a proc.
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "ability_flavor",
+			Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
 	}
 
 	return false
+}
+
+// abilityHitDamage resolves a monster-ability damage rider through the shared
+// penetration formula (calcDamage), so a rider scales identically to a normal
+// hit. atkFrac scales the enemy's Attack stat; defFrac scales how much of the
+// player's Defense applies (1.0 = a normal hit, lower = an armor-piercing
+// burst). Enrage's 1.5x attack multiplier is honored, matching cleave/lifesteal.
+func abilityHitDamage(st *combatState, player, enemy *Combatant, phase *CombatPhase, atkFrac, defFrac float64) int {
+	atk := float64(enemy.Stats.Attack) * atkFrac
+	if st.enraged {
+		atk *= 1.5
+	}
+	dmg := calcDamage(st.rng, int(atk), phase.AttackWeight, enemy.Mods.DamageBonus,
+		playerDefense(player, st), phase.DefenseWeight*defFrac, player.Mods.DamageReduct)
+	return max(1, dmg)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

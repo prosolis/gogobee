@@ -469,6 +469,8 @@ func combatDegradation(result CombatResult, equip map[EquipmentSlot]*AdvEquipmen
 			damage[SlotHelmet] += 1 + rand.IntN(2)
 		case ev.Actor == "enemy" && ev.Action == "cleave":
 			damage[SlotArmor] += 2 + rand.IntN(3)
+		case ev.Actor == "enemy" && (ev.Action == "bonus_damage" || ev.Action == "aoe" || ev.Action == "execute"):
+			damage[SlotArmor] += 1 + rand.IntN(2)
 		case ev.Actor == "enemy" && ev.Action == "lifesteal":
 			damage[SlotArmor] += 1 + rand.IntN(2)
 		case ev.Actor == "player" && (ev.Action == "hit" || ev.Action == "crit"):
