@@ -285,6 +285,118 @@ func TestTurnEngine_StepRejectsTerminalSession(t *testing.T) {
 	}
 }
 
+// ── Fight-scoped buff persistence ──────────────────────────────────────────
+
+func TestDiffTurnBuff(t *testing.T) {
+	bs := CombatStats{AC: 14, AttackBonus: 3, MaxHP: 50, Speed: 10, CritRate: 0.05}
+	bm := CombatModifiers{DamageBonus: 0.1, DamageReduct: 1.0}
+
+	// A buff that bumps AC, grants ward charges, reduces damage taken, and
+	// raises max HP (Aid-style → collapses to a heal).
+	as, am := bs, bm
+	as.AC = 16
+	as.MaxHP = 55
+	am.WardCharges = 2
+	am.DamageReduct = 0.8
+	d := diffTurnBuff(bs, as, bm, am)
+	if d.dAC != 2 || d.ward != 2 || d.heal != 5 {
+		t.Errorf("delta = %+v, want dAC 2 / ward 2 / heal 5", d)
+	}
+	if d.dReductMul < 0.79 || d.dReductMul > 0.81 {
+		t.Errorf("dReductMul = %v, want ~0.8", d.dReductMul)
+	}
+	if !d.statComponent() || !d.any() {
+		t.Errorf("buff with AC + reduct should report statComponent and any")
+	}
+
+	// A no-op buff (utility spell with no combat hook) diffs to nothing.
+	none := diffTurnBuff(bs, bs, bm, bm)
+	if none.statComponent() || none.any() {
+		t.Errorf("no-op buff should report neither statComponent nor any: %+v", none)
+	}
+}
+
+func TestApplyBuffDelta(t *testing.T) {
+	var s CombatStatuses
+	s.applyBuffDelta(turnBuffDelta{dAC: 2, ward: 1, dReductMul: 0.8, autoCrit: true})
+	if s.BuffACBonus != 2 || s.WardCharges != 1 || !s.AutoCritFirst {
+		t.Errorf("first delta not folded in: %+v", s)
+	}
+	if s.BuffDamageReductMul < 0.79 || s.BuffDamageReductMul > 0.81 {
+		t.Errorf("BuffDamageReductMul = %v, want ~0.8", s.BuffDamageReductMul)
+	}
+	// A second buff stacks: deltas accumulate, reduction multipliers compound.
+	s.applyBuffDelta(turnBuffDelta{dAC: 1, dReductMul: 0.5})
+	if s.BuffACBonus != 3 {
+		t.Errorf("BuffACBonus = %d, want 3 after stacking", s.BuffACBonus)
+	}
+	if s.BuffDamageReductMul < 0.39 || s.BuffDamageReductMul > 0.41 {
+		t.Errorf("BuffDamageReductMul = %v, want ~0.4 (0.8 * 0.5)", s.BuffDamageReductMul)
+	}
+}
+
+func TestApplySessionBuffs(t *testing.T) {
+	player := basePlayer() // AC 0, AttackBonus 0, CritRate 0.05, Speed 10, DamageReduct 1.0
+	applySessionBuffs(&player, CombatStatuses{
+		BuffACBonus: 3, BuffAtkBonus: 2, BuffSpeedBonus: 5, BuffCritRate: 0.15,
+		BuffDamageBonus: 0.25, BuffDamageReductMul: 0.8, BuffPetProc: 0.5, BuffPetDmg: 6,
+	})
+	if player.Stats.AC != 3 || player.Stats.AttackBonus != 2 || player.Stats.Speed != 15 {
+		t.Errorf("stat deltas wrong: %+v", player.Stats)
+	}
+	if player.Stats.CritRate < 0.19 || player.Stats.CritRate > 0.21 {
+		t.Errorf("CritRate = %v, want ~0.20", player.Stats.CritRate)
+	}
+	if player.Mods.DamageBonus != 0.25 || player.Mods.PetAttackProc != 0.5 || player.Mods.PetAttackDmg != 6 {
+		t.Errorf("mod deltas wrong: %+v", player.Mods)
+	}
+	if player.Mods.DamageReduct < 0.79 || player.Mods.DamageReduct > 0.81 {
+		t.Errorf("DamageReduct = %v, want ~0.8 (1.0 * 0.8)", player.Mods.DamageReduct)
+	}
+}
+
+func TestSeedCombatSessionOneShots(t *testing.T) {
+	// Arcane Ward is the one resource normally live at fight start.
+	s := &CombatSession{}
+	if !seedCombatSessionOneShots(s, CombatModifiers{ArcaneWardHP: 15}) {
+		t.Error("seed should report true when Arcane Ward is present")
+	}
+	if s.Statuses.ArcaneWardHP != 15 {
+		t.Errorf("ArcaneWardHP = %d, want 15", s.Statuses.ArcaneWardHP)
+	}
+	// Nothing to seed → false, statuses untouched.
+	empty := &CombatSession{}
+	if seedCombatSessionOneShots(empty, CombatModifiers{}) {
+		t.Error("seed should report false with no fight-start resources")
+	}
+}
+
+// TestTurnEngine_OneShotsRoundTrip drives a no-op round_end step and confirms
+// every fight-scoped one-shot survives the resume -> combatState -> commit
+// cycle. Without that round-trip a Halfling could reroll a nat 1 — or a player
+// re-bank a depleted ward charge — on every resumed round.
+func TestTurnEngine_OneShotsRoundTrip(t *testing.T) {
+	sess := turnSession(CombatPhaseRoundEnd, 50, 50)
+	sess.Statuses = CombatStatuses{
+		WardCharges: 3, SporeRounds: 2, ReflectFrac: 0.5, AutoCritFirst: true,
+		ArcaneWardHP: 10, HealChargesLeft: 1,
+		Raged: true, LuckyUsed: true, DeathSaveUsed: true, PendingRage: true,
+		FirstAtkBonusUsed: true, AssassinateReroll: true, AssassinateBonus: true,
+		// Buff stat deltas are owned by the command layer — commit must leave
+		// them untouched rather than zeroing them on every step.
+		BuffACBonus: 2, BuffDamageBonus: 0.15,
+	}
+	want := sess.Statuses // round_end with no poison mutates none of these
+	player, enemy := basePlayer(), baseEnemy()
+
+	if _, err := stepEngine(sess, &player, &enemy, PlayerAction{}); err != nil {
+		t.Fatal(err)
+	}
+	if sess.Statuses != want {
+		t.Errorf("one-shots not round-tripped:\n got  %+v\n want %+v", sess.Statuses, want)
+	}
+}
+
 func TestCombatSessionRNG_DeterministicPerPhase(t *testing.T) {
 	sess := &CombatSession{SessionID: "abc123", Round: 2, Phase: CombatPhaseEnemyTurn}
 	a := combatSessionRNG(sess)

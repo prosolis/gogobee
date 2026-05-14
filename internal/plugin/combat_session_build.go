@@ -24,7 +24,9 @@ import (
 // applyPendingCast and the auto-heal consumable setup are intentionally left
 // out of the shared builder — those are one-shot mutations that runZoneCombat
 // applies once before SimulateCombat. Re-applying them on every turn-based
-// round would double-consume. Per-round !cast / !consume is a later sub-phase.
+// round would double-consume. Mid-fight !cast / !consume buffs are instead
+// persisted on the CombatSession and folded back in by combatantsForSession
+// via applySessionBuffs.
 
 // buildZoneCombatants derives the player/enemy Combatant pair for a zone
 // encounter: the player's full D&D layer (stats + class/race/subclass passives
@@ -121,5 +123,31 @@ func (p *AdventurePlugin) combatantsForSession(sess *CombatSession) (player Comb
 	}
 	zone := zoneOrFallback(run.ZoneID)
 	player, enemy, _, err = p.buildZoneCombatants(id.UserID(sess.UserID), monster, int(zone.Tier), run.DMMood)
+	if err != nil {
+		return player, enemy, err
+	}
+	// Fold any fight-scoped buffs a mid-fight !cast / !consume layered on back
+	// onto the freshly-rebuilt player. The depleting one-shots (ward/spore/…)
+	// live on the session's Statuses and flow through the turn engine's
+	// resume/commit cycle, so only the persistent stat deltas are applied here.
+	applySessionBuffs(&player, sess.Statuses)
 	return player, enemy, err
+}
+
+// applySessionBuffs re-derives the persistent stat effect of every mid-fight
+// buff onto the rebuilt player. The buffs are stored as accumulated deltas
+// (diffTurnBuff produced them against the player's state at cast time), so
+// re-applying them to a deterministic rebuild reproduces the same totals every
+// round without double-counting.
+func applySessionBuffs(player *Combatant, s CombatStatuses) {
+	player.Stats.AC += s.BuffACBonus
+	player.Stats.AttackBonus += s.BuffAtkBonus
+	player.Stats.Speed += s.BuffSpeedBonus
+	player.Stats.CritRate += s.BuffCritRate
+	player.Mods.DamageBonus += s.BuffDamageBonus
+	player.Mods.PetAttackProc += s.BuffPetProc
+	player.Mods.PetAttackDmg += s.BuffPetDmg
+	if s.BuffDamageReductMul > 0 {
+		player.Mods.DamageReduct *= s.BuffDamageReductMul
+	}
 }

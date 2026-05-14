@@ -406,3 +406,65 @@ func rollSpellDamageDice(spell SpellDefinition, slot, charLevel int) int {
 	}
 	return total
 }
+
+// ── Phase 13 — turn-based buff resolution ────────────────────────────────────
+
+// turnBuffDelta is the marginal effect of one buff spell or consumable applied
+// as a turn-based player action, diffed against the player's already-buffed
+// combatant. Stat components (dAC, dDmgBonus, …) accumulate as session deltas;
+// depleting resources (ward, spore, …) add to their running counters; heal and
+// enemySkip land within the casting round only.
+type turnBuffDelta struct {
+	dAC, dAtk, dSpeed, dPetDmg int
+	dCrit, dDmgBonus, dPetProc float64
+	dReductMul                 float64 // multiplicative; 1 = no change
+	ward, spore, arcaneWard    int
+	reflect                    float64
+	autoCrit, enemySkip        bool
+	heal                       int // a MaxHP-raise (Aid) collapses to an immediate heal
+}
+
+// statComponent reports whether the buff has a re-applicable persistent stat
+// effect — the part applySessionBuffs folds back onto the player every round.
+func (d turnBuffDelta) statComponent() bool {
+	return d.dAC != 0 || d.dAtk != 0 || d.dSpeed != 0 || d.dPetDmg != 0 ||
+		d.dCrit != 0 || d.dDmgBonus != 0 || d.dPetProc != 0 ||
+		(d.dReductMul > 0 && d.dReductMul != 1)
+}
+
+// any reports whether the buff produced any applicable effect at all. A buff
+// the turn engine can't represent yet (pure utility) diffs to nothing, and the
+// caller refuses it before a slot or item is spent.
+func (d turnBuffDelta) any() bool {
+	return d.statComponent() || d.ward != 0 || d.spore != 0 || d.reflect != 0 ||
+		d.autoCrit || d.arcaneWard != 0 || d.enemySkip || d.heal != 0
+}
+
+// diffTurnBuff computes the marginal effect of a buff: (bs,bm) is the player's
+// state before the buff, (as,am) the throwaway result of applying it. Reusing
+// applySpellBuff / ApplyConsumableMods against a copy keeps turn-based buffs
+// numerically identical to the auto-resolve engine.
+func diffTurnBuff(bs, as CombatStats, bm, am CombatModifiers) turnBuffDelta {
+	d := turnBuffDelta{
+		dAC:        as.AC - bs.AC,
+		dAtk:       as.AttackBonus - bs.AttackBonus,
+		dSpeed:     as.Speed - bs.Speed,
+		dPetDmg:    am.PetAttackDmg - bm.PetAttackDmg,
+		dCrit:      as.CritRate - bs.CritRate,
+		dDmgBonus:  am.DamageBonus - bm.DamageBonus,
+		dPetProc:   am.PetAttackProc - bm.PetAttackProc,
+		ward:       am.WardCharges - bm.WardCharges,
+		spore:      am.SporeCloud - bm.SporeCloud,
+		reflect:    am.ReflectNext - bm.ReflectNext,
+		arcaneWard: am.ArcaneWardHP - bm.ArcaneWardHP,
+		autoCrit:   am.AutoCritFirst && !bm.AutoCritFirst,
+		enemySkip:  am.SpellEnemySkipFirst && !bm.SpellEnemySkipFirst,
+		heal:       as.MaxHP - bs.MaxHP,
+	}
+	if bm.DamageReduct > 0 {
+		d.dReductMul = am.DamageReduct / bm.DamageReduct
+	} else {
+		d.dReductMul = 1
+	}
+	return d
+}

@@ -116,7 +116,23 @@ func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.R
 		armorBroken:    sess.Statuses.ArmorBroken,
 		armorBreakAmt:  sess.Statuses.ArmorBreakAmt,
 		enemySkipFirst: sess.Statuses.EnemySkipNext,
-		rng:            rng,
+		// Fight-scoped depleting resources + once-per-fight one-shots: restored
+		// from the persisted statuses so a charge or "already used" flag can't
+		// reset across a suspend/resume. commit writes the updated values back.
+		wardCharges:           sess.Statuses.WardCharges,
+		sporeRounds:           sess.Statuses.SporeRounds,
+		reflectFrac:           sess.Statuses.ReflectFrac,
+		autoCrit:              sess.Statuses.AutoCritFirst,
+		arcaneWardHP:          sess.Statuses.ArcaneWardHP,
+		healChargesLeft:       sess.Statuses.HealChargesLeft,
+		deathSaveUsed:         sess.Statuses.DeathSaveUsed,
+		luckyUsed:             sess.Statuses.LuckyUsed,
+		raged:                 sess.Statuses.Raged,
+		pendingRageAttack:     sess.Statuses.PendingRage,
+		firstAttackBonusUsed:  sess.Statuses.FirstAtkBonusUsed,
+		assassinateRerollUsed: sess.Statuses.AssassinateReroll,
+		assassinateBonusUsed:  sess.Statuses.AssassinateBonus,
+		rng:                   rng,
 	}
 	return &turnEngine{
 		sess:   sess,
@@ -265,20 +281,37 @@ func (te *turnEngine) finish(status string) {
 // commit folds this step's combatState back into the session struct: HP,
 // round, the between-round status snapshot, and the appended event log.
 // Phase / Status were already set by step. saveCombatSession persists it.
+//
+// The Buff* stat deltas on Statuses are NOT combatState fields — they're owned
+// by the command layer (a !cast / !consume folds them in) and applied to the
+// rebuilt combatant by applySessionBuffs — so commit mutates Statuses in place
+// rather than replacing it, leaving those deltas untouched.
 func (te *turnEngine) commit() {
 	st := te.st
 	te.sess.Round = st.round
 	te.sess.PlayerHP = st.playerHP
 	te.sess.EnemyHP = st.enemyHP
-	te.sess.Statuses = CombatStatuses{
-		PoisonTicks:   st.poisonTicks,
-		PoisonDmg:     st.poisonDmg,
-		StunPlayer:    st.stunPlayer,
-		Enraged:       st.enraged,
-		ArmorBroken:   st.armorBroken,
-		ArmorBreakAmt: st.armorBreakAmt,
-		EnemySkipNext: st.enemySkipFirst,
-	}
+	s := &te.sess.Statuses
+	s.PoisonTicks = st.poisonTicks
+	s.PoisonDmg = st.poisonDmg
+	s.StunPlayer = st.stunPlayer
+	s.Enraged = st.enraged
+	s.ArmorBroken = st.armorBroken
+	s.ArmorBreakAmt = st.armorBreakAmt
+	s.EnemySkipNext = st.enemySkipFirst
+	s.WardCharges = st.wardCharges
+	s.SporeRounds = st.sporeRounds
+	s.ReflectFrac = st.reflectFrac
+	s.AutoCritFirst = st.autoCrit
+	s.ArcaneWardHP = st.arcaneWardHP
+	s.HealChargesLeft = st.healChargesLeft
+	s.DeathSaveUsed = st.deathSaveUsed
+	s.LuckyUsed = st.luckyUsed
+	s.Raged = st.raged
+	s.PendingRage = st.pendingRageAttack
+	s.FirstAtkBonusUsed = st.firstAttackBonusUsed
+	s.AssassinateReroll = st.assassinateRerollUsed
+	s.AssassinateBonus = st.assassinateBonusUsed
 	te.sess.TurnLog = append(te.sess.TurnLog, st.events...)
 }
 

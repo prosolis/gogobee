@@ -71,7 +71,7 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "_(No bestiary entry for this encounter — file a bug. `!zone abandon` to bail.)_")
 	}
 
-	_, enemy, _, err := p.buildZoneCombatants(ctx.Sender, monster, int(zone.Tier), run.DMMood)
+	player, enemy, _, err := p.buildZoneCombatants(ctx.Sender, monster, int(zone.Tier), run.DMMood)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't set up the fight: "+err.Error())
 	}
@@ -88,6 +88,14 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 			return p.SendDM(ctx.Sender, "You're already in a fight. Finish it with `!attack` / `!flee`.")
 		}
 		return p.SendDM(ctx.Sender, "Couldn't start the fight: "+err.Error())
+	}
+
+	// Carry fight-start one-shot resources (Abjuration Arcane Ward, etc.) onto
+	// the session so they survive the turn engine's resume/commit cycle.
+	if seedCombatSessionOneShots(sess, player.Mods) {
+		if err := saveCombatSession(sess); err != nil {
+			slog.Error("combat: seed session one-shots", "user", ctx.Sender, "err", err)
+		}
 	}
 
 	var b strings.Builder
@@ -467,38 +475,55 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 		return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
 	}
 
-	out, supported := resolveTurnSpell(c, spell, slotLevel, &enemy.Stats)
-	if !supported {
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"%s is a buff/utility spell — those aren't usable in turn-based fights yet (they need cross-round tracking). Try a damage, healing, or control spell.", spell.Name))
+	var eff *turnActionEffect
+	if spell.Effect == EffectBuffSelf || spell.Effect == EffectBuffAlly {
+		// Buff path — resolve the buff against a throwaway combatant, fold the
+		// marginal effect into the session's persisted state, then rebuild the
+		// pair so the buff is live for this round's enemy turn.
+		as, am := player.Stats, player.Mods
+		applySpellBuff(spell, c, &as, &am, slotLevel)
+		d := diffTurnBuff(player.Stats, as, player.Mods, am)
+		if !d.any() {
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"%s has no effect the turn-based engine can apply yet.", spell.Name))
+		}
+		if msg := p.chargeSpellCost(ctx.Sender, spell, slotLevel); msg != "" {
+			return p.SendDM(ctx.Sender, msg)
+		}
+		sess.Statuses.applyBuffDelta(d)
+		player, enemy, err = p.combatantsForSession(sess)
+		if err != nil {
+			if spell.Level > 0 {
+				_ = refundSpellSlot(ctx.Sender, slotLevel)
+			}
+			return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
+		}
+		label := spell.Name + " — active"
+		if d.heal > 0 {
+			label = fmt.Sprintf("%s — +%d HP", spell.Name, d.heal)
+		}
+		eff = &turnActionEffect{
+			Action: "spell_cast", Label: label,
+			PlayerHeal: d.heal, EnemySkip: d.enemySkip,
+		}
+	} else {
+		out, supported := resolveTurnSpell(c, spell, slotLevel, &enemy.Stats)
+		if !supported {
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"%s is a utility spell — those aren't usable in turn-based fights yet. Try a damage, healing, control, or buff spell.", spell.Name))
+		}
+		if msg := p.chargeSpellCost(ctx.Sender, spell, slotLevel); msg != "" {
+			return p.SendDM(ctx.Sender, msg)
+		}
+		eff = &turnActionEffect{
+			Label:       out.Desc,
+			Action:      "spell_cast",
+			EnemyDamage: out.EnemyDamage,
+			PlayerHeal:  out.PlayerHeal,
+			EnemySkip:   out.EnemySkip,
+		}
 	}
 
-	// Material component cost (Revivify, Raise Dead — rare in a fight).
-	if spell.MaterialCost > 0 {
-		if p.euro == nil || !p.euro.Debit(ctx.Sender, float64(spell.MaterialCost), "dnd_spell_component") {
-			return p.SendDM(ctx.Sender, fmt.Sprintf(
-				"%s needs a %d-coin diamond component you can't afford.", spell.Name, spell.MaterialCost))
-		}
-	}
-	// Slot spend — audit pattern: debit, run the round, refund on failure.
-	if spell.Level > 0 {
-		ok, serr := consumeSpellSlot(ctx.Sender, slotLevel)
-		if serr != nil {
-			return p.SendDM(ctx.Sender, "Couldn't consume slot: "+serr.Error())
-		}
-		if !ok {
-			return p.SendDM(ctx.Sender, fmt.Sprintf(
-				"No L%d slot available. %s", slotLevel, renderSlotsBrief(ctx.Sender)))
-		}
-	}
-
-	eff := &turnActionEffect{
-		Label:       out.Desc,
-		Action:      "spell_cast",
-		EnemyDamage: out.EnemyDamage,
-		PlayerHeal:  out.PlayerHeal,
-		EnemySkip:   out.EnemySkip,
-	}
 	events, err := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionCast, Effect: eff})
 	if err != nil {
 		if spell.Level > 0 {
@@ -509,12 +534,35 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 	return p.SendDM(ctx.Sender, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
 }
 
+// chargeSpellCost debits a spell's material component and leveled slot for a
+// turn-based cast. It returns a non-empty player-facing message on failure; on
+// success the caller owns the slot and must refundSpellSlot if the round itself
+// errors. Material components (rare in a fight) are not refunded if the slot
+// debit then fails — matching the auto-resolve cast path.
+func (p *AdventurePlugin) chargeSpellCost(userID id.UserID, spell SpellDefinition, slotLevel int) string {
+	if spell.MaterialCost > 0 {
+		if p.euro == nil || !p.euro.Debit(userID, float64(spell.MaterialCost), "dnd_spell_component") {
+			return fmt.Sprintf("%s needs a %d-coin diamond component you can't afford.", spell.Name, spell.MaterialCost)
+		}
+	}
+	if spell.Level > 0 {
+		ok, serr := consumeSpellSlot(userID, slotLevel)
+		if serr != nil {
+			return "Couldn't consume slot: " + serr.Error()
+		}
+		if !ok {
+			return fmt.Sprintf("No L%d slot available. %s", slotLevel, renderSlotsBrief(userID))
+		}
+	}
+	return ""
+}
+
 // ── !consume (in-combat) ────────────────────────────────────────────────────
 //
 // !consume <item> spends one combat consumable as the player's turn. Heal and
 // flat-damage items resolve fully within the round; buff-type items (ward,
-// atk/def boost, spore, reflect, auto-crit) need cross-round stat tracking and
-// are refused for now.
+// atk/def boost, spore, reflect, auto-crit) fold into the session's persisted
+// fight-scoped state and carry for the rest of the fight.
 
 // matchConsumable resolves a player-typed name against the player's consumable
 // inventory: case-insensitive exact match first, then a unique prefix match.
@@ -582,6 +630,11 @@ func (p *AdventurePlugin) handleConsumeCmd(ctx MessageContext, args string) erro
 	}
 
 	def := item.Def
+	player, enemy, err := p.combatantsForSession(sess)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
+	}
+
 	eff := &turnActionEffect{Action: "use_consumable"}
 	switch def.Effect {
 	case EffectHeal:
@@ -591,13 +644,24 @@ func (p *AdventurePlugin) handleConsumeCmd(ctx MessageContext, args string) erro
 		eff.EnemyDamage = int(def.Value)
 		eff.Label = fmt.Sprintf("%s — %d damage", def.Name, eff.EnemyDamage)
 	default:
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"**%s** is a buff-type consumable — those aren't usable in turn-based fights yet. Healing and damage items (Berry Poultice, Coal Bomb, …) work.", def.Name))
-	}
-
-	player, enemy, err := p.combatantsForSession(sess)
-	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
+		// Buff-type consumable — resolve the marginal effect against a
+		// throwaway combatant, fold it into the session's persisted state, and
+		// rebuild the pair so the buff is live for this round's enemy turn.
+		as, am := player.Stats, player.Mods
+		ApplyConsumableMods(&as, &am, []ConsumableItem{{Def: def}})
+		d := diffTurnBuff(player.Stats, as, player.Mods, am)
+		if !d.any() {
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"**%s** has no effect the turn-based engine can apply yet.", def.Name))
+		}
+		sess.Statuses.applyBuffDelta(d)
+		player, enemy, err = p.combatantsForSession(sess)
+		if err != nil {
+			return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
+		}
+		eff.Label = def.Name + " — active"
+		eff.PlayerHeal = d.heal
+		eff.EnemySkip = d.enemySkip
 	}
 
 	events, err := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionConsume, Effect: eff})

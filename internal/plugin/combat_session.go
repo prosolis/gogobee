@@ -42,13 +42,16 @@ const (
 // reaper sweeps it. Matches the started_at + 1h note in the schema.
 const combatSessionTTL = time.Hour
 
-// CombatStatuses is the serialized between-round effect state for a fight —
-// the subset of combatState fields that genuinely persist round-to-round
-// (monster-ability effects). Fight-scoped one-shots (rage, Lucky reroll,
-// ward/heal charges) are deliberately not carried here: they reset if a fight
-// is resumed across a bot restart. Extending coverage to those one-shots is
-// the command-wiring PR's job, once it reconstructs Combatants from a session.
+// CombatStatuses is the serialized between-round effect state for a fight: the
+// subset of combatState that genuinely persists round-to-round, plus the
+// fight-scoped buffs a mid-fight !cast / !consume layers on. Everything here
+// round-trips combatState -> Statuses -> combatState across every engine step,
+// so a fight resumes from exact mid-state after a suspend or bot restart.
+//
+// All fields are scalar by design — CombatStatuses must stay comparable so the
+// persistence round-trip can be asserted with ==.
 type CombatStatuses struct {
+	// Monster-ability effects — the original between-round persistence set.
 	PoisonTicks   int     `json:"poison_ticks,omitempty"`
 	PoisonDmg     int     `json:"poison_dmg,omitempty"`
 	StunPlayer    bool    `json:"stun_player,omitempty"`
@@ -60,6 +63,86 @@ type CombatStatuses struct {
 	// — those phases resolve as separate engine steps with separate in-memory
 	// combatState, so the flag must survive the commit between them.
 	EnemySkipNext bool `json:"enemy_skip_next,omitempty"`
+
+	// Fight-scoped depleting resources — mirror the combatState charges that
+	// genuinely carry round-to-round. Seeded at fight start (Arcane Ward) or by
+	// a mid-fight !cast / !consume, restored into combatState on every resume,
+	// written back on every commit so a depleting charge can't silently reset
+	// when a fight is suspended and resumed.
+	WardCharges     int     `json:"ward_charges,omitempty"`
+	SporeRounds     int     `json:"spore_rounds,omitempty"`
+	ReflectFrac     float64 `json:"reflect_frac,omitempty"`
+	AutoCritFirst   bool    `json:"auto_crit_first,omitempty"`
+	ArcaneWardHP    int     `json:"arcane_ward_hp,omitempty"`
+	HealChargesLeft int     `json:"heal_charges_left,omitempty"`
+
+	// Once-per-fight class/race/subclass one-shots: the "already used" flags.
+	// Without persistence these reset every round on resume, letting a Halfling
+	// reroll a nat 1 or an Orc rage every single round of a turn-based fight.
+	DeathSaveUsed     bool `json:"death_save_used,omitempty"`
+	LuckyUsed         bool `json:"lucky_used,omitempty"`
+	Raged             bool `json:"raged,omitempty"`
+	PendingRage       bool `json:"pending_rage,omitempty"`
+	FirstAtkBonusUsed bool `json:"first_atk_bonus_used,omitempty"`
+	AssassinateReroll bool `json:"assassinate_reroll_used,omitempty"`
+	AssassinateBonus  bool `json:"assassinate_bonus_used,omitempty"`
+
+	// Persistent stat buffs from mid-fight !cast / !consume, accumulated as
+	// deltas against the freshly-rebuilt combatant. applySessionBuffs folds
+	// these back onto the player every round; diffTurnBuff produces them.
+	// BuffDamageReductMul is multiplicative (0 = none / 1.0 neutral).
+	BuffACBonus         int     `json:"buff_ac_bonus,omitempty"`
+	BuffAtkBonus        int     `json:"buff_atk_bonus,omitempty"`
+	BuffSpeedBonus      int     `json:"buff_speed_bonus,omitempty"`
+	BuffPetDmg          int     `json:"buff_pet_dmg,omitempty"`
+	BuffCritRate        float64 `json:"buff_crit_rate,omitempty"`
+	BuffDamageBonus     float64 `json:"buff_damage_bonus,omitempty"`
+	BuffPetProc         float64 `json:"buff_pet_proc,omitempty"`
+	BuffDamageReductMul float64 `json:"buff_damage_reduct_mul,omitempty"`
+}
+
+// applyBuffDelta folds one resolved buff (the result of a !cast / !consume
+// player turn) into the persisted fight-scoped state. Stat components
+// accumulate as deltas; depleting resources add to their running counters.
+func (s *CombatStatuses) applyBuffDelta(d turnBuffDelta) {
+	s.BuffACBonus += d.dAC
+	s.BuffAtkBonus += d.dAtk
+	s.BuffSpeedBonus += d.dSpeed
+	s.BuffPetDmg += d.dPetDmg
+	s.BuffCritRate += d.dCrit
+	s.BuffDamageBonus += d.dDmgBonus
+	s.BuffPetProc += d.dPetProc
+	if d.dReductMul > 0 && d.dReductMul != 1 {
+		if s.BuffDamageReductMul == 0 {
+			s.BuffDamageReductMul = d.dReductMul
+		} else {
+			s.BuffDamageReductMul *= d.dReductMul
+		}
+	}
+	s.WardCharges += d.ward
+	s.SporeRounds += d.spore
+	s.ReflectFrac += d.reflect
+	if d.autoCrit {
+		s.AutoCritFirst = true
+	}
+	s.ArcaneWardHP += d.arcaneWard
+}
+
+// seedCombatSessionOneShots copies the fight-start one-shot resources off the
+// freshly-built player combatant into the session's persisted statuses. Only
+// the Abjuration Arcane Ward is normally non-zero at fight start — the
+// turn-based build deliberately omits pre-combat consumables and queued casts —
+// but the full set is seeded for robustness. Returns true if anything was set.
+func seedCombatSessionOneShots(s *CombatSession, playerMods CombatModifiers) bool {
+	st := &s.Statuses
+	st.WardCharges = playerMods.WardCharges
+	st.SporeRounds = playerMods.SporeCloud
+	st.ReflectFrac = playerMods.ReflectNext
+	st.AutoCritFirst = playerMods.AutoCritFirst
+	st.ArcaneWardHP = playerMods.ArcaneWardHP
+	st.HealChargesLeft = playerMods.HealItemCharges
+	return st.WardCharges != 0 || st.SporeRounds != 0 || st.ReflectFrac != 0 ||
+		st.AutoCritFirst || st.ArcaneWardHP != 0 || st.HealChargesLeft != 0
 }
 
 // CombatSession is the in-memory shape of a combat_session row.
