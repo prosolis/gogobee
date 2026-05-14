@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"gogobee/internal/db"
@@ -254,6 +255,23 @@ func getActiveCombatSession(userID id.UserID) (*CombatSession, error) {
 		return nil, nil
 	}
 	return s, err
+}
+
+// hasActiveCombatSession reports whether the player is currently locked into a
+// turn-based elite/boss fight. Daily-cron and periodic-ticker paths consult
+// this to avoid firing DMs or mutating run state into a live fight: an active
+// session locks the run (no `!zone advance`), so the player can't move it
+// forward and a cron path shouldn't either. The session carries a 1h TTL, so
+// the collision window is bounded — but real, since a fight can straddle any
+// scheduled tick. On a lookup error this returns false (fail-open): a missed
+// guard is a confusing DM, not corruption.
+func hasActiveCombatSession(userID id.UserID) bool {
+	s, err := getActiveCombatSession(userID)
+	if err != nil {
+		slog.Warn("combat: cron guard failed to check active session", "user", userID, "err", err)
+		return false
+	}
+	return s != nil
 }
 
 // getCombatSession fetches by ID regardless of status. Test/admin/reaper use.

@@ -98,6 +98,15 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			continue
 		}
 
+		// Mid-fight: a turn-based elite/boss session locks the run. The
+		// per-round combat DMs are the player's feed right now — don't talk
+		// over them with the overworld morning menu. (A combat session always
+		// sits inside an active expedition, so the expedition skip below would
+		// usually catch this too; the explicit guard is cheap insurance.)
+		if char.Alive && hasActiveCombatSession(char.UserID) {
+			continue
+		}
+
 		// Active expedition: the expedition cycle delivers its own morning
 		// briefing at 06:00 UTC (deliverBriefing). The legacy overworld
 		// morning DM is irrelevant — and confusing — while underground.
@@ -402,14 +411,22 @@ func (p *AdventurePlugin) midnightReset() error {
 				continue
 			}
 
-			// Active expedition counts as activity. The expedition system tracks
-			// its own action flow (zone/harvest/combat/transit/extract) and never
-			// touches the legacy CombatActionsUsed/HarvestActionsUsed counters, so
-			// HasActedToday() reports false for expeditioners. Treat them like the
-			// acted-today branch below: advance the streak and bail out.
+			// An active expedition — or a turn-based fight locked open across
+			// midnight — counts as activity. Both track their own action flow
+			// (zone/harvest/combat/transit/extract) and never touch the legacy
+			// CombatActionsUsed/HarvestActionsUsed counters, so HasActedToday()
+			// reports false. Treat them like the acted-today branch below:
+			// advance the streak and bail out (no idle-shame, no streak decay).
+			busy := false
 			if exp, err := getActiveExpedition(char.UserID); err != nil {
 				slog.Warn("adventure: failed to check active expedition for idle reaper", "user", char.UserID, "err", err)
 			} else if exp != nil {
+				busy = true
+			}
+			if !busy && hasActiveCombatSession(char.UserID) {
+				busy = true
+			}
+			if busy {
 				if char.LastActionDate == yesterday || char.LastActionDate == today {
 					char.CurrentStreak++
 				} else {

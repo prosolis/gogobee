@@ -81,6 +81,16 @@ func (p *AdventurePlugin) fireExpeditionBriefings(now time.Time) {
 		return
 	}
 	for _, e := range exps {
+		// Don't roll the expedition day forward into a live turn-based fight:
+		// an active combat session locks the run, and the briefing burns
+		// supply / advances the day / processes overnight camp. last_briefing_at
+		// stays stale, so the rollover simply lands on the next 06:00 tick —
+		// the expedition holds on its current day for one extra real day, which
+		// is mild and player-favorable versus mutating a locked run.
+		if hasActiveCombatSession(id.UserID(e.UserID)) {
+			slog.Info("expedition: briefing deferred — player in combat session", "expedition", e.ID, "user", e.UserID)
+			continue
+		}
 		if err := p.deliverBriefing(e, now); err != nil {
 			slog.Error("expedition: briefing", "expedition", e.ID, "err", err)
 		}
@@ -98,6 +108,13 @@ func (p *AdventurePlugin) fireExpeditionRecaps(now time.Time) {
 		return
 	}
 	for _, e := range exps {
+		// Same guard as briefings: the recap runs the night wandering check,
+		// which can bump threat. Don't mutate a run locked by a live fight —
+		// last_recap_at stays stale and the recap lands on the next tick.
+		if hasActiveCombatSession(id.UserID(e.UserID)) {
+			slog.Info("expedition: recap deferred — player in combat session", "expedition", e.ID, "user", e.UserID)
+			continue
+		}
 		if err := p.deliverRecap(e, now); err != nil {
 			slog.Error("expedition: recap", "expedition", e.ID, "err", err)
 		}

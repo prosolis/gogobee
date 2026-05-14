@@ -120,6 +120,13 @@ func (p *AdventurePlugin) tryTriggerEvent(userID id.UserID) {
 		return
 	}
 
+	// Mid-fight: a turn-based session locks the run. Don't drop a random
+	// overworld event into a live fight — the player can't act on it without
+	// finishing the fight first, and the trigger DM talks over the combat feed.
+	if hasActiveCombatSession(userID) {
+		return
+	}
+
 	// 0.5% chance
 	if rand.Float64() >= 0.005 {
 		return

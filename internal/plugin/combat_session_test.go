@@ -138,6 +138,34 @@ func TestListExpiredCombatSessions(t *testing.T) {
 	}
 }
 
+func TestHasActiveCombatSession(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@combat-guard:example.org")
+	defer cleanupCombatSessions(uid)
+
+	if hasActiveCombatSession(uid) {
+		t.Fatal("no session yet, want false")
+	}
+
+	s, err := startCombatSession(uid, "r", "n", "boss", 60, 60, 120, 120)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasActiveCombatSession(uid) {
+		t.Error("active session, want true")
+	}
+
+	// A terminal session no longer counts as active.
+	s.Status = CombatStatusWon
+	s.Phase = CombatPhaseOver
+	if err := saveCombatSession(s); err != nil {
+		t.Fatal(err)
+	}
+	if hasActiveCombatSession(uid) {
+		t.Error("session is won, want false")
+	}
+}
+
 // ── State machine ──────────────────────────────────────────────────────────
 
 // turnSession builds an in-memory CombatSession for state-machine tests that
