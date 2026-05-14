@@ -70,7 +70,13 @@ func (p *AdventurePlugin) advUserLock(userID id.UserID) *sync.Mutex {
 	return val.(*sync.Mutex)
 }
 
+// advDMResponseWindow is the default window for active state-holding
+// prompts (shop/blacksmith/hospital/masterwork/treasure confirms).
+// Passive overnight-tolerant prompts (pet arrival, flavor DMs) use
+// advDMResponseWindowLow so a player who gets DM'd at 1am can still
+// reply when they wake up.
 const advDMResponseWindow = 3 * time.Hour
+const advDMResponseWindowLow = 12 * time.Hour
 const advTreasureUndoWindow = 10 * time.Minute
 
 // advTreasureUndoToken tracks a recent auto-swap so the player can undo it

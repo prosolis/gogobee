@@ -79,6 +79,30 @@ func loadAdvDailyActivity(date string) (map[id.UserID][]AdvDailyActivity, error)
 	}
 	rows.Close()
 
+	// Pre-load (user_id, zone_id) of active expeditions. Zone runs are now
+	// exclusively spawned by the expedition layer, and the expedition flips
+	// a region's run to abandoned on !region travel / inactivity timeout /
+	// forced extraction. Those transitions are internal — the expedition
+	// rollup below is the source of truth for the player. Skip zone_run
+	// entries that match an active expedition to avoid a misleading
+	// "Withdrew from <zone>" line while the player is still on it.
+	activeExp := make(map[string]struct{})
+	expRows, err := d.Query(`
+		SELECT user_id, zone_id FROM dnd_expedition
+		 WHERE status IN ('active','extracting')`)
+	if err != nil {
+		return nil, fmt.Errorf("active expeditions: %w", err)
+	}
+	for expRows.Next() {
+		var u, z string
+		if err := expRows.Scan(&u, &z); err != nil {
+			expRows.Close()
+			return nil, fmt.Errorf("active expedition scan: %w", err)
+		}
+		activeExp[u+"|"+z] = struct{}{}
+	}
+	expRows.Close()
+
 	// 2. dnd_zone_run — rows touched today. Progress count is derived
 	// from len(visited_nodes) — current_room retired in G9.
 	rows, err = d.Query(`
@@ -109,6 +133,9 @@ func loadAdvDailyActivity(date string) (map[id.UserID][]AdvDailyActivity, error)
 		currentRoom := len(visited) - 1
 		if currentRoom < 0 {
 			currentRoom = 0
+		}
+		if _, onExp := activeExp[uid+"|"+zoneID]; onExp {
+			continue
 		}
 		userID := id.UserID(uid)
 		zoneDef := zoneOrFallback(ZoneID(zoneID))

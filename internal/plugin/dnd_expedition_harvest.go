@@ -354,13 +354,22 @@ func regionEventActive(e *Expedition, eventID string) bool {
 // ── room-state helpers ──────────────────────────────────────────────────────
 
 // currentRoomCleared reports whether the player's current room is safe
-// for harvest. Entry rooms auto-clear; otherwise the index must be in
-// run.RoomsCleared.
+// for harvest. Entry/Exploration/Trap rooms allow harvest unconditionally
+// — risk is modeled by the §4.2 Combat Interrupt roll inside the harvest
+// path, not by gating the command. Elite/Boss rooms stay gated: harvest
+// is only allowed once they're in run.RoomsCleared.
+//
+// Why this isn't "is the current room in RoomsCleared": the runtime
+// flow couples combat resolution with room transition inside !zone
+// advance, so the current room index is *never* in RoomsCleared until
+// the player has already moved past it. A strict cleared-only gate
+// makes harvest in any non-entry room impossible.
 func currentRoomCleared(run *DungeonRun) bool {
 	if run == nil {
 		return false
 	}
-	if run.CurrentRoomType() == RoomEntry {
+	switch run.CurrentRoomType() {
+	case RoomEntry, RoomExploration, RoomTrap:
 		return true
 	}
 	for _, idx := range run.RoomsCleared {

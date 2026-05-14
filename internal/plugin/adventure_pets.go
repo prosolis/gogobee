@@ -202,8 +202,8 @@ func petShouldArrive(pet PetState, house HouseState) bool {
 	if pet.ChasedAway {
 		return pet.Reactivated
 	}
-	// 15% daily chance after house tier 1
-	return rand.Float64() < 0.15
+	// 30% daily chance after house tier 1 (~3 days average to arrival)
+	return rand.Float64() < 0.30
 }
 
 // petArrivalDM sends the initial "there's an animal in your house" DM.
@@ -221,7 +221,7 @@ func (p *AdventurePlugin) petArrivalDM(userID id.UserID) {
 	p.pending.Store(string(userID), &advPendingInteraction{
 		Type:      "pet_arrival",
 		Data:      &advPendingPetArrival{},
-		ExpiresAt: time.Now().Add(advDMResponseWindow),
+		ExpiresAt: time.Now().Add(advDMResponseWindowLow),
 	})
 	_ = p.SendDM(userID, text)
 }
@@ -258,7 +258,7 @@ func (p *AdventurePlugin) resolvePetArrival(ctx MessageContext) error {
 		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 			Type:      "pet_type",
 			Data:      &advPendingPetType{},
-			ExpiresAt: time.Now().Add(advDMResponseWindow),
+			ExpiresAt: time.Now().Add(advDMResponseWindowLow),
 		})
 		return p.SendDM(ctx.Sender, text)
 	}
@@ -267,7 +267,7 @@ func (p *AdventurePlugin) resolvePetArrival(ctx MessageContext) error {
 	p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 		Type:      "pet_arrival",
 		Data:      &advPendingPetArrival{},
-		ExpiresAt: time.Now().Add(advDMResponseWindow),
+		ExpiresAt: time.Now().Add(advDMResponseWindowLow),
 	})
 	return p.SendDM(ctx.Sender, "Reply with `chase` or `feed`.")
 }
@@ -291,7 +291,7 @@ func (p *AdventurePlugin) resolvePetType(ctx MessageContext) error {
 		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 			Type:      "pet_type",
 			Data:      &advPendingPetType{},
-			ExpiresAt: time.Now().Add(advDMResponseWindow),
+			ExpiresAt: time.Now().Add(advDMResponseWindowLow),
 		})
 		return p.SendDM(ctx.Sender, "Reply with `dog` or `cat`.")
 	}
@@ -299,7 +299,7 @@ func (p *AdventurePlugin) resolvePetType(ctx MessageContext) error {
 	p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 		Type:      "pet_name",
 		Data:      &advPendingPetName{PetType: petType},
-		ExpiresAt: time.Now().Add(advDMResponseWindow),
+		ExpiresAt: time.Now().Add(advDMResponseWindowLow),
 	})
 
 	article := "a"
