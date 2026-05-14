@@ -65,6 +65,14 @@ type CombatStatuses struct {
 	// combatState, so the flag must survive the commit between them.
 	EnemySkipNext bool `json:"enemy_skip_next,omitempty"`
 
+	// PetProcReady is the per-fight pet-attack outcome. Auto-resolve rolls the
+	// pet proc every round; a manual fight can run many rounds, so the roll is
+	// decided once at fight start (rollCombatSessionPetProc) and parked here.
+	// The pet then lands a single hit on the player's first acting turn, which
+	// clears the flag — persisted so a suspend/resume or reaper auto-play sees
+	// the same outcome.
+	PetProcReady bool `json:"pet_proc_ready,omitempty"`
+
 	// Fight-scoped depleting resources — mirror the combatState charges that
 	// genuinely carry round-to-round. Seeded at fight start (Arcane Ward) or by
 	// a mid-fight !cast / !consume, restored into combatState on every resume,

@@ -425,6 +425,72 @@ func TestTurnEngine_OneShotsRoundTrip(t *testing.T) {
 	}
 }
 
+// ── Pet proc (per-fight) ───────────────────────────────────────────────────
+
+func TestRollCombatSessionPetProc(t *testing.T) {
+	// No pet proc on the player → never rolls true, never touches statuses.
+	none := &CombatSession{SessionID: "no-pet"}
+	if rollCombatSessionPetProc(none, CombatModifiers{}) || none.Statuses.PetProcReady {
+		t.Error("zero PetAttackProc should not arm a pet strike")
+	}
+	// A guaranteed proc arms the flag; the draw is deterministic per session id.
+	sure := &CombatSession{SessionID: "pet-fight"}
+	if !rollCombatSessionPetProc(sure, CombatModifiers{PetAttackProc: 1.0}) || !sure.Statuses.PetProcReady {
+		t.Error("PetAttackProc 1.0 should always arm a pet strike")
+	}
+	again := &CombatSession{SessionID: "pet-fight"}
+	rollCombatSessionPetProc(again, CombatModifiers{PetAttackProc: 1.0})
+	if again.Statuses.PetProcReady != sure.Statuses.PetProcReady {
+		t.Error("same session id should roll the pet proc deterministically")
+	}
+}
+
+// TestTurnEngine_PetStrike confirms an armed pet lands exactly one hit on the
+// player's first acting turn, then never again — the per-fight roll model.
+func TestTurnEngine_PetStrike(t *testing.T) {
+	// Pools huge so no phase can end the fight; isolate the pet behaviour.
+	sess := turnSession(CombatPhasePlayerTurn, 100000, 100000)
+	sess.Statuses.PetProcReady = true
+	player, enemy := basePlayer(), baseEnemy()
+	player.Mods.PetAttackDmg = 8
+
+	events, err := stepEngine(sess, &player, &enemy, PlayerAction{Kind: ActionAttack})
+	if err != nil {
+		t.Fatal(err)
+	}
+	petHits := 0
+	for _, e := range events {
+		if e.Action == "pet_attack" {
+			petHits++
+			if e.Damage <= 0 {
+				t.Errorf("pet_attack damage = %d, want > 0", e.Damage)
+			}
+		}
+	}
+	if petHits != 1 {
+		t.Fatalf("pet_attack events = %d on first player turn, want 1", petHits)
+	}
+	if sess.Statuses.PetProcReady {
+		t.Error("PetProcReady should clear after the pet strikes")
+	}
+
+	// Cycle back to the next player turn — the pet must not strike again.
+	for sess.Phase != CombatPhasePlayerTurn {
+		if _, err := stepEngine(sess, &player, &enemy, PlayerAction{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err = stepEngine(sess, &player, &enemy, PlayerAction{Kind: ActionAttack})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Action == "pet_attack" {
+			t.Error("pet struck twice — the roll is per fight, not per round")
+		}
+	}
+}
+
 func TestCombatSessionRNG_DeterministicPerPhase(t *testing.T) {
 	sess := &CombatSession{SessionID: "abc123", Round: 2, Phase: CombatPhaseEnemyTurn}
 	a := combatSessionRNG(sess)
