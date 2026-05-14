@@ -1884,6 +1884,43 @@ CREATE TABLE IF NOT EXISTS space_inviter_prompts (
     PRIMARY KEY (user_id, prompt_sent_at)
 );
 CREATE INDEX IF NOT EXISTS idx_space_inviter_user ON space_inviter_prompts(user_id);
+
+-- ── Turn-based combat — persistent per-fight session ───────────────────────
+-- One row per manual elite/boss fight. Persists across bot restarts and
+-- player away-from-keyboard so a fight can resume (or be auto-finished by
+-- the timeout reaper) from exact mid-state. At most one row per user with
+-- status='active' (enforced in code, not by constraint).
+--
+-- encounter_id:    room/node id within the run this fight belongs to.
+-- enemy_id:        bestiary stat-block id for the elite/boss.
+-- phase:           intra-round state machine position.
+-- statuses_json:   serialized player + enemy status effects (poison, etc.).
+-- turn_log_json:   per-round event stream, consumed by live narration.
+-- expires_at:      started_at + 1h; reaper auto-plays the fight to a real
+--                  win/loss from persisted state once this passes.
+CREATE TABLE IF NOT EXISTS combat_session (
+    session_id      TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL,
+    run_id          TEXT NOT NULL,
+    encounter_id    TEXT NOT NULL,
+    enemy_id        TEXT NOT NULL,
+    round           INTEGER NOT NULL DEFAULT 1,
+    phase           TEXT NOT NULL DEFAULT 'player_turn', -- player_turn|enemy_turn|round_end|over
+    player_hp       INTEGER NOT NULL,
+    player_hp_max   INTEGER NOT NULL,
+    enemy_hp        INTEGER NOT NULL,
+    enemy_hp_max    INTEGER NOT NULL,
+    statuses_json   TEXT NOT NULL DEFAULT '{}',
+    turn_log_json   TEXT NOT NULL DEFAULT '[]',
+    status          TEXT NOT NULL DEFAULT 'active',      -- active|won|lost|fled|expired
+    started_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_action_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at      DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_combat_session_active
+    ON combat_session(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_combat_session_expiry
+    ON combat_session(status, expires_at);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.
