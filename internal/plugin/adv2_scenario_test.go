@@ -76,10 +76,17 @@ func TestAdv2Scenario_ZoneRunGoblinWarrens(t *testing.T) {
 	}
 
 	// Drive !zone advance until the run terminates (cleared, died, or
-	// abandoned). When a fork is pending (Phase G branching graphs) auto-pick
-	// the first option via `!zone go 1` so the test doesn't stall on a
-	// diamond. Doubled iteration cap covers fork-then-advance pairs.
-	maxSteps := (run.TotalRooms + 4) * 2
+	// abandoned). Branches the test handles:
+	//   - Fork queued (Phase G branching graphs): commit with `!zone go 1`.
+	//   - Elite/Boss doorway (commit 886eb5a moved these off auto-resolve):
+	//     !advance now stops at the door and the player engages with
+	//     !fight, then resolves one round per !attack. The test mirrors
+	//     that: call !fight to open the session, !attack until the session
+	//     closes, then the next !advance clears the room and walks the
+	//     graph. Cap the per-fight !attack loop generously — a real fight
+	//     resolves in <20 rounds, but RNG can drag.
+	maxSteps := (run.TotalRooms + 4) * 4
+	const maxAttacksPerFight = 60
 	clearedRoomTypes := []RoomType{}
 	for step := 0; step < maxSteps; step++ {
 		before, _ := getActiveZoneRun(uid)
@@ -100,6 +107,31 @@ func TestAdv2Scenario_ZoneRunGoblinWarrens(t *testing.T) {
 				t.Fatalf("zone go step %d: %v", step, err)
 			}
 			continue
+		}
+		// Elite/Boss doorway: !advance won't progress past the door
+		// without a won CombatSession for the encounter. Open the fight
+		// if it isn't already open, then attack until the session
+		// terminates. After the loop, fall through to !advance — the
+		// won session lets advance clear the room and walk the graph;
+		// a lost/fled session terminates the run on the next pass.
+		if prevType == RoomElite || prevType == RoomBoss {
+			sess, _ := getCombatSessionForEncounter(before.RunID, encounterIDForRoom(before.CurrentRoom))
+			if sess == nil {
+				if err := p.handleFightCmd(MessageContext{Sender: uid}); err != nil {
+					t.Fatalf("zone fight step %d: %v", step, err)
+				}
+			}
+			// Drain the round loop. handleAttackCmd no-ops if there's no
+			// active session, so the inner loop self-terminates either way.
+			for atk := 0; atk < maxAttacksPerFight; atk++ {
+				active, _ := getActiveCombatSession(uid)
+				if active == nil {
+					break
+				}
+				if err := p.handleAttackCmd(MessageContext{Sender: uid}); err != nil {
+					t.Fatalf("attack step %d.%d: %v", step, atk, err)
+				}
+			}
 		}
 		if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "advance"); err != nil {
 			t.Fatalf("zone advance step %d: %v", step, err)
