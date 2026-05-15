@@ -463,8 +463,16 @@ func CacheSet(key, data string) {
 
 // Backup creates a consistent snapshot of the database using VACUUM INTO.
 // Keeps the last 7 daily backups, deleting older ones.
+//
+// Gated on the GOGOBEE_BACKUP_DIR env var: when unset, this is a no-op so
+// dev environments don't accumulate snapshots. When set, that directory is
+// used as the backup destination.
 func Backup() error {
-	backupDir := filepath.Join(dataPath, "backups")
+	backupDir := os.Getenv("GOGOBEE_BACKUP_DIR")
+	if backupDir == "" {
+		slog.Debug("backup skipped: GOGOBEE_BACKUP_DIR unset")
+		return nil
+	}
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return fmt.Errorf("create backup dir: %w", err)
 	}
