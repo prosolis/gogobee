@@ -71,13 +71,21 @@ type DnDClassInfo struct {
 	Playable bool
 }
 
+// Race mods are tuned for equal *effective* power, not equal net total.
+// The weighted balance pass (dnd_race_balance.go) scores each race's mods
+// against a blend of per-class combat priorities and class-independent
+// non-combat utility (zone locks, harvest, skills, haggling). These blocks
+// are tuned so every race's mean score across all playable classes lands
+// near the Standard Human baseline of 6.0. Net mod totals vary (Elf +7,
+// Orc +6) — a spiky race concentrated into high-value stats needs fewer
+// points to match a flat one.
 var dndRaces = []DnDRaceInfo{
 	{RaceHuman, "Human", [6]int{1, 1, 1, 1, 1, 1}, "Versatile: +1 to every ability score"},
-	{RaceElf, "Elf", [6]int{0, 3, -1, 2, 2, 0}, "Darkvision; immune to sleep effects"},
-	{RaceDwarf, "Dwarf", [6]int{2, -1, 3, 1, 2, -1}, "Poison resistance; bonus vs. underground enemies"},
+	{RaceElf, "Elf", [6]int{0, 3, -1, 2, 3, 0}, "Darkvision; immune to sleep effects"},
+	{RaceDwarf, "Dwarf", [6]int{2, -1, 3, 1, 1, -1}, "Poison resistance; bonus vs. underground enemies"},
 	{RaceHalfling, "Halfling", [6]int{0, 3, 1, 0, 2, 0}, "Lucky: once per combat, reroll a natural 1"},
-	{RaceOrc, "Orc", [6]int{5, -1, 4, -1, -1, 0}, "Rage: once per combat, +50% damage for one turn"},
-	{RaceTiefling, "Tiefling", [6]int{0, 2, 0, 2, 0, 2}, "Fire resistance; bonus on CHA checks"},
+	{RaceOrc, "Orc", [6]int{6, -1, 3, -1, -1, 0}, "Rage: once per combat, +50% damage for one turn"},
+	{RaceTiefling, "Tiefling", [6]int{0, 2, 0, 1, 0, 3}, "Fire resistance; bonus on CHA checks"},
 	{RaceHalfElf, "Half-Elf", [6]int{0, 2, 0, 1, 1, 2}, "Two bonus skill proficiencies"},
 }
 

@@ -106,18 +106,46 @@ func TestComputeAC(t *testing.T) {
 }
 
 func TestApplyRaceMods(t *testing.T) {
-	// Elf: STR +0, DEX +3, CON -1, INT +2, WIS +2, CHA +0
+	// Elf: STR +0, DEX +3, CON -1, INT +2, WIS +3, CHA +0
 	base := [6]int{10, 10, 10, 10, 10, 10}
 	got := applyRaceMods(RaceElf, base)
-	want := [6]int{10, 13, 9, 12, 12, 10}
+	want := [6]int{10, 13, 9, 12, 13, 10}
 	if got != want {
 		t.Errorf("applyRaceMods(Elf) = %v, want %v", got, want)
 	}
-	// Orc: STR +5, DEX -1, CON +4, INT -1, WIS -1, CHA +0
+	// Orc: STR +6, DEX -1, CON +3, INT -1, WIS -1, CHA +0
 	got = applyRaceMods(RaceOrc, base)
-	want = [6]int{15, 9, 14, 9, 9, 10}
+	want = [6]int{16, 9, 13, 9, 9, 10}
 	if got != want {
 		t.Errorf("applyRaceMods(Orc) = %v, want %v", got, want)
+	}
+}
+
+// TestRaceBalance runs the weighted balance pass and logs the report.
+// Standard Human baseline is 6.0 under every class; a race's best-fit
+// score is its realistic effective-power ceiling. The assertion is a
+// generous guard rail — see classStatWeights for the model.
+func TestRaceBalance(t *testing.T) {
+	report := computeRaceBalance()
+	t.Logf("weighted race-balance pass (Human baseline = %.1f)", raceBalanceBaseline)
+	t.Logf("%-10s %-9s %6s  %-9s %6s  %6s  %+6s",
+		"race", "best-fit", "score", "worst-fit", "score", "avg", "Δ")
+	for _, rb := range report {
+		t.Logf("%-10s %-9s %6.2f  %-9s %6.2f  %6.2f  %+6.2f",
+			rb.Race, rb.BestClass, rb.BestScore,
+			rb.WorstClass, rb.WorstScore, rb.AvgScore, rb.Delta())
+	}
+	// Balance rule: equal *average* power. Every race's mean score across
+	// all playable classes must land within tolerance of the Human
+	// baseline. Best-fit/worst-fit spread is intentional race identity —
+	// a spiky race trades a higher ceiling for a lower floor — so only
+	// the average is asserted.
+	const tolerance = 0.5
+	for _, rb := range report {
+		if d := rb.AvgScore - raceBalanceBaseline; d < -tolerance || d > tolerance {
+			t.Errorf("%s avg %.2f is %.2f off the %.1f baseline (tolerance %.1f)",
+				rb.Race, rb.AvgScore, d, raceBalanceBaseline, tolerance)
+		}
 	}
 }
 
