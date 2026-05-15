@@ -23,12 +23,14 @@ import (
 //   - Attack               — the auto-resolve damage stat, driven by CR alone
 //     via attackByCR (raw SRD per-hit damage is deliberately ignored — CR is
 //     the calibration axis the 2026-05-10 rebalance used).
-//   - Speed, BlockRate     — coarse baselines from SpeedWalk / AC; the ability
+//   - Speed, BlockRate     — coarse baselines from SpeedWalk / AC; a later hand
 //     pass refines them per creature.
 //   - XP, CR               — verbatim from the staging table.
-//   - Ability              — nil. Trait→MonsterAbility wiring is a follow-up
-//     pass; Notes records the SRD multiattack/trait text so that pass has a
-//     starting point.
+//   - Ability              — classified from the SRD trait names by
+//     abilityFromTraits: the highest-priority recognised trait maps onto one of
+//     the engine's MonsterAbility effects. Creatures whose traits are all
+//     non-combat (Keen Smell, Amphibious, …) stay nil. Notes still records the
+//     raw SRD multiattack/trait text so a hand pass can refine the pick.
 //
 // Hand-authored dndBestiary entries WIN: the generated map is merged in only
 // for IDs the roster doesn't already define (see bestiary_tuned.go).
@@ -62,8 +64,8 @@ func genTuned() error {
 	return nil
 }
 
-// genTunedMonster mirrors plugin.DnDMonsterTemplate, minus the Ability pointer
-// (the generator never wires abilities — that is a hand-authored follow-up).
+// genTunedMonster mirrors plugin.DnDMonsterTemplate. Ability is nil when none
+// of the creature's SRD traits map onto an engine effect.
 type genTunedMonster struct {
 	ID, Name    string
 	CR          float64
@@ -73,7 +75,16 @@ type genTunedMonster struct {
 	Speed       int
 	BlockRate   float64
 	XPValue     int
+	Ability     *genMonsterAbility
 	Notes       string
+}
+
+// genMonsterAbility mirrors plugin.MonsterAbility.
+type genMonsterAbility struct {
+	Name       string
+	Phase      string
+	ProcChance float64
+	Effect     string
 }
 
 // tuneMonster applies the tuning formula to one raw SRD stat block.
@@ -82,6 +93,7 @@ func tuneMonster(b genStatBlock) genTunedMonster {
 	if ac < 10 { // engine minimum (see the zombie 8→10 note in dnd_bestiary.go)
 		ac = 10
 	}
+	ability := abilityFromTraits(b.Traits)
 	return genTunedMonster{
 		ID:          b.Slug,
 		Name:        b.Name,
@@ -93,8 +105,88 @@ func tuneMonster(b genStatBlock) genTunedMonster {
 		Speed:       tunedSpeed(b.SpeedWalk),
 		BlockRate:   tunedBlockRate(ac),
 		XPValue:     b.XP,
-		Notes:       tunedNotes(b),
+		Ability:     ability,
+		Notes:       tunedNotes(b, ability),
 	}
+}
+
+// traitAbilityRules maps SRD special-ability names onto the engine's
+// MonsterAbility effects. Each rule's Match list holds lowercase substrings; a
+// creature's trait matches a rule if any substring is contained in the
+// (lowercased, paren-stripped) trait name. The list is priority-ordered —
+// abilityFromTraits walks it top-down and the first rule that matches any of
+// the creature's traits wins, so the most combat-defining mechanic is picked
+// when a stat block carries several traits. Traits that name no rule (Keen
+// Smell, Amphibious, Hold Breath, telepathy/senses flavor) leave Ability nil.
+//
+// This is a best-effort baseline, like the rest of the tuning formula: the
+// hand-authored dndBestiary entry always wins the merge, so refining a pick is
+// a matter of adding the creature to the roster.
+var traitAbilityRules = []struct {
+	match  []string
+	name   string
+	phase  string
+	proc   float64
+	effect string
+}{
+	// Death-triggered blasts — resolve on the killing-blow phase.
+	{[]string{"death burst", "death throes", "elemental demise"}, "Death Burst", "decisive", 1.0, "death_aoe"},
+	// Spellcasters open with a magical barrage.
+	{[]string{"spellcasting"}, "Spellcasting", "opening", 0.5, "aoe"},
+	// Cheats death once.
+	{[]string{"undead fortitude"}, "Undead Fortitude", "decisive", 0.5, "survive_at_1"},
+	// Self-sustain — trolls, liches clawing back.
+	{[]string{"regeneration", "rejuvenation"}, "Regeneration", "any", 0.5, "regenerate"},
+	// Shrugs off spells.
+	{[]string{"magic resistance", "legendary resistance", "magic immunity", "spell immunity"}, "Magic Resistance", "any", 0.5, "spell_resist"},
+	// Ambush predators — a heavy opening strike.
+	{[]string{"surprise attack", "assassinate", "ambusher", "shadow stealth"}, "Surprise Attack", "opening", 0.8, "bonus_damage"},
+	// Fear and petrification lock the player out of acting.
+	{[]string{"petrifying gaze", "fear aura", "horrific appearance"}, "Frightful Presence", "opening", 0.4, "stun"},
+	// Frenzy / rage — damage ramps as the fight drags.
+	{[]string{"blood frenzy", "rampage", "reckless", "aggressive", "berserk", "brute"}, "Frenzy", "any", 0.4, "enrage"},
+	// Damaging auras and spiky hides punish every exchange.
+	{[]string{"heated body", "fire aura", "fire form", "stench", "mucous cloud", "barbed hide", "reflective carapace", "heated weapons", "hellish weapons"}, "Damaging Aura", "any", 0.4, "retaliate"},
+	// Charges, pounces, leaps — an opening lunge.
+	{[]string{"charge", "pounce", "standing leap", "running leap"}, "Charge", "opening", 0.4, "bonus_damage"},
+	// Coordinated attackers gain advantage.
+	{[]string{"pack tactics"}, "Pack Tactics", "any", 0.3, "advantage"},
+	// Riders that pile damage onto a landed hit.
+	{[]string{"sneak attack", "martial advantage"}, "Martial Advantage", "any", 0.35, "bonus_damage"},
+	// Slippery movement — dodges a blow outright.
+	{[]string{"nimble escape", "misty escape", "cunning action", "evasion", "incorporeal movement", "ethereal jaunt", "flyby", "shapechanger"}, "Evasive", "any", 0.3, "evade"},
+	// Enchanted weapons — a flat damage edge.
+	{[]string{"magic weapons", "angelic weapons"}, "Magic Weapons", "any", 0.3, "bonus_damage"},
+}
+
+// abilityFromTraits picks the highest-priority MonsterAbility implied by a
+// creature's SRD trait names, or nil when none of them map onto an engine
+// effect. See traitAbilityRules for the priority order.
+func abilityFromTraits(traits []string) *genMonsterAbility {
+	norm := make([]string, len(traits))
+	for i, t := range traits {
+		// Drop the parenthetical suffix SRD appends to recharge-limited
+		// traits ("Legendary Resistance (3/Day)").
+		if p := strings.IndexByte(t, '('); p >= 0 {
+			t = t[:p]
+		}
+		norm[i] = strings.ToLower(strings.TrimSpace(t))
+	}
+	for _, rule := range traitAbilityRules {
+		for _, tr := range norm {
+			for _, m := range rule.match {
+				if strings.Contains(tr, m) {
+					return &genMonsterAbility{
+						Name:       rule.name,
+						Phase:      rule.phase,
+						ProcChance: rule.proc,
+						Effect:     rule.effect,
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // attackByCRPoints anchors the Attack-stat curve against the hand-tuned
@@ -186,10 +278,15 @@ func tunedBlockRate(ac int) float64 {
 	}
 }
 
-// tunedNotes records the SRD multiattack and trait text so the follow-up
-// ability-wiring pass has the source material in front of it.
-func tunedNotes(b genStatBlock) string {
-	const prefix = "SRD-tuned baseline — ability not yet wired."
+// tunedNotes records the SRD multiattack and trait text so a hand-tuning pass
+// has the source material in front of it, and states which ability (if any)
+// the trait classifier wired.
+func tunedNotes(b genStatBlock, ability *genMonsterAbility) string {
+	prefix := "SRD-tuned baseline — no ability wired (traits are non-combat)."
+	if ability != nil {
+		prefix = fmt.Sprintf("SRD-tuned baseline — %s (%s) wired from traits.",
+			ability.Name, ability.Effect)
+	}
 	var parts []string
 	if b.Multiattack != "" {
 		parts = append(parts, "Multiattack: "+b.Multiattack)
@@ -224,12 +321,19 @@ func buildTunedBestiarySRD() map[string]DnDMonsterTemplate {
 	return map[string]DnDMonsterTemplate{
 `)
 	for _, m := range monsters {
-		fmt.Fprintf(&b, "\t\t%q: {ID: %q, Name: %q, CR: %s, HP: %d, AC: %d, Attack: %d, AttackBonus: %d, Speed: %d, BlockRate: %s, XPValue: %d, Notes: %q},\n",
+		fmt.Fprintf(&b, "\t\t%q: {ID: %q, Name: %q, CR: %s, HP: %d, AC: %d, Attack: %d, AttackBonus: %d, Speed: %d, BlockRate: %s, XPValue: %d, ",
 			m.ID, m.ID, m.Name,
 			strconv.FormatFloat(m.CR, 'g', -1, 32),
 			m.HP, m.AC, m.Attack, m.AttackBonus, m.Speed,
 			strconv.FormatFloat(m.BlockRate, 'g', -1, 64),
-			m.XPValue, m.Notes)
+			m.XPValue)
+		if m.Ability != nil {
+			fmt.Fprintf(&b, "Ability: &MonsterAbility{Name: %q, Phase: %q, ProcChance: %s, Effect: %q}, ",
+				m.Ability.Name, m.Ability.Phase,
+				strconv.FormatFloat(m.Ability.ProcChance, 'g', -1, 64),
+				m.Ability.Effect)
+		}
+		fmt.Fprintf(&b, "Notes: %q},\n", m.Notes)
 	}
 	b.WriteString("\t}\n}\n")
 	return b.Bytes()

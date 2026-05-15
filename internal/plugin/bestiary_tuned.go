@@ -10,10 +10,13 @@ package plugin
 // The formula lives in cmd/open5e-import/tuned.go; regenerate the data with
 // `go run ./cmd/open5e-import gen tuned`.
 //
-// Caveat — abilities are NOT wired. Every generated entry has a nil Ability;
-// its Notes field carries the SRD multiattack/trait text as raw material for
-// the follow-up ability-wiring pass. Until that pass lands, a tuned-only
-// creature fights with stats but no special mechanic.
+// Abilities — the generator classifies each creature's SRD trait names onto an
+// engine MonsterAbility effect (see abilityFromTraits in tuned.go). A creature
+// whose traits are all non-combat (Keen Smell, Amphibious, …) keeps a nil
+// Ability. The Notes field records the raw SRD multiattack/trait text and which
+// ability was wired, so a hand-tuning pass can refine the pick — and since the
+// roster merge below lets hand-authored entries win, refining is just a matter
+// of adding the creature to dndBestiary.
 //
 // File is intentionally NOT dnd_-prefixed (see memory: no new dnd_* identifiers).
 

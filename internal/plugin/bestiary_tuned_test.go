@@ -28,8 +28,68 @@ func TestTunedBestiarySRD_Populated(t *testing.T) {
 		if m.Speed < 6 || m.Speed > 18 {
 			t.Errorf("%s: Speed=%d, want within [6,18]", id, m.Speed)
 		}
+		// Ability is optional (nil when the creature's traits are all
+		// non-combat), but a wired one must be structurally sane.
 		if m.Ability != nil {
-			t.Errorf("%s: Ability is set — the generator never wires abilities", id)
+			a := m.Ability
+			if a.Name == "" {
+				t.Errorf("%s: Ability has empty Name", id)
+			}
+			if !tunedAbilityPhases[a.Phase] {
+				t.Errorf("%s: Ability.Phase=%q, want a known combat phase", id, a.Phase)
+			}
+			if a.ProcChance <= 0 || a.ProcChance > 1 {
+				t.Errorf("%s: Ability.ProcChance=%v, want within (0,1]", id, a.ProcChance)
+			}
+			if !tunedAbilityEffects[a.Effect] {
+				t.Errorf("%s: Ability.Effect=%q, want an engine-recognised effect", id, a.Effect)
+			}
+		}
+	}
+}
+
+// tunedAbilityPhases / tunedAbilityEffects are the values the trait classifier
+// (abilityFromTraits in cmd/open5e-import/tuned.go) is allowed to emit. The
+// effect set is the subset of applyAbility's vocabulary the classifier uses;
+// if a new trait rule introduces another effect, add it here too.
+var tunedAbilityPhases = map[string]bool{
+	"opening": true, "clash": true, "decisive": true, "any": true,
+}
+
+var tunedAbilityEffects = map[string]bool{
+	"death_aoe": true, "aoe": true, "survive_at_1": true, "regenerate": true,
+	"spell_resist": true, "bonus_damage": true, "stun": true, "enrage": true,
+	"retaliate": true, "advantage": true, "evade": true,
+}
+
+// TestTunedBestiarySRD_AbilityWiring spot-checks the trait→ability classifier:
+// a creature with a combat trait gets the expected effect, and one whose traits
+// are all non-combat stays nil.
+func TestTunedBestiarySRD_AbilityWiring(t *testing.T) {
+	cases := []struct {
+		id     string
+		effect string // "" means Ability should be nil
+	}{
+		{"troll", "regenerate"}, // Regeneration
+		{"goblin", "evade"},     // Nimble Escape
+		{"balor", "death_aoe"},  // Death Throes (priority over Magic Resistance)
+		{"lich", "aoe"},         // Spellcasting
+		{"awakened_shrub", ""},  // False Appearance — no rule, stays nil
+		{"badger", ""},          // Keen Smell — non-combat
+	}
+	for _, tc := range cases {
+		m, ok := tunedBestiarySRD[tc.id]
+		if !ok {
+			t.Errorf("%s missing from tuned bestiary", tc.id)
+			continue
+		}
+		switch {
+		case tc.effect == "" && m.Ability != nil:
+			t.Errorf("%s: Ability=%+v, want nil", tc.id, m.Ability)
+		case tc.effect != "" && m.Ability == nil:
+			t.Errorf("%s: Ability is nil, want effect %q", tc.id, tc.effect)
+		case tc.effect != "" && m.Ability.Effect != tc.effect:
+			t.Errorf("%s: Ability.Effect=%q, want %q", tc.id, m.Ability.Effect, tc.effect)
 		}
 	}
 }
