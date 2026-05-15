@@ -652,7 +652,34 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 		})
 	}
 
+	// End-of-round Orc Rage backstop. The primary trigger sits at the
+	// top of resolvePlayerAttack so rage fires same-round when the player
+	// swings after taking the threshold-crossing hit. But if the enemy
+	// goes first this round AND next, the player can be two-shot without
+	// ever getting back to that check. Re-checking here ensures the rage
+	// event always fires while HP > 0 and below 50%, even if the buff
+	// goes unused.
+	maybeTriggerOrcRage(st, player, phaseName)
+
 	return false
+}
+
+// maybeTriggerOrcRage emits the "rage" event and arms pendingRageAttack
+// the first time the player's HP crosses below 50% while alive. Idempotent
+// via st.raged. Shared by the player-attack and end-of-round trigger sites.
+func maybeTriggerOrcRage(st *combatState, player *Combatant, phaseName string) {
+	if !player.Mods.RageReady || st.raged || st.playerHP <= 0 {
+		return
+	}
+	if st.playerHP*2 >= player.Stats.MaxHP {
+		return
+	}
+	st.raged = true
+	st.pendingRageAttack = true
+	st.events = append(st.events, CombatEvent{
+		Round: st.round, Phase: phaseName, Actor: "player", Action: "rage",
+		PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Desc: "Orc Rage",
+	})
 }
 
 // ── Attack Resolution ────────────────────────────────────────────────────────
@@ -685,17 +712,12 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	}
 
 	// Orc Rage: trigger on the first attack after dropping below 50% HP.
-	// Use HP*2 < MaxHP rather than HP < MaxHP/2 so the threshold is exact
-	// regardless of MaxHP parity (avoids per-character drift on odd MaxHP).
-	if player.Mods.RageReady && !st.raged && st.playerHP > 0 &&
-		st.playerHP*2 < player.Stats.MaxHP {
-		st.raged = true
-		st.pendingRageAttack = true
-		st.events = append(st.events, CombatEvent{
-			Round: st.round, Phase: phaseName, Actor: "player", Action: "rage",
-			PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Desc: "Orc Rage",
-		})
-	}
+	// Threshold logic lives in maybeTriggerOrcRage; this site keeps the
+	// fire-on-next-swing UX so rage applies to the *same round* the player
+	// reacts to a threshold-crossing hit (when they swing after the enemy).
+	// An end-of-round backstop in runRound covers the "enemy two-shotted
+	// me across rounds" case so the event never silently vanishes.
+	maybeTriggerOrcRage(st, player, phaseName)
 
 	roll := 1 + st.roll(20)
 	// Reveal action (monster ability): the enemy read this swing coming — it's
