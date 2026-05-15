@@ -273,6 +273,39 @@ func applyMagicItemEffects(stats *CombatStats, mods *CombatModifiers, userID id.
 	}
 }
 
+// activeMagicItemsLine renders a one-shot combat-start line listing the
+// player's currently-contributing magic items (attunement items only count
+// while bonded). Returns "" when nothing is active so callers can no-op.
+//
+// Mirrors the "you fight better because of X" surfacing pattern players
+// already get for class passives — the system is invisible otherwise, and
+// invisible magic items are functionally indistinguishable from no magic
+// items at all.
+func activeMagicItemsLine(userID id.UserID) string {
+	equipped, err := loadEquippedMagicItems(userID)
+	if err != nil || len(equipped) == 0 {
+		return ""
+	}
+	var names []string
+	for _, ds := range dndSlotOrder {
+		e, ok := equipped[ds]
+		if !ok || e.Item.ID == "" {
+			continue
+		}
+		if e.Item.Attunement && !e.Attuned {
+			continue // worn but inert — contributes nothing
+		}
+		names = append(names, e.Item.Name)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	if len(names) == 1 {
+		return fmt.Sprintf("✨ _%s hums into the fight._", names[0])
+	}
+	return fmt.Sprintf("✨ _Your curios stir: %s._", strings.Join(names, ", "))
+}
+
 // ── Consumable bridge (potions / scrolls) ───────────────────────────────────
 
 // magicItemConsumableDef classifies a potion/scroll magic item onto the
@@ -419,8 +452,7 @@ func (p *AdventurePlugin) handleEquipMagicCmd(ctx MessageContext) error {
 	}
 	if len(magic) == 0 {
 		return p.SendDM(ctx.Sender,
-			"You have no equippable magic items. Slotted curios drop from zones and Luigi's Curios shelf; "+
-				"potions and scrolls auto-use in combat instead.")
+			"No curios to equip yet — they drop from zones or Luigi's 🔮 shelf.")
 	}
 
 	equipped, _ := loadEquippedMagicItems(ctx.Sender)
@@ -434,12 +466,12 @@ func (p *AdventurePlugin) handleEquipMagicCmd(ctx MessageContext) error {
 		}
 		att := ""
 		if mi.Attunement {
-			att = " _(needs attunement)_"
+			att = " _(needs bonding)_"
 		}
-		sb.WriteString(fmt.Sprintf("%d. **%s** (%s, %s) → %s slot — currently: %s%s\n    %s\n",
-			i+1, mi.Name, mi.Kind, mi.Rarity, mi.Slot, curDesc, att, magicItemEffectSummary(mi)))
+		sb.WriteString(fmt.Sprintf("%d. **%s** _(%s)_ → %s slot — currently: %s%s\n    %s\n",
+			i+1, mi.Name, magicItemRarityLabel(rarityLootTierNum(mi.Rarity)), mi.Slot, curDesc, att, magicItemEffectSummary(mi)))
 	}
-	sb.WriteString(fmt.Sprintf("\nAttunements in use: %d/%d\n",
+	sb.WriteString(fmt.Sprintf("\nBonds in use: %d/%d\n",
 		countAttunedMagicItems(equipped), dndMagicItemAttuneLimit))
 	sb.WriteString("Reply with a number to equip, or \"cancel\".")
 
@@ -485,6 +517,19 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 		return p.SendDM(ctx.Sender, "Failed to load your equipped magic items.")
 	}
 
+	// Return whatever currently occupies that slot to inventory at full
+	// value — swapping a curio shouldn't tax it. Evict from the local map
+	// too, so the attunement count below reflects the post-swap state and
+	// can re-open a slot the prior occupant was holding.
+	if prev, exists := equipped[mi.Slot]; exists && prev.Item.ID != "" {
+		back := magicItemSell(prev.Item)
+		back.SkillSource = "magic_item:" + prev.Item.ID
+		if err := addAdvInventoryItem(ctx.Sender, back); err != nil {
+			return p.SendDM(ctx.Sender, "Failed to return your currently-equipped item to inventory.")
+		}
+		delete(equipped, mi.Slot)
+	}
+
 	// Auto-attune when the item needs it and an attunement slot is free.
 	// Otherwise it equips inert until the player frees a slot.
 	attune := false
@@ -494,16 +539,6 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 			atCap = true
 		} else {
 			attune = true
-		}
-	}
-
-	// Return whatever currently occupies that slot to inventory.
-	if prev, exists := equipped[mi.Slot]; exists && prev.Item.ID != "" {
-		back := magicItemSell(prev.Item)
-		back.Value = int64(prev.Item.Value) / 2
-		back.SkillSource = "magic_item:" + prev.Item.ID
-		if err := addAdvInventoryItem(ctx.Sender, back); err != nil {
-			return p.SendDM(ctx.Sender, "Failed to return your currently-equipped item to inventory.")
 		}
 	}
 	if err := equipMagicItem(ctx.Sender, mi.Slot, mi.ID, attune); err != nil {

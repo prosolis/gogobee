@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"strings"
 
@@ -432,19 +433,29 @@ func (p *AdventurePlugin) dropMagicItemLoot(userID id.UserID, mi MagicItem, tier
 	item := magicItemSell(mi)
 	item.SkillSource = "magic_item:" + mi.ID
 	if err := addAdvInventoryItem(userID, item); err != nil {
-		return fmt.Sprintf("_(Loot drop persistence error: %v.)_", err)
+		// Players see a tidy line; the raw err goes to the log so we can
+		// still chase the bug without leaking SQL into the chat.
+		slog.Error("magic-item: loot drop persist failed",
+			"user", userID, "item", mi.ID, "err", err)
+		return "_(The drop slips through your fingers — try again later.)_"
 	}
 	var b strings.Builder
 	if line := lootFlavorLine(tier); line != "" {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
-	tag := string(mi.Rarity)
+	// Pretty-print the rarity (very_rare → Very Rare) and call attunement
+	// what it does, not what 5e named it. Potions/scrolls earn their own
+	// auto-use tag so players don't think they need to do something with it.
+	tag := magicItemRarityLabel(rarityLootTierNum(mi.Rarity))
 	if mi.Attunement {
-		tag += ", attunement"
+		tag += " · needs bonding"
 	}
-	b.WriteString(fmt.Sprintf("✨ **%s** (%s %s) — %d coin baseline.",
-		mi.Name, mi.Kind, tag, mi.Value))
+	if mi.Kind == MagicItemPotion || mi.Kind == MagicItemScroll {
+		tag += " · auto-uses in combat"
+	}
+	b.WriteString(fmt.Sprintf("✨ **%s** _(%s)_ — %d coin baseline.",
+		mi.Name, tag, mi.Value))
 	if mi.Desc != "" {
 		b.WriteString(fmt.Sprintf(" _%s_", mi.Desc))
 	}

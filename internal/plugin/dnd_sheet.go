@@ -139,8 +139,11 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, 
 	}
 
 	// Magic items — registry items worn in the D&D slots (separate from the
-	// legacy tier-gear above). Attunement items show whether they're active.
+	// legacy tier-gear above). Attunement items mark themselves "(inactive)"
+	// when worn but not bonded — they grant nothing until the player frees
+	// an attunement slot via `!adventure equip-magic`.
 	if len(magicEquip) > 0 {
+		attunedNow := countAttunedMagicItems(magicEquip)
 		b.WriteString("\n**Magic Items**\n")
 		for _, ds := range dndSlotOrder {
 			e, ok := magicEquip[ds]
@@ -149,10 +152,13 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, 
 			}
 			status := ""
 			if e.Item.Attunement {
-				if e.Attuned {
-					status = " — attuned"
-				} else {
-					status = " — _inert (unattuned)_"
+				switch {
+				case e.Attuned:
+					status = fmt.Sprintf(" — bonded (%d/%d)", attunedNow, dndMagicItemAttuneLimit)
+				case attunedNow >= dndMagicItemAttuneLimit:
+					status = " — **(inactive)** _bond cap full_"
+				default:
+					status = " — **(inactive)** _unbonded_"
 				}
 			}
 			b.WriteString(fmt.Sprintf("  %s %-9s %s _(%s)_%s\n    %s\n",

@@ -194,10 +194,12 @@ func luigiShopGreeting(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment, 
 	sb.WriteString(fmt.Sprintf("🛒 **Luigi's**\n💰 Balance: €%.0f\n\n", balance))
 	sb.WriteString(fmt.Sprintf("*%s*\n\n", greet))
 
+	// Two-column grid; the Exit chip squares the layout so Curios doesn't
+	// dangle on its own row and players have a one-word out from here.
 	sb.WriteString("⚔️  Weapons       🛡️  Armor\n")
 	sb.WriteString("🪖  Helmets       👢  Boots\n")
 	sb.WriteString("⛏️  Tools         🧪  Supplies\n")
-	sb.WriteString("🔮  Curios\n\n")
+	sb.WriteString("🔮  Curios        🚪  Exit\n\n")
 
 	if showAll {
 		flavor, _ := advPickFlavor(luigiShowAllComment, userID, "luigi_showall")
@@ -951,14 +953,22 @@ func advInventoryDisplay(userID id.UserID) string {
 	sb.WriteString("🎒 **Inventory**\n\n")
 
 	var total int64
+	hasMagic := false
 	for _, item := range items {
-		if item.Type == "MasterworkGear" {
+		switch item.Type {
+		case "MasterworkGear":
 			sb.WriteString(fmt.Sprintf("  ⭐ %s (T%d Masterwork %s)\n", item.Name, item.Tier, slotTitle(item.Slot)))
-		} else if item.Type == "ArenaGear" {
+		case "ArenaGear":
 			sb.WriteString(fmt.Sprintf("  ⚔️ %s (T%d Arena %s)\n", item.Name, item.Tier, slotTitle(item.Slot)))
-		} else if item.Type == "card" {
+		case "card":
 			sb.WriteString(fmt.Sprintf("  🃏 %s\n", item.Name))
-		} else {
+		case "magic_item":
+			// Tag magic items so they read as a separate class — they don't
+			// behave like sellable loot, and the equip-magic footer below
+			// only fires when the player actually has one.
+			hasMagic = true
+			sb.WriteString(fmt.Sprintf("  🔮 %s (%s)\n", item.Name, magicItemRarityLabel(item.Tier)))
+		default:
 			sb.WriteString(fmt.Sprintf("  %s (T%d %s) — €%d\n", item.Name, item.Tier, item.Type, item.Value))
 			total += item.Value
 		}
@@ -966,7 +976,29 @@ func advInventoryDisplay(userID id.UserID) string {
 	sb.WriteString(fmt.Sprintf("\n%d items — sellable value ~€%d", len(items), total))
 	sb.WriteString("\n\nTo sell: `!adventure sell all` or `!adventure sell <item>`")
 	sb.WriteString("\nTo equip Masterwork gear: `!adventure equip`")
+	if hasMagic {
+		sb.WriteString("\nTo wear a 🔮 curio: `!adventure equip-magic`")
+	}
 	return sb.String()
+}
+
+// magicItemRarityLabel pretty-prints the tier number magic items use as a
+// rarity stand-in. Inventory is the only surface that sees the bare tier;
+// the shop builds its rarity string from the registry directly.
+func magicItemRarityLabel(tier int) string {
+	switch tier {
+	case 1:
+		return "Common"
+	case 2:
+		return "Uncommon"
+	case 3:
+		return "Rare"
+	case 4:
+		return "Very Rare"
+	case 5:
+		return "Legendary"
+	}
+	return fmt.Sprintf("T%d", tier)
 }
 
 // ── Supplies (Consumables) ──────────────────────────────────────────────────
@@ -1093,6 +1125,10 @@ const curiosStockSize = 8
 // day and identical for every player. 237 registry items is far too many to
 // list, so a rotating shelf keeps the menu legible and gives players a reason
 // to check back.
+//
+// The day flips at 06:00 UTC instead of midnight so EU-evening players see
+// "yesterday's stock" through the night and a fresh shelf with their morning
+// coffee, not at 1 a.m. mid-session.
 func dailyCuriosStock() []MagicItem {
 	ids := make([]string, 0, len(magicItemRegistry))
 	for id := range magicItemRegistry {
@@ -1100,8 +1136,8 @@ func dailyCuriosStock() []MagicItem {
 	}
 	sort.Strings(ids)
 
-	// FNV-1a over the UTC date string → PCG seed.
-	day := time.Now().UTC().Format("2006-01-02")
+	// FNV-1a over the offset-UTC date string → PCG seed.
+	day := time.Now().UTC().Add(-6 * time.Hour).Format("2006-01-02")
 	var seed uint64 = 1469598103934665603
 	for _, b := range []byte(day) {
 		seed ^= uint64(b)
@@ -1131,29 +1167,68 @@ func dailyCuriosStock() []MagicItem {
 
 func (p *AdventurePlugin) luigiCuriosView(userID id.UserID, balance float64) string {
 	var sb strings.Builder
-	sb.WriteString("🔮 **Curios** — Open5e magic items, daily rotating stock\n")
+	sb.WriteString("🔮 **Curios** — fresh stock daily at dawn\n")
 	sb.WriteString(fmt.Sprintf("💰 Balance: €%.0f\n\n", balance))
 
 	factor := p.shopSessionPriceFactor(userID)
 	for _, mi := range dailyCuriosStock() {
 		price := float64(mi.Value) * factor
-		tag := string(mi.Rarity)
+		// Pretty rarity ("Very Rare" not "very_rare"), drop the bare "wondrous"
+		// (the effect line already tells the player what it does), and call
+		// attunement what it actually means.
+		tag := magicItemRarityLabel(rarityLootTierNum(mi.Rarity))
+		if mi.Kind != MagicItemWondrous {
+			tag = string(prettyMagicItemKind(mi.Kind)) + " · " + tag
+		}
 		if mi.Attunement {
-			tag += ", attunement"
+			tag += " · needs bonding"
+		}
+		if mi.Kind == MagicItemPotion || mi.Kind == MagicItemScroll {
+			tag += " · auto-uses"
 		}
 		afford := "✅"
 		if balance < price {
 			afford = "💸"
 		}
-		sb.WriteString(fmt.Sprintf("**%s** (%s %s) — €%.0f %s\n", mi.Name, mi.Kind, tag, price, afford))
+		sb.WriteString(fmt.Sprintf("**%s** _(%s)_ — €%.0f %s\n", mi.Name, tag, price, afford))
+		// The codified effect is what actually fires in combat; the SRD desc
+		// is flavour. Lead with the effect, then the flavour line.
+		if eff := magicItemEffectSummary(mi); eff != "" && eff != "no combat effect" {
+			sb.WriteString(fmt.Sprintf("  → %s\n", eff))
+		}
 		if mi.Desc != "" {
 			sb.WriteString(fmt.Sprintf("  _%s_\n", mi.Desc))
 		}
 	}
 
 	sb.WriteString("\nReply with an item name to buy, or `back` to return.\n")
-	sb.WriteString("Equippable items go to your inventory — wear them with `!adventure equip-magic`. Potions & scrolls auto-use in combat.")
+	sb.WriteString("_Bonding_ = at most 3 magic items can be \"on\" at once. Worn-but-unbonded curios are inert until you free a slot. Potions & scrolls fire automatically in combat.")
 	return sb.String()
+}
+
+// prettyMagicItemKind renders the registry's machine kind in a way a player
+// would actually use ("staff" not "MagicItemStaff", "scroll" not the raw
+// const).
+func prettyMagicItemKind(k MagicItemKind) string {
+	switch k {
+	case MagicItemWeapon:
+		return "weapon"
+	case MagicItemArmor:
+		return "armor"
+	case MagicItemRing:
+		return "ring"
+	case MagicItemWand:
+		return "wand"
+	case MagicItemRod:
+		return "rod"
+	case MagicItemStaff:
+		return "staff"
+	case MagicItemPotion:
+		return "potion"
+	case MagicItemScroll:
+		return "scroll"
+	}
+	return string(k)
 }
 
 func (p *AdventurePlugin) resolveShopCurioChoice(ctx MessageContext, interaction *advPendingInteraction) error {
@@ -1180,18 +1255,43 @@ func (p *AdventurePlugin) resolveShopCurioChoice(ctx MessageContext, interaction
 		return p.SendDM(ctx.Sender, "*Luigi nods and gestures toward the main counter.*")
 	}
 
-	// Match against today's stock.
-	var match *MagicItem
-	for _, mi := range dailyCuriosStock() {
-		if strings.EqualFold(mi.Name, reply) || containsFold(mi.Name, reply) {
+	// Match against today's stock. Exact (case-fold) name wins outright;
+	// otherwise we accumulate substring hits and require a unique candidate
+	// so "ring" doesn't silently sell whichever ring came first in the slate.
+	var (
+		match      *MagicItem
+		candidates []MagicItem
+	)
+	stock := dailyCuriosStock()
+	for _, mi := range stock {
+		if strings.EqualFold(mi.Name, reply) {
 			m := mi
 			match = &m
+			candidates = nil
 			break
+		}
+		if containsFold(mi.Name, reply) {
+			candidates = append(candidates, mi)
 		}
 	}
 	if match == nil {
-		p.pending.Store(string(ctx.Sender), interaction)
-		return p.SendDM(ctx.Sender, "That's not on the shelf today. Reply with an item name from the list, or `back` to return.")
+		switch len(candidates) {
+		case 0:
+			p.pending.Store(string(ctx.Sender), interaction)
+			return p.SendDM(ctx.Sender, "That's not on the shelf today. Reply with an item name from the list, or `back` to return.")
+		case 1:
+			m := candidates[0]
+			match = &m
+		default:
+			p.pending.Store(string(ctx.Sender), interaction)
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("Several curios match \"%s\":\n", reply))
+			for _, c := range candidates {
+				sb.WriteString(fmt.Sprintf("  • %s\n", c.Name))
+			}
+			sb.WriteString("Reply with the full name (or enough to be unique), or `back` to return.")
+			return p.SendDM(ctx.Sender, sb.String())
+		}
 	}
 
 	price := float64(match.Value) * p.shopSessionPriceFactor(ctx.Sender)

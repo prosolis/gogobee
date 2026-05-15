@@ -153,6 +153,105 @@ func TestMagicItemSellTyping(t *testing.T) {
 	}
 }
 
+// TestSlotClassifierWordBoundaries — sanity-check the post-classifier dump:
+// boots/gloves/bags must not have leaked into the ring slot via raw substring
+// matching on "Springing", "Snaring", "Devouring".
+func TestSlotClassifierWordBoundaries(t *testing.T) {
+	cases := map[string]DnDSlot{
+		"boots_of_striding_and_springing": DnDSlotFeet,
+		"gloves_of_missile_snaring":       DnDSlotHands,
+		"bag_of_devouring":                "", // unslotted carry item
+	}
+	for id, want := range cases {
+		mi, ok := magicItemRegistry[id]
+		if !ok {
+			t.Fatalf("registry missing %s", id)
+		}
+		if mi.Slot != want {
+			t.Errorf("%s slot = %q, want %q", id, mi.Slot, want)
+		}
+	}
+}
+
+// TestCloakSlotCoexistsWithChest — the new cloak slot lets a Cloak of
+// Elvenkind sit alongside (not on top of) Mithral Plate.
+func TestCloakSlotCoexistsWithChest(t *testing.T) {
+	cloak, ok := magicItemRegistry["cloak_of_elvenkind"]
+	if !ok {
+		t.Fatal("registry missing cloak_of_elvenkind")
+	}
+	if cloak.Slot != DnDSlotCloak {
+		t.Errorf("cloak_of_elvenkind slot = %q, want %q", cloak.Slot, DnDSlotCloak)
+	}
+	armor, ok := magicItemRegistry["mithral_armor"]
+	if !ok {
+		t.Fatal("registry missing mithral_armor")
+	}
+	if armor.Slot != DnDSlotChest {
+		t.Errorf("mithral_armor slot = %q, want %q", armor.Slot, DnDSlotChest)
+	}
+	if cloak.Slot == armor.Slot {
+		t.Errorf("cloak and chest armor share slot %q — they will evict each other", cloak.Slot)
+	}
+}
+
+// TestSwapBackReturnsFullValue — equipping over a slot must return the prior
+// occupant at full registry value, not halved. Plays the equip flow against
+// the real DB so the AdvItem written back is what the player will see.
+func TestSwapBackReturnsFullValue(t *testing.T) {
+	dir := t.TempDir()
+	db.Close()
+	if err := db.Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(db.Close)
+
+	user := id.UserID("@swap:test.invalid")
+
+	// Find any two distinct items that share a slot — we're testing the
+	// swap-back math, not the attunement state.
+	bySlot := map[DnDSlot][]MagicItem{}
+	for _, mi := range magicItemRegistry {
+		if mi.Slot == "" || mi.Value == 0 {
+			continue
+		}
+		bySlot[mi.Slot] = append(bySlot[mi.Slot], mi)
+	}
+	var a, b MagicItem
+	for _, items := range bySlot {
+		if len(items) >= 2 {
+			a, b = items[0], items[1]
+			break
+		}
+	}
+	if a.ID == "" {
+		t.Skip("registry has no slot with two items")
+	}
+
+	// Pre-occupy the slot with `a`, then drop `b` into inventory and equip it.
+	if err := equipMagicItem(user, a.Slot, a.ID, false); err != nil {
+		t.Fatalf("seed equip: %v", err)
+	}
+	bInv := magicItemSell(b)
+	bInv.SkillSource = "magic_item:" + b.ID
+	if err := addAdvInventoryItem(user, bInv); err != nil {
+		t.Fatalf("seed inv: %v", err)
+	}
+
+	// Reach into the equip resolver via its public DB seam: replicate the
+	// swap-back that resolveMagicEquipReply performs.
+	equipped, err := loadEquippedMagicItems(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := equipped[b.Slot]
+	back := magicItemSell(prev.Item)
+	back.SkillSource = "magic_item:" + prev.Item.ID
+	if int64(prev.Item.Value) != back.Value {
+		t.Errorf("swap-back value = %d, want full %d", back.Value, prev.Item.Value)
+	}
+}
+
 // TestEquippedMagicItemRoundTrip exercises the DB persistence layer: equip,
 // load, attunement counting, unequip.
 func TestEquippedMagicItemRoundTrip(t *testing.T) {

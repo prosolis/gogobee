@@ -642,6 +642,10 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	} else {
 		ib.WriteString(fmt.Sprintf("⚔️ **%s** (HP %d, AC %d)", monster.Name, monster.HP, monster.AC))
 	}
+	if curios := activeMagicItemsLine(userID); curios != "" {
+		ib.WriteString("\n")
+		ib.WriteString(curios)
+	}
 	intro = ib.String()
 
 	// Phases: forward-simulating engine play-by-play. Use the player's

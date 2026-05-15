@@ -223,7 +223,14 @@ func inferSlot(kind, name string) string {
 		return ""
 	}
 	// Wondrous item: sniff the name for a wearable noun.
+	//
+	// Match on word *prefix*, not raw substring — naive Contains() lights up
+	// "ring" inside "Springing" / "Snaring" / "Devouring" and dumps boots,
+	// gloves, and bags into the ring slot.
 	low := strings.ToLower(name)
+	tokens := strings.FieldsFunc(low, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z')
+	})
 	for _, m := range []struct {
 		kw   string
 		slot string
@@ -231,20 +238,26 @@ func inferSlot(kind, name string) string {
 		{"amulet", "DnDSlotAmulet"}, {"necklace", "DnDSlotAmulet"},
 		{"medallion", "DnDSlotAmulet"}, {"periapt", "DnDSlotAmulet"},
 		{"brooch", "DnDSlotAmulet"}, {"pendant", "DnDSlotAmulet"},
+		{"talisman", "DnDSlotAmulet"}, {"scarab", "DnDSlotAmulet"},
 		{"ring", "DnDSlotRing1"},
-		{"cloak", "DnDSlotChest"}, {"cape", "DnDSlotChest"},
-		{"mantle", "DnDSlotChest"}, {"robe", "DnDSlotChest"},
-		{"armor", "DnDSlotChest"}, {"vestments", "DnDSlotChest"},
+		// Cloaks/capes/mantles get their own slot so they don't evict body
+		// armor. Robes/vestments are body armor and stay on Chest.
+		{"cloak", "DnDSlotCloak"}, {"cape", "DnDSlotCloak"},
+		{"mantle", "DnDSlotCloak"}, {"wings", "DnDSlotCloak"},
+		{"robe", "DnDSlotChest"}, {"vestments", "DnDSlotChest"},
+		{"armor", "DnDSlotChest"},
 		{"boots", "DnDSlotFeet"}, {"slippers", "DnDSlotFeet"},
-		{"gauntlet", "DnDSlotHands"}, {"gloves", "DnDSlotHands"},
-		{"bracers", "DnDSlotHands"},
+		{"gauntlet", "DnDSlotHands"}, {"gauntlets", "DnDSlotHands"},
+		{"gloves", "DnDSlotHands"}, {"bracers", "DnDSlotHands"},
 		{"helm", "DnDSlotHead"}, {"hat", "DnDSlotHead"},
 		{"crown", "DnDSlotHead"}, {"circlet", "DnDSlotHead"},
 		{"goggles", "DnDSlotHead"}, {"eyes", "DnDSlotHead"},
 		{"headband", "DnDSlotHead"},
 	} {
-		if strings.Contains(low, m.kw) {
-			return m.slot
+		for _, t := range tokens {
+			if strings.HasPrefix(t, m.kw) {
+				return m.slot
+			}
 		}
 	}
 	return ""

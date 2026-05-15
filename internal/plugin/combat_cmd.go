@@ -113,7 +113,12 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 		}
 		b.WriteString(fmt.Sprintf("⚔️ **Elite — %s** (HP %d, AC %d)\n", monster.Name, enemyHP, enemy.Stats.AC))
 	}
-	b.WriteString(fmt.Sprintf("You: **%d/%d HP**.\n\n", playerHP, playerMax))
+	b.WriteString(fmt.Sprintf("You: **%d/%d HP**.\n", playerHP, playerMax))
+	if curios := activeMagicItemsLine(ctx.Sender); curios != "" {
+		b.WriteString(curios)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 	b.WriteString(combatTurnPrompt(sess))
 	return p.SendDM(ctx.Sender, b.String())
 }
