@@ -52,8 +52,8 @@ type DnDRaceInfo struct {
 	Key     DnDRace
 	Display string
 	// Stat modifiers applied at setup-confirm time. STR/DEX/CON/INT/WIS/CHA.
-	// Human's "+1 to any" is not yet implemented in Phase 1 — Human gets +0
-	// across the board and we'll add the floating bonus in a later phase.
+	// Human takes the Standard Human flavor: +1 to every stat, no setup-wizard
+	// choice (keeps !setup uniform across races).
 	Mods    [6]int
 	Passive string
 }
@@ -72,13 +72,13 @@ type DnDClassInfo struct {
 }
 
 var dndRaces = []DnDRaceInfo{
-	{RaceHuman, "Human", [6]int{0, 0, 0, 0, 0, 0}, "Versatile (floating +1 bonus not yet implemented)"},
-	{RaceElf, "Elf", [6]int{0, 2, -1, 1, 1, 0}, "Darkvision; immune to sleep effects"},
-	{RaceDwarf, "Dwarf", [6]int{1, -1, 2, 0, 1, -1}, "Poison resistance; bonus vs. underground enemies"},
-	{RaceHalfling, "Halfling", [6]int{0, 2, 0, 0, 1, 0}, "Lucky: once per combat, reroll a natural 1"},
-	{RaceOrc, "Orc", [6]int{3, -1, 2, -1, -1, -1}, "Rage: once per combat, +50% damage for one turn"},
-	{RaceTiefling, "Tiefling", [6]int{0, 1, 0, 1, 0, 2}, "Fire resistance; bonus on CHA checks"},
-	{RaceHalfElf, "Half-Elf", [6]int{0, 1, 0, 1, 0, 2}, "Two bonus skill proficiencies"},
+	{RaceHuman, "Human", [6]int{1, 1, 1, 1, 1, 1}, "Versatile: +1 to every ability score"},
+	{RaceElf, "Elf", [6]int{0, 3, -1, 2, 2, 0}, "Darkvision; immune to sleep effects"},
+	{RaceDwarf, "Dwarf", [6]int{2, -1, 3, 1, 2, -1}, "Poison resistance; bonus vs. underground enemies"},
+	{RaceHalfling, "Halfling", [6]int{0, 3, 1, 0, 2, 0}, "Lucky: once per combat, reroll a natural 1"},
+	{RaceOrc, "Orc", [6]int{5, -1, 4, -1, -1, 0}, "Rage: once per combat, +50% damage for one turn"},
+	{RaceTiefling, "Tiefling", [6]int{0, 2, 0, 2, 0, 2}, "Fire resistance; bonus on CHA checks"},
+	{RaceHalfElf, "Half-Elf", [6]int{0, 2, 0, 1, 1, 2}, "Two bonus skill proficiencies"},
 }
 
 var dndClasses = []DnDClassInfo{

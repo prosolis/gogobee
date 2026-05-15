@@ -106,16 +106,16 @@ func TestComputeAC(t *testing.T) {
 }
 
 func TestApplyRaceMods(t *testing.T) {
-	// Elf: STR +0, DEX +2, CON -1, INT +1, WIS +1, CHA +0
+	// Elf: STR +0, DEX +3, CON -1, INT +2, WIS +2, CHA +0
 	base := [6]int{10, 10, 10, 10, 10, 10}
 	got := applyRaceMods(RaceElf, base)
-	want := [6]int{10, 12, 9, 11, 11, 10}
+	want := [6]int{10, 13, 9, 12, 12, 10}
 	if got != want {
 		t.Errorf("applyRaceMods(Elf) = %v, want %v", got, want)
 	}
-	// Orc: STR +3, DEX -1, CON +2, INT -1, WIS -1, CHA -1
+	// Orc: STR +5, DEX -1, CON +4, INT -1, WIS -1, CHA +0
 	got = applyRaceMods(RaceOrc, base)
-	want = [6]int{13, 9, 12, 9, 9, 9}
+	want = [6]int{15, 9, 14, 9, 9, 10}
 	if got != want {
 		t.Errorf("applyRaceMods(Orc) = %v, want %v", got, want)
 	}
