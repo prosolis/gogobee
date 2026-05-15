@@ -86,17 +86,48 @@ type SpellDefinition struct {
 // dndSpellRegistry merges the vendored Open5e SRD dump with the hand-authored
 // spell list. SRD loads first as the broad baseline; buildSpellList() overlays
 // it and wins on any ID collision — the hand-authored entries carry the tuned
-// Effect/DamageDice/Upcast values, the SRD entry is just the fallback shape.
+// Effect/DamageDice/Upcast values, the SRD entry is the fallback shape.
+//
+// One special-case on collision: the Classes slice is *unioned* across both
+// sources rather than replaced. The hand-authored tables were written before
+// the Open5e caster scaffolds (Druid/Bard/Sorcerer/Warlock/Paladin) landed,
+// so most entries are tagged Mage-only; the SRD knows the broader 5e class
+// list. Unioning means a Sorcerer can actually cast a `magic_missile` they
+// were auto-granted, without us having to hand-fix every overlay entry.
 var dndSpellRegistry = func() map[string]SpellDefinition {
 	out := make(map[string]SpellDefinition, 320)
 	for _, s := range buildSRDSpellList() {
 		out[s.ID] = s
 	}
 	for _, s := range buildSpellList() {
+		if prev, ok := out[s.ID]; ok {
+			s.Classes = mergeClassList(prev.Classes, s.Classes)
+		}
 		out[s.ID] = s
 	}
 	return out
 }()
+
+// mergeClassList returns the union of two class slices, preserving the order
+// of the first (SRD baseline) and appending any classes only in the second.
+// Order-stability matters for any callers that iterate Classes deterministically.
+func mergeClassList(a, b []DnDClass) []DnDClass {
+	seen := make(map[DnDClass]bool, len(a)+len(b))
+	out := make([]DnDClass, 0, len(a)+len(b))
+	for _, c := range a {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	for _, c := range b {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 func lookupSpell(id string) (SpellDefinition, bool) {
 	s, ok := dndSpellRegistry[strings.ToLower(strings.TrimSpace(id))]
@@ -698,13 +729,17 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 	case ClassMage:
 		out := []string{"fire_bolt", "minor_illusion", "mending"}
 		if level >= 1 {
-			out = append(out, "magic_missile", "mage_armor", "shield", "burning_hands", "detect_magic")
+			// No `shield` here — it's a reaction (EffectReaction) and combat
+			// has no reaction window yet, so an auto-granted shield is just
+			// a dead entry in the player's spellbook. Reinstated when SP-Reactions ships.
+			out = append(out, "magic_missile", "mage_armor", "burning_hands", "detect_magic", "sleep")
 		}
 		if maxSlot >= 2 {
 			out = append(out, "scorching_ray", "misty_step", "mirror_image")
 		}
 		if maxSlot >= 3 {
-			out = append(out, "fireball", "counterspell")
+			// `counterspell` deferred for the same reason as `shield`.
+			out = append(out, "fireball", "fly")
 		}
 		if maxSlot >= 4 {
 			out = append(out, "ice_storm", "greater_invisibility")
@@ -716,7 +751,7 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 	case ClassCleric:
 		out := []string{"sacred_flame", "guidance", "mending"}
 		if level >= 1 {
-			out = append(out, "cure_wounds", "healing_word_spell", "bless", "guiding_bolt", "shield_of_faith")
+			out = append(out, "cure_wounds", "healing_word", "bless", "guiding_bolt", "shield_of_faith")
 		}
 		if maxSlot >= 2 {
 			out = append(out, "spiritual_weapon", "lesser_restoration", "aid")
@@ -752,7 +787,10 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 	// gives the class a damage option, control, and a heal/buff where the
 	// class fantasy expects one.
 	case ClassDruid:
-		out := []string{"produce_flame", "shillelagh", "guidance", "mending"}
+		// `shillelagh` deferred — the overlay flags it ranger/cleric only and
+		// it has no real attack profile in the engine yet (BuffSelf, no damage
+		// dice). Reinstated when weapon-bonus casts wire up.
+		out := []string{"produce_flame", "guidance", "mending"}
 		if level >= 1 {
 			out = append(out, "cure_wounds", "healing_word", "faerie_fire", "thunderwave", "entangle")
 		}
@@ -790,13 +828,15 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 	case ClassSorcerer:
 		out := []string{"fire_bolt", "ray_of_frost", "shocking_grasp", "mending"}
 		if level >= 1 {
-			out = append(out, "magic_missile", "burning_hands", "mage_armor", "shield", "thunderwave")
+			// `shield` skipped — reaction spell, no usable window in current combat.
+			out = append(out, "magic_missile", "burning_hands", "mage_armor", "thunderwave", "sleep")
 		}
 		if maxSlot >= 2 {
 			out = append(out, "scorching_ray", "mirror_image", "misty_step", "hold_person")
 		}
 		if maxSlot >= 3 {
-			out = append(out, "fireball", "counterspell", "lightning_bolt", "haste")
+			// `counterspell` skipped — reaction.
+			out = append(out, "fireball", "lightning_bolt", "haste", "fly")
 		}
 		if maxSlot >= 4 {
 			out = append(out, "ice_storm", "greater_invisibility")
@@ -808,13 +848,17 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 	case ClassWarlock:
 		out := []string{"eldritch_blast", "chill_touch", "minor_illusion"}
 		if level >= 1 {
-			out = append(out, "hellish_rebuke", "command", "charm_person", "hideous_laughter")
+			// `hellish_rebuke` skipped — reaction spell, no usable window
+			// in current combat. Substituting `burning_hands` as the L1
+			// damage staple (SRD: Mage/Cleric/Sorcerer/Warlock).
+			out = append(out, "burning_hands", "command", "charm_person", "hideous_laughter")
 		}
 		if maxSlot >= 2 {
 			out = append(out, "scorching_ray", "misty_step", "hold_person", "invisibility")
 		}
 		if maxSlot >= 3 {
-			out = append(out, "counterspell", "fly", "vampiric_touch", "hypnotic_pattern")
+			// `counterspell` skipped — reaction.
+			out = append(out, "fly", "vampiric_touch", "hypnotic_pattern")
 		}
 		if maxSlot >= 4 {
 			out = append(out, "banishment", "greater_invisibility")

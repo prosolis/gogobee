@@ -80,8 +80,7 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 	}
 	if !isSpellcaster(c) {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"%s isn't a caster class. `!cast` is for Mage, Cleric, Ranger, and Arcane Trickster Rogues (L5+).",
-			titleClass(c.Class)))
+			"%s doesn't cast spells.", titleClass(c.Class)))
 	}
 
 	if args == "" {
@@ -363,8 +362,10 @@ func (p *AdventurePlugin) dndCastDrop(ctx MessageContext, c *DnDCharacter) error
 
 	// Refund the queued slot (if any) — voluntary drop is the player's
 	// choice; restore the slot rather than forfeit it.
+	slotRefunded := false
 	if pc, ok := decodePendingCast(c.PendingCast); ok && pc.SlotLevel > 0 {
 		_ = refundSpellSlot(ctx.Sender, pc.SlotLevel)
+		slotRefunded = true
 	}
 
 	dropped := []string{}
@@ -381,7 +382,11 @@ func (p *AdventurePlugin) dndCastDrop(ctx MessageContext, c *DnDCharacter) error
 	if err := SaveDnDCharacter(c); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't drop: "+err.Error())
 	}
-	return p.SendDM(ctx.Sender, "Dropped: "+strings.Join(dropped, ", ")+".")
+	msg := "Dropped: " + strings.Join(dropped, ", ") + "."
+	if slotRefunded {
+		msg += " _(slot refunded)_"
+	}
+	return p.SendDM(ctx.Sender, msg)
 }
 
 // ── !spells command ─────────────────────────────────────────────────────────
@@ -487,7 +492,8 @@ func renderSpellsList(c *DnDCharacter) string {
 
 func (p *AdventurePlugin) handleSpellsLearn(ctx MessageContext, c *DnDCharacter, raw string) error {
 	if c.Class != ClassMage {
-		return p.SendDM(ctx.Sender, "`!spells learn` is for Mage. Cleric uses `!prepare`; Ranger spells are auto-known.")
+		return p.SendDM(ctx.Sender, "`!spells learn` is for Mage. "+spellRouteHintFor(c)+
+			" Run `!spells` to see what you already know.")
 	}
 	if raw == "" {
 		return p.SendDM(ctx.Sender, "Usage: `!spells learn <spell name>`")
@@ -561,7 +567,8 @@ func (p *AdventurePlugin) handleDnDPrepareCmd(ctx MessageContext, args string) e
 		return p.SendDM(ctx.Sender, "Couldn't load your Adv 2.0 sheet.")
 	}
 	if c.Class != ClassCleric {
-		return p.SendDM(ctx.Sender, "`!prepare` is for Cleric. Mage uses `!spells learn`; Ranger spells are auto-known.")
+		return p.SendDM(ctx.Sender, "`!prepare` is for Cleric. "+spellRouteHintFor(c)+
+			" Run `!spells` to see what you already know.")
 	}
 	args = strings.TrimSpace(args)
 	if args == "" {
@@ -611,7 +618,8 @@ func (p *AdventurePlugin) handleDnDPrepareCmd(ctx MessageContext, args string) e
 	}
 	if prepCount+1 > cap {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"Prep cap is %d. Unprepare a spell first: `!prepare clear <name>`.", cap))
+			"Your prepared list is full (%d/%d). Unprepare one first: `!prepare clear <name>`.",
+			prepCount, cap))
 	}
 	if err := setSpellPrepared(ctx.Sender, spell.ID, true); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't prepare: "+err.Error())
@@ -638,6 +646,30 @@ func renderClericPrepStatus(c *DnDCharacter) string {
 	}
 	return fmt.Sprintf("**Prepared spells:** %d/%d. Run `!prepare <spell>` to add, `!prepare clear <spell>` to remove. Long rest re-opens choices.",
 		prepCount, cap)
+}
+
+// spellRouteHintFor returns a one-sentence pointer telling the player which
+// command actually advances their spellbook, scoped to their class. Used by
+// the !spells learn / !prepare wrong-class error messages so the player isn't
+// left guessing after we reject them.
+func spellRouteHintFor(c *DnDCharacter) string {
+	if c == nil {
+		return ""
+	}
+	switch c.Class {
+	case ClassMage:
+		return "Mage learns spells with `!spells learn <name>`."
+	case ClassCleric:
+		return "Cleric picks today's spells with `!prepare <name>`."
+	case ClassRogue:
+		if c.Subclass == SubclassArcaneTrickster {
+			return "Arcane Trickster learns spells with `!spells learn <name>` once it unlocks."
+		}
+		return ""
+	case ClassDruid, ClassBard, ClassSorcerer, ClassWarlock, ClassPaladin, ClassRanger:
+		return "Your class learns spells automatically as you level — nothing to prepare."
+	}
+	return ""
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

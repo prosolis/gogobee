@@ -132,11 +132,10 @@ func buildSpellList() []SpellDefinition {
 			Classes: cleric, Effect: EffectBuffAlly, CastTime: CastBonusAction,
 			Concentration: true,
 			Description:   "+2 AC to one target. 10 min."},
-		{ID: "healing_word_spell", Name: "Healing Word", Level: 1, School: "evocation",
-			Classes: cleric, Effect: EffectSpellHeal, CastTime: CastBonusAction,
-			DamageDice:  "1d4",
-			Description: "1d4 + WIS mod HP. Range 60 ft.",
-			Upcast:      "+1d4 per slot above 1st"},
+		// `healing_word_spell` was a hand-authored alias for `healing_word`
+		// that collided on display name with the SRD entry. Removed to make
+		// parseSpell("healing word") deterministic; Cleric default now points
+		// at the canonical SRD `healing_word` (cleric/druid/bard tagged).
 		{ID: "command", Name: "Command", Level: 1, School: "enchantment",
 			Classes: cleric, Effect: EffectControl, CastTime: CastAction,
 			SaveStat:    "WIS",
