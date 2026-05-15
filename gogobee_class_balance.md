@@ -122,10 +122,39 @@ HP-remaining, and near-death-rate are logged as diagnostics, not asserted.
   through with weapon dice. Observed worst in-tier cell after tuning: L3/T2 at
   ~26pp, L1/T1 at ~24pp, L5/T3 at ~20pp; the 35pp band gives ~9pp Monte-Carlo
   headroom at 200 trials/cell. **← current**
-- **Phase 3 (if needed) — second-order.** Subclass-vs-subclass spread within a
-  class; the Paladin/Rogue MAD question if the data shows it bites. The L7/T5
-  cell (47pp spread, *off-tier*) is the most obvious next target if the
-  underleveled-cell experience needs lifting.
+- **Phase 3 — off-tier caster lift. Done.** Design steer ("relatively easy
+  but not too easy") narrowed the target: lift the embarrassing caster
+  trailers on off-tier cells (the casual player walking into a slightly
+  too-hard dungeon underleveled) *without* pushing the already-saturated
+  in-tier ceiling. Tuned levers:
+  - **Druid passive** (`dnd_passives.go`): the only class chassis with a
+    purely defensive passive (5% DR, no offense). Added a level + WIS-scaled
+    `FlatDmgStart` burst — same shape as the Phase-2 Bard/Mage/Warlock pass.
+    Kept the DR; no `DamageBonus` rider, so high-tier ceilings stay flat.
+  - **Sorcerer passive** (`dnd_passives.go`): burst base 3→5. Sorcerer was
+    the second-worst caster off-tier (L1/T2 0.10 vs Mage 0.27 pre-tune)
+    despite a comparable stat line; the bump pulls it toward parity with
+    the other arcane chassis.
+
+  Added an off-tier-trailer diagnostic (`dnd_class_balance_test.go`) — for
+  each (level, tier) cell where the player is below the in-tier band, the
+  log names the trailing class and its mean win rate. Not asserted: an
+  L1 walking into T2 is *supposed* to be hard, so the diagnostic is for
+  watching the gap, not the absolute number.
+
+  Observed lifts:
+  - Druid L1/T1: 0.77 → 0.86 (+9pp). The chassis is now functional at its
+    intended tier.
+  - L2/T2 cross-class spread: 77pp → 63pp. Druid trailer 0.23 → 0.35.
+  - L1/T1 spread: 23pp → 14pp.
+
+  In-tier parity assertion (35pp band on the diagonal) still passes. No
+  off-tier cell saturated past where it was — the lift is shape-correct.
+  **← current**
+- **Phase 4 (if needed) — second-order.** Subclass-vs-subclass spread within a
+  class; the Paladin/Rogue MAD question if the data shows it bites. The L5/T4
+  wild-magic Sorcerer cell (0.14 individual, off-tier) is the most obvious
+  next target if subclass parity needs another pass.
 
 ## 6. Tuning levers (priority order)
 

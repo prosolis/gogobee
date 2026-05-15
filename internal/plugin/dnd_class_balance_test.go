@@ -277,6 +277,67 @@ func TestClassBalance_Phase1_FullMatrix(t *testing.T) {
 		t.Logf("L%-4d %s", lvl, line)
 	}
 
+	// Phase-3 diagnostic — off-tier trailer per (level, tier). For each cell
+	// where the level is *below* the in-tier band (e.g. L1 at T2-T5), print the
+	// trailing class and its win rate. This is what Phase 3 lifts: the casual
+	// player who walks into a slightly-too-hard dungeon underleveled. Not
+	// asserted — Phase 3 tunes against the diagnostic numbers and the next
+	// phase decides whether to lock a soft off-tier band.
+	offTierLevels := map[int][]int{
+		2: {1, 2},
+		3: {1, 2, 3, 4},
+		4: {1, 2, 3, 4, 5},
+		5: {1, 2, 3, 4, 5, 7},
+	}
+	t.Logf("")
+	t.Logf("off-tier trailer per (level, tier) — class winrate is mean over subclasses (or single cell pre-L5):")
+	t.Logf("%-5s   T2                T3                T4                T5", "lvl")
+	for _, lvl := range allLevels {
+		var line string
+		for tier := 2; tier <= 5; tier++ {
+			levels := offTierLevels[tier]
+			matched := false
+			for _, l := range levels {
+				if l == lvl {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				line += " " + "       —         "
+				continue
+			}
+			var trailerClass DnDClass
+			minV := 1.01
+			for _, ci := range dndClasses {
+				var sum float64
+				var n int
+				if lvl < 5 {
+					if r, ok := rows[rowKey{ci.Key, "", lvl}]; ok {
+						sum = r[tier].WinRate()
+						n = 1
+					}
+				} else {
+					for _, si := range subclassesForClass(ci.Key) {
+						if r, ok := rows[rowKey{ci.Key, si.ID, lvl}]; ok {
+							sum += r[tier].WinRate()
+							n++
+						}
+					}
+				}
+				if n == 0 {
+					continue
+				}
+				wr := sum / float64(n)
+				if wr < minV {
+					minV, trailerClass = wr, ci.Key
+				}
+			}
+			line += fmt.Sprintf(" %-10s %.2f  ", trailerClass, minV)
+		}
+		t.Logf("L%-4d %s", lvl, line)
+	}
+
 	// Harness-broken gates first.
 	for _, r := range results {
 		if r.Tier == 1 && r.WinRate() == 0 {

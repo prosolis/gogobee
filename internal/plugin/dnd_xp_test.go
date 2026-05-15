@@ -229,13 +229,16 @@ func TestApplyClassPassives(t *testing.T) {
 		// burst now also scales with level, and Warlock picked up +1 attack.
 		// CHA/INT are 0 in this zero-value sheet → abilityModifier = -5,
 		// clamped to 0 by clampNonNeg. Paladin at L1 is still 4 + 0.
+		// Phase 3 class-balance: Druid picked up a WIS-scaled FlatDmgStart burst
+		// (lvl 1 + clamp(mod(WIS=0)) = 1), and Sorcerer's burst base went 3→5
+		// (5 + 1 + clamp(mod(CHA=10)=0) = 6).
 		{ClassRogue, 0.05, 0, true, 0, 1.0, 0, 0},
 		{ClassMage, 0.05, 1, false, 0, 1.0, 1, 0},
 		{ClassCleric, 0, 0, false, 5, 1.0, 0, 0},
 		{ClassRanger, 0.05, 1, false, 0, 1.0, 0, 0},
-		{ClassDruid, 0, 0, false, 0, 0.95, 0, 0},
+		{ClassDruid, 0, 0, false, 0, 0.95, 1, 0},
 		{ClassBard, 0.05, 1, false, 0, 1.0, 1, 1},
-		{ClassSorcerer, 0.05, 0, false, 0, 1.0, 4, 0},
+		{ClassSorcerer, 0.05, 0, false, 0, 1.0, 6, 0},
 		{ClassWarlock, 0.12, 1, false, 0, 1.0, 1, 0},
 		{ClassPaladin, 0, 0, false, 0, 1.0, 4, 0},
 	}

@@ -43,7 +43,7 @@ var dndClassAbilities = map[DnDClass]DnDClassAbility{
 	// CombatModifiers channels the same way the original five do.
 	ClassDruid: {
 		Name:        "Wild Resilience",
-		Description: "The wild lends you its toughness: incoming damage is reduced 5%.",
+		Description: "The wild lends you its toughness — incoming damage is reduced 5% — and a thorn surge on engage scaled by your Wisdom.",
 	},
 	ClassBard: {
 		Name:        "Bardic Inspiration",
@@ -137,6 +137,14 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		// subclass DamageReduct riders. DamageReduct is initialized to 1.0
 		// by DerivePlayerStats before passives run.
 		mods.DamageReduct *= 0.95
+		// Phase 3 class-balance: druid was the only caster chassis with a
+		// purely defensive passive, and the off-tier numbers showed it —
+		// L1/T2 mean 0.04 vs Mage 0.27. Mirror the other caster bursts so
+		// the L1-4 druid can chip a T2 monster: WIS-scaled FlatDmgStart on
+		// engage. No DamageBonus rider; the chassis keeps its defensive
+		// identity, and the burst alone (plus the existing DR) lifts the
+		// off-tier cells without pushing in-tier wins past 1.0.
+		mods.FlatDmgStart += c.Level + clampNonNeg(abilityModifier(c.WIS))
 	case ClassBard:
 		// Phase 2 class-balance: bare +1 initiative left Bard the weakest
 		// class chassis (T5 mean 0.48 pre-tune). Add a Ranger-tier rider
@@ -149,11 +157,15 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		mods.FlatDmgStart += c.Level + clampNonNeg(abilityModifier(c.CHA))
 	case ClassSorcerer:
 		// Innate Sorcery — pre-combat burst, CHA-scaled like the Sorcerer's
-		// spellcasting stat. Floors at the flat 3 for low-CHA builds.
+		// spellcasting stat. Floors at the flat base for low-CHA builds.
 		// Phase 2 class-balance: pure FlatDmgStart faded at higher tiers as
 		// monster HP grew. Adding a 5% damage rider plus level scaling on the
 		// burst keeps the chassis relevant past L1.
-		mods.FlatDmgStart += 3 + c.Level + clampNonNeg(abilityModifier(c.CHA))
+		// Phase 3 class-balance: sorcerer was the second-worst off-tier caster
+		// (L1/T2 0.10 pre-tune), trailing mage by ~17pp despite a comparable
+		// stat line. Bump the burst base 3→5 to lift the L1-4 chassis without
+		// touching the +0.05 rider that already saturates at high tier.
+		mods.FlatDmgStart += 5 + c.Level + clampNonNeg(abilityModifier(c.CHA))
 		mods.DamageBonus += 0.05
 	case ClassWarlock:
 		// Phase 2 class-balance: bumped from 10% to 12% damage + 1 attack —
