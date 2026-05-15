@@ -224,16 +224,19 @@ func TestApplyClassPassives(t *testing.T) {
 		wantInitBias    float64
 	}{
 		{ClassFighter, 0.05, 0, false, 0, 1.0, 0, 0},
-		{ClassRogue, 0, 0, true, 0, 1.0, 0, 0},
-		{ClassMage, 0, 1, false, 0, 1.0, 0, 0},
+		// Phase 2 class-balance rebalance: rogue picked up +5% damage,
+		// Mage/Bard/Warlock gained a level-scaled FlatDmgStart burst, Sorcerer's
+		// burst now also scales with level, and Warlock picked up +1 attack.
+		// CHA/INT are 0 in this zero-value sheet → abilityModifier = -5,
+		// clamped to 0 by clampNonNeg. Paladin at L1 is still 4 + 0.
+		{ClassRogue, 0.05, 0, true, 0, 1.0, 0, 0},
+		{ClassMage, 0.05, 1, false, 0, 1.0, 1, 0},
 		{ClassCleric, 0, 0, false, 5, 1.0, 0, 0},
 		{ClassRanger, 0.05, 1, false, 0, 1.0, 0, 0},
-		// Open5e caster scaffold. CHA 10 → +0 mod, so Sorcerer's FlatDmgStart
-		// is the flat 3; Paladin at L1 is 4 + 0.
 		{ClassDruid, 0, 0, false, 0, 0.95, 0, 0},
-		{ClassBard, 0, 0, false, 0, 1.0, 0, 1},
-		{ClassSorcerer, 0, 0, false, 0, 1.0, 3, 0},
-		{ClassWarlock, 0.10, 0, false, 0, 1.0, 0, 0},
+		{ClassBard, 0.05, 1, false, 0, 1.0, 1, 1},
+		{ClassSorcerer, 0.05, 0, false, 0, 1.0, 4, 0},
+		{ClassWarlock, 0.12, 1, false, 0, 1.0, 1, 0},
 		{ClassPaladin, 0, 0, false, 0, 1.0, 4, 0},
 	}
 	for _, tc := range cases {

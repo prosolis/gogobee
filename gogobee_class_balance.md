@@ -95,12 +95,37 @@ HP-remaining, and near-death-rate are logged as diagnostics, not asserted.
   logs the cells plus per-class tier means and ranges. Phase-2 calibration baseline:
   at T4 the cross-class spread of *mean* win rate runs Bard 0.62 → Fighter 0.80
   (~18pp); at T5 0.48 → 0.64 (~16pp); casters trail martials at the post-unlock
-  tier (T3) by ~20pp. **← current**
-- **Phase 2 — tuning pass.** Adjust the levers (class passives → subclass tiers
-  → spell dice → AC floor → attack bonus, in that order) until the parity band
-  holds. Lock the band into the test assertion.
+  tier (T3) by ~20pp.
+- **Phase 2 — tuning pass. Done.** First insight: per-class-mean is dominated
+  by floor+ceiling saturation (L10+ pinned at 1.0; L1-4 caster cells at high
+  tier pinned at 0.0), masking the actual gaps. The matrix log now also
+  emits a per-(level, tier) cross-class spread — the cells with real signal.
+  Tuned levers, in priority order:
+  - **Class passives** (`dnd_passives.go`): caster trailers (Bard, Mage,
+    Warlock, Sorcerer) gained level + casting-stat scaled FlatDmgStart bursts
+    so their L1-4 chassis isn't a quarterstaff + one weak spell against a T2-T3
+    monster; small DamageBonus riders (Mage/Bard/Sorcerer/Rogue +5%, Warlock
+    10→12%) and +1 attack for Bard/Warlock close the steady-DPS gap. Added a
+    `clampNonNeg` helper so ability-mod-scaled additions never go negative on
+    sheets with sub-10 casting stats.
+  - **Subclass L5 tiers** (`dnd_subclass_combat.go`): the three Sorcerer
+    L5 picks (Wild/Storm/Draconic) and Warlock Great Old One were defense-only
+    or near-inert pre-tune; each gained a DamageBonus +0.10 (or FlatDmgStart
+    burst for Storm) so the L5 chassis can press through a T4 monster.
+
+  **Parity band locked** in `TestClassBalance_Phase1_FullMatrix`: cross-class
+  spread ≤ 35pp on the *in-tier* diagonal — the (level, tier) cells where the
+  level is appropriate for the tier (T1: L1-4, T2: L3-7, T3: L5-10, T4: L7-15,
+  T5: L10-20). Off-tier cells (e.g. L1 mage at T3 dungeon) are still logged but
+  not asserted: those are level-vs-tier mismatches, and casters at L1-4 can't
+  muscle through a T3 monster on a single L1-slot spell the way martials muscle
+  through with weapon dice. Observed worst in-tier cell after tuning: L3/T2 at
+  ~26pp, L1/T1 at ~24pp, L5/T3 at ~20pp; the 35pp band gives ~9pp Monte-Carlo
+  headroom at 200 trials/cell. **← current**
 - **Phase 3 (if needed) — second-order.** Subclass-vs-subclass spread within a
-  class; the Paladin/Rogue MAD question if the data shows it bites.
+  class; the Paladin/Rogue MAD question if the data shows it bites. The L7/T5
+  cell (47pp spread, *off-tier*) is the most obvious next target if the
+  underleveled-cell experience needs lifting.
 
 ## 6. Tuning levers (priority order)
 

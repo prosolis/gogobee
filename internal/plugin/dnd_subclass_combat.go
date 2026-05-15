@@ -482,11 +482,14 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 		// Dragon Wings: mobility and a tougher frame — an 8% reduction and a
 		// small damage bump. L15 Draconic Presence: a frightful aura — 2
 		// rounds of SporeCloud miss chance.
+		// Phase 2 class-balance: L5 was defense-only; gave it a small bite
+		// (10% damage) so the L5 chassis isn't pure attrition vs T4 monsters.
 		if c.Level >= 5 {
 			stats.AC++
 			if mods.ArcaneWardHP < c.Level {
 				mods.ArcaneWardHP = c.Level
 			}
+			mods.DamageBonus += 0.10
 		}
 		if c.Level >= 7 {
 			mods.DamageBonus += 0.10
@@ -504,8 +507,13 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 		// FirstAttackBonus. L10 Controlled Chaos: a surge you actually aimed
 		// — a FlatDmgStart burst. L15 Spell Bombardment: dice that keep
 		// exploding — +15% damage.
+		// Phase 2 class-balance: bare advantage-on-opener left this subclass
+		// the weakest L5 caster pick (0.065 at T4 pre-tune vs Champion 0.92).
+		// Added a 10% damage rider — Wild Magic surges as flavor, ~+1d6 of
+		// chaos damage per round in mechanics.
 		if c.Level >= 5 {
 			mods.AssassinateAdvantage = true
+			mods.DamageBonus += 0.10
 		}
 		if c.Level >= 7 {
 			mods.FirstAttackBonus += 3
@@ -523,9 +531,13 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 		// weather — a small 5% reduction and 1 round of SporeCloud. L15
 		// Storm's Fury: incoming blows are answered with lightning —
 		// ReflectNext on the first hit.
+		// Phase 2 class-balance: init/speed alone left this subclass at 0.035
+		// T4 pre-tune. Pull a small slice of the L7 thunderclap forward so
+		// the L5 chassis has actual damage output.
 		if c.Level >= 5 {
 			mods.InitiativeBias += 1
 			stats.Speed += 2
+			mods.FlatDmgStart += 4 + c.Level/2
 		}
 		if c.Level >= 7 {
 			mods.FlatDmgStart += 5 + c.Level/2
@@ -587,9 +599,13 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 		// Thrall: a dominated mind fights beside you — the pet channel. L15:
 		// deeper psychic dominion keeps the thrall in the fight and sharpens
 		// your own assault (+10% damage).
+		// Phase 2 class-balance: L5 was defense-only (0.130 T4 pre-tune).
+		// Added a small bite so the L5 chassis can press the advantage when
+		// the foe misses.
 		if c.Level >= 5 {
 			mods.DamageReduct *= 0.95
 			mods.SporeCloud++
+			mods.DamageBonus += 0.10
 		}
 		if c.Level >= 7 {
 			mods.DamageReduct *= 0.92

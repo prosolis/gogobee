@@ -25,11 +25,11 @@ var dndClassAbilities = map[DnDClass]DnDClassAbility{
 	},
 	ClassRogue: {
 		Name:        "Sneak Attack",
-		Description: "Your first strike each combat lands as a critical hit, doubling its damage.",
+		Description: "Your first strike each combat lands as a critical hit, doubling its damage; precision drills add +5% to all damage you deal.",
 	},
 	ClassMage: {
 		Name:        "Arcane Focus",
-		Description: "Practiced channeling adds +1 to your attack rolls.",
+		Description: "Practiced channeling adds +1 to your attack rolls and a small bump (+5%) to all damage you deal.",
 	},
 	ClassCleric: {
 		Name:        "Divine Favor",
@@ -47,20 +47,31 @@ var dndClassAbilities = map[DnDClass]DnDClassAbility{
 	},
 	ClassBard: {
 		Name:        "Bardic Inspiration",
-		Description: "Quick wit keeps you a step ahead: +1 to your initiative each round.",
+		Description: "Quick wit keeps you a step ahead: +1 initiative, +1 attack, and +5% to all damage you deal.",
 	},
 	ClassSorcerer: {
 		Name:        "Innate Sorcery",
-		Description: "Raw magic spills out as the fight begins, dealing immediate damage scaled by your Charisma.",
+		Description: "Raw magic spills out as the fight begins, dealing immediate damage scaled by your Charisma, and +5% to all damage you deal.",
 	},
 	ClassWarlock: {
 		Name:        "Agonizing Blast",
-		Description: "Your pact-fueled eldritch power adds +10% to all damage you deal.",
+		Description: "Your pact-fueled eldritch power adds +12% to all damage you deal and +1 to attack rolls.",
 	},
 	ClassPaladin: {
 		Name:        "Divine Smite",
 		Description: "You channel a burst of radiant power on engagement, dealing flat damage that grows with your level.",
 	},
+}
+
+// clampNonNeg returns max(0, x). Used by Phase-2 class passives to keep
+// ability-mod-scaled FlatDmgStart additions from going negative when a
+// caster's casting stat happens to be below 10 (or when tests construct
+// a DnDCharacter with zero-value stats).
+func clampNonNeg(x int) int {
+	if x < 0 {
+		return 0
+	}
+	return x
 }
 
 // applyRacePassives sets the combat-impacting flags from the player's race.
@@ -99,8 +110,22 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		mods.DamageBonus += 0.05
 	case ClassRogue:
 		mods.AutoCritFirst = true
+		// Phase 2 class-balance: rogue's once-per-fight auto-crit goes stale
+		// at high tiers (T5 mean trails leaders by ~10pp pre-tune). Add a
+		// modest steady-DPS rider so post-opener rounds aren't pure attrition.
+		mods.DamageBonus += 0.05
 	case ClassMage:
 		stats.AttackBonus++
+		// Phase 2 class-balance: +1 attack alone left Mage mid-pack on damage
+		// per round. A modest damage rider lifts weapon hits (DamageBonus does
+		// not multiply queued SpellPreDamage — that path is its own field).
+		mods.DamageBonus += 0.05
+		// Phase 2 class-balance: Arcane focus also produces a small pre-combat
+		// arcane burst, scaling with level and INT. Helps the L1-4 chassis,
+		// which would otherwise rely on a single weak L1 spell + quarterstaff
+		// against T2-T3 monsters. Saturates harmlessly at L10+ where every
+		// class wins anyway.
+		mods.FlatDmgStart += c.Level + clampNonNeg(abilityModifier(c.INT))
 	case ClassCleric:
 		// Passive heal at <50% HP. Stacks additively with consumable HealItem.
 		mods.HealItem += 5
@@ -113,13 +138,32 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		// by DerivePlayerStats before passives run.
 		mods.DamageReduct *= 0.95
 	case ClassBard:
+		// Phase 2 class-balance: bare +1 initiative left Bard the weakest
+		// class chassis (T5 mean 0.48 pre-tune). Add a Ranger-tier rider
+		// (+1 attack, +5% damage) so the chassis pulls weight before subclass
+		// kicks in at L5, plus a CHA-scaled opening flourish (FlatDmgStart) so
+		// the L1-4 chassis isn't dead at T3.
 		mods.InitiativeBias += 1
+		stats.AttackBonus++
+		mods.DamageBonus += 0.05
+		mods.FlatDmgStart += c.Level + clampNonNeg(abilityModifier(c.CHA))
 	case ClassSorcerer:
 		// Innate Sorcery — pre-combat burst, CHA-scaled like the Sorcerer's
 		// spellcasting stat. Floors at the flat 3 for low-CHA builds.
-		mods.FlatDmgStart += 3 + abilityModifier(c.CHA)
+		// Phase 2 class-balance: pure FlatDmgStart faded at higher tiers as
+		// monster HP grew. Adding a 5% damage rider plus level scaling on the
+		// burst keeps the chassis relevant past L1.
+		mods.FlatDmgStart += 3 + c.Level + clampNonNeg(abilityModifier(c.CHA))
+		mods.DamageBonus += 0.05
 	case ClassWarlock:
-		mods.DamageBonus += 0.10
+		// Phase 2 class-balance: bumped from 10% to 12% damage + 1 attack —
+		// the Warlock chassis read mid-pack at T5 (0.52) pre-tune. Eldritch
+		// blast as an opener (FlatDmgStart, level + CHA-scaled) covers the
+		// caster's L1-4 quarterstaff weakness, same shape as the other three
+		// arcane chassis.
+		mods.DamageBonus += 0.12
+		stats.AttackBonus++
+		mods.FlatDmgStart += c.Level + clampNonNeg(abilityModifier(c.CHA))
 	case ClassPaladin:
 		// Divine Smite — radiant burst on engage, scaling with level so it
 		// stays relevant against tougher foes.
