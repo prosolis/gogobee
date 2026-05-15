@@ -56,9 +56,12 @@ func TestExpeditionBalance_Phase0_Spike(t *testing.T) {
 	if res.Completions == 0 {
 		t.Errorf("zero completions in %d trials at T2/L5 Fighter — the spike cell should not be unwinnable", trials)
 	}
-	if res.Completions == trials {
-		t.Errorf("100%% completions in %d trials at T2/L5 Fighter — interrupt rolls / night checks not pressuring the run", trials)
-	}
+	// Phase 5-B player floor lifted the at-tier completion rate
+	// substantially; 100%% completion at the spike cell is now the
+	// expected "fairly breezy" outcome, not a harness-broken signal.
+	// (Cells that 0% out remain a harness-broken signal — checked
+	// above.)
+	_ = trials
 	if res.MedianDays == 0 {
 		t.Fatalf("median days == 0; day loop never advanced")
 	}
@@ -1265,6 +1268,138 @@ func TestExpeditionBalance_Phase5A_TierWideSensitivity(t *testing.T) {
 				out := runCell(zid, g.tier, center, eliteBaseline, b)
 				logRow("B", "burn", zid, b, out)
 			}
+		}
+	}
+}
+
+// TestExpeditionBalance_Phase5B_GearBonusSweep walks the full matrix
+// at gear magic-bonus delta ∈ {0, +1, +2} on top of the Phase 3-B
+// best cell (e=23, d=1, burn=50, nick-floor=tier). Phase 5-A named
+// player level as the dominant lever at T2/T3 but showed the
+// within-bracket slope can't close the band — the live magic-bonus
+// ladder (0/1/2/3/3) tops the player-power knob, so the question is
+// what flat delta on top of the ladder lands T1-T5 in band.
+//
+// Bands (gogobee_expedition_difficulty.md):
+//   T1 80% (70-90%)   T2 72% (62-82%)   T3 65% (55-75%)
+//   T4 55% (45-65%)   T5 45% (35-55%)
+//
+// 10 zones × 3 deltas × 200 trials = 6k trials; runs in ~1s.
+// Diagnostic-only — picks the delta Phase 5-B ships in
+// magicBonusForTier.
+func TestExpeditionBalance_Phase5B_GearBonusSweep(t *testing.T) {
+	if testing.Short() {
+		t.Skip("phase 5-B gear sweep walks 10 zones × 3 deltas × 200 trials; -short skips it")
+	}
+
+	const trialsPerCell = 200
+	const baseSeed uint64 = 0xF50B1E
+	// Phase 3-B best cell, held constant.
+	const eliteThreshold = 23
+	const driftBase = 1
+	const supplyBurnPct = 50
+	// Two-axis grid. Gear delta is the to-hit/AC/damage lever (Phase
+	// 5-B's first read showed it dominates at T1/T2/T4); HP multiplier
+	// is the durability lever needed to close T3/T5 where gear alone
+	// stalled at ~5pp/delta. Smallest combination that lands all
+	// tiers in band gets shipped.
+	gearDeltas := []int{2, 3, 4}
+	hpMults := []float64{1.0, 1.25, 1.5}
+
+	type cellOut struct {
+		comp, death, starve int
+	}
+	runCell := func(zid ZoneID, tier ZoneTier, level, delta int, hpMult float64) cellOut {
+		profile := expeditionBalanceProfile{
+			ZoneID:                          zid,
+			Class:                           ClassFighter,
+			Level:                           level,
+			Supplies:                        makeSupplies(tier, SupplyPurchase{StandardPacks: 3}),
+			CampType:                        CampTypeStandard,
+			EliteInterruptThresholdOverride: eliteThreshold,
+			ThreatDriftBaseOverride:         driftBase,
+			SupplyBurnRatePctOverride:       supplyBurnPct,
+			GearMagicBonusOverride:          delta,
+			PlayerHPMultOverride:            hpMult,
+		}
+		out := cellOut{}
+		for trial := 0; trial < trialsPerCell; trial++ {
+			seed := baseSeed + uint64(trial) +
+				uint64(tier)*131 + zoneSeedSalt(zid) +
+				uint64(delta)*7_919 +
+				uint64(hpMult*1000)*23
+			res := runExpeditionBalanceTrial(profile, seed)
+			switch {
+			case res.Completed:
+				out.comp++
+			case res.Died:
+				out.death++
+			case res.StarvedOut:
+				out.starve++
+			}
+		}
+		return out
+	}
+
+	t.Logf("phase5-B gear×hp sweep — %d zones × %d gear × %d hp × %d trials, Fighter @ tier-centerline, baselines e=%d d=%d burn=%d",
+		len(zoneOrder), len(gearDeltas), len(hpMults), trialsPerCell,
+		eliteThreshold, driftBase, supplyBurnPct)
+
+	type comboKey struct {
+		gear int
+		hp   float64
+	}
+	type tierAgg struct{ sum, count float64 }
+	perCombo := map[comboKey]map[ZoneTier]*tierAgg{}
+
+	for _, delta := range gearDeltas {
+		for _, hp := range hpMults {
+			key := comboKey{delta, hp}
+			perCombo[key] = map[ZoneTier]*tierAgg{}
+			t.Logf("═══ gear=+%d  hp×%.2f ═══", delta, hp)
+			for _, zid := range zoneOrder {
+				zone, ok := getZone(zid)
+				if !ok {
+					continue
+				}
+				level := phase1TierCenterline[zone.Tier]
+				out := runCell(zid, zone.Tier, level, delta, hp)
+				compPct := float64(out.comp) / float64(trialsPerCell) * 100
+				t.Logf("  CELL  g=+%d h=%.2f %-18s T%d L%-2d  comp=%5.1f%% death=%5.1f%% starve=%5.1f%%",
+					delta, hp, zid, zone.Tier, level, compPct,
+					float64(out.death)/float64(trialsPerCell)*100,
+					float64(out.starve)/float64(trialsPerCell)*100)
+				ag, ok := perCombo[key][zone.Tier]
+				if !ok {
+					ag = &tierAgg{}
+					perCombo[key][zone.Tier] = ag
+				}
+				ag.sum += compPct
+				ag.count++
+			}
+		}
+	}
+
+	// Combo × tier headline. Bands per gogobee_expedition_difficulty.md:
+	// the "fairly breezy" target the user picked for Phase 5 means we
+	// can land at or above band-center across all tiers.
+	t.Logf("─── tier means by (gear, hp) — bands: T1 70-90, T2 62-82, T3 55-75, T4 45-65, T5 35-55 ───")
+	tiers := []ZoneTier{
+		ZoneTierBeginner, ZoneTierApprentice, ZoneTierJourneyman,
+		ZoneTierVeteran, ZoneTierLegendary,
+	}
+	for _, delta := range gearDeltas {
+		for _, hp := range hpMults {
+			key := comboKey{delta, hp}
+			parts := make([]string, 0, len(tiers))
+			for _, ti := range tiers {
+				ag := perCombo[key][ti]
+				if ag == nil || ag.count == 0 {
+					continue
+				}
+				parts = append(parts, fmt.Sprintf("T%d=%.1f%%", ti, ag.sum/ag.count))
+			}
+			t.Logf("  TIER-MEANS  g=+%d h=%.2f  %s", delta, hp, joinZones(parts))
 		}
 	}
 }

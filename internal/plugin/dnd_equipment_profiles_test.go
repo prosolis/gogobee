@@ -469,9 +469,10 @@ func TestApplyDnDEquipmentLayer_FighterFullKit(t *testing.T) {
 	if !stats.WeaponProficient {
 		t.Error("Fighter should be proficient with synthesized weapon")
 	}
-	// Plate (tier 6) → +1 plate, AC = 18+1 = 19, no DEX, no shield
-	if stats.AC != 19 {
-		t.Errorf("Fighter+plate+1 AC = %d, want 19", stats.AC)
+	// Plate (tier 6) → +1 plate, AC = 18+1 = 19; Phase 5-B player floor
+	// adds +3, so combat-stat AC = 22.
+	if stats.AC != 22 {
+		t.Errorf("Fighter+plate+1 AC = %d, want 22 (19 base + phase5BACBonus)", stats.AC)
 	}
 	// Two-handed mode: greatsword has TwoHanded property (no shield).
 	// Greatsword's properties include Heavy + TwoHanded — TwoHandedMode set.

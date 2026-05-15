@@ -208,7 +208,12 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	var newSupplies ExpeditionSupplies
 	var burn float32
 	if burnOverride.Multiplier > 0 {
-		burn = e.Supplies.DailyBurn * burnOverride.Multiplier
+		// Phase 5-B: temporal overrides bypass applyDailyBurn, so apply
+		// the same global burn-rate multiplier explicitly here. Without
+		// this, tidal/unraveling days would burn at pre-Phase-5-B rates
+		// while normal days burn at half — an inconsistency the user
+		// would feel as "tidal days are now disproportionately harsh."
+		burn = e.Supplies.DailyBurn * burnOverride.Multiplier * float32(phase5BDailyBurnRatePct) / 100
 		newSupplies = e.Supplies
 		newSupplies.Current -= burn
 		if newSupplies.Current < 0 {

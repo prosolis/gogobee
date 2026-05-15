@@ -66,8 +66,10 @@ func TestDeliverBriefing_AdvancesDayAndBurnsSupplies(t *testing.T) {
 	if got.CurrentDay != 2 {
 		t.Errorf("current_day = %d, want 2", got.CurrentDay)
 	}
-	if got.Supplies.Current != 9 {
-		t.Errorf("supplies = %v, want 9", got.Supplies.Current)
+	// Phase 5-B: applyDailyBurn scales by phase5BDailyBurnRatePct=50, so
+	// raw burn 1 × 0.5 = 0.5 SU. Current 10 - 0.5 = 9.5.
+	if got.Supplies.Current != 9.5 {
+		t.Errorf("supplies = %v, want 9.5", got.Supplies.Current)
 	}
 	if got.LastBriefingAt == nil {
 		t.Error("LastBriefingAt should be set")
@@ -105,8 +107,9 @@ func TestDeliverBriefing_HarshConditionsBurnFaster(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := getExpedition(exp.ID)
-	if got.Supplies.Current != 8 { // 1 base × 2 harsh = 2 SU
-		t.Errorf("harsh burn supplies = %v, want 8", got.Supplies.Current)
+	// Phase 5-B: 1 base × 2 harsh × phase5B 50% = 1 SU; current 10 - 1 = 9.
+	if got.Supplies.Current != 9 {
+		t.Errorf("harsh burn supplies = %v, want 9", got.Supplies.Current)
 	}
 }
 

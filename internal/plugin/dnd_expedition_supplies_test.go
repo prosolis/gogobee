@@ -134,36 +134,44 @@ func TestMakeSupplies_FillsFromTier(t *testing.T) {
 }
 
 func TestApplyDailyBurn_DrainsAndClamps(t *testing.T) {
+	// Phase 5-B (shipped): applyDailyBurn now scales by
+	// phase5BDailyBurnRatePct = 50 by default — every expected value
+	// here is halved relative to the pre-Phase-5-B baseline. The
+	// math-pure shape (harsh-mult, siege-floor) is unchanged; only
+	// the final multiplier is new. See applyDailyBurn doc for the
+	// difficulty-pass motivation.
 	s := ExpeditionSupplies{Current: 5, Max: 10, DailyBurn: 2, HarshMod: 1.5, ForagedToday: true}
 	s, burn := applyDailyBurn(s, false, false)
-	if burn != 2 {
-		t.Errorf("burn = %v, want 2", burn)
+	if burn != 1 { // 2 × 50%
+		t.Errorf("burn = %v, want 1", burn)
 	}
-	if s.Current != 3 {
-		t.Errorf("current = %v, want 3", s.Current)
+	if s.Current != 4 { // 5 - 1
+		t.Errorf("current = %v, want 4", s.Current)
 	}
 	if s.ForagedToday {
 		t.Error("forage flag should reset on day rollover")
 	}
-	// Harsh active doubles via mult.
+	// Harsh active applies HarshMod (1.5), then phase5B halves: 2*1.5*0.5 = 1.5.
 	s, burn = applyDailyBurn(s, true, false)
-	if burn != 3 { // 2 × 1.5
-		t.Errorf("harsh burn = %v, want 3", burn)
+	if burn != 1.5 {
+		t.Errorf("harsh burn = %v, want 1.5", burn)
 	}
-	// Siege forces a 2× floor even when HarshMod is below 2 (tier 1).
+	// Siege forces a 2× floor even when HarshMod is below 2 (tier 1);
+	// phase5B halves: 1 × 2 × 0.5 = 1.
 	t1 := ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1}
 	_, sb := applyDailyBurn(t1, false, true)
-	if sb != 2 {
-		t.Errorf("siege tier1 burn = %v, want 2 (forced floor)", sb)
+	if sb != 1 {
+		t.Errorf("siege tier1 burn = %v, want 1 (forced 2× floor × phase5B 50%%)", sb)
 	}
-	// Siege at higher tier still uses HarshMod when it exceeds 2.
+	// Siege at higher tier still uses HarshMod when it exceeds 2:
+	// 1 × 3 × 0.5 = 1.5.
 	t5 := ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 3}
 	_, sb5 := applyDailyBurn(t5, false, true)
-	if sb5 != 3 {
-		t.Errorf("siege tier5 burn = %v, want 3 (HarshMod)", sb5)
+	if sb5 != 1.5 {
+		t.Errorf("siege tier5 burn = %v, want 1.5 (HarshMod × phase5B)", sb5)
 	}
 	// Drain to floor.
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 10; i++ {
 		s, _ = applyDailyBurn(s, false, false)
 	}
 	if s.Current != 0 {

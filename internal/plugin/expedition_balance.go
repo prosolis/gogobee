@@ -141,6 +141,38 @@ type expeditionBalanceProfile struct {
 	// TestExpeditionBalance_Phase3B_NickSupplySweep.
 	SurpriseNickFloorOverride int
 	SupplyBurnRatePctOverride int
+
+	// Phase 5-B lever — gear magic-bonus delta applied on top of the
+	// live magicBonusForTier ladder. Lifts weapon.MagicBonus,
+	// armor.MagicBonus, and AttackBonus by this many points at fight
+	// time. Zero = live ladder.
+	//
+	// Phase 5-A's sensitivity sweep named player level as the dominant
+	// lever at T2/T3, but the within-bracket slope showed even
+	// max-of-range still misses the band — closing T2/T3 to the
+	// 62-82%/55-75% targets requires a player-power lift, not just a
+	// centerline shift. This knob measures the cross-zone effect of a
+	// flat gear-bonus bump (the simplest player-power lever that
+	// already participates in the combat math via weapon/armor
+	// MagicBonus) so the shipped change can pick the smallest delta
+	// that lands T1-T5 in band.
+	//
+	// Wired into the harness's runHarnessFight player-build site only;
+	// live combat untouched. Shield MagicBonus is not bumped, mirroring
+	// magicBonusForTier's "shields stay mundane" rule (classLoadout
+	// comment).
+	GearMagicBonusOverride int
+
+	// Phase 5-B HP multiplier — scales the player's HPMax (and resets
+	// HPCurrent to the new max at the start of each trial). Zero or
+	// 1.0 = live HP curve. Lever exists because the Phase 5-B gear-
+	// only sweep showed T3 and T5 have low slopes on gear delta (~5pp
+	// per +1) — those tiers are HP-bound rather than to-hit/AC-bound,
+	// so closing them needs a separate handle on durability.
+	//
+	// Wired into the harness's character-build site only; live HP
+	// curve in computeMaxHP untouched.
+	PlayerHPMultOverride float64
 }
 
 // expeditionTrialResult is the outcome of one simulated expedition.
@@ -269,10 +301,15 @@ func (h *expeditionHarness) advanceExpeditionOneDay() expeditionTrialResult {
 	}
 
 	// 1. Morning rollover — supply burn + day++. Phase 3-B sweep can
-	// scale the per-day burn via the harness profile; live callers go
-	// through applyDailyBurn at 100%.
+	// scale the per-day burn via the harness profile; with no override
+	// set the harness mirrors live (phase5BDailyBurnRatePct, shipped
+	// as the new default in applyDailyBurn).
 	harsh := h.exp.ThreatLevel > 60
-	newSupplies, _ := applyDailyBurnP(h.exp.Supplies, harsh, h.exp.SiegeMode, h.supplyBurnRatePctOverride)
+	burnRate := h.supplyBurnRatePctOverride
+	if burnRate == 0 {
+		burnRate = phase5BDailyBurnRatePct
+	}
+	newSupplies, _ := applyDailyBurnP(h.exp.Supplies, harsh, h.exp.SiegeMode, burnRate)
 	h.exp.Supplies = newSupplies
 	h.exp.CurrentDay++
 
@@ -483,6 +520,24 @@ func (h *expeditionHarness) runHarnessFight(zone ZoneDefinition, elite bool) Com
 	h.char.HPCurrent -= nick
 
 	player := buildHarnessPlayer(h.char)
+	// Phase 5-B: apply gear-bonus override on top of the live ladder.
+	// Mirrors what bumping magicBonusForTier would do for shipped code:
+	// +delta to weapon.MagicBonus (damage path reads this directly in
+	// rollWeaponDamage), +delta to AttackBonus (since buildHarnessPlayer
+	// already folded weapon.MagicBonus into AttackBonus at build time —
+	// re-bumping the pointer alone wouldn't move to-hit), +delta to AC
+	// (armor.MagicBonus contributed; shield kept mundane per the
+	// classLoadout shield-stays-mundane rule).
+	if h.gearMagicBonusOverride > 0 {
+		delta := h.gearMagicBonusOverride
+		player.Stats.AttackBonus += delta
+		player.Stats.AC += delta
+		if player.Stats.Weapon != nil {
+			wcopy := *player.Stats.Weapon
+			wcopy.MagicBonus += delta
+			player.Stats.Weapon = &wcopy
+		}
+	}
 	// Wounded entry: carry HP from prior fights via StartHP so MaxHP
 	// stays the ceiling (heals respect it). combat_engine.go:348
 	// reads StartHP iff 0 < StartHP < MaxHP, which is exactly our
@@ -617,6 +672,9 @@ type expeditionHarness struct {
 	// zero-sentinel for "use live".
 	surpriseNickFloorOverride int
 	supplyBurnRatePctOverride int
+	// Phase 5-B levers. See expeditionBalanceProfile field doc.
+	gearMagicBonusOverride int
+	playerHPMultOverride   float64
 	// traceFight, if non-nil, is invoked once per fight inside
 	// runHarnessFight with a human-readable summary. Used by the
 	// Phase 2 lethality probe to spot whether the nick, the picked
@@ -695,6 +753,18 @@ func runExpeditionBalanceTrial(p expeditionBalanceProfile, seed uint64) expediti
 		threatDriftBaseOverride:         p.ThreatDriftBaseOverride,
 		surpriseNickFloorOverride:       p.SurpriseNickFloorOverride,
 		supplyBurnRatePctOverride:       p.SupplyBurnRatePctOverride,
+		gearMagicBonusOverride:          p.GearMagicBonusOverride,
+		playerHPMultOverride:            p.PlayerHPMultOverride,
+	}
+	// Phase 5-B HP multiplier (post-buildHarnessCharacter so we scale the
+	// finalized HPMax rather than re-deriving from class HPDie/CON; less
+	// invasive and easier to back out).
+	if p.PlayerHPMultOverride > 0 && p.PlayerHPMultOverride != 1.0 {
+		char.HPMax = int(float64(char.HPMax)*p.PlayerHPMultOverride + 0.5)
+		if char.HPMax < 1 {
+			char.HPMax = 1
+		}
+		char.HPCurrent = char.HPMax
 	}
 	for {
 		res := h.advanceExpeditionOneDay()

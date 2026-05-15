@@ -58,10 +58,11 @@ func TestIsStandardArray(t *testing.T) {
 }
 
 func TestComputeMaxHP_FighterLevel1(t *testing.T) {
-	// Fighter d10, CON +2 → L1 HP = 10 + 2 = 12
+	// Fighter d10, CON +2 → L1 raw HP = 10 + 2 = 12; Phase 5-B
+	// multiplies by phase5BHPMult (1.5, rounded), so → 18.
 	got := computeMaxHP(ClassFighter, 2, 1)
-	if got != 12 {
-		t.Errorf("Fighter L1 (CON+2) = %d, want 12", got)
+	if got != 18 {
+		t.Errorf("Fighter L1 (CON+2) = %d, want 18 (12 raw × phase5BHPMult)", got)
 	}
 }
 
@@ -69,10 +70,10 @@ func TestComputeMaxHP_MageLevel5(t *testing.T) {
 	// Mage d6, CON +1
 	// L1: 6 + 1 = 7
 	// L2-5: 4 levels × (avg 4 + 1) = 4 × 5 = 20
-	// Total: 27
+	// Raw total: 27; Phase 5-B: 27 × 1.5 = 40.5 → 41 (round half-up).
 	got := computeMaxHP(ClassMage, 1, 5)
-	if got != 27 {
-		t.Errorf("Mage L5 (CON+1) = %d, want 27", got)
+	if got != 41 {
+		t.Errorf("Mage L5 (CON+1) = %d, want 41 (27 raw × phase5BHPMult)", got)
 	}
 }
 

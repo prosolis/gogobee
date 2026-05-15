@@ -473,6 +473,86 @@ Recommend option (1) for Phase 5-B since the harness already measures
 it cleanly and the data points at it; option (3) is the fallback if
 the cross-bracket numbers still don't close the band.
 
+#### Phase 5-B — player power floor + Phase-3 winners shipped
+
+The Phase 5-A read named player level / gear-tier centerline as the
+dominant lever at T2/T3 but flagged that even max-of-range within the
+gear bracket missed the band. Three design options were on the table:
+cross-bracket centerline bump, **player combat-math retune**, or
+lower the band target. The user picked combat-math retune ("fairly
+breezy with some death — not a ton") — option (2). On reflection
+this was the only one of the three that actually moves *live*
+difficulty (cross-bracket centerline only moves the harness number;
+lowering the band is the "do-nothing" fallback).
+
+The shipped lift, in five small pieces:
+
+1. **`computeMaxHP` ×1.5** (`dnd.go: phase5BHPMult`). The HP curve is
+   uniformly scaled so every class/level lifts together — preserves
+   the class-balance harness's in-tier spread assertion. Migration
+   `bootstrapPhase5BHPRefresh` walks `dnd_character` once at startup
+   to refresh existing rows; idempotent via `db.JobCompleted`.
+2. **Combat-stat player floor** (`dnd_combat.go:
+   applyPhase5BPlayerFloor`): +3 AC, +3 AttackBonus, +3
+   weapon.MagicBonus (damage). Applied at the END of
+   `applyDnDEquipmentLayer` (so the AC override from
+   `computeArmorAC` doesn't stomp it) AND inside `buildHarnessPlayer`
+   so live and harness measurement agree.
+3. **Elite bracket 19 → 23** (`dnd_expedition_combat.go:
+   resolveCombatInterrupt`). Case order: Elite (≥23) before Patrol
+   (≥22) so a 23+ total prefers the single dangerous fight over the
+   patrol-flavored standard pick. Elite is now effectively a
+   *high-threat* event reachable only via the +1-per-20-threat-above-40
+   mod — base d20+tier+ranger maxes at ~21. Phase 4-B's elite-pool
+   monsters still appear; just less often.
+4. **Threat drift base 3 → 1** (`dnd_expedition_threat.go:
+   dailyThreatDrift`). Slows the threat clock so players have the
+   days they need to extract before threat tips zones into the new
+   23+ elite band.
+5. **Daily supply burn × 0.5** (`dnd_expedition_supplies.go:
+   phase5BDailyBurnRatePct`). `applyDailyBurn`'s default now passes
+   50; `applyDailyBurnP` keeps its rate-parameterized form for the
+   harness. Also applied in the temporal-override branch
+   (`dnd_expedition_cycle.go`) so tidal / unraveling days scale by
+   the same 0.5× — otherwise those days would be disproportionately
+   harsh against the new baseline.
+
+The harness reflects all five (`expedition_balance.go` reads
+`phase5BDailyBurnRatePct` as the default-burn fallback when the
+override knob is zero). Phase 1 matrix on the shipped baseline,
+Fighter @ tier-centerline, 200 trials:
+
+```
+T1  87.8%  spread 1.5   (crypt 89, goblin 87)           ⬆ band 70-90 — IN BAND
+T2  74.0%  spread 12    (forest 80, sunken 68)          ⬆ band 62-82 — IN BAND
+T3  43.2%  spread 8.5   (manor 39, underforge 47)        ⬇ band 55-75 — UNDER
+T4  71.8%  spread 25.5  (feywild 59, underdark 88)      ⬆ band 45-65 — OVER (breezy)
+T5  ~57%   (dragons 78, abyss 38)                       ⬆ band 35-55 — borderline
+```
+
+Four of five tier means land at or above band-center, matching the
+"fairly breezy with some death" target. **T3 remains the hump** —
+both manor and underforge sit ~40-50% completion, killing 50-60% of
+the time. Phase 4-B already promoted T3's worst killers (Wraith) to
+elite, so the standard-pool deaths are now the irreducible part.
+T4's wide spread (feywild 59 vs underdark 88) means feywild still
+has a roster-side asymmetry that warrants a Phase 4-B-style pass.
+
+**Test debt cleaned:** 13 unit tests in `combat_stats_test.go`,
+`dnd_test.go`, `dnd_xp_test.go`, `dnd_equipment_profiles_test.go`,
+`dnd_expedition_supplies_test.go`, `dnd_expedition_cycle_test.go`,
+`dnd_expedition_extract_test.go`, `dnd_expedition_region_cmd_test.go`,
+`dnd_expedition_combat_test.go`, `dnd_expedition_threat_test.go`,
+`dnd_expedition_temporal_test.go`, `expedition_balance_test.go` were
+pinning the pre-Phase-5-B numbers; updated to the shipped values
+with comments noting the cause.
+
+**Exit:** Phase 5-B closed-out the user's primary target ("make it
+breezy"). T1/T2/T4/T5 mean in or above band; T3 remains the design
+hump and is fine for "some death" tier shape. Remaining work
+(Phase 5-C+) is T3 roster polish + feywild T4-spread fix — separate
+session.
+
 ### Phase 6 — optional MAD / second-order
 
 If post-Phase-3 the bands hold but feel wrong subjectively

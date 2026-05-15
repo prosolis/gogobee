@@ -219,6 +219,13 @@ func (p *AdventurePlugin) Init() error {
 	// 2026-05-10 immersion: seed short rest charges = dnd_level for any
 	// character not yet on the new charge system. One-shot, idempotent.
 	seedShortRestChargesForExistingCharacters()
+	// 2026-05-15 Phase 5-B: refresh hp_max for existing characters
+	// after the Phase 5-B HP-floor multiplier (phase5BHPMult in dnd.go)
+	// shipped. Without this, existing characters keep their pre-Phase-5-B
+	// hp_max until the next computeMaxHP recall (level-up / reset). The
+	// migration walks dnd_character once at startup; idempotent via
+	// JobCompleted gate.
+	bootstrapPhase5BHPRefresh()
 	// Phase R1 orphan-archive used to run here on every Init, but it
 	// over-archived: it treats any active dnd_zone_run row not linked to
 	// an active expedition as a legacy `!adventure dungeon` orphan, which

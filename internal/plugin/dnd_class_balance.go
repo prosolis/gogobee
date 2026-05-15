@@ -364,6 +364,12 @@ func buildHarnessPlayer(c *DnDCharacter) Combatant {
 		stats.AC = computeArmorAC(armor, shield, abilityModifier(c.DEX))
 	}
 
+	// Phase 5-B player power floor. applyDnDEquipmentLayer applies this
+	// at the same point in the live combat path — keep the harness's
+	// measurement aligned with what live players experience by calling
+	// the same helper here, before passives stack on top.
+	applyPhase5BPlayerFloor(&stats)
+
 	// 3. Passives. Live order is class → race → subclass (see
 	// combat_bridge.go and combat_session_build.go). Subclass passives are
 	// a no-op when c.Subclass == "" — the harness uses that for the L1–L4

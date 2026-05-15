@@ -145,6 +145,46 @@ func applyDnDEquipmentLayer(stats *CombatStats, c *DnDCharacter, equip map[Equip
 	if armor != nil || shield != nil {
 		stats.AC = computeArmorAC(armor, shield, dexMod)
 	}
+
+	// Phase 5-B player power floor — see applyPhase5BPlayerFloor doc.
+	// Lives at the end of the equipment layer so it lands AFTER the AC
+	// override above (otherwise the +3 AC bonus from the floor would be
+	// stomped by computeArmorAC's overwrite).
+	applyPhase5BPlayerFloor(stats)
+}
+
+// Phase 5-B player power floor — uniform combat-stat lift added on top
+// of class + equipment to land the expedition harness in the band the
+// user chose for the "fairly breezy with some death" difficulty target.
+// See gogobee_expedition_difficulty.md Phase 5-B for the sweep that
+// picked these values (gear floor +3, paired with HP ×phase5BHPMult in
+// computeMaxHP).
+//
+// Applied as a *flat* lift, not via gearTier — keeps the in-game gear
+// narrative untouched (a player's +1 longsword still reads as +1 in
+// their inventory; the floor stacks invisibly at combat-stat time).
+// Uniform across classes so the class-balance harness's in-tier parity
+// spread is unaffected.
+//
+// Called from both applyDnDEquipmentLayer (live combat) and
+// buildHarnessPlayer (expedition / class-balance harnesses) so the
+// harness's measurement matches what live players experience.
+const (
+	phase5BACBonus       = 3
+	phase5BAttackBonus   = 3
+	phase5BWeaponMagicBonus = 3
+)
+
+func applyPhase5BPlayerFloor(stats *CombatStats) {
+	stats.AC += phase5BACBonus
+	stats.AttackBonus += phase5BAttackBonus
+	if stats.Weapon != nil {
+		// Mutate the weapon copy in place — applyDnDEquipmentLayer and
+		// buildHarnessPlayer both already hand us a fresh copy (the
+		// synthesize* / classLoadout chain returns a new profile), so
+		// this doesn't leak into the registry.
+		stats.Weapon.MagicBonus += phase5BWeaponMagicBonus
+	}
 }
 
 // pickWeaponAbilityMod returns the ability modifier added to weapon damage:

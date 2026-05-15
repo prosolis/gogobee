@@ -44,9 +44,9 @@ func TestSunkenTemple_TidalWarningDay4(t *testing.T) {
 	if got.CurrentDay != 4 {
 		t.Fatalf("CurrentDay = %d, want 4", got.CurrentDay)
 	}
-	// Warning day: NO doubled burn — single 1.5 SU burn.
-	if got.Supplies.Current != startSU-1.5 {
-		t.Errorf("supplies = %v, want %v (single burn)", got.Supplies.Current, startSU-1.5)
+	// Warning day: NO doubled burn — single 1.5 SU burn × phase5B 50% = 0.75.
+	if got.Supplies.Current != startSU-0.75 {
+		t.Errorf("supplies = %v, want %v (single burn × phase5B)", got.Supplies.Current, startSU-0.75)
 	}
 	entries, _ := recentExpeditionLog(exp.ID, 10)
 	foundWarn := false
@@ -84,8 +84,8 @@ func TestSunkenTemple_TidalEventDay6_ForcesDoubleBurn(t *testing.T) {
 	if got.CurrentDay != 6 {
 		t.Fatalf("CurrentDay = %d, want 6", got.CurrentDay)
 	}
-	// Forced 2× burn = 1.5 * 2 = 3.0 SU
-	wantBurn := float32(3.0)
+	// Forced 2× burn = 1.5 * 2 × phase5B 50% = 1.5 SU
+	wantBurn := float32(1.5)
 	if startSU-got.Supplies.Current != wantBurn {
 		t.Errorf("burn = %v, want %v (forced 2× tidal)", startSU-got.Supplies.Current, wantBurn)
 	}
@@ -125,9 +125,9 @@ func TestSunkenTemple_BossDefeatedSilencesTidal(t *testing.T) {
 	}
 
 	got, _ := getExpedition(exp.ID)
-	// Single normal burn, no tidal multiplier.
-	if got.Supplies.Current != startSU-1.5 {
-		t.Errorf("supplies = %v, want %v (no tidal mult)", got.Supplies.Current, startSU-1.5)
+	// Single normal burn × phase5B 50%, no tidal multiplier: 1.5×0.5 = 0.75.
+	if got.Supplies.Current != startSU-0.75 {
+		t.Errorf("supplies = %v, want %v (no tidal mult × phase5B)", got.Supplies.Current, startSU-0.75)
 	}
 	entries, _ := recentExpeditionLog(exp.ID, 10)
 	for _, e := range entries {
@@ -433,9 +433,10 @@ func TestFeywild_HalfDay_HalvesBurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := getExpedition(exp.ID)
-	wantBurn := float32(1.5) // 3 * 0.5
+	// Phase 5-B: 3 base × 0.5 half-day × 50% phase5B = 0.75.
+	wantBurn := float32(0.75)
 	if startSU-got.Supplies.Current != wantBurn {
-		t.Errorf("burn = %v, want %v (half-day)", startSU-got.Supplies.Current, wantBurn)
+		t.Errorf("burn = %v, want %v (half-day × phase5B)", startSU-got.Supplies.Current, wantBurn)
 	}
 	if today, _ := got.RegionState["feywild_today"].(string); today != "half" {
 		t.Errorf("RegionState feywild_today = %q, want %q", today, "half")
@@ -461,9 +462,10 @@ func TestFeywild_DoubleDay_DoublesBurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := getExpedition(exp.ID)
-	wantBurn := float32(6.0)
+	// Phase 5-B: 3 base × 2.0 double-day × 50% phase5B = 3.0.
+	wantBurn := float32(3.0)
 	if startSU-got.Supplies.Current != wantBurn {
-		t.Errorf("burn = %v, want %v (double-day)", startSU-got.Supplies.Current, wantBurn)
+		t.Errorf("burn = %v, want %v (double-day × phase5B)", startSU-got.Supplies.Current, wantBurn)
 	}
 }
 
@@ -486,9 +488,10 @@ func TestFeywild_TimeLoop_LogsAndDoesNotChangeBurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := getExpedition(exp.ID)
-	// Loop has no burn override → default pipeline (no harsh, no siege) = 3 SU.
-	if startSU-got.Supplies.Current != 3 {
-		t.Errorf("burn = %v, want 3 (loop default)", startSU-got.Supplies.Current)
+	// Loop has no burn override → default pipeline (no harsh, no siege)
+	// × phase5B 50% = 1.5 SU (was 3 pre-Phase-5-B).
+	if startSU-got.Supplies.Current != 1.5 {
+		t.Errorf("burn = %v, want 1.5 (loop default × phase5B)", startSU-got.Supplies.Current)
 	}
 	entries, _ := recentExpeditionLog(exp.ID, 10)
 	found := false
@@ -741,9 +744,9 @@ func TestAbyss_UnravelingDoublesBurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := getExpedition(exp.ID)
-	wantBurn := float32(8.0) // 4 * 2 (unraveling override)
+	wantBurn := float32(4.0) // 4 * 2 unraveling × 0.5 phase5B = 4
 	if startSU-got.Supplies.Current != wantBurn {
-		t.Errorf("burn = %v, want %v (unraveling 2×)", startSU-got.Supplies.Current, wantBurn)
+		t.Errorf("burn = %v, want %v (unraveling 2× × phase5B)", startSU-got.Supplies.Current, wantBurn)
 	}
 }
 
@@ -822,7 +825,8 @@ func TestSunkenTemple_NoTidalOnNonZone(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := getExpedition(exp.ID)
-	if got.Supplies.Current != startSU-1 {
-		t.Errorf("non-tidal zone burned %v, want 1", startSU-got.Supplies.Current)
+	// Phase 5-B: 1 base × 50% = 0.5.
+	if got.Supplies.Current != startSU-0.5 {
+		t.Errorf("non-tidal zone burned %v, want 0.5", startSU-got.Supplies.Current)
 	}
 }

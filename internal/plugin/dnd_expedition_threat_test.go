@@ -51,15 +51,19 @@ func TestThreatBandInfo_SiegeFlags(t *testing.T) {
 }
 
 func TestDailyThreatDrift_MoodMod(t *testing.T) {
+	// Phase 5-B: base threat drift lowered from 3 to 1 to slow the
+	// threat clock (paired with the player floor + supply burn cut).
+	// All expected values shift by -2 (base 3 → 1) but the mood-mod
+	// shape is unchanged.
 	cases := []struct {
 		mood int
 		want int
 	}{
-		{50, 3},  // neutral
-		{60, 3},  // friendly (still neutral for threat)
-		{80, 0},  // effusive → elated → -3
-		{19, 8},  // hostile → wrathful → +5
-		{0, 8},   // hostile lower bound
+		{50, 1},  // neutral: 1 + 0
+		{60, 1},  // friendly (still neutral): 1 + 0
+		{80, -2}, // effusive → elated: 1 + -3
+		{19, 6},  // hostile → wrathful: 1 + 5
+		{0, 6},   // hostile lower bound
 	}
 	for _, c := range cases {
 		got, _ := dailyThreatDrift(c.mood)
@@ -79,8 +83,9 @@ func TestApplyDailyThreatDrift_PersistsAndCrossesThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Pre-load to 19 so a +3 drift crosses Stirring boundary.
-	if err := applyThreatDelta(exp.ID, 19, "test seed"); err != nil {
+	// Phase 5-B: base drift dropped to 1. Pre-load to 20 (Quiet band) so
+	// the +1 drift crosses into Stirring at 21.
+	if err := applyThreatDelta(exp.ID, 20, "test seed"); err != nil {
 		t.Fatal(err)
 	}
 	exp, _ = getExpedition(exp.ID)
@@ -89,12 +94,12 @@ func TestApplyDailyThreatDrift_PersistsAndCrossesThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if delta != 3 {
-		t.Errorf("delta = %d, want 3", delta)
+	if delta != 1 {
+		t.Errorf("delta = %d, want 1", delta)
 	}
 	got, _ := getExpedition(exp.ID)
-	if got.ThreatLevel != 22 {
-		t.Errorf("threat = %d, want 22", got.ThreatLevel)
+	if got.ThreatLevel != 21 {
+		t.Errorf("threat = %d, want 21", got.ThreatLevel)
 	}
 	// Threshold transition log entry should exist with TwinBee narration.
 	entries, _ := recentExpeditionLog(exp.ID, 10)
@@ -150,8 +155,8 @@ func TestDeliverBriefing_AppliesThreatDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := getExpedition(exp.ID)
-	if got.ThreatLevel != 3 {
-		t.Errorf("post-briefing threat = %d, want 3 (mood-neutral drift)", got.ThreatLevel)
+	if got.ThreatLevel != 1 {
+		t.Errorf("post-briefing threat = %d, want 1 (mood-neutral drift, Phase 5-B base)", got.ThreatLevel)
 	}
 }
 
@@ -165,8 +170,9 @@ func TestApplyDailyThreatDrift_LogsApproachingSiegeOnceAt70(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Seed to 68 — a +3 drift crosses 70.
-	if err := applyThreatDelta(exp.ID, 68, "seed"); err != nil {
+	// Phase 5-B: base drift dropped to 1. Seed to 69 so a +1 drift
+	// crosses 70 → 70.
+	if err := applyThreatDelta(exp.ID, 69, "seed"); err != nil {
 		t.Fatal(err)
 	}
 	exp, _ = getExpedition(exp.ID)

@@ -156,9 +156,10 @@ func TestGrantDnDXP_LevelUpCascade(t *testing.T) {
 	if got.XP != 300 {
 		t.Errorf("xp carryover = %d, want 300", got.XP)
 	}
-	// Fighter d10 + CON+2 at L1 = 12. Per-level after: 6+2 = 8. L5 = 12 + 4*8 = 44.
-	if got.HPMax != 44 {
-		t.Errorf("L5 HPMax = %d, want 44", got.HPMax)
+	// Fighter d10 + CON+2 at L1 = 12. Per-level after: 6+2 = 8. L5 = 12 + 4*8 = 44 raw.
+	// Phase 5-B multiplies by phase5BHPMult (1.5) → 66.
+	if got.HPMax != 66 {
+		t.Errorf("L5 HPMax = %d, want 66 (44 raw × phase5BHPMult)", got.HPMax)
 	}
 	// Each level-up bumps HPCurrent by the gain. Started at full (12), gained
 	// 8 four times = 12+32 = 44. So HPCurrent = HPMax = 44.

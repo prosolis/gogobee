@@ -145,8 +145,26 @@ func abilityModifier(score int) int {
 	return diff/2 - 1
 }
 
+// phase5BHPMult is the Phase 5-B HP-floor multiplier. Applied uniformly
+// in computeMaxHP so every class/level scales together — preserves the
+// class-balance harness's parity assertions (which test in-tier spread,
+// not absolute win rates) while lifting durability enough to land the
+// expedition harness in the "fairly breezy with some death" band the
+// user chose for Phase 5-B. See gogobee_expedition_difficulty.md for
+// the sweep that picked 1.5 (gear-bonus floor +3, HP ×1.5 → T1=85 T2=73
+// T3=60 T4=78 T5=81 mean completion at the tier-centerline cell).
+//
+// Bumping this changes the *persisted* HPMax for new characters and for
+// existing characters on their next computeMaxHP recall (level-up,
+// character reset, bootstrap refresh). The Phase 5-B bootstrap
+// (bootstrap_phase5b_hp.go) walks the dnd_character table once at
+// startup to refresh stale rows.
+const phase5BHPMult = 1.5
+
 // computeMaxHP — D&D5e style. L1: full HP die + CON mod (min 1).
 // Per level after: average HP die (roundup of die/2 + 1) + CON mod.
+// The result is scaled by phase5BHPMult — see that constant for the
+// difficulty-pass motivation.
 func computeMaxHP(class DnDClass, conMod, level int) int {
 	ci, ok := classInfo(class)
 	if !ok {
@@ -163,7 +181,12 @@ func computeMaxHP(class DnDClass, conMod, level int) int {
 		}
 		hp += gain
 	}
-	return hp
+	// Phase 5-B player power floor — round to nearest int.
+	scaled := int(float64(hp)*phase5BHPMult + 0.5)
+	if scaled < 1 {
+		scaled = 1
+	}
+	return scaled
 }
 
 // computeAC — Phase 1 baseline. Equipment-derived AC arrives in Phase 4

@@ -88,11 +88,23 @@ func resolveCombatInterrupt(
 		mod -= 3
 	}
 	total := r + mod
+	// Phase 5-B: elite bracket raised from 19 to 23 (Phase 3-A finding).
+	// At low threat, base d20 + tier+class mod can reach ~22 at most,
+	// so elite-from-interrupt is now effectively a *high-threat* event
+	// (the +1-per-20-threat-above-40 mod is what pushes totals into
+	// the 23+ band). Elite monsters still appear via the Patrol pool,
+	// just less often from the d20 interrupt roll itself. Combined
+	// with the player power floor + supply-burn cut + threat-drift
+	// cut, this lands the live completion curve in the "fairly breezy
+	// with some death" band. Elite case sits *above* Patrol in the
+	// switch so a 23+ total prefers Elite (single dangerous fight)
+	// over Patrol (multi-enemy harvest fail). See
+	// gogobee_expedition_difficulty.md Phase 5-B.
 	switch {
+	case total >= 23:
+		return InterruptElite, total
 	case total >= 22:
 		return InterruptPatrol, total
-	case total >= 19:
-		return InterruptElite, total
 	case total >= 15:
 		return InterruptStandard, total
 	case total >= 9:

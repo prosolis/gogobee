@@ -163,8 +163,17 @@ func makeSupplies(tier ZoneTier, p SupplyPurchase) ExpeditionSupplies {
 //   - siege overrides everything with a hard 2× floor (even for tier 1
 //     where HarshMod is 1×) — the dungeon is actively starving you out.
 //   - otherwise, harshActive applies HarshMod (zone-tier scaled).
+// phase5BDailyBurnRatePct is the shipped daily-burn multiplier from
+// Phase 3-B's sweep + Phase 5-B's post-buff re-validation. 50 means
+// "half live burn" — needed because the Phase 5-B player power floor
+// keeps T4/T5 expeditioners alive long enough that the original 100%
+// burn rate starves them out before extraction. See
+// gogobee_expedition_difficulty.md Phase 3-B (sweep) and Phase 5-B
+// (re-validated under HP buff, shipped).
+const phase5BDailyBurnRatePct = 50
+
 func applyDailyBurn(s ExpeditionSupplies, harshActive, siege bool) (ExpeditionSupplies, float32) {
-	return applyDailyBurnP(s, harshActive, siege, 0)
+	return applyDailyBurnP(s, harshActive, siege, phase5BDailyBurnRatePct)
 }
 
 // applyDailyBurnP is the rate-parameterized form used by the Phase 3-B

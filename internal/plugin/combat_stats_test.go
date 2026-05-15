@@ -276,12 +276,19 @@ func TestBalanceRegression_DungeonDeathRates(t *testing.T) {
 	}
 	// `level` is the dnd_level (CombatLevel is no longer consulted for combat
 	// scaling — gear + dnd sheet drive everything).
+	// Phase 5-B bumped the player power floor (+3 AC, +3 to-hit, +3
+	// damage, HP ×1.5), so well-equipped at-tier players are now
+	// effectively dominant across the board. "Real danger" at T5 is
+	// no longer the gate — the difficulty curve is driven by the
+	// expedition layer (interrupt cadence, supply burn, threat
+	// drift), not 1:1 well-equipped combat. These bounds reflect the
+	// new "fairly breezy with some death" target.
 	cases := []tc{
-		{1, 1, advDungeons[0], 0.05, 0.0},    // T1: trivial with proper gear
-		{2, 2, advDungeons[1], 0.10, 0.0},    // T2: very easy at level
-		{5, 3, advDungeons[2], 0.15, 0.0},    // T3: low risk at level with T3 gear
-		{7, 4, advDungeons[3], 0.25, 0.0},    // T4: some risk even geared
-		{9, 5, advDungeons[4], 0.35, 0.01},   // T5: real danger — monster stats catch up
+		{1, 1, advDungeons[0], 0.03, 0.0},   // T1: trivial with proper gear
+		{2, 2, advDungeons[1], 0.05, 0.0},   // T2: trivial at level
+		{5, 3, advDungeons[2], 0.08, 0.0},   // T3: low risk
+		{7, 4, advDungeons[3], 0.15, 0.0},   // T4: still mostly safe
+		{9, 5, advDungeons[4], 0.25, 0.0},   // T5: occasional bad luck
 	}
 
 	for _, c := range cases {
@@ -333,11 +340,19 @@ func TestBalanceRegression_UnderleveledPlayers(t *testing.T) {
 		minDeath float64
 	}
 	// `level` is dnd_level. Underleveled = dnd_level low for the dungeon tier.
+	// Phase 5-B player floor (+3 AC, +3 to-hit, +3 damage, HP ×1.5)
+	// is a flat bonus that lifts low-level characters proportionally
+	// more than high-level ones — underleveled vs. tier is no longer
+	// the failure mode it was. Real-game pressure on underleveled
+	// players comes from the *expedition* layer (interrupt cadence,
+	// supply burn, threat clock), not from 1:1 combat. Bounds here
+	// only check that combat still terminates and doesn't pin a
+	// difficulty floor that Phase 5-B intentionally removed.
 	cases := []tc{
-		{"L1 in T2 dungeon", 1, 0, advDungeons[1], 0.40},
-		{"L2 in T3 dungeon", 2, 1, advDungeons[2], 0.30},
-		{"L4 in T4 dungeon, T2 gear", 4, 2, advDungeons[3], 0.25},
-		{"L6 in T5 dungeon, T3 gear", 6, 3, advDungeons[4], 0.30},
+		{"L1 in T2 dungeon", 1, 0, advDungeons[1], 0.0},
+		{"L2 in T3 dungeon", 2, 1, advDungeons[2], 0.0},
+		{"L4 in T4 dungeon, T2 gear", 4, 2, advDungeons[3], 0.0},
+		{"L6 in T5 dungeon, T3 gear", 6, 3, advDungeons[4], 0.0},
 	}
 
 	for _, c := range cases {
