@@ -384,6 +384,8 @@ const (
 	stopEnded                      // patrol or room resolution killed the player
 	stopComplete                   // run cleared (boss down, no outgoing edges)
 	stopBlocked                    // an active CombatSession blocks the advance
+	stopRareNode                   // auto-harvest spotted a Rare+ node; player should decide
+	stopHarvestCombat              // auto-harvest pulled into combat that resolved short of death
 )
 
 // advanceResult bundles the staged narration + dispatch shape of one

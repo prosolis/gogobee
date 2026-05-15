@@ -469,6 +469,11 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 	var finalMsg string
 	rooms := 0
 
+	// Phase 2 — walk-wide auto-harvest tally. Per-room footers go into the
+	// stream as we go; the cumulative haul renders on the final block.
+	walkYields := map[string]int{}
+	walkNames := map[string]string{}
+
 	for i := 0; i < autopilotRoomCap; i++ {
 		// Pre-iteration interrupts: low HP / low SU. Skip on the first
 		// iteration so the player always gets at least one room out of
@@ -518,6 +523,56 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 		if fresh, ferr := getActiveExpedition(ctx.Sender); ferr == nil && fresh != nil {
 			exp = fresh
 		}
+
+		// Phase 2 — auto-harvest the room we just walked into. Aggregates
+		// into walkYields/walkNames; per-room footer goes straight into
+		// the stream. Rare+ nodes and combat interrupts hard-stop the
+		// walk with dedicated stop reasons.
+		char, cerr := LoadDnDCharacter(ctx.Sender)
+		if cerr != nil || char == nil {
+			continue
+		}
+		hr, herr := p.autoHarvestRoom(ctx.Sender, exp, char)
+		if herr != nil {
+			continue
+		}
+		for k, v := range hr.Summary.Yields {
+			walkYields[k] += v
+			walkNames[k] = hr.Summary.Names[k]
+		}
+		if footer := renderAutoHarvestFooter(hr.Summary); footer != "" {
+			stream = append(stream, footer)
+		}
+		if hr.CombatNarr != "" {
+			// A harvest interrupt fired combat. The combat narration
+			// becomes the final block; reason classifies death vs survive.
+			reason := stopHarvestCombat
+			if hr.PlayerEnded {
+				reason = stopEnded
+			}
+			footer := autopilotFooter(reason, rooms)
+			finalMsg = hr.CombatNarr
+			if footer != "" {
+				finalMsg += "\n\n" + footer
+			}
+			if tally := renderWalkTally(walkYields, walkNames); tally != "" && !hr.PlayerEnded {
+				finalMsg += "\n\n" + tally
+			}
+			break
+		}
+		if len(hr.RarePending) > 0 {
+			finalMsg = renderRarePendingFooter(hr.RarePending)
+			if tally := renderWalkTally(walkYields, walkNames); tally != "" {
+				finalMsg += "\n\n" + tally
+			}
+			break
+		}
+
+		// Refresh exp once more — auto-harvest may have bumped threat
+		// via noise interrupts.
+		if fresh, ferr := getActiveExpedition(ctx.Sender); ferr == nil && fresh != nil {
+			exp = fresh
+		}
 	}
 
 	if finalMsg == "" {
@@ -525,6 +580,13 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 		// "press to continue" footer so the player knows autopilot
 		// stopped on its own clock, not because something needs them.
 		finalMsg = autopilotFooter(stopOK, rooms)
+	}
+	// Walk-wide haul tally — appended to whatever the final block is,
+	// unless a combat-interrupt branch already added it (death suppresses
+	// it; harvest-combat survival adds it inline).
+	if tally := renderWalkTally(walkYields, walkNames); tally != "" &&
+		!strings.Contains(finalMsg, "Walk haul:") {
+		finalMsg += "\n\n" + tally
 	}
 	return p.streamFlow(ctx.Sender, stream, finalMsg)
 }
@@ -567,6 +629,10 @@ func autopilotFooter(reason stopReason, rooms int) string {
 		return "" // run-complete block is the final; no footer
 	case stopBlocked:
 		return "" // "finish your fight first" is the final; no footer
+	case stopRareNode:
+		return "" // rare-pending footer is the final; no extra suffix
+	case stopHarvestCombat:
+		return fmt.Sprintf("⏸ **Autopilot paused — interrupted while gathering** (after %s). Reassess and `!expedition run` to continue.", roomsStr)
 	default: // stopOK — hit the room cap
 		return fmt.Sprintf("⏸ **Autopilot stretch complete** (%s). `!expedition run` to keep walking, or `!resources` / `!camp` first.", roomsStr)
 	}
