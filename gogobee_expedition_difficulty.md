@@ -130,6 +130,32 @@ Roper, Young Red Dragon) — that's the Phase 2c roster signal.
 **Tuning surface:** the `/5` divisor in `clampSurpriseNick` is the
 wounded-fighter lethality knob.
 
+### Phase 2 lever sweep (shipped) — negative result
+
+Before adding Phase 2c, the two surfaced knobs (`retreatThreatBump`,
+`clampSurpriseNick` divisor) got swept across a full 3×4 grid
+(bump ∈ {2, 5, 10} × divisor ∈ {3, 5, 8, 12}) at 200 trials/cell
+across every zone in the matrix. Wired via
+`expeditionBalanceProfile.{RetreatThreatBumpOverride,
+SurpriseNickDivisorOverride}` threaded into `expeditionHarness`;
+the live caller (`runHarvestInterrupt`) is untouched.
+
+Sweep file: `TestExpeditionBalance_Phase2_LeverSweep` in
+`expedition_balance_test.go`. `-short` skips.
+
+**Outcome:** every one of the 24,000 trial-cells reports 0.0%
+completion / ~100% death. The two knobs are inert on the headline
+metric — even the gentlest combo (b=2, d=12) cannot lift any tier
+off the floor. Median days-to-end stays at 2–3 across the grid
+with median 2.6–7.3 encounters before death.
+
+**Read:** confirms the post-2b tier-lethality trace — deaths are
+fresh-entry elite one-shots (Warchief @ HP19/20, Hag @ HP41, Roper,
+Young Red Dragon), not chained-interrupt cascades. The two levers
+target the cascade path that's now mostly resolved; they have no
+remaining death-fraction to convert. Phase 2c (roster dilution) is
+justified rather than premature.
+
 ### Phase 2c — roster gate (next)
 
 Promote softer mid-tier monsters to `IsElite: true` in zones whose

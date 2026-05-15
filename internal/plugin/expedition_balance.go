@@ -97,6 +97,12 @@ type expeditionBalanceProfile struct {
 	// calibration sweep sets this per cell; everyday callers leave it
 	// zero.
 	HarvestRollsPerDay int
+	// Phase 2 lever overrides (sweep-only). Zero means "use the live
+	// shipped value." Wired into the harness day loop / runHarnessFight
+	// path; the live runHarvestInterrupt is untouched. See
+	// TestExpeditionBalance_Phase2_LeverSweep.
+	RetreatThreatBumpOverride   int
+	SurpriseNickDivisorOverride int
 }
 
 // expeditionTrialResult is the outcome of one simulated expedition.
@@ -274,7 +280,7 @@ func (h *expeditionHarness) advanceExpeditionOneDay() expeditionTrialResult {
 					// dnd_expedition_combat.go (Phase 2). Run continues
 					// with carryover HP and a threat bump; the harvest
 					// slot's loot is just forfeit.
-					h.exp.ThreatLevel += retreatThreatBump
+					h.exp.ThreatLevel += h.resolvedRetreatBump()
 					if h.exp.ThreatLevel > 100 {
 						h.exp.ThreatLevel = 100
 					}
@@ -333,6 +339,25 @@ func (h *expeditionHarness) advanceExpeditionOneDay() expeditionTrialResult {
 	return expeditionTrialResult{}
 }
 
+// resolvedRetreatBump returns the per-harness lever override or the
+// shipped retreatThreatBump if no override is set. Zero is the "use
+// live" sentinel so the field's zero value remains safe.
+func (h *expeditionHarness) resolvedRetreatBump() int {
+	if h.retreatThreatBumpOverride > 0 {
+		return h.retreatThreatBumpOverride
+	}
+	return retreatThreatBump
+}
+
+// resolvedNickDivisor returns the per-harness override or the shipped
+// liveSurpriseNickDivisor. Same zero-sentinel contract as above.
+func (h *expeditionHarness) resolvedNickDivisor() int {
+	if h.surpriseNickDivisorOverride > 0 {
+		return h.surpriseNickDivisorOverride
+	}
+	return liveSurpriseNickDivisor
+}
+
 // terminate stamps the final trial result with shared bookkeeping
 // (days elapsed, threat at end, encounter count, HP%).
 func (h *expeditionHarness) terminate(reason string, completed, died, starved bool) expeditionTrialResult {
@@ -376,7 +401,11 @@ func (h *expeditionHarness) runHarnessFight(zone ZoneDefinition, elite bool) Com
 	// (clampSurpriseNick) that breaks the chained-interrupt death
 	// spiral. Mirror live exactly so the harness measures the same
 	// lever the live caller applies.
-	nick := clampSurpriseNick(surpriseRoundNick(monster, int(zone.Tier)), h.char.HPCurrent, h.char.HPMax)
+	nick := clampSurpriseNickD(
+		surpriseRoundNick(monster, int(zone.Tier)),
+		h.char.HPCurrent, h.char.HPMax,
+		h.resolvedNickDivisor(),
+	)
 	h.char.HPCurrent -= nick
 
 	player := buildHarnessPlayer(h.char)
@@ -487,6 +516,10 @@ type expeditionHarness struct {
 	rng          *harnessRNG
 	encounters   int
 	rollsPerDay  int // resolved from profile + default; never zero
+	// Lever overrides for the Phase 2 sweep. Zero on both fields ⇒
+	// live behavior (retreatThreatBump=5, /5 surprise-nick divisor).
+	retreatThreatBumpOverride   int
+	surpriseNickDivisorOverride int
 	// traceFight, if non-nil, is invoked once per fight inside
 	// runHarnessFight with a human-readable summary. Used by the
 	// Phase 2 lethality probe to spot whether the nick, the picked
@@ -531,10 +564,12 @@ func runExpeditionBalanceTrial(p expeditionBalanceProfile, seed uint64) expediti
 		rolls = harnessHarvestRollsPerDay
 	}
 	h := &expeditionHarness{
-		exp:         exp,
-		char:        char,
-		rng:         newHarnessRNG(seed),
-		rollsPerDay: rolls,
+		exp:                         exp,
+		char:                        char,
+		rng:                         newHarnessRNG(seed),
+		rollsPerDay:                 rolls,
+		retreatThreatBumpOverride:   p.RetreatThreatBumpOverride,
+		surpriseNickDivisorOverride: p.SurpriseNickDivisorOverride,
 	}
 	for {
 		res := h.advanceExpeditionOneDay()

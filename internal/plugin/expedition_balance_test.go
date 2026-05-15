@@ -495,6 +495,119 @@ func TestExpeditionBalance_Phase2_TierLethality(t *testing.T) {
 	}
 }
 
+// TestExpeditionBalance_Phase2_LeverSweep is the tuning sweep the
+// plan doc's Phase 2 "global lever tuning" step calls for. Phases 2a
+// and 2b surfaced two knobs — retreatThreatBump (the threat penalty
+// on a wounded-but-alive break-off) and the surprise-nick wounded-
+// entrant divisor (the wounded-fighter lethality clamp) — but the
+// post-2b matrix still reads uniform 0% completion across every
+// tier. The question this test answers: do alternate settings of
+// those two knobs lift the centerline off the floor, and if so by
+// how much per tier?
+//
+// Shape mirrors Phase2_CadenceCalibration: one cell per tier (zone
+// at tier centerline level), Fighter, default cadence (rolls=4),
+// 200 trials, full grid of (bump × divisor). Diagnostic-only — no
+// assertions; the plan-doc test that gates the ±10pp band is added
+// after this sweep names a winner.
+//
+// Cost: 9 lever combos × |zones| × 200 trials. -short skips the
+// sweep entirely.
+func TestExpeditionBalance_Phase2_LeverSweep(t *testing.T) {
+	if testing.Short() {
+		t.Skip("phase 2 lever sweep is heavy; -short skips it")
+	}
+
+	const trialsPerCell = 200
+	const baseSeed uint64 = 0xB001E5
+
+	// Live values are bump=5 (Phase 2a) and divisor=5 (Phase 2b). The
+	// sweep walks two settings tighter (gentler) and one looser
+	// (harsher) for each knob so the live point sits in the middle of
+	// the grid and we can read the slope in both directions.
+	bumps := []int{2, 5, 10}        // threat-bump per retreat
+	divisors := []int{3, 5, 8, 12}  // /N wounded-nick divisor; bigger = gentler
+
+	t.Logf("phase2 lever sweep — %d zones × %d bump × %d divisor × %d trials, Fighter @ tier centerline (rolls=4)",
+		len(zoneOrder), len(bumps), len(divisors), trialsPerCell)
+
+	type tierStat struct {
+		cells int
+		sumC  float64
+		lo    float64
+		hi    float64
+	}
+
+	for _, bump := range bumps {
+		for _, div := range divisors {
+			tierStats := map[ZoneTier]*tierStat{}
+			t.Logf("─── retreatThreatBump=%d  surpriseNickDivisor=%d ───", bump, div)
+			for i, id := range zoneOrder {
+				zone, ok := getZone(id)
+				if !ok {
+					t.Fatalf("zoneOrder[%d]=%q not in registry", i, id)
+				}
+				level, ok := phase1TierCenterline[zone.Tier]
+				if !ok {
+					t.Fatalf("zone %q has tier %d with no phase1 centerline mapping", id, zone.Tier)
+				}
+				profile := expeditionBalanceProfile{
+					ZoneID:                      id,
+					Class:                       ClassFighter,
+					Level:                       level,
+					Supplies:                    makeSupplies(zone.Tier, SupplyPurchase{StandardPacks: 3}),
+					CampType:                    CampTypeStandard,
+					RetreatThreatBumpOverride:   bump,
+					SurpriseNickDivisorOverride: div,
+				}
+				// Seed schedule: Phase 1 base + cell offset, plus a
+				// lever-dependent salt so each (bump, div) cell sees a
+				// fresh RNG stream rather than aliasing earlier sweeps.
+				seed := baseSeed + uint64(i)*1_000_003 + uint64(bump)*101 + uint64(div)*7919
+				r := runExpeditionBalanceCell(profile, trialsPerCell, seed)
+
+				c := r.CompletionRate() * 100
+				t.Logf("CELL  b=%-2d d=%-2d  %-18s T%d  L%-2d  comp=%5.1f%% death=%5.1f%% starve=%5.1f%% med_days=%2d med_threat=%3d encs=%4.1f hp_left=%5.1f%%",
+					bump, div, zone.ID, zone.Tier, r.Profile.Level,
+					c,
+					r.DeathRate()*100,
+					float64(r.StarvedOuts)/float64(r.Trials)*100,
+					r.MedianDays, r.MedianThreatEnd,
+					r.AvgEncounters, r.AvgHPRemainingPct*100,
+				)
+
+				ts, ok := tierStats[zone.Tier]
+				if !ok {
+					ts = &tierStat{lo: math.Inf(1), hi: math.Inf(-1)}
+					tierStats[zone.Tier] = ts
+				}
+				ts.cells++
+				ts.sumC += c
+				if c < ts.lo {
+					ts.lo = c
+				}
+				if c > ts.hi {
+					ts.hi = c
+				}
+			}
+
+			tiers := []ZoneTier{
+				ZoneTierBeginner, ZoneTierApprentice, ZoneTierJourneyman,
+				ZoneTierVeteran, ZoneTierLegendary,
+			}
+			for _, tier := range tiers {
+				ts := tierStats[tier]
+				if ts == nil || ts.cells == 0 {
+					continue
+				}
+				mean := ts.sumC / float64(ts.cells)
+				t.Logf("TIER  b=%-2d d=%-2d  T%d  n=%d  mean_comp=%5.1f%%  spread=%5.1f pp",
+					bump, div, tier, ts.cells, mean, ts.hi-ts.lo)
+			}
+		}
+	}
+}
+
 // joinZones is a tiny helper kept local to the test file so the
 // per-tier log line reads in one logical chunk without pulling in
 // strings.Join's import for production code.

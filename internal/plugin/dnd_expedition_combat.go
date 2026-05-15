@@ -232,14 +232,30 @@ func surpriseRoundNick(m DnDMonsterTemplate, tier int) int {
 //
 // Tuning surface: the /5 divisor is the wounded-fighter lethality knob.
 // Tighter (e.g. /10) is gentler; looser (/3) re-opens the cascade. See
-// gogobee_expedition_difficulty.md Phase 2b.
+// gogobee_expedition_difficulty.md Phase 2b. liveSurpriseNickDivisor
+// names the shipped value; the harness Phase 2 lever sweep
+// (TestExpeditionBalance_Phase2_LeverSweep) calls clampSurpriseNickD
+// directly with alternate divisors. Live callers always go through
+// clampSurpriseNick.
+const liveSurpriseNickDivisor = 5
+
 func clampSurpriseNick(rawNick, hpCurrent, hpMax int) int {
+	return clampSurpriseNickD(rawNick, hpCurrent, hpMax, liveSurpriseNickDivisor)
+}
+
+// clampSurpriseNickD is the divisor-parameterized form used by the
+// sim harness lever sweep. divisor <= 0 falls back to the shipped
+// value so a zero-valued harness override behaves as "use live."
+func clampSurpriseNickD(rawNick, hpCurrent, hpMax, divisor int) int {
 	if rawNick <= 0 || hpCurrent <= 0 {
 		return 0
 	}
+	if divisor <= 0 {
+		divisor = liveSurpriseNickDivisor
+	}
 	nick := rawNick
 	if hpCurrent < hpMax {
-		cap := hpCurrent / 5
+		cap := hpCurrent / divisor
 		if cap < 1 {
 			cap = 1
 		}
