@@ -253,6 +253,61 @@ density) or supply margin.
 on top of e=23/d=1 to push T1-T3 toward target band and lift T4-T5
 off the floor.
 
+#### Phase 3-B — nick-floor + supply-burn sweep (shipped)
+
+Wired two more harness overrides (`SurpriseNickFloorOverride`,
+`SupplyBurnRatePctOverride`) and swept a 3×3 grid (floor ∈ {0, 1, tier
+(=live)} × burn% ∈ {50, 75, 100 (=live)}) on top of the Phase 3-A best
+cell (e=23, d=1). Test: `TestExpeditionBalance_Phase3B_NickSupplySweep`.
+
+**Strong partial positive for T5 supply margin; nick-floor lever inert.**
+
+Tier-mean completion (Fighter, centerline level, 10 zones × 200 trials):
+
+| (floor, burn%) | T1 mean | T2  | T3  | T4   | T5   |
+|----------------|--------:|----:|----:|-----:|-----:|
+| 0,    50       | 20.8%   | 5.0%| 3.8%| 7.5% | 29.5%|
+| 0,    75       | 26.5%   | 6.0%| 2.8%| 9.0% | 0.0% |
+| 0,   100       | 25.8%   | 5.0%| 3.0%| 0.0% | 0.0% |
+| 1,    50       | 25.5%   | 6.5%| 1.8%| 8.5% | 27.8%|
+| 1,    75       | 28.5%   | 6.2%| 4.0%|11.5% | 0.0% |
+| 1,   100       | 26.8%   | 7.5%| 2.5%| 0.0% | 0.0% |
+| tier, 50       | 26.8%   | 6.2%| 2.5%| 7.8% | 27.5%|
+| tier, 75 (live floor) | **29.5%** | **7.8%** | 3.0% | **12.8%** | 0.0% |
+| tier,100 (live)| 28.5%   | 6.8%| 3.0%| 0.0% | 0.0% |
+
+Three readings:
+
+1. **Supply burn is the T5 unlock.** dragons_lair completes ~55% at
+   burn=50 (versus 0% at burn=75/100) — the fighter survives elites
+   but starves en route. burn=75 isn't enough margin; burn=50
+   converts the starvation-out into a completion.
+2. **Supply burn is the T4 modulator.** underdark/feywild step from
+   0% (burn=100) → 12% (burn=75) → 8% (burn=50). The burn=75 peak is
+   the sweet spot; halving further leaves the fighter alive *into*
+   more elite fights, where it dies in combat instead.
+3. **Nick-floor lever is inert.** Across all burn levels, dropping
+   the surprise-round floor from `tier` → `1` → `0` moves T1-T3
+   means by at most ~3pp. The wounded-clamp (Phase 2b,
+   `clampSurpriseNick`) already eats the chip-damage budget on
+   repeat entries; the raw floor only matters on the first fresh-HP
+   swing, which the engine recovers from. **Recommendation: discard
+   this lever from the live-tuning candidate list.**
+
+**T2-T3 wall persists.** Even at the best (floor=tier, burn=75) cell:
+T2 reads 7.8% (target 62-82%) and T3 reads 3.0% (target 54-74%).
+forest_shadows T2, manor_blackspire T3, and abyss_portal T5 sit at
+~0% across every combo — these are zone-specific outliers, not
+addressable by any global lever. **Phase 4 (per-zone outlier pass)
+is the next move.**
+
+**Next:** Phase 4 walks the matrix zone-by-zone. The shipped Phase 3
+sweep already names the worst offenders (forest_shadows T2,
+manor_blackspire T3, abyss_portal T5, crypt_valdris T1); each needs a
+diagnostic trace (boss stat-block, roster mix, supply DC) to pick the
+right per-zone tool from `Phase 4`'s list. Optional: revisit shipping
+the burn=75 global if Phase 4 outlier fixes leave T4 still stuck.
+
 ### Phase 4 — per-zone outlier pass
 
 After globals settle, the matrix will name outlier zones — tiers

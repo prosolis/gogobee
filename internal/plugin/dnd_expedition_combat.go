@@ -203,11 +203,24 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 // surpriseRoundNick computes a small HP nick representing the enemy's
 // free first swing. Roughly attack-bonus + 1d4, with a tier-based floor.
 func surpriseRoundNick(m DnDMonsterTemplate, tier int) int {
+	return surpriseRoundNickF(m, tier, -1)
+}
+
+// surpriseRoundNickF is the floor-parameterized form used by the Phase
+// 3-B sim harness lever sweep. floorOverride < 0 means "use live"
+// (floor = tier); floorOverride >= 0 substitutes that absolute value
+// as the floor (0 disables the floor entirely). Live callers always go
+// through surpriseRoundNick. See gogobee_expedition_difficulty.md
+// Phase 3-B.
+func surpriseRoundNickF(m DnDMonsterTemplate, tier, floorOverride int) int {
 	if tier < 1 {
 		tier = 1
 	}
 	dmg := 1 + rand.IntN(4) + m.AttackBonus/2
 	floor := tier
+	if floorOverride >= 0 {
+		floor = floorOverride
+	}
 	if dmg < floor {
 		dmg = floor
 	}

@@ -720,6 +720,141 @@ func TestExpeditionBalance_Phase3_GlobalLeverSweep(t *testing.T) {
 	}
 }
 
+// TestExpeditionBalance_Phase3B_NickSupplySweep is the second
+// global-tuning sweep from gogobee_expedition_difficulty.md. Phase 3-A
+// surfaced the elite-bracket threshold as the dominant T1–T3 lever
+// (e=23/d=1 lifted T1 from 3% → 24%) but exposed a tail-side
+// fingerprint shift: T4/T5 dragons_lair death dropped 60% → 24% while
+// starvation climbed to 75% — the fighter now survives elites long
+// enough to run out of food. Phase 3-A picked the best cell but it
+// still leaves every tier well below target band (T1 70-90%, T2
+// 62-82%, …, T5 ~40%).
+//
+// Phase 3-B holds the Phase 3-A best cell (eliteInterruptThreshold=23,
+// threatDriftBase=1) and walks two more global knobs:
+//
+//   surpriseNickFloor (live=tier, i.e. 1..5 by zone tier) — the raw
+//   surprise-round nick on a fresh-HP entry. Lower floor = less
+//   per-fight chip on T4/T5 standard fights, where the live tier=4-5
+//   floor is the biggest single contributor to the wear-down curve
+//   that funnels survivors into starvation. Sweep {-1 (disable, =0),
+//   1 (flat), 0-sentinel (live tier)}.
+//
+//   supplyBurnRatePct (live=100, %) — daily supply burn scalar. Lower
+//   = more days of margin. T4 and T5 burns are 3×/4× the T1 baseline;
+//   halving them ought to convert the starvation outs we saw in
+//   Phase 3-A into actual completions if survivability is the only
+//   remaining blocker, or leave them dying in combat if it isn't.
+//   Sweep {100 (live), 75, 50}.
+//
+// 3×3 = 9 combos × 10 zones × 200 trials/cell, all on top of the
+// Phase 3-A best cell. Diagnostic-only — no gates beyond Phase 1
+// wiring sanity. -short skips.
+func TestExpeditionBalance_Phase3B_NickSupplySweep(t *testing.T) {
+	if testing.Short() {
+		t.Skip("phase 3-B nick/supply sweep is heavy; -short skips it")
+	}
+
+	const trialsPerCell = 200
+	const baseSeed uint64 = 0xB1C5E2
+	// Phase 3-A best cell — held constant across this sweep.
+	const eliteThreshold = 23
+	const driftBase = 1
+
+	nickFloors := []int{-1, 1, 0} // -1 disables floor; 1 flat-1; 0 = use live tier
+	burnPcts := []int{50, 75, 100}
+
+	t.Logf("phase3-B nick/supply sweep — %d zones × %d nick-floors × %d burn-pcts × %d trials, Fighter @ tier centerline (rolls=4); base e=%d d=%d",
+		len(zoneOrder), len(nickFloors), len(burnPcts), trialsPerCell, eliteThreshold, driftBase)
+
+	type tierStat struct {
+		cells int
+		sumC  float64
+		lo    float64
+		hi    float64
+	}
+
+	nickLabel := func(f int) string {
+		switch {
+		case f == 0:
+			return "tier"
+		case f < 0:
+			return "0"
+		default:
+			return fmt.Sprintf("%d", f)
+		}
+	}
+
+	for _, floor := range nickFloors {
+		for _, burn := range burnPcts {
+			tierStats := map[ZoneTier]*tierStat{}
+			t.Logf("─── surpriseNickFloor=%s  supplyBurnPct=%d ───", nickLabel(floor), burn)
+			for i, id := range zoneOrder {
+				zone, ok := getZone(id)
+				if !ok {
+					t.Fatalf("zoneOrder[%d]=%q not in registry", i, id)
+				}
+				level, ok := phase1TierCenterline[zone.Tier]
+				if !ok {
+					t.Fatalf("zone %q has tier %d with no phase1 centerline mapping", id, zone.Tier)
+				}
+				profile := expeditionBalanceProfile{
+					ZoneID:                          id,
+					Class:                           ClassFighter,
+					Level:                           level,
+					Supplies:                        makeSupplies(zone.Tier, SupplyPurchase{StandardPacks: 3}),
+					CampType:                        CampTypeStandard,
+					EliteInterruptThresholdOverride: eliteThreshold,
+					ThreatDriftBaseOverride:         driftBase,
+					SurpriseNickFloorOverride:       floor,
+					SupplyBurnRatePctOverride:       burn,
+				}
+				seed := baseSeed + uint64(i)*1_000_003 +
+					uint64(floor+2)*1009 + uint64(burn)*7919
+				r := runExpeditionBalanceCell(profile, trialsPerCell, seed)
+
+				c := r.CompletionRate() * 100
+				t.Logf("CELL  f=%-4s b=%-3d  %-18s T%d  L%-2d  comp=%5.1f%% death=%5.1f%% starve=%5.1f%% med_days=%2d med_threat=%3d encs=%4.1f hp_left=%5.1f%%",
+					nickLabel(floor), burn, zone.ID, zone.Tier, r.Profile.Level,
+					c,
+					r.DeathRate()*100,
+					float64(r.StarvedOuts)/float64(r.Trials)*100,
+					r.MedianDays, r.MedianThreatEnd,
+					r.AvgEncounters, r.AvgHPRemainingPct*100,
+				)
+
+				ts, ok := tierStats[zone.Tier]
+				if !ok {
+					ts = &tierStat{lo: math.Inf(1), hi: math.Inf(-1)}
+					tierStats[zone.Tier] = ts
+				}
+				ts.cells++
+				ts.sumC += c
+				if c < ts.lo {
+					ts.lo = c
+				}
+				if c > ts.hi {
+					ts.hi = c
+				}
+			}
+
+			tiers := []ZoneTier{
+				ZoneTierBeginner, ZoneTierApprentice, ZoneTierJourneyman,
+				ZoneTierVeteran, ZoneTierLegendary,
+			}
+			for _, tier := range tiers {
+				ts := tierStats[tier]
+				if ts == nil || ts.cells == 0 {
+					continue
+				}
+				mean := ts.sumC / float64(ts.cells)
+				t.Logf("TIER  f=%-4s b=%-3d  T%d  n=%d  mean_comp=%5.1f%%  spread=%5.1f pp",
+					nickLabel(floor), burn, tier, ts.cells, mean, ts.hi-ts.lo)
+			}
+		}
+	}
+}
+
 // joinZones is a tiny helper kept local to the test file so the
 // per-tier log line reads in one logical chunk without pulling in
 // strings.Join's import for production code.

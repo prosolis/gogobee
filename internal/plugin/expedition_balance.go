@@ -121,6 +121,26 @@ type expeditionBalanceProfile struct {
 	// TestExpeditionBalance_Phase3_GlobalLeverSweep.
 	EliteInterruptThresholdOverride int
 	ThreatDriftBaseOverride         int
+
+	// Phase 3-B global-lever overrides. Zero means "use live":
+	//
+	//   SurpriseNickFloorOverride — absolute floor for the raw
+	//   surprise-round nick. Live floor is the zone tier (1..5).
+	//   Convention: 0 (the zero value) = "use live tier floor"; a
+	//   positive value sets the floor directly; -1 disables the floor
+	//   entirely (floor = 0). Lower floor = less per-fight chip damage
+	//   on fresh entries.
+	//
+	//   SupplyBurnRatePctOverride — percent multiplier on the per-day
+	//   supply burn. Zero means "use live" (100%); 50 = half burn.
+	//   Lower = more supply margin for T4/T5 where starvation is the
+	//   dominant failure mode post-Phase-3-A.
+	//
+	// Both wired into the harness day loop only; live callers go
+	// through the shipped helpers. See
+	// TestExpeditionBalance_Phase3B_NickSupplySweep.
+	SurpriseNickFloorOverride int
+	SupplyBurnRatePctOverride int
 }
 
 // expeditionTrialResult is the outcome of one simulated expedition.
@@ -248,9 +268,11 @@ func (h *expeditionHarness) advanceExpeditionOneDay() expeditionTrialResult {
 		}
 	}
 
-	// 1. Morning rollover — supply burn + day++.
+	// 1. Morning rollover — supply burn + day++. Phase 3-B sweep can
+	// scale the per-day burn via the harness profile; live callers go
+	// through applyDailyBurn at 100%.
 	harsh := h.exp.ThreatLevel > 60
-	newSupplies, _ := applyDailyBurn(h.exp.Supplies, harsh, h.exp.SiegeMode)
+	newSupplies, _ := applyDailyBurnP(h.exp.Supplies, harsh, h.exp.SiegeMode, h.supplyBurnRatePctOverride)
 	h.exp.Supplies = newSupplies
 	h.exp.CurrentDay++
 
@@ -394,6 +416,22 @@ func (h *expeditionHarness) resolvedNickDivisor() int {
 	return liveSurpriseNickDivisor
 }
 
+// resolvedNickFloor translates the harness profile's surprise-nick
+// floor override into the int contract surpriseRoundNickF expects
+// (<0 = use live tier-floor, >=0 = absolute floor value). The profile
+// uses 0 for "use live" so the struct's zero-value is the safe
+// default; -1 in the profile means "disable floor" (floor = 0).
+func (h *expeditionHarness) resolvedNickFloor() int {
+	switch {
+	case h.surpriseNickFloorOverride == 0:
+		return -1
+	case h.surpriseNickFloorOverride < 0:
+		return 0
+	default:
+		return h.surpriseNickFloorOverride
+	}
+}
+
 // terminate stamps the final trial result with shared bookkeeping
 // (days elapsed, threat at end, encounter count, HP%).
 func (h *expeditionHarness) terminate(reason string, completed, died, starved bool) expeditionTrialResult {
@@ -438,7 +476,7 @@ func (h *expeditionHarness) runHarnessFight(zone ZoneDefinition, elite bool) Com
 	// spiral. Mirror live exactly so the harness measures the same
 	// lever the live caller applies.
 	nick := clampSurpriseNickD(
-		surpriseRoundNick(monster, int(zone.Tier)),
+		surpriseRoundNickF(monster, int(zone.Tier), h.resolvedNickFloor()),
 		h.char.HPCurrent, h.char.HPMax,
 		h.resolvedNickDivisor(),
 	)
@@ -560,6 +598,10 @@ type expeditionHarness struct {
 	// (eliteInterruptThreshold=19, threatDriftBase=3).
 	eliteInterruptThresholdOverride int
 	threatDriftBaseOverride         int
+	// Phase 3-B levers. See expeditionBalanceProfile field doc; both
+	// zero-sentinel for "use live".
+	surpriseNickFloorOverride int
+	supplyBurnRatePctOverride int
 	// traceFight, if non-nil, is invoked once per fight inside
 	// runHarnessFight with a human-readable summary. Used by the
 	// Phase 2 lethality probe to spot whether the nick, the picked
@@ -612,6 +654,8 @@ func runExpeditionBalanceTrial(p expeditionBalanceProfile, seed uint64) expediti
 		surpriseNickDivisorOverride: p.SurpriseNickDivisorOverride,
 		eliteInterruptThresholdOverride: p.EliteInterruptThresholdOverride,
 		threatDriftBaseOverride:         p.ThreatDriftBaseOverride,
+		surpriseNickFloorOverride:       p.SurpriseNickFloorOverride,
+		supplyBurnRatePctOverride:       p.SupplyBurnRatePctOverride,
 	}
 	for {
 		res := h.advanceExpeditionOneDay()
