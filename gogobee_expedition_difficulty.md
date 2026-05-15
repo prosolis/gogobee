@@ -201,7 +201,7 @@ before the dragon roll lands.
 Stat-block tuning of the bosses themselves is off-limits per the
 Phase 3 constraint (bestiary is shared across systems).
 
-### Phase 2 — global lever tuning
+### Phase 3 — global lever tuning
 
 Tune the knobs that affect every zone uniformly:
 
@@ -218,9 +218,42 @@ Tune the knobs that affect every zone uniformly:
 Goal: every tier centerline lands within ±5pp of target. Bands stay
 ±10pp.
 
-**Exit:** test asserts the ±10pp band per tier; commit.
+#### Phase 3-A — elite-bracket + drift sweep (shipped)
 
-### Phase 3 — per-zone outlier pass
+Wired two harness overrides
+(`EliteInterruptThresholdOverride`, `ThreatDriftBaseOverride`) and
+swept a 3×3 grid (elite ∈ {17, 19, 23} × drift ∈ {1, 3, 5}) over
+the Phase 1 matrix. Test: `TestExpeditionBalance_Phase3_GlobalLeverSweep`.
+
+**Strong partial positive.** The elite-bracket threshold is the
+dominant lever for T1–T3; threat drift is a small modulator on top.
+
+| (elite, drift) | T1 mean | T2 mean | T3 mean | T4 mean | T5 mean |
+|----------------|--------:|--------:|--------:|--------:|--------:|
+| 17, 1 (more elites) | 0.5% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 19, 3 (live)        | 3.0% | 0.2% | 0.0% | 0.0% | 0.0% |
+| 23, 1 (rare elites) | **24.0%** | **7.2%** | **1.8%** | 0.0% | 0.0% |
+| 23, 3               | 16.5% | 4.0% | 2.0% | 0.0% | 0.0% |
+| 23, 5               | 11.8% | 3.2% | 0.2% | 0.0% | 0.0% |
+
+Best cell at e=23/d=1: goblin_warrens 40.5%, sunken_temple 14.5%.
+Still well below the T1 70-90% / T2 62-82% target bands — the lever
+moves the needle in the right direction but cannot land any tier
+on-band alone.
+
+**T4/T5 fingerprint changed but didn't lift.** At e=23 the dragons_lair
+death-fraction drops from ~60% → 24% but starvation climbs to 75% —
+the fighter now survives elites long enough to run out of supplies.
+T4 (underdark/feywild) likewise sees death drop and starvation rise.
+Indicates a second lever is needed for the higher tiers: either
+standard-fight survivability (surprise-nick floor / standard roster
+density) or supply margin.
+
+**Next:** Phase 3-B sweeps surprise-round nick and supply-burn knobs
+on top of e=23/d=1 to push T1-T3 toward target band and lift T4-T5
+off the floor.
+
+### Phase 4 — per-zone outlier pass
 
 After globals settle, the matrix will name outlier zones — tiers
 where one zone reads dramatically off-band while sibling zones are
@@ -238,7 +271,7 @@ not the monsters themselves.
 
 **Exit:** all per-zone cells within band; commit.
 
-### Phase 4 — optional MAD / second-order
+### Phase 5 — optional MAD / second-order
 
 If post-Phase-3 the bands hold but feel wrong subjectively
 (e.g. "median days too short", "no expedition ever hits Siege"), add a

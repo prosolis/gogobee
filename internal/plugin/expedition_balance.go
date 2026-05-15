@@ -103,6 +103,24 @@ type expeditionBalanceProfile struct {
 	// TestExpeditionBalance_Phase2_LeverSweep.
 	RetreatThreatBumpOverride   int
 	SurpriseNickDivisorOverride int
+
+	// Phase 3 global-lever overrides. Zero means "use live":
+	//
+	//   EliteInterruptThresholdOverride — total (raw + tier + threat-mod)
+	//   at which the harvest-interrupt bracket promotes from Standard
+	//   to Elite. Live value is 19 (dnd_expedition_combat.go: bracket
+	//   table). Higher = fewer elites; lower = more.
+	//
+	//   ThreatDriftBaseOverride — daily threat-clock drift base before
+	//   DM-mood mod. Live value is 3 (dnd_expedition_threat.go:
+	//   dailyThreatDrift). Lower = slower AC/init creep + slower
+	//   bracket promotion via the +1/20-over-40 threat-mod path.
+	//
+	// Both wired into the harness day loop only; live callers go
+	// through the shipped constants. See
+	// TestExpeditionBalance_Phase3_GlobalLeverSweep.
+	EliteInterruptThresholdOverride int
+	ThreatDriftBaseOverride         int
 }
 
 // expeditionTrialResult is the outcome of one simulated expedition.
@@ -243,9 +261,15 @@ func (h *expeditionHarness) advanceExpeditionOneDay() expeditionTrialResult {
 
 	// 3. Daily threat drift — math is in dailyThreatDrift (pure);
 	// applyDailyThreatDrift's DB write is bypassed but the in-memory
-	// mutation is mirrored here.
+	// mutation is mirrored here. Phase 3 sweep can override the base
+	// drift constant via the harness profile.
 	if !h.exp.BossDefeated {
 		delta, _ := dailyThreatDrift(h.exp.DMMood)
+		if h.threatDriftBaseOverride > 0 {
+			// dailyThreatDrift returns base(3) + mood-mod. Swap the
+			// base while preserving the mood-mod component.
+			delta = h.threatDriftBaseOverride + (delta - 3)
+		}
 		h.exp.ThreatLevel += delta
 		if h.exp.ThreatLevel < 0 {
 			h.exp.ThreatLevel = 0
@@ -258,9 +282,21 @@ func (h *expeditionHarness) advanceExpeditionOneDay() expeditionTrialResult {
 
 	// 4. Daytime combat-interrupt rolls.
 	for i := 0; i < h.rollsPerDay; i++ {
-		kind, _ := resolveCombatInterrupt(
+		kind, total := resolveCombatInterrupt(
 			h.exp.ThreatLevel, int(zone.Tier), h.char.Class, h.exp.ZoneID, h.rng.d20,
 		)
+		// Phase 3 lever: re-bucket Standard ↔ Elite using the override
+		// threshold instead of the live 19+ cutoff. Patrol (≥22) and
+		// the Noise/None floor are unchanged.
+		if h.eliteInterruptThresholdOverride > 0 &&
+			(kind == InterruptStandard || kind == InterruptElite) &&
+			total < 22 {
+			if total >= h.eliteInterruptThresholdOverride {
+				kind = InterruptElite
+			} else if total >= 15 {
+				kind = InterruptStandard
+			}
+		}
 		switch kind {
 		case InterruptNone:
 			continue
@@ -520,6 +556,10 @@ type expeditionHarness struct {
 	// live behavior (retreatThreatBump=5, /5 surprise-nick divisor).
 	retreatThreatBumpOverride   int
 	surpriseNickDivisorOverride int
+	// Lever overrides for the Phase 3 sweep. Zero ⇒ live behavior
+	// (eliteInterruptThreshold=19, threatDriftBase=3).
+	eliteInterruptThresholdOverride int
+	threatDriftBaseOverride         int
 	// traceFight, if non-nil, is invoked once per fight inside
 	// runHarnessFight with a human-readable summary. Used by the
 	// Phase 2 lethality probe to spot whether the nick, the picked
@@ -570,6 +610,8 @@ func runExpeditionBalanceTrial(p expeditionBalanceProfile, seed uint64) expediti
 		rollsPerDay:                 rolls,
 		retreatThreatBumpOverride:   p.RetreatThreatBumpOverride,
 		surpriseNickDivisorOverride: p.SurpriseNickDivisorOverride,
+		eliteInterruptThresholdOverride: p.EliteInterruptThresholdOverride,
+		threatDriftBaseOverride:         p.ThreatDriftBaseOverride,
 	}
 	for {
 		res := h.advanceExpeditionOneDay()

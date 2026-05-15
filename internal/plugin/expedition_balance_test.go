@@ -608,6 +608,118 @@ func TestExpeditionBalance_Phase2_LeverSweep(t *testing.T) {
 	}
 }
 
+// TestExpeditionBalance_Phase3_GlobalLeverSweep is the global-tuning
+// sweep the plan doc's "Phase 3 — global lever tuning" step calls for.
+// Phase 2c (roster gate) lifted T1 goblin_warrens off the floor (~3%)
+// but every other tier still reads 0% in the post-2c Phase 1 matrix.
+// The Phase 2 lever sweep proved the wounded-cascade knobs are inert
+// once the clamp is in place — deaths are now fresh-entry elite
+// one-shots and multi-day AC/init creep, not chained nicks.
+//
+// This sweep walks two of the global knobs called out in the plan-doc
+// "Phase 3 — global lever tuning" section:
+//
+//   eliteInterruptThreshold (live=19, total roll cutoff for Elite
+//   bracket) — directly controls how often fresh-entry elite fights
+//   trigger during the daytime harvest pipeline. Sweep {17, 19, 23}:
+//   17 = more elites (slope check below live), 19 = live baseline,
+//   23 = elites only when roll+mod ≥ 23 (rare even at T5).
+//
+//   threatDriftBase (live=3, daily threat clock drift before mood-mod)
+//   — slows the multi-day AC/init/supply-burn creep that compounds
+//   over a 14-day expedition. Sweep {1, 3, 5}: 1 = nearly flat, 3 =
+//   live, 5 = harsher.
+//
+// 3×3 = 9 combos × 10 zones × 200 trials/cell. Diagnostic-only — no
+// gates beyond the Phase 1 wiring sanity. -short skips.
+func TestExpeditionBalance_Phase3_GlobalLeverSweep(t *testing.T) {
+	if testing.Short() {
+		t.Skip("phase 3 global-lever sweep is heavy; -short skips it")
+	}
+
+	const trialsPerCell = 200
+	const baseSeed uint64 = 0x9101E5
+
+	eliteThresholds := []int{17, 19, 23}
+	driftBases := []int{1, 3, 5}
+
+	t.Logf("phase3 global-lever sweep — %d zones × %d elite-thresholds × %d drift-bases × %d trials, Fighter @ tier centerline (rolls=4)",
+		len(zoneOrder), len(eliteThresholds), len(driftBases), trialsPerCell)
+
+	type tierStat struct {
+		cells int
+		sumC  float64
+		lo    float64
+		hi    float64
+	}
+
+	for _, elite := range eliteThresholds {
+		for _, drift := range driftBases {
+			tierStats := map[ZoneTier]*tierStat{}
+			t.Logf("─── eliteInterruptThreshold=%d  threatDriftBase=%d ───", elite, drift)
+			for i, id := range zoneOrder {
+				zone, ok := getZone(id)
+				if !ok {
+					t.Fatalf("zoneOrder[%d]=%q not in registry", i, id)
+				}
+				level, ok := phase1TierCenterline[zone.Tier]
+				if !ok {
+					t.Fatalf("zone %q has tier %d with no phase1 centerline mapping", id, zone.Tier)
+				}
+				profile := expeditionBalanceProfile{
+					ZoneID:                          id,
+					Class:                           ClassFighter,
+					Level:                           level,
+					Supplies:                        makeSupplies(zone.Tier, SupplyPurchase{StandardPacks: 3}),
+					CampType:                        CampTypeStandard,
+					EliteInterruptThresholdOverride: elite,
+					ThreatDriftBaseOverride:         drift,
+				}
+				seed := baseSeed + uint64(i)*1_000_003 + uint64(elite)*101 + uint64(drift)*7919
+				r := runExpeditionBalanceCell(profile, trialsPerCell, seed)
+
+				c := r.CompletionRate() * 100
+				t.Logf("CELL  e=%-2d d=%-1d  %-18s T%d  L%-2d  comp=%5.1f%% death=%5.1f%% starve=%5.1f%% med_days=%2d med_threat=%3d encs=%4.1f hp_left=%5.1f%%",
+					elite, drift, zone.ID, zone.Tier, r.Profile.Level,
+					c,
+					r.DeathRate()*100,
+					float64(r.StarvedOuts)/float64(r.Trials)*100,
+					r.MedianDays, r.MedianThreatEnd,
+					r.AvgEncounters, r.AvgHPRemainingPct*100,
+				)
+
+				ts, ok := tierStats[zone.Tier]
+				if !ok {
+					ts = &tierStat{lo: math.Inf(1), hi: math.Inf(-1)}
+					tierStats[zone.Tier] = ts
+				}
+				ts.cells++
+				ts.sumC += c
+				if c < ts.lo {
+					ts.lo = c
+				}
+				if c > ts.hi {
+					ts.hi = c
+				}
+			}
+
+			tiers := []ZoneTier{
+				ZoneTierBeginner, ZoneTierApprentice, ZoneTierJourneyman,
+				ZoneTierVeteran, ZoneTierLegendary,
+			}
+			for _, tier := range tiers {
+				ts := tierStats[tier]
+				if ts == nil || ts.cells == 0 {
+					continue
+				}
+				mean := ts.sumC / float64(ts.cells)
+				t.Logf("TIER  e=%-2d d=%-1d  T%d  n=%d  mean_comp=%5.1f%%  spread=%5.1f pp",
+					elite, drift, tier, ts.cells, mean, ts.hi-ts.lo)
+			}
+		}
+	}
+}
+
 // joinZones is a tiny helper kept local to the test file so the
 // per-tier log line reads in one logical chunk without pulling in
 // strings.Join's import for production code.
