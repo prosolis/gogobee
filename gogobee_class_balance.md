@@ -86,9 +86,16 @@ HP-remaining, and near-death-rate are logged as diagnostics, not asserted.
 - **Phase 0 — spike.** Harness skeleton; equipment + spell-selection policies;
   run *Fighter vs. Mage only* across tiers and sanity-check plausibility
   (both win something; casters not at 0%). If the numbers are implausible, fix
-  the policies before trusting anything. **← current**
+  the policies before trusting anything. **Done — commit 0878b4e.**
 - **Phase 1 — harness + matrix.** Generalize to all 10 classes × 30 subclasses;
   `TestClassBalance` logs the full report. No tuning yet — just measurement.
+  **Done.** Subclass field plumbed through the harness, `applySubclassPassives`
+  wired in to match live combat order, `buildPhase1Profiles` produces 190 rows
+  (10 × 4 pre-subclass + 10 × 3 × 5 post-subclass), `TestClassBalance_Phase1_FullMatrix`
+  logs the cells plus per-class tier means and ranges. Phase-2 calibration baseline:
+  at T4 the cross-class spread of *mean* win rate runs Bard 0.62 → Fighter 0.80
+  (~18pp); at T5 0.48 → 0.64 (~16pp); casters trail martials at the post-unlock
+  tier (T3) by ~20pp. **← current**
 - **Phase 2 — tuning pass.** Adjust the levers (class passives → subclass tiers
   → spell dice → AC floor → attack bonus, in that order) until the parity band
   holds. Lock the band into the test assertion.

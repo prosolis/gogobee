@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"sort"
 	"testing"
 )
 
@@ -82,5 +83,151 @@ func TestClassBalance_Phase0_FighterVsMage(t *testing.T) {
 	if fighterT1-mageT1 > 0.50 {
 		t.Errorf("Mage L1 T1 win rate %.2f vs Fighter %.2f — gap > 50pp suggests spell policy isn't firing",
 			mageT1, fighterT1)
+	}
+}
+
+// Phase 1 — full matrix measurement. Per gogobee_class_balance.md §5
+// Phase 1: "Generalize to all 10 classes × 30 subclasses; TestClassBalance
+// logs the full report. No tuning yet — just measurement."
+//
+// This test does not assert balance. The only failures it catches are
+// harness-broken pathologies — a profile that's 0% at T1 across the board
+// (build can't damage anything), or an L1-pre-subclass build that's 100%
+// at T5 (monster scaling collapsed). Per-tier parity bands land in Phase 2
+// once we have data to calibrate the tolerance.
+//
+// Skipped under -short. 190 profiles × 5 tiers × 200 trials = 190k
+// simulated fights; runs in a few seconds.
+func TestClassBalance_Phase1_FullMatrix(t *testing.T) {
+	if testing.Short() {
+		t.Skip("phase-1 matrix — measurement only")
+	}
+
+	profiles := buildPhase1Profiles()
+	const trials = 200
+	results := runClassBalanceMatrix(profiles, trials)
+
+	// Index results for table layout: rows = (class, subclass, level),
+	// columns = tier. Group by class so the log reads class-by-class.
+	type rowKey struct {
+		Class    DnDClass
+		Subclass DnDSubclass
+		Level    int
+	}
+	rows := make(map[rowKey]map[int]classBalanceResult, len(profiles))
+	for _, r := range results {
+		k := rowKey{r.Profile.Class, r.Profile.Subclass, r.Profile.Level}
+		if rows[k] == nil {
+			rows[k] = make(map[int]classBalanceResult, 5)
+		}
+		rows[k][r.Tier] = r
+	}
+
+	t.Logf("class-balance Phase 1 — full matrix, %d trials/cell", trials)
+	t.Logf("%-10s %-18s %-3s   T1     T2     T3     T4     T5", "class", "subclass", "lvl")
+
+	// Per-tier accumulators for a tail summary — mean win rate by class
+	// across all of its rows at each tier, plus the cross-class spread.
+	type tierAgg struct {
+		sum    float64
+		count  int
+		minVal float64
+		maxVal float64
+	}
+	classTier := make(map[DnDClass]map[int]*tierAgg)
+	for _, ci := range dndClasses {
+		classTier[ci.Key] = map[int]*tierAgg{
+			1: {minVal: 1}, 2: {minVal: 1}, 3: {minVal: 1},
+			4: {minVal: 1}, 5: {minVal: 1},
+		}
+	}
+
+	for _, ci := range dndClasses {
+		// pre-subclass rows first, then each subclass's L5+ rows.
+		for _, lvl := range phase1PreSubclassLevels {
+			row := rows[rowKey{ci.Key, "", lvl}]
+			t.Logf("%-10s %-18s %-3d   %.3f  %.3f  %.3f  %.3f  %.3f",
+				ci.Key, "—", lvl,
+				row[1].WinRate(), row[2].WinRate(), row[3].WinRate(),
+				row[4].WinRate(), row[5].WinRate())
+			for tier := 1; tier <= 5; tier++ {
+				ta := classTier[ci.Key][tier]
+				wr := row[tier].WinRate()
+				ta.sum += wr
+				ta.count++
+				if wr < ta.minVal {
+					ta.minVal = wr
+				}
+				if wr > ta.maxVal {
+					ta.maxVal = wr
+				}
+			}
+		}
+		for _, si := range subclassesForClass(ci.Key) {
+			for _, lvl := range phase1SubclassLevels {
+				row := rows[rowKey{ci.Key, si.ID, lvl}]
+				t.Logf("%-10s %-18s %-3d   %.3f  %.3f  %.3f  %.3f  %.3f",
+					ci.Key, si.ID, lvl,
+					row[1].WinRate(), row[2].WinRate(), row[3].WinRate(),
+					row[4].WinRate(), row[5].WinRate())
+				for tier := 1; tier <= 5; tier++ {
+					ta := classTier[ci.Key][tier]
+					wr := row[tier].WinRate()
+					ta.sum += wr
+					ta.count++
+					if wr < ta.minVal {
+						ta.minVal = wr
+					}
+					if wr > ta.maxVal {
+						ta.maxVal = wr
+					}
+				}
+			}
+		}
+	}
+
+	// Per-class summary: mean win rate per tier, sorted by overall mean
+	// (lowest first). Useful at a glance to spot the outliers Phase 2 will
+	// tune.
+	t.Logf("")
+	t.Logf("per-class mean win rate by tier (range in brackets):")
+	t.Logf("%-10s   T1            T2            T3            T4            T5", "class")
+	classKeys := make([]DnDClass, 0, len(dndClasses))
+	for _, ci := range dndClasses {
+		classKeys = append(classKeys, ci.Key)
+	}
+	overall := func(c DnDClass) float64 {
+		var s float64
+		for tier := 1; tier <= 5; tier++ {
+			ta := classTier[c][tier]
+			if ta.count > 0 {
+				s += ta.sum / float64(ta.count)
+			}
+		}
+		return s
+	}
+	sort.SliceStable(classKeys, func(i, j int) bool {
+		return overall(classKeys[i]) < overall(classKeys[j])
+	})
+	for _, c := range classKeys {
+		t.Logf("%-10s   %.2f [%.2f-%.2f]  %.2f [%.2f-%.2f]  %.2f [%.2f-%.2f]  %.2f [%.2f-%.2f]  %.2f [%.2f-%.2f]",
+			c,
+			classTier[c][1].sum/float64(classTier[c][1].count), classTier[c][1].minVal, classTier[c][1].maxVal,
+			classTier[c][2].sum/float64(classTier[c][2].count), classTier[c][2].minVal, classTier[c][2].maxVal,
+			classTier[c][3].sum/float64(classTier[c][3].count), classTier[c][3].minVal, classTier[c][3].maxVal,
+			classTier[c][4].sum/float64(classTier[c][4].count), classTier[c][4].minVal, classTier[c][4].maxVal,
+			classTier[c][5].sum/float64(classTier[c][5].count), classTier[c][5].minVal, classTier[c][5].maxVal,
+		)
+	}
+
+	// Harness-broken gates only. Tuned-balance assertions land in Phase 2.
+	for _, r := range results {
+		if r.Tier == 1 && r.WinRate() == 0 {
+			t.Errorf("%s/%s L%d T1 win rate is 0%% — the build can't damage anything; loadout or spell policy is dead",
+				r.Profile.Class, r.Profile.Subclass, r.Profile.Level)
+		}
+		if r.Tier == 5 && r.Profile.Level == 1 && r.WinRate() == 1 {
+			t.Errorf("%s L1 T5 win rate is 100%% — monster scaling looks broken", r.Profile.Class)
+		}
 	}
 }

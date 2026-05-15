@@ -5,7 +5,10 @@ import (
 	"sort"
 )
 
-// Phase 0 spike for the class-balance pass (gogobee_class_balance.md).
+// Measurement harness for the class-balance pass (gogobee_class_balance.md).
+// Phase 0 introduced this for a Fighter-vs-Mage spike; Phase 1 extended it
+// to drive the full 10-class × 30-subclass matrix (subclass==""  at L1–L4,
+// each of a class's three subclasses at the L5/L7/L10/L15/L20 checkpoints).
 //
 // Sibling to dnd_race_balance.go — same spirit, different method. Races
 // don't fight, so race balance had to use a hand-weighted scoring proxy.
@@ -25,8 +28,6 @@ import (
 //   - DB-touching layers: applyMagicItemEffects, applyArmedAbility, and
 //     the SaveDnDCharacter inside applyPendingCast. The harness is pure
 //     Go; tests run without a sqlite instance.
-//   - Subclass passives: doc §2 specifies subclass = none below L5, and
-//     we only need L1–L4 to sanity-check Phase 0.
 //   - Race passives beyond Human (+1 all): neutral baseline, again per §2.
 //   - Inventory consumables: empty.
 //
@@ -43,8 +44,9 @@ import (
 // shipped in the race-balance pass) so class numbers aren't skewed by
 // racial mods.
 type classBalanceProfile struct {
-	Class DnDClass
-	Level int
+	Class    DnDClass
+	Subclass DnDSubclass // empty below L5, per doc §2
+	Level    int
 }
 
 // classBalanceResult is the empirical performance of one profile against
@@ -316,10 +318,11 @@ func buildHarnessCharacter(p classBalanceProfile) *DnDCharacter {
 	scores := classStatPriority(p.Class)
 	scores = applyRaceMods(RaceHuman, scores)
 	c := &DnDCharacter{
-		Race:  RaceHuman,
-		Class: p.Class,
-		Level: p.Level,
-		STR:   scores[0], DEX: scores[1], CON: scores[2],
+		Race:     RaceHuman,
+		Class:    p.Class,
+		Subclass: p.Subclass,
+		Level:    p.Level,
+		STR:      scores[0], DEX: scores[1], CON: scores[2],
 		INT: scores[3], WIS: scores[4], CHA: scores[5],
 	}
 	conMod := abilityModifier(c.CON)
@@ -361,9 +364,13 @@ func buildHarnessPlayer(c *DnDCharacter) Combatant {
 		stats.AC = computeArmorAC(armor, shield, abilityModifier(c.DEX))
 	}
 
-	// 3. Passives (no subclass in Phase 0).
+	// 3. Passives. Live order is class → race → subclass (see
+	// combat_bridge.go and combat_session_build.go). Subclass passives are
+	// a no-op when c.Subclass == "" — the harness uses that for the L1–L4
+	// pre-unlock rows.
 	applyClassPassives(&stats, &mods, c)
 	applyRacePassives(&stats, &mods, c)
+	applySubclassPassives(&stats, &mods, c)
 
 	return Combatant{
 		Name:     string(c.Class),
@@ -459,6 +466,43 @@ func runClassBalanceMatrix(profiles []classBalanceProfile, trials int) []classBa
 		}
 		return out[i].Profile.Level < out[j].Profile.Level
 	})
+	return out
+}
+
+// ── Phase 1 matrix builder ───────────────────────────────────────────────────
+
+// phase1SubclassLevels is the post-unlock checkpoint ladder from doc §2.
+// L5/L7/L10/L15/L20 line up with the subclass tier-unlock structure in
+// dnd_subclass_combat.go — each row reads a class's behaviour at one more
+// unlocked tier than the row above it.
+var phase1SubclassLevels = []int{5, 7, 10, 15, 20}
+
+// phase1PreSubclassLevels is the L1–L4 ladder run with Subclass=="". Doc §2
+// notes that subclasses aren't selected until L5, so these rows measure the
+// raw class chassis.
+var phase1PreSubclassLevels = []int{1, 2, 3, 4}
+
+// buildPhase1Profiles assembles the full Phase 1 build matrix: every class
+// at L1–L4 (no subclass), then each of that class's three subclasses at
+// each of the five tier-unlock checkpoints. 10 × 4 + 10 × 3 × 5 = 190 rows.
+// Order is registry order (dndClasses, then subclassesForClass) so the
+// matrix log reads the same way as the design doc and the !class help.
+func buildPhase1Profiles() []classBalanceProfile {
+	out := make([]classBalanceProfile, 0, 10*4+10*3*5)
+	for _, ci := range dndClasses {
+		for _, lvl := range phase1PreSubclassLevels {
+			out = append(out, classBalanceProfile{Class: ci.Key, Level: lvl})
+		}
+		for _, si := range subclassesForClass(ci.Key) {
+			for _, lvl := range phase1SubclassLevels {
+				out = append(out, classBalanceProfile{
+					Class:    ci.Key,
+					Subclass: si.ID,
+					Level:    lvl,
+				})
+			}
+		}
+	}
 	return out
 }
 
