@@ -78,7 +78,7 @@ func rarityIcon(r DnDRarity) string {
 		return "🟩"
 	case RarityRare:
 		return "🟦"
-	case RarityEpic:
+	case RarityEpic, RarityVeryRare:
 		return "🟪"
 	case RarityLegendary:
 		return "🟧"

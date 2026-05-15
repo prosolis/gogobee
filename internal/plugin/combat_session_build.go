@@ -63,6 +63,7 @@ func (p *AdventurePlugin) buildZoneCombatants(
 	applyClassPassives(&playerStats, &playerMods, dndChar)
 	applyRacePassives(&playerStats, &playerMods, dndChar)
 	applySubclassPassives(&playerStats, &playerMods, dndChar)
+	applyMagicItemEffects(&playerStats, &playerMods, userID)
 	if firedName, fired := applyArmedAbility(dndChar, &playerMods); fired {
 		slog.Info("dnd: armed ability fired (turn-based build)", "user", userID, "ability", firedName)
 	}

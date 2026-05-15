@@ -65,14 +65,17 @@ var consumableDefs = []ConsumableDef{
 	{Name: "Voidstone Shard", Effect: EffectReflect, Value: 0.50, Tier: 5, Buyable: false, Slot: "defensive"},
 }
 
-// consumableDefByName returns the definition for a consumable by name.
+// consumableDefByName returns the definition for a consumable by name. Falls
+// through to the magic-item registry so SRD potions/scrolls picked up as loot
+// or bought from Luigi's Curios shelf resolve in combat without being added
+// to the hardcoded consumableDefs table (see magic_items_gameplay.go).
 func consumableDefByName(name string) *ConsumableDef {
 	for i := range consumableDefs {
 		if consumableDefs[i].Name == name {
 			return &consumableDefs[i]
 		}
 	}
-	return nil
+	return magicItemConsumableDefByName(name)
 }
 
 // ── Threat Assessment ────────────────────────────────────────────────────────

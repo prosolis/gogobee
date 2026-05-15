@@ -447,6 +447,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleBuyCmd(ctx, strings.TrimSpace(args[4:]))
 	case lower == "equip":
 		return p.handleEquipCmd(ctx)
+	case lower == "equip-magic" || lower == "equipmagic" || lower == "equip magic":
+		return p.handleEquipMagicCmd(ctx)
 	case lower == "inventory" || lower == "inv":
 		return p.handleInventoryCmd(ctx)
 	case lower == "leaderboard" || lower == "lb":
@@ -488,9 +490,10 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure status`" + ` — View your character sheet
 ` + "`!expedition`" + ` — Adventure: pick a zone, advance through rooms, harvest as you go
 ` + "`!adventure shop`" + ` — Browse equipment categories
-` + "`!adventure shop <category>`" + ` — View a category (weapon, armor, helmet, boots, tool)
+` + "`!adventure shop <category>`" + ` — View a category (weapon, armor, helmet, boots, tool, supplies, curios)
 ` + "`!adventure buy <item>`" + ` — Buy equipment (e.g. ` + "`buy Enchanted Blade`" + ` or ` + "`buy 4 sword`" + `)
 ` + "`!adventure equip`" + ` — Equip Masterwork gear from inventory
+` + "`!adventure equip-magic`" + ` — Equip magic items (curios) into your D&D slots
 ` + "`!adventure sell <item>`" + ` — Sell an inventory item (or ` + "`sell all`" + `)
 ` + "`!adventure inventory`" + ` — View your inventory
 ` + "`!adventure leaderboard`" + ` — View the leaderboard
@@ -824,6 +827,8 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.handleTreasureDiscard(ctx, interaction)
 	case "masterwork_equip":
 		return p.handleMasterworkEquipReply(ctx, interaction)
+	case "magic_equip":
+		return p.resolveMagicEquipReply(ctx, interaction)
 	case "masterwork_equip_confirm":
 		return p.handleMasterworkEquipConfirm(ctx, interaction)
 	case "rival_rps":
@@ -838,6 +843,8 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.resolveShopItemChoice(ctx, interaction)
 	case "shop_supply":
 		return p.resolveShopSupplyChoice(ctx, interaction)
+	case "shop_curio":
+		return p.resolveShopCurioChoice(ctx, interaction)
 	case "shop_confirm":
 		return p.resolveShopConfirm(ctx, interaction)
 	case "hospital_pay":

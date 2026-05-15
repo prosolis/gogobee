@@ -64,11 +64,12 @@ func (p *AdventurePlugin) handleDnDSheetCmd(ctx MessageContext) error {
 	treasures, _ := loadAdvTreasureBonuses(ctx.Sender)
 	meta, _ := loadPlayerMeta(ctx.Sender)
 	house, _ := loadHouseState(ctx.Sender)
+	magicEquip, _ := loadEquippedMagicItems(ctx.Sender)
 
-	return p.SendDM(ctx.Sender, renderDnDSheet(c, advChar, meta, house, equip, treasures))
+	return p.SendDM(ctx.Sender, renderDnDSheet(c, advChar, meta, house, equip, treasures, magicEquip))
 }
 
-func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, house HouseState, equip map[EquipmentSlot]*AdvEquipment, treasures []AdvTreasureBonus) string {
+func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, house HouseState, equip map[EquipmentSlot]*AdvEquipment, treasures []AdvTreasureBonus, magicEquip map[DnDSlot]EquippedMagicItem) string {
 	ri, _ := raceInfo(c.Race)
 	ci, _ := classInfo(c.Class)
 	mods := c.Modifiers()
@@ -135,6 +136,29 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, 
 	}
 	if !anyEquipped {
 		b.WriteString("  _(none equipped)_\n")
+	}
+
+	// Magic items — registry items worn in the D&D slots (separate from the
+	// legacy tier-gear above). Attunement items show whether they're active.
+	if len(magicEquip) > 0 {
+		b.WriteString("\n**Magic Items**\n")
+		for _, ds := range dndSlotOrder {
+			e, ok := magicEquip[ds]
+			if !ok || e.Item.ID == "" {
+				continue
+			}
+			status := ""
+			if e.Item.Attunement {
+				if e.Attuned {
+					status = " — attuned"
+				} else {
+					status = " — _inert (unattuned)_"
+				}
+			}
+			b.WriteString(fmt.Sprintf("  %s %-9s %s _(%s)_%s\n    %s\n",
+				rarityIcon(e.Item.Rarity), string(ds), e.Item.Name, e.Item.Rarity,
+				status, magicItemEffectSummary(e.Item)))
+		}
 	}
 
 	// Attunements (re-using adventure_treasures per v1.1 §7.4)

@@ -1268,6 +1268,19 @@ CREATE TABLE IF NOT EXISTS adventure_treasures (
 );
 CREATE INDEX IF NOT EXISTS idx_adv_treasure_user ON adventure_treasures(user_id);
 
+-- Magic items equipped into the D&D 10-slot scheme (Open5e SRD registry).
+-- One row per (user, DnDSlot). item_id references magicItemRegistry. Effects
+-- are applied in combat from a codified Rarity+Kind formula; attunement gates
+-- whether the item's effect counts (see magic_items_gameplay.go).
+CREATE TABLE IF NOT EXISTS magic_item_equipped (
+	user_id  TEXT NOT NULL,
+	slot     TEXT NOT NULL,
+	item_id  TEXT NOT NULL,
+	attuned  INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (user_id, slot)
+);
+CREATE INDEX IF NOT EXISTS idx_magic_item_equipped_user ON magic_item_equipped(user_id);
+
 CREATE TABLE IF NOT EXISTS adventure_buffs (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,
 	user_id    TEXT NOT NULL,

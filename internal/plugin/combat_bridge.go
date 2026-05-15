@@ -85,6 +85,7 @@ func (p *AdventurePlugin) runDungeonCombat(
 	applyClassPassives(&playerStats, &playerMods, dndChar)
 	applyRacePassives(&playerStats, &playerMods, dndChar)
 	applySubclassPassives(&playerStats, &playerMods, dndChar)
+	applyMagicItemEffects(&playerStats, &playerMods, userID)
 	if firedName, fired := applyArmedAbility(dndChar, &playerMods); fired {
 		slog.Info("dnd: armed ability fired", "user", userID, "ability", firedName)
 	}
