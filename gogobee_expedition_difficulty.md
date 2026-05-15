@@ -310,9 +310,9 @@ the burn=75 global if Phase 4 outlier fixes leave T4 still stuck.
 
 ### Phase 4 — per-zone outlier pass
 
-After globals settle, the matrix will name outlier zones — tiers
-where one zone reads dramatically off-band while sibling zones are
-fine. Per-zone tools:
+After globals settle, the matrix names outlier zones — tiers where
+one zone reads dramatically off-band while sibling zones are fine.
+Per-zone tools:
 
 - `SpawnWeight` / `IsElite` flags in zone rosters (`dnd_zone.go:100`).
 - Boss stat tuning in zone definitions.
@@ -324,7 +324,74 @@ Constraint: do not touch monster stat blocks (those belong to the
 bestiary, shared across systems). Tune the roster + zone-level knobs,
 not the monsters themselves.
 
-**Exit:** all per-zone cells within band; commit.
+#### Phase 4-A — outlier diagnostic (shipped)
+
+Added a structured per-fight trace hook (`traceFightStruct` +
+`harnessFightTrace`) alongside the existing string `traceFight`;
+both fire from the same `runHarnessFight` site so the human log and
+the structured aggregate stay in sync. Test:
+`TestExpeditionBalance_Phase4A_OutlierDiagnostic`. For each of the
+four outlier zones it pairs against the healthy sibling at the same
+tier (goblin_warrens, sunken_temple, underforge, dragons_lair),
+running 200 trials each on the Phase 3-B best cell (e=23, d=1,
+burn=50) and reporting per-monster appearances / win-rate / avg HP
+loss / kill attribution + day-of-end histogram.
+
+Findings — each outlier had one or two miscategorised entries that
+Phase 2c's single-boss-elite dilution sweep had skipped:
+
+- **crypt_valdris**: dual-killer elite pool (Wight 99k, Flameskull
+  68k); Phase 2c had skipped this zone as "already dual-elite," but
+  both elites are over-tier for T1.
+- **forest_shadows**: standard pool too lethal — Displacer Beast
+  (38% win, 53k) + Bandit Captain (57% win, 48k).
+- **manor_blackspire**: Wraith on standard slot (45hp loss per win,
+  85k).
+- **abyss_portal**: Nalfeshnee mis-classified standard (CR-13, 2.8%
+  win, 86k) + Vrock standard at 43hp loss per win.
+
+#### Phase 4-B — roster re-classification (shipped)
+
+Per-zone roster tweaks based on Phase 4-A's attribution. No monster
+stat-block touches.
+
+- crypt_valdris: dropped flameskull (lives in underforge T3);
+  promoted specter to IsElite SW=3 as the soft dilutor.
+- forest_shadows: promoted Displacer Beast + Bandit Captain to
+  IsElite; Owlbear SW 4→2 so the 4-elite pool dilutes evenly.
+- manor_blackspire: promoted Wraith to IsElite (joins
+  Spawn+Revenant).
+- abyss_portal: promoted Nalfeshnee + Vrock to IsElite (collapses
+  standard pool to Quasit alone, ≥99% win).
+
+Outlier-vs-sibling completion (Phase 3-B best cell, 200 trials):
+
+| Zone | Before | After | Sibling |
+|------|-------:|------:|--------:|
+| crypt_valdris T1   |  8.5% | **46.0%** | 45.0% |
+| forest_shadows T2  |  0.0% |  **7.5%** | 13.0% |
+| manor_blackspire T3|  0.5% | **14.5%** |  3.0% |
+| abyss_portal T5    |  0.0% | **25.0%** | 57.5% |
+
+Phase 3-B tier mean (b=50, f=tier) before → after:
+  T1 26.8% → 44.0% (+17pp), T2 6.2% → 10.0% (+4),
+  T3 2.5% →  8.5% (+6),  T4 unchanged, T5 27.5% → 41.0% (+14).
+
+**Exit (partial):** the four off-band outliers are no longer
+outliers — every per-zone cell is within the spread of its tier
+siblings. The Phase 4 plan's stricter exit ("all per-zone cells
+within target band") is **not** met: T2/T3/T5 sibling pairs still
+sit below band (T2 7-13% vs 62-82%; T3 3-14% vs 54-74%; T5 25-57%
+vs 36-56%). That gap is tier-wide, not zone-specific — both zones at
+each problem tier underperform together — so no further per-zone
+tool will close it. Phase 5 (or a follow-up tier-wide pass) needs to
+take over.
+
+**Next:** Phase 5. Candidate moves are tier-wide: revisit player
+gear-tier mapping at T2/T3 (the centerline level vs gear ladder, see
+`phase1TierCenterline`), reconsider the elite-bracket threshold
+per-tier instead of global, or ship `burn=75` as the new live global
+since Phase 4-B already converted T4 to playable at b=50.
 
 ### Phase 5 — optional MAD / second-order
 
