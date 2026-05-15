@@ -244,6 +244,13 @@ func (p *AdventurePlugin) sendCombatMessages(userID id.UserID, phaseMessages []s
 
 // sendZoneCombatMessages is the zone/expedition variant — same staging as
 // arena, but tighter pacing (2–3s) so dungeon advances feel snappier.
+//
+// Contract: returns a done channel that closes after the final DM has
+// been sent. Callers that need to chain post-flush work (death follow-ups,
+// hospital ads, tier countdowns) MUST consume it. Callers in the middle
+// of a command-handler flow that have no post-flush work should explicitly
+// discard with `_ = ...` — blocking on flush would stall the handler
+// behind the 2–3s/message pacing, which is the whole point of streaming.
 func (p *AdventurePlugin) sendZoneCombatMessages(userID id.UserID, phaseMessages []string, finalMessage string) <-chan struct{} {
 	return p.sendCombatMessagesWithDelay(userID, phaseMessages, finalMessage, 2, 2) // 2–3s
 }

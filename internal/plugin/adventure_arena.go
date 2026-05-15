@@ -429,7 +429,10 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 		finalMessage += "`!arena fight` — Face this opponent"
 	}
 
-	p.sendZoneCombatMessages(ctx.Sender, phaseMessages, finalMessage)
+	// Fire-and-forget: no post-flush work; blocking would stall the
+	// round-advance handler behind streamed pacing. Contract is honored
+	// by the explicit discard — see sendZoneCombatMessages comment.
+	_ = p.sendZoneCombatMessages(ctx.Sender, phaseMessages, finalMessage)
 	return nil
 }
 

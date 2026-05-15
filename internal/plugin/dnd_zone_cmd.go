@@ -652,7 +652,10 @@ func (p *AdventurePlugin) streamFlow(userID id.UserID, phaseMessages []string, f
 	if len(phaseMessages) == 0 {
 		return p.SendDM(userID, finalMessage)
 	}
-	p.sendZoneCombatMessages(userID, phaseMessages, finalMessage)
+	// Fire-and-forget: streamFlow's whole job is to hand off to the
+	// streamer and return — no post-flush chaining. Explicit discard
+	// honors the sendZoneCombatMessages contract.
+	_ = p.sendZoneCombatMessages(userID, phaseMessages, finalMessage)
 	return nil
 }
 
