@@ -29,6 +29,7 @@ func TestSpellDescriptionsAreJargonFree(t *testing.T) {
 		{"ability modifier", regexp.MustCompile(`(?i)ability modifier`)},
 		{"hit points equal to", regexp.MustCompile(`(?i)hit points equal to`)},
 		{"NdN dice notation", regexp.MustCompile(`\b\d+d\d+\b`)},
+		{"bare die notation", regexp.MustCompile(`\bd(4|6|8|10|12|20|100)\b`)},
 	}
 
 	for id, s := range dndSpellRegistry {

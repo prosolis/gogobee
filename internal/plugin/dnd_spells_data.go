@@ -287,6 +287,9 @@ func buildSpellList() []SpellDefinition {
 		{ID: "animate_dead", Name: "Animate Dead", Level: 3, School: "necromancy",
 			Classes: mageCleric, Effect: EffectUtility, CastTime: CastAction,
 			Description: "Three nearby corpses sit up and look at you for orders. Frowned upon at parties; useful in dungeons."},
+		{ID: "blink", Name: "Blink", Level: 3, School: "transmutation",
+			Classes: mage, Effect: EffectUtility, CastTime: CastAction,
+			Description: "You flicker in and out of reality at random. Foes swing at empty air half the time."},
 
 		// ── 3rd level — Cleric ────────────────────────────────────────────────
 		{ID: "spirit_guardians", Name: "Spirit Guardians", Level: 3, School: "conjuration",
