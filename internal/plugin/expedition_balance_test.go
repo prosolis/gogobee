@@ -855,6 +855,246 @@ func TestExpeditionBalance_Phase3B_NickSupplySweep(t *testing.T) {
 	}
 }
 
+// TestExpeditionBalance_Phase4A_OutlierDiagnostic is the per-zone
+// diagnostic the plan doc's Phase 4 calls for. Phase 3-B's global
+// sweep wrung out the matrix-wide knobs and named four outlier zones
+// that still read ~0% completion at every (elite-threshold, drift,
+// nick-floor, supply-burn) combo: crypt_valdris T1, forest_shadows
+// T2, manor_blackspire T3, abyss_portal T5. Each has a healthy
+// sibling at the same tier (goblin_warrens, sunken_temple,
+// underforge, dragons_lair) that completes at the matrix mean.
+//
+// This test holds the Phase 3-A/3-B best cell (e=23, d=1, burn=50,
+// nick-floor=tier — recall nick-floor was inert) and pairs each
+// outlier with its sibling. For every (zone, trial) it captures the
+// structured fight trace via traceFightStruct and aggregates:
+//
+//   - Per-monster: appearances, win-rate, avg HP-loss-on-win,
+//     attribution of the final losing fight ("kills"). Surfaces the
+//     "one monster owns the lethality budget" pattern that single-
+//     boss-pool elite gates already mitigated for the live healthy
+//     zones (Phase 2c).
+//   - Day-of-end histogram (1..14): clusters early-day deaths
+//     (chained-interrupt collapse) vs late-day starve-outs vs
+//     survives-to-cap.
+//   - Elite vs Standard fight mix: confirms whether the outlier is
+//     drawing disproportionate elites (roster weight problem) or
+//     hitting normal cadence and losing baseline fights (stat-floor
+//     problem).
+//
+// Constraint per the plan doc: do not touch monster stat blocks
+// (those are bestiary, shared across systems). The output of this
+// test names the per-zone tool to reach for — SpawnWeight rebalance,
+// elite-flag toggle, supply-DC pull, or boss tuning (boss is
+// zone-scoped, not bestiary-scoped, so it's in-bounds).
+//
+// Diagnostic-only — no gates. -short skips.
+func TestExpeditionBalance_Phase4A_OutlierDiagnostic(t *testing.T) {
+	if testing.Short() {
+		t.Skip("phase 4-A diagnostic walks 8 zones × 200 trials; -short skips it")
+	}
+
+	const trialsPerZone = 200
+	const baseSeed uint64 = 0xF40A4D
+	// Phase 3-A/3-B best cell — same as the Phase 3-B nick=tier b=50 row.
+	const eliteThreshold = 23
+	const driftBase = 1
+	const supplyBurnPct = 50
+
+	type pair struct {
+		outlier ZoneID
+		sibling ZoneID
+		tier    ZoneTier
+	}
+	pairs := []pair{
+		{ZoneCryptValdris, ZoneGoblinWarrens, ZoneTierBeginner},
+		{ZoneForestShadows, ZoneSunkenTemple, ZoneTierApprentice},
+		{ZoneManorBlackspire, ZoneUnderforge, ZoneTierJourneyman},
+		{ZoneAbyssPortal, ZoneDragonsLair, ZoneTierLegendary},
+	}
+
+	type monsterStat struct {
+		appearances    int
+		standardCount  int
+		eliteCount     int
+		wins           int
+		hpLossOnWin    int // sum, divided by wins at report time
+		killAttributed int // last fight of a died_combat trial
+	}
+	type zoneAgg struct {
+		profile      expeditionBalanceProfile
+		completions  int
+		deaths       int
+		starves      int
+		monsters     map[string]*monsterStat
+		dayHist      [16]int // 1..14 + overflow bucket; index 0 unused
+		eliteFights  int
+		stdFights    int
+		// for the trial currently in flight (mutated during traceFightStruct)
+		lastFight harnessFightTrace
+	}
+
+	report := func(label string, agg *zoneAgg) {
+		total := trialsPerZone
+		compPct := float64(agg.completions) / float64(total) * 100
+		deathPct := float64(agg.deaths) / float64(total) * 100
+		starvePct := float64(agg.starves) / float64(total) * 100
+		t.Logf("─── %-7s %-18s L%-2d  comp=%5.1f%%  death=%5.1f%%  starve=%5.1f%%  elite_fights=%d std_fights=%d ───",
+			label, agg.profile.ZoneID,
+			agg.profile.Level,
+			compPct, deathPct, starvePct,
+			agg.eliteFights, agg.stdFights)
+
+		// Per-monster — sort by appearances desc for readability.
+		names := make([]string, 0, len(agg.monsters))
+		for n := range agg.monsters {
+			names = append(names, n)
+		}
+		sort.Slice(names, func(i, j int) bool {
+			return agg.monsters[names[i]].appearances > agg.monsters[names[j]].appearances
+		})
+		for _, n := range names {
+			m := agg.monsters[n]
+			winPct := 0.0
+			if m.appearances > 0 {
+				winPct = float64(m.wins) / float64(m.appearances) * 100
+			}
+			avgLoss := 0.0
+			if m.wins > 0 {
+				avgLoss = float64(m.hpLossOnWin) / float64(m.wins)
+			}
+			t.Logf("    MON  %-22s appear=%4d (std=%-3d elite=%-3d) win=%5.1f%% avg_hp_loss_on_win=%5.1f kills=%d",
+				n, m.appearances, m.standardCount, m.eliteCount,
+				winPct, avgLoss, m.killAttributed)
+		}
+
+		// Day-of-end histogram — squashes 14 into "14+" since the cap
+		// terminates a trial at exactly day 14.
+		bins := make([]string, 0, 14)
+		for d := 1; d <= 14; d++ {
+			if agg.dayHist[d] > 0 {
+				bins = append(bins, fmt.Sprintf("d%d=%d", d, agg.dayHist[d]))
+			}
+		}
+		t.Logf("    END-DAYS  %s", joinZones(bins))
+	}
+
+	for _, p := range pairs {
+		level := phase1TierCenterline[p.tier]
+		t.Logf("═══ T%d outlier=%s sibling=%s (L%d Fighter, e=%d d=%d burn=%d, %d trials each) ═══",
+			p.tier, p.outlier, p.sibling, level,
+			eliteThreshold, driftBase, supplyBurnPct, trialsPerZone)
+
+		for _, zid := range []ZoneID{p.outlier, p.sibling} {
+			profile := expeditionBalanceProfile{
+				ZoneID:                          zid,
+				Class:                           ClassFighter,
+				Level:                           level,
+				Supplies:                        makeSupplies(p.tier, SupplyPurchase{StandardPacks: 3}),
+				CampType:                        CampTypeStandard,
+				EliteInterruptThresholdOverride: eliteThreshold,
+				ThreatDriftBaseOverride:         driftBase,
+				SupplyBurnRatePctOverride:       supplyBurnPct,
+			}
+			agg := &zoneAgg{
+				profile:  profile,
+				monsters: map[string]*monsterStat{},
+			}
+
+			for trial := 0; trial < trialsPerZone; trial++ {
+				exp := newHarnessExpedition(profile)
+				char := buildHarnessCharacter(classBalanceProfile{
+					Class: profile.Class,
+					Level: profile.Level,
+				})
+				h := &expeditionHarness{
+					exp:                             exp,
+					char:                            char,
+					rng:                             newHarnessRNG(baseSeed + uint64(trial) + uint64(p.tier)*131 + zoneSeedSalt(zid)),
+					rollsPerDay:                     harnessHarvestRollsPerDay,
+					eliteInterruptThresholdOverride: eliteThreshold,
+					threatDriftBaseOverride:         driftBase,
+					supplyBurnRatePctOverride:       supplyBurnPct,
+					traceFightStruct: func(ft harnessFightTrace) {
+						m, ok := agg.monsters[ft.MonsterName]
+						if !ok {
+							m = &monsterStat{}
+							agg.monsters[ft.MonsterName] = m
+						}
+						m.appearances++
+						if ft.Elite {
+							m.eliteCount++
+							agg.eliteFights++
+						} else {
+							m.standardCount++
+							agg.stdFights++
+						}
+						if ft.Won {
+							m.wins++
+							loss := ft.HPPre - ft.HPPost
+							if loss < 0 {
+								loss = 0
+							}
+							m.hpLossOnWin += loss
+						}
+						agg.lastFight = ft
+					},
+				}
+				var trialEnd expeditionTrialResult
+				for {
+					res := h.advanceExpeditionOneDay()
+					if res.EndedReason != "" {
+						trialEnd = res
+						break
+					}
+				}
+				switch {
+				case trialEnd.Completed:
+					agg.completions++
+				case trialEnd.Died:
+					agg.deaths++
+					// Attribute the kill to the last fight's monster
+					// (the one whose !PlayerWon return drove the
+					// terminate call). Sound because the day loop
+					// terminates immediately on combat loss.
+					if m, ok := agg.monsters[agg.lastFight.MonsterName]; ok && !agg.lastFight.Won {
+						m.killAttributed++
+					}
+				case trialEnd.StarvedOut:
+					agg.starves++
+				}
+				d := trialEnd.DaysElapsed
+				if d < 1 {
+					d = 1
+				}
+				if d > 14 {
+					d = 14
+				}
+				agg.dayHist[d]++
+			}
+
+			label := "OUTLIER"
+			if zid == p.sibling {
+				label = "SIBLING"
+			}
+			report(label, agg)
+		}
+	}
+}
+
+// zoneSeedSalt produces a stable per-zone seed offset so each
+// (outlier, sibling) draws from a distinct RNG stream without
+// hand-numbering. fnv-like fold over the bytes; small footprint, no
+// import needed.
+func zoneSeedSalt(id ZoneID) uint64 {
+	var s uint64 = 1469598103934665603
+	for i := 0; i < len(id); i++ {
+		s ^= uint64(id[i])
+		s *= 1099511628211
+	}
+	return s
+}
+
 // joinZones is a tiny helper kept local to the test file so the
 // per-tier log line reads in one logical chunk without pulling in
 // strings.Join's import for production code.

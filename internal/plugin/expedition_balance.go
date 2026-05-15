@@ -504,6 +504,21 @@ func (h *expeditionHarness) runHarnessFight(zone ZoneDefinition, elite bool) Com
 			monster.Name, h.char.HPMax, nick, hpBeforeFight, result.PlayerEndHP,
 			enemy.Stats.AC, enemy.Stats.AttackBonus, outcome))
 	}
+	if h.traceFightStruct != nil {
+		h.traceFightStruct(harnessFightTrace{
+			Day:         h.exp.CurrentDay,
+			Tier:        int(zone.Tier),
+			Elite:       elite,
+			MonsterName: monster.Name,
+			HPMax:       h.char.HPMax,
+			Nick:        nick,
+			HPPre:       hpBeforeFight,
+			HPPost:      result.PlayerEndHP,
+			EnemyAC:     enemy.Stats.AC,
+			EnemyAtk:    enemy.Stats.AttackBonus,
+			Won:         result.PlayerWon,
+		})
+	}
 	return result
 }
 
@@ -608,6 +623,30 @@ type expeditionHarness struct {
 	// monster, or the combat fold itself is driving deaths. Nil in
 	// production runs — has zero cost when unused.
 	traceFight func(line string)
+	// traceFightStruct, if non-nil, fires alongside traceFight with the
+	// same fight's data as a parsed struct. Lets aggregate diagnostics
+	// (e.g. Phase 4-A's per-monster attribution) skip the fragile parse
+	// of the formatted line. Retreat events are not surfaced here — the
+	// retreat trace is one-line only via traceFight. Nil in production.
+	traceFightStruct func(harnessFightTrace)
+}
+
+// harnessFightTrace is the structured per-fight record exposed via
+// traceFightStruct. Mirrors the fields the formatted traceFight line
+// already emits; if you add a field, update both paths so the human
+// log and the structured aggregate stay in sync.
+type harnessFightTrace struct {
+	Day         int
+	Tier        int
+	Elite       bool
+	MonsterName string
+	HPMax       int
+	Nick        int
+	HPPre       int
+	HPPost      int
+	EnemyAC     int
+	EnemyAtk    int
+	Won         bool
 }
 
 // harnessRNG is a thin wrapper around math/rand/v2 so the d20 helper
