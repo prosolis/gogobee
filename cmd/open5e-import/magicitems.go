@@ -171,9 +171,9 @@ func genMagicItems() error {
 func classifyMagicItem(m open5eMagicItem) genMagicItem {
 	g := genMagicItem{
 		ID:         strings.ReplaceAll(m.Slug, "-", "_"),
-		Name:       m.Name,
+		Name:       stripNameParenthetical(m.Name),
 		Attunement: strings.TrimSpace(m.RequiresAttunement) != "",
-		Desc:       firstSentence(strings.TrimSpace(m.Desc), 200),
+		Desc:       magicItemDescription(strings.ReplaceAll(m.Slug, "-", "_"), strings.TrimSpace(m.Desc)),
 	}
 
 	rarity := strings.ToLower(strings.TrimSpace(m.Rarity))
@@ -248,6 +248,15 @@ func inferSlot(kind, name string) string {
 		}
 	}
 	return ""
+}
+
+// magicItemDescription returns the Desc text emitted for an item. Override
+// wins; otherwise the SRD first-sentence runs through cleanDesc.
+func magicItemDescription(id, raw string) string {
+	if s, ok := magicItemDescOverride[id]; ok {
+		return s
+	}
+	return firstSentence(cleanDesc(raw), 200)
 }
 
 // ── Code emission ────────────────────────────────────────────────────────────

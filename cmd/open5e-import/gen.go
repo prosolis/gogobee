@@ -142,7 +142,7 @@ func classify(s open5eSpell, classes []string) genSpell {
 		School:        strings.ToLower(strings.TrimSpace(s.School)),
 		Classes:       classes,
 		Concentration: s.RequiresConcentration,
-		Description:   firstSentence(desc, 200),
+		Description:   spellDescription(strings.ReplaceAll(s.Slug, "-", "_"), desc),
 		Upcast:        firstSentence(strings.TrimSpace(s.HigherLevel), 200),
 		AOE:           looksAOE(low),
 	}
@@ -238,6 +238,16 @@ func looksAOE(low string) bool {
 		}
 	}
 	return false
+}
+
+// spellDescription returns the description text emitted for a spell. A
+// hand-authored override in spellDescOverride wins outright; otherwise the
+// SRD first-sentence is run through cleanDesc to strip jargon clauses.
+func spellDescription(id, raw string) string {
+	if s, ok := spellDescOverride[id]; ok {
+		return s
+	}
+	return firstSentence(cleanDesc(raw), 200)
 }
 
 // firstSentence trims free-text fields down to a single sentence, capped at

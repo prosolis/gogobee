@@ -96,7 +96,7 @@ func tuneMonster(b genStatBlock) genTunedMonster {
 	ability := abilityFromTraits(b.Traits)
 	return genTunedMonster{
 		ID:          b.Slug,
-		Name:        b.Name,
+		Name:        stripNameParenthetical(b.Name),
 		CR:          b.CR,
 		HP:          b.HP,
 		AC:          ac,
@@ -108,6 +108,18 @@ func tuneMonster(b genStatBlock) genTunedMonster {
 		Ability:     ability,
 		Notes:       tunedNotes(b, ability),
 	}
+}
+
+// stripNameParenthetical drops a trailing "(…)" qualifier from a monster
+// name so the player-facing display reads "Giant Rat" rather than "Giant Rat
+// (Diseased)". The slug still carries the variant, so the engine keeps both
+// records distinct — only the display text loses the qualifier.
+func stripNameParenthetical(name string) string {
+	i := strings.IndexByte(name, '(')
+	if i <= 0 {
+		return name
+	}
+	return strings.TrimSpace(name[:i])
 }
 
 // traitAbilityRules maps SRD special-ability names onto the engine's
