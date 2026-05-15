@@ -1,7 +1,5 @@
 package plugin
 
-import "math"
-
 // Phase 10 SUB2a — subclass combat hooks.
 //
 // applySubclassPassives layers subclass-driven flags onto CombatModifiers
@@ -791,8 +789,10 @@ func init() {
 		Description: "Knock the enemy's weapon aside: their damage is reduced for the rest of the fight (consumes 1 superiority die).",
 		Apply: func(c *DnDCharacter, mods *CombatModifiers) {
 			// 25% incoming-damage cut models a fighter who is now
-			// swinging an improvised weapon at -d4-ish.
-			mods.DamageReduct = math.Max(mods.DamageReduct, 0.25)
+			// swinging an improvised weapon at -d4-ish. DamageReduct
+			// is multiplicative (1.0 neutral, lower = less damage),
+			// so multiply down.
+			mods.DamageReduct *= 0.75
 		},
 	}
 	dndActiveAbilities["menacing_attack"] = DnDAbility{
@@ -814,7 +814,8 @@ func init() {
 		Resource:    "superiority",
 		Description: "Set yourself for incoming blows — physical damage taken is sharply reduced (consumes 1 superiority die).",
 		Apply: func(c *DnDCharacter, mods *CombatModifiers) {
-			mods.DamageReduct = math.Max(mods.DamageReduct, 0.40)
+			// 40% reduction; multiplicative (see disarming_attack note).
+			mods.DamageReduct *= 0.60
 		},
 	}
 

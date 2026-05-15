@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gogobee/internal/db"
@@ -28,25 +29,29 @@ import (
 
 // ── Rarity / loot indexing ──────────────────────────────────────────────────
 
-// magicItemsByRarity buckets the registry by rarity. Built once, lazily.
-var magicItemsByRarityCache map[DnDRarity][]MagicItem
+// magicItemsByRarity buckets the registry by rarity. Built once via
+// sync.Once — concurrent loot rolls on cold start would otherwise race
+// on the cache assignment below.
+var (
+	magicItemsByRarityOnce  sync.Once
+	magicItemsByRarityCache map[DnDRarity][]MagicItem
+)
 
 func magicItemsByRarity() map[DnDRarity][]MagicItem {
-	if magicItemsByRarityCache != nil {
-		return magicItemsByRarityCache
-	}
-	idx := make(map[DnDRarity][]MagicItem)
-	ids := make([]string, 0, len(magicItemRegistry))
-	for id := range magicItemRegistry {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids) // deterministic bucket order
-	for _, id := range ids {
-		mi := magicItemRegistry[id]
-		idx[mi.Rarity] = append(idx[mi.Rarity], mi)
-	}
-	magicItemsByRarityCache = idx
-	return idx
+	magicItemsByRarityOnce.Do(func() {
+		idx := make(map[DnDRarity][]MagicItem)
+		ids := make([]string, 0, len(magicItemRegistry))
+		for id := range magicItemRegistry {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids) // deterministic bucket order
+		for _, id := range ids {
+			mi := magicItemRegistry[id]
+			idx[mi.Rarity] = append(idx[mi.Rarity], mi)
+		}
+		magicItemsByRarityCache = idx
+	})
+	return magicItemsByRarityCache
 }
 
 // pickMagicItemForRarity returns a uniform-random registry item of the given
@@ -541,12 +546,26 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 			attune = true
 		}
 	}
-	if err := equipMagicItem(ctx.Sender, mi.Slot, mi.ID, attune); err != nil {
+	// Remove the inventory row FIRST, then equip. If equip fails after the
+	// remove succeeded, restore inventory. Doing it in the other order
+	// meant a transient DB error on remove left the item both equipped
+	// *and* still in inventory — a free duplication.
+	if err := removeAdvInventoryItem(it.ID); err != nil {
+		slog.Error("magic-item: failed to remove from inventory before equip",
+			"user", ctx.Sender, "item", mi.ID, "err", err)
 		return p.SendDM(ctx.Sender, "Failed to equip that item.")
 	}
-	if err := removeAdvInventoryItem(it.ID); err != nil {
-		slog.Error("magic-item: failed to remove equipped item from inventory",
-			"user", ctx.Sender, "item", mi.ID, "err", err)
+	if err := equipMagicItem(ctx.Sender, mi.Slot, mi.ID, attune); err != nil {
+		// Roll back: try to put the item back in inventory so the player
+		// doesn't lose it. Best-effort; log if the rollback also fails.
+		restored := magicItemSell(mi)
+		restored.Value = it.Value
+		restored.SkillSource = "magic_item:" + mi.ID
+		if rbErr := addAdvInventoryItem(ctx.Sender, restored); rbErr != nil {
+			slog.Error("magic-item: equip failed AND inventory rollback failed",
+				"user", ctx.Sender, "item", mi.ID, "equip_err", err, "rollback_err", rbErr)
+		}
+		return p.SendDM(ctx.Sender, "Failed to equip that item.")
 	}
 
 	var sb strings.Builder
@@ -554,10 +573,10 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 		mi.Name, mi.Slot, magicItemEffectSummary(mi)))
 	switch {
 	case mi.Attunement && attune:
-		sb.WriteString(fmt.Sprintf("\nAttuned (%d/%d attunement slots used).",
+		sb.WriteString(fmt.Sprintf("\nBonded (%d/%d bond slots used).",
 			countAttunedMagicItems(equipped)+1, dndMagicItemAttuneLimit))
 	case mi.Attunement && atCap:
-		sb.WriteString(fmt.Sprintf("\n⚠️ All %d attunement slots are full — it's worn but **inert** until you free one (`!adventure equip-magic` to swap).",
+		sb.WriteString(fmt.Sprintf("\n⚠️ All %d bond slots are full — it's worn but **inert** until you free one (`!adventure equip-magic` to swap).",
 			dndMagicItemAttuneLimit))
 	}
 	return p.SendDM(ctx.Sender, sb.String())

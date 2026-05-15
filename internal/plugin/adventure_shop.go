@@ -1301,7 +1301,17 @@ func (p *AdventurePlugin) resolveShopCurioChoice(ctx MessageContext, interaction
 		return p.SendDM(ctx.Sender, fmt.Sprintf("You need €%.0f for %s but only have €%.0f.", price, match.Name, balance))
 	}
 
-	p.euro.Debit(ctx.Sender, price, "shop_curio")
+	// Guard the Debit return: GetBalance above is a snapshot read, but
+	// the debt-limit check inside Debit (BLACKJACK_DEBT_LIMIT) can refuse
+	// the write if a concurrent debit (blackjack, lottery, etc.) has
+	// slipped the balance across the limit between read and write.
+	// Without this guard the curio would be granted on a refused debit.
+	if !p.euro.Debit(ctx.Sender, price, "shop_curio") {
+		p.pending.Store(string(ctx.Sender), interaction)
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"Tried to charge €%.0f for %s, but the purse refused — your balance moved out from under us. Try again.",
+			price, match.Name))
+	}
 	if potCut := int(math.Round(price * 0.05)); potCut > 0 {
 		communityPotAdd(potCut)
 		trackTaxPaid(ctx.Sender, potCut)

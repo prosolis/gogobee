@@ -556,7 +556,7 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			},
 		},
 		{
-			ID: "bj_beat_twinbee", Name: "Gotcha 🐝", Description: "She is furious and will not forget this.",
+			ID: "bj_beat_twinbee", Name: "Gotcha 🐝", Description: "They are furious and will not forget this.",
 			Emoji: "🐝",
 			Check: func(d *sql.DB, u id.UserID) bool {
 				// Granted by blackjack plugin when beating the bot

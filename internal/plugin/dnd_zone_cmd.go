@@ -82,8 +82,8 @@ func zoneHelpText() string {
 	b.WriteString("`!zone advance` — resolve the current room and move on\n")
 	b.WriteString("`!zone go <n>` — at a fork, take path #n\n")
 	b.WriteString("`!zone abandon` — end the active run (no rewards)\n")
-	b.WriteString("`!zone taunt` — poke TwinBee (mood −10)\n")
-	b.WriteString("`!zone compliment` — flatter TwinBee (mood +5)\n")
+	b.WriteString("`!zone taunt` — poke TwinBee (they'll remember)\n")
+	b.WriteString("`!zone compliment` — flatter TwinBee (they'll like that)\n")
 	b.WriteString("`!zone lore` — TwinBee shares zone history")
 	return b.String()
 }

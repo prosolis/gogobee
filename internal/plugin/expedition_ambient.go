@@ -311,12 +311,13 @@ func (p *AdventurePlugin) applyAmbientEffect(e *Expedition, ev ambientEvent) str
 		if err := applyThreatDelta(e.ID, 1, "ambient: distant noise"); err != nil {
 			slog.Warn("expedition: ambient threat delta", "expedition", e.ID, "err", err)
 		}
-		return "Threat +1"
+		// Verb-form footer — "Threat +N" exposed the hidden meter.
+		return "The dungeon listens a little harder."
 	case "faction_whisper":
 		if err := applyThreatDelta(e.ID, 2, "ambient: faction whisper"); err != nil {
 			slog.Warn("expedition: ambient threat delta", "expedition", e.ID, "err", err)
 		}
-		return "Threat +2"
+		return "Something out there is paying attention now."
 	case "pack_rat":
 		drain := float32(0.2) + float32(rng.IntN(2))*float32(0.1) // 0.2 or 0.3
 		ns := e.Supplies
@@ -328,7 +329,10 @@ func (p *AdventurePlugin) applyAmbientEffect(e *Expedition, ev ambientEvent) str
 			slog.Warn("expedition: ambient supply drain", "expedition", e.ID, "err", err)
 			return ""
 		}
-		return fmt.Sprintf("Supplies −%.1f SU", drain)
+		// Don't surface the raw SU number — it's a hidden meter and
+		// "SU" doesn't appear in player vocab anywhere else.
+		_ = drain
+		return "A little less in the pack than there was."
 	case "lucky_find":
 		coins := 1 + rng.IntN(4) // 1d4
 		if p.euro != nil {

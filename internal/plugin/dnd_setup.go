@@ -610,16 +610,26 @@ func renderConfirmPreview(c *DnDCharacter) string {
 func renderSetupComplete(c *DnDCharacter) string {
 	ri, _ := raceInfo(c.Race)
 	ci, _ := classInfo(c.Class)
+	nextLine := "Use `!sheet` anytime to review. `!zone list` to head out, or `!expedition list` for a longer run."
+	if isSpellcaster(c) {
+		// Casters get auto-granted spells on character creation but no
+		// in-game discovery prompt for them. Surface !spells / !cast so
+		// they can actually find their kit. Long-rest refresh is the
+		// other piece they need to know, but that becomes obvious the
+		// moment they look at !spells.
+		nextLine = "Use `!sheet` anytime to review. `!spells` lists what you can cast and `!cast <spell>` does the deed. `!zone list` heads out; `!expedition list` is the longer run."
+	}
 	return fmt.Sprintf(
 		"⚔️ **Character Sheet Forged**\n\n"+
 			"You are a **Level %d %s %s**.\n"+
 			"  HP %d/%d   AC %d\n"+
 			"  STR %d  DEX %d  CON %d  INT %d  WIS %d  CHA %d\n\n"+
 			"_%s_\n\n"+
-			"Use `!sheet` anytime to review. `!zone list` to head out, or `!expedition list` for a longer run.",
+			"%s",
 		c.Level, ri.Display, ci.Display,
 		c.HPCurrent, c.HPMax, c.ArmorClass,
 		c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA,
 		ri.Passive,
+		nextLine,
 	)
 }

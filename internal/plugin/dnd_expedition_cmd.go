@@ -49,7 +49,7 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 	case "":
 		// If active, show status; otherwise help.
 		if exp, _ := getActiveExpedition(ctx.Sender); exp != nil {
-			return p.expeditionCmdStatus(ctx)
+			return p.expeditionCmdStatus(ctx, "")
 		}
 		return p.SendDM(ctx.Sender, expeditionHelpText())
 	case "help", "?":
@@ -59,7 +59,7 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 	case "start", "begin", "go":
 		return p.expeditionCmdStart(ctx, c, rest)
 	case "status", "info":
-		return p.expeditionCmdStatus(ctx)
+		return p.expeditionCmdStatus(ctx, rest)
 	case "log", "history":
 		return p.expeditionCmdLog(ctx)
 	case "abandon", "quit":
@@ -271,7 +271,18 @@ func estimateDays(maxSU, dailyBurn float32) int {
 
 // ── status ──────────────────────────────────────────────────────────────────
 
-func (p *AdventurePlugin) expeditionCmdStatus(ctx MessageContext) error {
+func (p *AdventurePlugin) expeditionCmdStatus(ctx MessageContext, args string) error {
+	debug := false
+	for _, tok := range strings.Fields(args) {
+		switch strings.ToLower(tok) {
+		case "--debug", "-d", "debug", "raw":
+			debug = true
+		}
+	}
+	return p.expeditionCmdStatusImpl(ctx, debug)
+}
+
+func (p *AdventurePlugin) expeditionCmdStatusImpl(ctx MessageContext, debug bool) error {
 	exp, err := getActiveExpedition(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
@@ -298,21 +309,36 @@ func (p *AdventurePlugin) expeditionCmdStatus(ctx MessageContext) error {
 	if c != nil {
 		b.WriteString(fmt.Sprintf("❤️  **HP:** %d / %d\n", c.HPCurrent, c.HPMax))
 	}
-	b.WriteString(fmt.Sprintf("🎒 **Supplies:** %.1f / %.1f SU  _(burn %.1f/day → ~%d days left)_\n",
-		exp.Supplies.Current, exp.Supplies.Max, currentBurn(exp),
-		estimateDays(exp.Supplies.Current, currentBurn(exp))))
-	b.WriteString(fmt.Sprintf("⏰ **Threat:** %d / 100 — %s\n",
-		exp.ThreatLevel, threatThresholdLabel(exp.ThreatLevel, exp.SiegeMode)))
-	if exp.TemporalStack != 0 {
-		b.WriteString(fmt.Sprintf("🌡 **Zone stack:** %d\n", exp.TemporalStack))
+	// Default view is verb/outcome-led: days-left summary + threat label,
+	// no raw SU / threat-out-of-100 / zone-stack / roll-modifier numbers.
+	// Pass `--debug` to !expedition status for the engineering view.
+	days := estimateDays(exp.Supplies.Current, currentBurn(exp))
+	if debug {
+		b.WriteString(fmt.Sprintf("🎒 **Supplies:** %.1f / %.1f SU  _(burn %.1f/day → ~%d days left)_\n",
+			exp.Supplies.Current, exp.Supplies.Max, currentBurn(exp), days))
+		b.WriteString(fmt.Sprintf("⏰ **Threat:** %d / 100 — %s\n",
+			exp.ThreatLevel, threatThresholdLabel(exp.ThreatLevel, exp.SiegeMode)))
+		if exp.TemporalStack != 0 {
+			b.WriteString(fmt.Sprintf("🌡 **Zone stack:** %d\n", exp.TemporalStack))
+		}
+	} else {
+		b.WriteString(fmt.Sprintf("🎒 **Supplies:** ~%d day%s left\n",
+			days, plural(days)))
+		b.WriteString(fmt.Sprintf("⏰ **Threat:** %s\n",
+			threatThresholdLabel(exp.ThreatLevel, exp.SiegeMode)))
 	}
 	if exp.Camp != nil && exp.Camp.Active {
 		b.WriteString(fmt.Sprintf("⛺ **Camp:** %s (room %d)\n", exp.Camp.Type, exp.Camp.RoomIndex+1))
 	}
 	state := supplyDepletion(exp.Supplies)
 	if state != SupplyNormal {
-		b.WriteString(fmt.Sprintf("⚠ **%s** — roll modifier %d\n",
-			depletionLabel(state), supplyRollModifier(state)))
+		if debug {
+			b.WriteString(fmt.Sprintf("⚠ **%s** — roll modifier %d\n",
+				depletionLabel(state), supplyRollModifier(state)))
+		} else {
+			b.WriteString(fmt.Sprintf("⚠ **%s** — you're slower and clumsier than usual.\n",
+				depletionLabel(state)))
+		}
 	}
 	b.WriteString(fmt.Sprintf("\nStarted: %s   Last activity: %s",
 		exp.StartDate.Format("2006-01-02 15:04"),

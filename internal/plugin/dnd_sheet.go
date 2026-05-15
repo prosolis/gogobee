@@ -167,9 +167,11 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, 
 		}
 	}
 
-	// Attunements (re-using adventure_treasures per v1.1 §7.4)
+	// Treasure bonuses (re-using adventure_treasures per v1.1 §7.4).
+	// Player-facing label kept distinct from the magic-item "bond" vocab
+	// so the sheet doesn't read as two competing attunement systems.
 	if len(treasures) > 0 {
-		b.WriteString("\n**Attunements** (treasures)\n")
+		b.WriteString("\n**Treasures**\n")
 		// Group by treasure_key — one treasure can have multiple bonuses.
 		byKey := map[string][]AdvTreasureBonus{}
 		var keys []string

@@ -30,6 +30,17 @@ func TestSpellDescriptionsAreJargonFree(t *testing.T) {
 		{"hit points equal to", regexp.MustCompile(`(?i)hit points equal to`)},
 		{"NdN dice notation", regexp.MustCompile(`\b\d+d\d+\b`)},
 		{"bare die notation", regexp.MustCompile(`\bd(4|6|8|10|12|20|100)\b`)},
+		// Catch SRD-import placeholders that have leaked through past
+		// overlays. "Whatever" was the eldritch_blast tell; the truncation
+		// patterns caught water_walk/druidcraft/light in earlier audits.
+		// "Whatever" placeholder used by the SRD importer when a field
+		// went missing. Allow mid-prose "Whatever's"/"Whatever it"
+		// (legit contraction / sentence-start) by requiring a following
+		// space-then-lowercase, which is the signature of the bug.
+		{"Whatever placeholder", regexp.MustCompile(`\bWhatever [a-z]`)},
+		{"trailing ellipsis", regexp.MustCompile(`(?:\.\.\.|…)\s*$`)},
+		{"trailing truncated word", regexp.MustCompile(`\b[a-z]{1,3}(?:\.\.\.|…)\s*$`)},
+		{"empty size phrase", regexp.MustCompile(`(?i)\bno larger than in any\b`)},
 	}
 
 	for id, s := range dndSpellRegistry {
