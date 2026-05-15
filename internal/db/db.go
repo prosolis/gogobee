@@ -560,7 +560,23 @@ func RunMaintenance() {
 		{"market_daily_summary", `DELETE FROM market_daily_summary WHERE snapshot_date < ?`, []interface{}{now.AddDate(-1, 0, 0).Format("2006-01-02")}},
 	}
 
+	// Wrap the purge loop in a single BEGIN IMMEDIATE / COMMIT so a crash
+	// mid-maintenance can't leave half the tables purged. SetMaxOpenConns(1)
+	// in Init guarantees the BEGIN, the DELETEs, and the COMMIT all share
+	// the same connection.
 	totalDeleted := int64(0)
+	if _, err := d.Exec(`BEGIN IMMEDIATE`); err != nil {
+		slog.Error("maintenance: begin tx", "err", err)
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			if _, err := d.Exec(`ROLLBACK`); err != nil {
+				slog.Error("maintenance: rollback", "err", err)
+			}
+		}
+	}()
 	for _, q := range queries {
 		res, err := d.Exec(q.sql, q.args...)
 		if err != nil {
@@ -573,13 +589,71 @@ func RunMaintenance() {
 			totalDeleted += n
 		}
 	}
+	if _, err := d.Exec(`COMMIT`); err != nil {
+		slog.Error("maintenance: commit", "err", err)
+		return
+	}
+	committed = true
 
 	// SQLite optimization
 	if _, err := d.Exec(`PRAGMA optimize`); err != nil {
 		slog.Error("maintenance: pragma optimize", "err", err)
 	}
 
+	// Weekly integrity check, gated on a sentinel file's mtime under dataPath
+	// so it runs at most once every 7 days regardless of maintenance cadence.
+	runIntegrityCheckIfDue(d)
+
 	slog.Info("maintenance: complete", "total_purged", totalDeleted)
+}
+
+// runIntegrityCheckIfDue runs `PRAGMA integrity_check` at most once per week.
+// Cadence is tracked via the mtime of a sentinel file under dataPath; if the
+// sentinel is missing or older than 7 days, the check runs and the sentinel
+// is touched. Any result other than "ok" is logged via slog.Error.
+func runIntegrityCheckIfDue(d *sql.DB) {
+	if dataPath == "" {
+		return
+	}
+	sentinel := filepath.Join(dataPath, ".integrity_check_last")
+	if info, err := os.Stat(sentinel); err == nil {
+		if time.Since(info.ModTime()) < 7*24*time.Hour {
+			return
+		}
+	}
+
+	rows, err := d.Query(`PRAGMA integrity_check`)
+	if err != nil {
+		slog.Error("maintenance: integrity_check", "err", err)
+		return
+	}
+	var problems []string
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			slog.Error("maintenance: integrity_check scan", "err", err)
+			continue
+		}
+		if line != "ok" {
+			problems = append(problems, line)
+		}
+	}
+	rows.Close()
+
+	if len(problems) > 0 {
+		slog.Error("maintenance: integrity_check failed", "problems", problems)
+	} else {
+		slog.Info("maintenance: integrity_check ok")
+	}
+
+	// Touch the sentinel even on failure — otherwise a corrupted DB would
+	// re-run the (expensive) check every maintenance cycle and spam logs.
+	now := time.Now()
+	if err := os.WriteFile(sentinel, nil, 0o644); err != nil {
+		slog.Error("maintenance: write integrity sentinel", "err", err)
+		return
+	}
+	_ = os.Chtimes(sentinel, now, now)
 }
 
 // Exec runs a write query, logging any error with the given label.
