@@ -121,16 +121,14 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 	}
 
 	// Surprise round (§4.1): a single free enemy swing nicks HP. We cap at
-	// HP-1 so the nick alone can't KO; real combat resolves below.
+	// HP-1 so the nick alone can't KO; real combat resolves below. The
+	// wounded-entrant clamp (clampSurpriseNick) softens the nick further
+	// when the fighter is already below full HP — see that helper for
+	// the death-spiral motivation.
 	preDmg := surpriseRoundNick(monster, int(zone.Tier))
 	dndChar, _ := LoadDnDCharacter(userID)
 	if dndChar != nil && preDmg > 0 {
-		if preDmg >= dndChar.HPCurrent {
-			preDmg = dndChar.HPCurrent - 1
-			if preDmg < 0 {
-				preDmg = 0
-			}
-		}
+		preDmg = clampSurpriseNick(preDmg, dndChar.HPCurrent, dndChar.HPMax)
 		dndChar.HPCurrent -= preDmg
 		_ = SaveDnDCharacter(dndChar)
 	}
@@ -214,6 +212,49 @@ func surpriseRoundNick(m DnDMonsterTemplate, tier int) int {
 		dmg = floor
 	}
 	return dmg
+}
+
+// clampSurpriseNick scales the surprise-round nick down for fighters who
+// enter combat already wounded. The raw nick is fine on a fresh entry
+// (full HP), but chained interrupts create a death-spiral: an over-tier
+// elite drops the fighter to ~25% HP and a retreat, then the next
+// standard fight's surprise nick — landing on already-low HP — pre-empts
+// the combat engine entirely. The Phase 2 tier-lethality trace
+// (TestExpeditionBalance_Phase2_TierLethality) showed this cascade was
+// the cause of death in 4 of 5 tier traces post-2a, not the elites
+// themselves.
+//
+// Policy: at full HP, raw nick stands. When wounded (HPCurrent < HPMax),
+// cap the nick at max(1, HPCurrent/5) so a wounded fighter loses at most
+// ~20% of remaining HP to the free swing — they enter the fight bruised
+// but with margin to fight back. The existing KO-guard (nick < HP) is
+// preserved as a hard backstop.
+//
+// Tuning surface: the /5 divisor is the wounded-fighter lethality knob.
+// Tighter (e.g. /10) is gentler; looser (/3) re-opens the cascade. See
+// gogobee_expedition_difficulty.md Phase 2b.
+func clampSurpriseNick(rawNick, hpCurrent, hpMax int) int {
+	if rawNick <= 0 || hpCurrent <= 0 {
+		return 0
+	}
+	nick := rawNick
+	if hpCurrent < hpMax {
+		cap := hpCurrent / 5
+		if cap < 1 {
+			cap = 1
+		}
+		if nick > cap {
+			nick = cap
+		}
+	}
+	// KO-guard: surprise alone never finishes the fighter.
+	if nick >= hpCurrent {
+		nick = hpCurrent - 1
+	}
+	if nick < 0 {
+		nick = 0
+	}
+	return nick
 }
 
 // ── Kill-log writer ─────────────────────────────────────────────────────────

@@ -372,14 +372,11 @@ func (h *expeditionHarness) runHarnessFight(zone ZoneDefinition, elite bool) Com
 	}
 
 	// Surprise-round nick — same shape as runHarvestInterrupt's
-	// pre-combat HP shave. Cap at HP-1 so the nick alone can't KO.
-	nick := surpriseRoundNick(monster, int(zone.Tier))
-	if nick >= h.char.HPCurrent {
-		nick = h.char.HPCurrent - 1
-		if nick < 0 {
-			nick = 0
-		}
-	}
+	// pre-combat HP shave, including the wounded-entrant clamp
+	// (clampSurpriseNick) that breaks the chained-interrupt death
+	// spiral. Mirror live exactly so the harness measures the same
+	// lever the live caller applies.
+	nick := clampSurpriseNick(surpriseRoundNick(monster, int(zone.Tier)), h.char.HPCurrent, h.char.HPMax)
 	h.char.HPCurrent -= nick
 
 	player := buildHarnessPlayer(h.char)
