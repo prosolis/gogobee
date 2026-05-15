@@ -9,9 +9,8 @@
 //	open5e-import fetch bestiary   # vendor data/open5e/monsters.json from the API
 //	open5e-import gen bestiary     # classify → internal/plugin/bestiary_srd_data.go
 //	open5e-import gen tuned        # tuning formula → internal/plugin/bestiary_tuned_data.go
-//
-// `equipment` subcommands are planned; the dispatch below is structured to
-// grow into them without reshuffling.
+//	open5e-import fetch magicitems # vendor data/open5e/magicitems.json from the API
+//	open5e-import gen magicitems   # classify → internal/plugin/magic_items_srd_data.go
 package main
 
 import (
@@ -33,6 +32,10 @@ const (
 	monstersJSON    = "data/open5e/monsters.json"
 	bestiaryGenGo   = "internal/plugin/bestiary_srd_data.go"
 	tunedGenGo      = "internal/plugin/bestiary_tuned_data.go"
+
+	magicItemsAPIBase = "https://api.open5e.com/v1/magicitems/?document__slug=wotc-srd&limit=50"
+	magicItemsJSON    = "data/open5e/magicitems.json"
+	magicItemsGenGo   = "internal/plugin/magic_items_srd_data.go"
 )
 
 func main() {
@@ -47,6 +50,8 @@ func main() {
 			must(fetchSpells())
 		case "bestiary":
 			must(fetchMonsters())
+		case "magicitems":
+			must(fetchMagicItems())
 		default:
 			usage()
 		}
@@ -58,6 +63,8 @@ func main() {
 			must(genBestiary())
 		case "tuned":
 			must(genTuned())
+		case "magicitems":
+			must(genMagicItems())
 		default:
 			usage()
 		}
@@ -67,7 +74,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: open5e-import fetch (spells|bestiary) | gen (spells|bestiary|tuned)")
+	fmt.Fprintln(os.Stderr, "usage: open5e-import fetch (spells|bestiary|magicitems) | gen (spells|bestiary|tuned|magicitems)")
 	os.Exit(2)
 }
 
