@@ -1,9 +1,15 @@
-// DO NOT REWRITE, SUMMARIZE, OR SHORTEN ANY ENTRIES IN THIS FILE
 // twinbee_housing_flavor.go
 // Housing system narration and Pastel babysitter notes.
 // Includes Thom Krooke mortgage/rent announcements, property events,
 // and Pastel's daily notes to the player across all level tiers.
-// Add new entries freely. Never remove or alter existing entries.
+//
+// Voice conventions (Phase B2):
+//   - TwinBee narration: first-person / implicit subject ONLY. No
+//     third-person "TwinBee [verb]" references.
+//   - Thom Krooke speaks in third person about himself ("Thom Krooke
+//     thanks you"). That's his established voice; leave it.
+//   - Pastel speaks in first person. Leave it.
+// Add new entries freely. Don't shorten existing entries.
 
 package flavor
 
@@ -88,7 +94,7 @@ var UpgradeVault = []string{
 }
 
 var UpgradeTrophyRoom = []string{
-	"Empty shelves and good lighting. The trophy room is ready for whatever you bring back. TwinBee has opinions about display arrangement. TwinBee will share them if asked. TwinBee will share them if not asked.",
+	"Empty shelves and good lighting. The trophy room is ready for whatever you bring back. I have opinions about display arrangement. I'll share them if asked. I'll share them if not asked. I'll share them at three in the morning if the lighting catches a trophy just right.",
 	"The plaques are engraved, the mounts are installed, and the lighting makes everything look slightly more legendary than it already is. The trophy room is yours.",
 }
 
@@ -230,13 +236,13 @@ var PastelPlayerDeathReturn = []string{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var HomeFirstArrival = []string{
-	"This is yours now. TwinBee notes it — a place with a door that closes, a floor that doesn't move, and a ceiling that belongs to you. After everything the dungeon does to make those things uncertain, TwinBee finds a home meaningful.",
-	"Home. The word lands differently when there's an actual place attached to it. TwinBee watches you step inside and says nothing, which is the most eloquent thing TwinBee knows how to do.",
-	"You have a home. TwinBee has narrated dungeons and bosses and legendary drops and this — this quiet moment of a door closing on your own place — is one of the better things TwinBee has watched happen.",
+	"This is yours now. A place with a door that closes, a floor that doesn't move, and a ceiling that belongs to you. After everything the dungeon does to make those things uncertain, a home is meaningful in a way that doesn't need a saving throw.",
+	"Home. The word lands differently when there's an actual place attached to it. I watch you step inside and say nothing, which is the most eloquent thing I know how to do and which I am, frankly, very proud of pulling off.",
+	"You have a home. I've narrated dungeons and bosses and legendary drops and this — this quiet moment of a door closing on your own place — is one of the better things I've watched happen. I'm not going to write a fanfare for it. The silence is the fanfare.",
 }
 
 var HomeLongRest = []string{
-	"A long rest at home. TwinBee goes quiet in a different way than it does in dungeons — not alert-quiet, not cautious-quiet. Just the good kind.",
-	"Your own bed. Your own walls. The full rest resolves everything the dungeon costs. TwinBee considers home the best mechanic in the game and tells you so, once, and then lets you sleep.",
-	"Home rest. HP restored, slots restored, conditions cleared. TwinBee doesn't narrate this one past the bare facts — some things don't need dramatic description. Coming home is one of them.",
+	"A long rest at home. I go quiet in a different way than I do in dungeons — not alert-quiet, not cautious-quiet. Just the good kind. The kind where the most threatening sound is the kettle.",
+	"Your own bed. Your own walls. The full rest resolves everything the dungeon costs. Home is the best mechanic in the game and I'm telling you so, once, and then I'm letting you sleep.",
+	"Home rest. HP restored, slots restored, conditions cleared. I don't narrate this one past the bare facts — some things don't need dramatic description. Coming home is one of them.",
 }
