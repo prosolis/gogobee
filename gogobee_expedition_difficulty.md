@@ -553,6 +553,90 @@ hump and is fine for "some death" tier shape. Remaining work
 (Phase 5-C+) is T3 roster polish + feywild T4-spread fix — separate
 session.
 
+#### Phase 5-C — T3 polish + T4 spread fix (rosters only)
+
+Phase 5-B's exit named two follow-ups: T3 below band (manor 39 /
+underforge 47 vs 55-75), and the T4 spread (feywild 59 vs underdark
+88 = 30pp asymmetry). Phase 5-C re-runs the Phase 4-A trace on the
+four affected zones at the shipped Phase 5-B cell
+(`TestExpeditionBalance_Phase5C_OutlierDiagnostic`) and identifies
+which monsters own the lethality budget per zone, then applies the
+Phase 4-B toolset (IsElite toggle + SpawnWeight rebalance only — no
+bestiary stat-block touches).
+
+Per-zone reads from the diagnostic (200 trials, L9/L13 Fighter,
+e=23 d=1 burn=50):
+
+  manor_blackspire (53% comp): standards all ≥99% win. Elite pool
+    is the lethality source — Vampire Spawn (72% win, 42 kills) and
+    Revenant (16% win, 31 kills at SW=1) split the kill budget.
+    Revenant can't drop below SW=1, and trimming Vampire Spawn
+    (first attempt: SW 3 → 2) backfired by shifting elite share onto
+    Revenant — kills jumped to 48 and completion fell to 44.5%.
+
+  underforge (49.5% comp): Fire Elemental (57 kills, 61hp/win) +
+    Salamander (33 kills) own elite share. Helmed Horror was the
+    only 100%-win elite but sat at SW=1, providing almost no
+    dilution.
+
+  feywild_crossing (54% comp): Fomorian alone (65 kills, 50% win,
+    SW=1) owns the elite kill budget — only 2 elites in the pool
+    (Night Hag SW=3 + Fomorian SW=1), so Fomorian still gets 25% of
+    elite picks despite the low weight.
+
+  underdark (86% comp): Drow at SW=7 (1801/4164 standard rolls,
+    100% win / 1.1hp loss) is a free-HP filler dominating the
+    standard pool.
+
+Roster changes shipped (`dnd_zone.go`):
+
+  manor_blackspire — Banshee promoted to elite at SW=2 (was SW=3
+    standard, 99.6% win, 11hp loss): adds a soft 4th elite slot,
+    dropping Revenant's elite share ~14% → 11% without changing
+    its presence. Standard floor collapses to Shadow + Poltergeist,
+    both ≥99% win at ≤5hp loss.
+
+  underforge — Helmed Horror SW 1 → 3 (98%+ win, 15hp loss): three
+    roughly-equal elite slots (Salamander 3 + Fire Elemental 3 +
+    Helmed Horror 3), reducing Fire Elemental's elite share from
+    ~44% to ~33%.
+
+  feywild_crossing — Green Hag promoted to elite at SW=2 (was SW=4
+    standard, 98% win, 16hp loss): adds a softer 3rd elite slot,
+    diluting Fomorian's share, AND pulls a moderate-attrition fight
+    out of the standard pool. Standard floor becomes Redcap +
+    Will-o-Wisp + Quickling (all ≥99% win, ≤11hp loss).
+
+  underdark (light trim per user's "lift trailers, don't nerf
+    leaders" stance) — Drow SW 7 → 5: standards shift toward Hook
+    Horror (17.8hp/win) and Drow Mage (16.4hp/win), still safe but
+    with real attrition.
+
+Phase 1 matrix after Phase 5-C (200 trials, Fighter @ centerline):
+
+```
+T1  88.5%  spread  1.0   (crypt 89, goblin 88)            ⬆ band 70-90 — IN BAND
+T2  74.5%  spread 15.0   (forest 82, sunken 67)           ⬆ band 62-82 — IN BAND
+T3  56.7%  spread  0.5   (manor 57, underforge 56.5)      ⬆ band 55-75 — IN BAND  ⬆ +13.5pp
+T4  77.0%  spread 13.0   (feywild 70.5, underdark 83.5)   ⬆ band 45-65 — OVER (matches 5-B target)
+T5  58.0%  spread 40.0   (abyss 38, dragons 78)           ⬆ band 35-55 — borderline (abyss the residual)
+```
+
+T3 mean lifted +13.5pp; both zones land inside the band with a
+0.5pp residual spread. T4 spread halved (25.5 → 13.0pp) by lifting
+feywild +11.5pp and trimming underdark -4.5pp, matching the user's
+chosen "lift mostly, trim lightly" direction. T1/T2/T5 untouched.
+
+**Test debt:** none — no production tests pinned the changed
+SpawnWeight or IsElite values. `TestMonsterKillTags_GatesKnownMonsters`
+checks `vampire_spawn` tags but is unaffected by weight.
+
+**Exit:** T1-T4 all in or above band; T5's abyss_portal (38%) is
+the only remaining sub-band cell and is a tier-asymmetry residual,
+not a per-zone outlier. Phase 5-D could revisit abyss specifically,
+but it's optional — the user's "breezy with some death" target is
+hit across the live tier ladder.
+
 ### Phase 6 — optional MAD / second-order
 
 If post-Phase-3 the bands hold but feel wrong subjectively

@@ -433,9 +433,23 @@ func zoneManorBlackspire() ZoneDefinition {
 			// becomes a 3-elite pool with balanced dilution, leaving
 			// Shadow/Poltergeist/Banshee as a clean standard floor
 			// (all ≥92% win in the trace).
+			//
+			// Phase 5-C: under shipped HP×1.5/+3 floor, manor still
+			// trailed at 53% (band 55-75). Trace named both Vampire
+			// Spawn (72% win, 42 kills) and Revenant (16% win, 31
+			// kills) as elite-pool killers — Revenant the worse per
+			// appearance, but at SW=1 already. A first attempt
+			// trimmed Vampire Spawn SW 3 → 2; that backfired by
+			// shifting elite share onto Revenant (kills jumped to
+			// 48). Final move: keep the killers' weights, dilute
+			// the elite pool by promoting Banshee (99.6% win as
+			// standard, 11hp loss) to elite at SW=2 — drops
+			// Revenant's elite share ~14% → 11% without removing
+			// it from rotation. Standard floor collapses to
+			// Shadow + Poltergeist (both ≥99% win, ≤5hp loss).
 			{BestiaryID: "shadow", SpawnWeight: 6},
 			{BestiaryID: "poltergeist", SpawnWeight: 5},
-			{BestiaryID: "banshee", SpawnWeight: 3},
+			{BestiaryID: "banshee", SpawnWeight: 2, IsElite: true},
 			{BestiaryID: "wraith", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "vampire_spawn", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "revenant", SpawnWeight: 1, IsElite: true},
@@ -480,12 +494,21 @@ func zoneUnderforge() ZoneDefinition {
 		MinRooms:   7,
 		MaxRooms:   9,
 		Enemies: []ZoneEnemy{
+			// Phase 5-C: underforge trailed at 49.5% (band 55-75)
+			// under the shipped HP×1.5/+3 floor. Trace named Fire
+			// Elemental (57 kills, 61hp loss/win) as the dominant
+			// elite killer with Salamander (33 kills) second.
+			// Helmed Horror was the only 100%-win elite but sat at
+			// SW=1, contributing almost no dilution. Lifted Helmed
+			// Horror SW 1 → 3 so the elite pool runs three roughly-
+			// equal slots and Fire Elemental's share drops from
+			// ~44% to ~33% of elite picks.
 			{BestiaryID: "magmin", SpawnWeight: 6},
 			{BestiaryID: "azer", SpawnWeight: 5},
 			{BestiaryID: "flameskull", SpawnWeight: 4},
 			{BestiaryID: "salamander", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "fire_elemental", SpawnWeight: 3, IsElite: true},
-			{BestiaryID: "helmed_horror", SpawnWeight: 1, IsElite: true},
+			{BestiaryID: "helmed_horror", SpawnWeight: 3, IsElite: true},
 		},
 		Boss: ZoneBoss{
 			BestiaryID:  "boss_emberlord_thyrak",
@@ -528,7 +551,17 @@ func zoneUnderdark() ZoneDefinition {
 		MinRooms:   8,
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{
-			{BestiaryID: "drow", SpawnWeight: 7},
+			// Phase 5-C: underdark ran 88% (band 45-65, way over)
+			// at the T4 centerline — its sibling feywild sat at
+			// 54%, a 30pp asymmetry. Per [[feedback_difficulty_target]]
+			// the bulk of Phase 5-C lifts feywild rather than nerfing
+			// the leader; this is the "light underdark trim" piece.
+			// Drow at SW=7 owned nearly half of all standard rolls
+			// (1801/4164) at 100% win / 1.1hp loss — a free-HP
+			// filler. Trimmed SW 7 → 5 so the standard pool shifts
+			// toward Hook Horror (17.8hp/win) and Drow Mage
+			// (16.4hp/win) — still safe but with real attrition.
+			{BestiaryID: "drow", SpawnWeight: 5},
 			{BestiaryID: "drow_elite_warrior", SpawnWeight: 4, IsElite: true},
 			{BestiaryID: "drow_mage", SpawnWeight: 3},
 			{BestiaryID: "mind_flayer", SpawnWeight: 2},
@@ -575,10 +608,22 @@ func zoneFeywildCrossing() ZoneDefinition {
 		MinRooms:   8,
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{
+			// Phase 5-C: feywild trailed at 54% (band 45-65, but
+			// the design goal was to close the 30pp gap with its
+			// underdark sibling at 88%). Trace named Fomorian as
+			// the dominant killer (65 kills, 50% win, SW=1) — a
+			// 2-elite pool with Night Hag at SW=3 meant Fomorian
+			// owned ~25% of elite picks despite its low weight,
+			// and that bracket is where the deaths came from.
+			// Promoted Green Hag to elite (SW=2): adds a softer
+			// 98%-win elite slot to dilute Fomorian's share, and
+			// pulls a 16hp/win standard out of the standard pool
+			// so the standard floor collapses to Redcap + Will-o-
+			// Wisp + Quickling — all ≥99% win, ≤11hp loss.
 			{BestiaryID: "redcap", SpawnWeight: 6},
 			{BestiaryID: "will_o_wisp", SpawnWeight: 5},
 			{BestiaryID: "quickling", SpawnWeight: 5},
-			{BestiaryID: "green_hag", SpawnWeight: 4},
+			{BestiaryID: "green_hag", SpawnWeight: 2, IsElite: true},
 			{BestiaryID: "night_hag", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "fomorian", SpawnWeight: 1, IsElite: true},
 		},
