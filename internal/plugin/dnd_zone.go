@@ -220,7 +220,7 @@ func zoneGoblinWarrens() ZoneDefinition {
 			{BestiaryID: "goblin_sneak", SpawnWeight: 7},
 			{BestiaryID: "goblin_archer", SpawnWeight: 6},
 			{BestiaryID: "hobgoblin_grunt", SpawnWeight: 5},
-			{BestiaryID: "worg", SpawnWeight: 3},
+			{BestiaryID: "worg", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "goblin_shaman", SpawnWeight: 2},
 			{BestiaryID: "hobgoblin_warchief", SpawnWeight: 1, IsElite: true},
 		},
@@ -310,7 +310,7 @@ func zoneForestShadows() ZoneDefinition {
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "dire_wolf", SpawnWeight: 6},
 			{BestiaryID: "bandit_captain", SpawnWeight: 4},
-			{BestiaryID: "owlbear", SpawnWeight: 4},
+			{BestiaryID: "owlbear", SpawnWeight: 4, IsElite: true},
 			{BestiaryID: "dryad_corrupted", SpawnWeight: 3},
 			{BestiaryID: "displacer_beast", SpawnWeight: 3},
 			{BestiaryID: "green_hag", SpawnWeight: 1, IsElite: true},
@@ -356,7 +356,7 @@ func zoneSunkenTemple() ZoneDefinition {
 			{BestiaryID: "kuo_toa", SpawnWeight: 7},
 			{BestiaryID: "kuo_toa_whip", SpawnWeight: 4},
 			{BestiaryID: "merrow", SpawnWeight: 4},
-			{BestiaryID: "aboleth_thrall", SpawnWeight: 3},
+			{BestiaryID: "aboleth_thrall", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "water_elemental", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
@@ -403,7 +403,7 @@ func zoneManorBlackspire() ZoneDefinition {
 			{BestiaryID: "poltergeist", SpawnWeight: 5},
 			{BestiaryID: "banshee", SpawnWeight: 3},
 			{BestiaryID: "wraith", SpawnWeight: 3},
-			{BestiaryID: "vampire_spawn", SpawnWeight: 3},
+			{BestiaryID: "vampire_spawn", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "revenant", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
@@ -449,8 +449,8 @@ func zoneUnderforge() ZoneDefinition {
 			{BestiaryID: "magmin", SpawnWeight: 6},
 			{BestiaryID: "azer", SpawnWeight: 5},
 			{BestiaryID: "flameskull", SpawnWeight: 4},
-			{BestiaryID: "salamander", SpawnWeight: 3},
-			{BestiaryID: "fire_elemental", SpawnWeight: 3},
+			{BestiaryID: "salamander", SpawnWeight: 3, IsElite: true},
+			{BestiaryID: "fire_elemental", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "helmed_horror", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
@@ -495,7 +495,7 @@ func zoneUnderdark() ZoneDefinition {
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "drow", SpawnWeight: 7},
-			{BestiaryID: "drow_elite_warrior", SpawnWeight: 4},
+			{BestiaryID: "drow_elite_warrior", SpawnWeight: 4, IsElite: true},
 			{BestiaryID: "drow_mage", SpawnWeight: 3},
 			{BestiaryID: "mind_flayer", SpawnWeight: 2},
 			{BestiaryID: "hook_horror", SpawnWeight: 4},
@@ -545,7 +545,7 @@ func zoneFeywildCrossing() ZoneDefinition {
 			{BestiaryID: "will_o_wisp", SpawnWeight: 5},
 			{BestiaryID: "quickling", SpawnWeight: 5},
 			{BestiaryID: "green_hag", SpawnWeight: 4},
-			{BestiaryID: "night_hag", SpawnWeight: 3},
+			{BestiaryID: "night_hag", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "fomorian", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
@@ -590,7 +590,7 @@ func zoneDragonsLair() ZoneDefinition {
 			{BestiaryID: "kobold", SpawnWeight: 7},
 			{BestiaryID: "guard_drake", SpawnWeight: 5},
 			{BestiaryID: "kobold_scale_sorcerer", SpawnWeight: 4},
-			{BestiaryID: "dragonborn_cultist", SpawnWeight: 3},
+			{BestiaryID: "dragonborn_cultist", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "young_red_dragon", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
@@ -637,7 +637,7 @@ func zoneAbyssPortal() ZoneDefinition {
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "quasit", SpawnWeight: 6},
 			{BestiaryID: "vrock", SpawnWeight: 5},
-			{BestiaryID: "hezrou", SpawnWeight: 4},
+			{BestiaryID: "hezrou", SpawnWeight: 4, IsElite: true},
 			{BestiaryID: "nalfeshnee", SpawnWeight: 2},
 			{BestiaryID: "marilith", SpawnWeight: 1, IsElite: true},
 		},

@@ -156,15 +156,47 @@ target the cascade path that's now mostly resolved; they have no
 remaining death-fraction to convert. Phase 2c (roster dilution) is
 justified rather than premature.
 
-### Phase 2c — roster gate (next)
+### Phase 2c — roster gate (shipped)
 
-Promote softer mid-tier monsters to `IsElite: true` in zones whose
-elite pool is a single tier-disproportionate boss (warchief / hag /
-roper / dragon are all SpawnWeight=1 alone in their elite pool, so
-an InterruptElite bracket roll = 100% pick of the over-tier boss).
-Diluting the elite pool with one or two softer alternates at higher
-SpawnWeight lets the fighter sometimes face a winnable elite,
-without removing the over-tier boss as a possible spawn.
+Promoted one mid-tier alt to `IsElite: true` in every zone whose elite
+pool was a single SpawnWeight=1 boss (`internal/plugin/dnd_zone.go`).
+The boss stays in the pool; weighted dilution means the InterruptElite
+bracket no longer auto-picks the over-tier boss. `pickZoneEnemy` also
+excludes the promoted entry from the standard pool, lowering standard
+encounter difficulty by removing one mid-difficulty option from
+non-elite brackets (acceptable: each zone still has 3-4 standard
+entries left). Crypt-Valdris was already dual-elite (wight + flameskull)
+and was left alone.
+
+| zone               | promoted alt          | boss (untouched)   |
+|--------------------|-----------------------|--------------------|
+| goblin_warrens     | worg (SW=3)           | hobgoblin_warchief |
+| forest_shadows     | owlbear (SW=4)        | green_hag          |
+| sunken_temple      | aboleth_thrall (SW=3) | water_elemental    |
+| manor_blackspire   | vampire_spawn (SW=3)  | revenant           |
+| underforge         | salamander (SW=3) + fire_elemental (SW=3) | helmed_horror |
+| underdark          | drow_elite_warrior (SW=4) | roper          |
+| feywild_crossing   | night_hag (SW=3)      | fomorian           |
+| dragons_lair       | dragonborn_cultist (SW=3) | young_red_dragon |
+| abyss_portal       | hezrou (SW=4)         | marilith           |
+
+**Phase 1 matrix delta (200 trials/cell, Fighter, tier centerline):**
+goblin_warrens 0% → **3.0%** completion (first non-zero T1 reading
+since Phase 0); sunken_temple 0% → 0.5%; dragons_lair death% **100% →
+60%** with 40% now starve (fighter survives the elite-spawn path long
+enough to run out of supplies — different failure mode); underdark
+death% 100% → 90% (10% starve); feywild_crossing 100% → 92% death
+(8% starve). T3 manor_blackspire / underforge still 100% death — the
+remaining death pressure there is the post-2b chained-standard path,
+not the elite roll.
+
+Tier-lethality trace cross-check (`Phase2_TierLethality`) shows the
+new alt-elites actually spawning and being winnable: underdark trial
+1 now opens with `Drow Elite Warrior` (won), reaches the Roper at
+turn 6, retreats, then dies on a Hook Horror nick — a substantively
+longer arc than the pre-2c fresh-entry Roper one-shot. Dragons_lair
+trials similarly show `Dragonborn Cultist` as a winnable elite stop
+before the dragon roll lands.
 
 Stat-block tuning of the bosses themselves is off-limits per the
 Phase 3 constraint (bestiary is shared across systems).
