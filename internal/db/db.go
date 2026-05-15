@@ -319,6 +319,10 @@ func runMigrations(d *sql.DB) error {
 		// jump back into combat — they're actually resting for the duration.
 		`ALTER TABLE dnd_character ADD COLUMN short_rest_charges INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE dnd_character ADD COLUMN resting_until DATETIME`,
+		// Phase 12 E7 (expedition autopilot Phase 3) — ambient ticker timestamp.
+		// Real-time between-day events fire at most once per ambientCooldown
+		// while an expedition is active; idempotent CAS on this column.
+		`ALTER TABLE dnd_expedition ADD COLUMN last_ambient_at DATETIME`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1803,6 +1807,7 @@ CREATE TABLE IF NOT EXISTS dnd_expedition (
     gm_mood          INTEGER NOT NULL DEFAULT 50,
     last_briefing_at DATETIME,
     last_recap_at    DATETIME,
+    last_ambient_at  DATETIME,
     last_activity    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at     DATETIME
 );

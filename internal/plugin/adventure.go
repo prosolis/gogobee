@@ -245,6 +245,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.mortgageTicker()
 	go p.expeditionBriefingTicker()
 	go p.expeditionRecapTicker()
+	go p.expeditionAmbientTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()
