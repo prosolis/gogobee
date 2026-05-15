@@ -295,6 +295,10 @@ func (p *AdventurePlugin) applyTrapEffectWithDetect(
 	}
 
 	dmg := rollTrapDamage(trap, run.RunID, run.CurrentRoom)
+	// Tiefling fiendish heritage — fire traps deal half damage.
+	if trap.DamageType == "fire" && dndChar.Race == RaceTiefling {
+		dmg = max(1, dmg/2)
+	}
 	if dmg >= dndChar.HPCurrent {
 		dmg = dndChar.HPCurrent - 1
 		if dmg < 0 {

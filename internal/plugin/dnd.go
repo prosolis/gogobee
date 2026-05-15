@@ -36,11 +36,11 @@ const (
 	ClassCleric  DnDClass = "cleric"
 	ClassRanger  DnDClass = "ranger"
 
-	// Caster classes added as structural scaffolding ahead of the Open5e
-	// spell-data import. They are wired through the mechanical layer (HP/AC,
-	// slot tables, spellcasting ability) but kept Playable=false — they have
-	// no spell list yet, so !setup hides them. Flip Playable once Open5e
-	// lands their spells. Subclasses are deferred to a later pass.
+	// Caster classes — fully playable. Wired through the mechanical layer
+	// (HP/AC, slot tables, spellcasting ability) and shipped alongside the
+	// Open5e spell-data import: Playable=true and spell lists populated.
+	// Each chassis has a Phase-2/3 balance rider in applyClassPassives plus
+	// a subclass entry at L3/L5 (see dnd_subclass*.go).
 	ClassDruid    DnDClass = "druid"
 	ClassBard     DnDClass = "bard"
 	ClassSorcerer DnDClass = "sorcerer"
@@ -56,6 +56,11 @@ type DnDRaceInfo struct {
 	// choice (keeps !setup uniform across races).
 	Mods    [6]int
 	Passive string
+	// BestFit is the menu-time hint that frames a stat spread as a specialist
+	// build rather than a list of penalties (Orc with three -1s reads brutal
+	// out of context; "best with: Barbarian, Fighter" reframes it). Comma-
+	// separated class display names; rendered by renderRaceMenu.
+	BestFit string
 }
 
 type DnDClassInfo struct {
@@ -80,13 +85,13 @@ type DnDClassInfo struct {
 // Orc +6) — a spiky race concentrated into high-value stats needs fewer
 // points to match a flat one.
 var dndRaces = []DnDRaceInfo{
-	{RaceHuman, "Human", [6]int{1, 1, 1, 1, 1, 1}, "Versatile: +1 to every ability score"},
-	{RaceElf, "Elf", [6]int{0, 3, -1, 2, 3, 0}, "Darkvision; immune to sleep effects"},
-	{RaceDwarf, "Dwarf", [6]int{2, -1, 3, 1, 1, -1}, "Poison resistance; bonus vs. underground enemies"},
-	{RaceHalfling, "Halfling", [6]int{0, 3, 1, 0, 2, 0}, "Lucky: once per combat, reroll a natural 1"},
-	{RaceOrc, "Orc", [6]int{6, -1, 3, -1, -1, 0}, "Rage: once per combat, +50% damage for one turn"},
-	{RaceTiefling, "Tiefling", [6]int{0, 2, 0, 1, 0, 3}, "Fire resistance; bonus on CHA checks"},
-	{RaceHalfElf, "Half-Elf", [6]int{0, 2, 0, 1, 1, 2}, "Two bonus skill proficiencies"},
+	{RaceHuman, "Human", [6]int{1, 1, 1, 1, 1, 1}, "Versatile: +1 to every ability score", "any class"},
+	{RaceElf, "Elf", [6]int{0, 3, -1, 2, 3, 0}, "Keen senses; trance keeps you sharp through long marches", "Ranger, Mage, Druid"},
+	{RaceDwarf, "Dwarf", [6]int{2, -1, 3, 1, 1, -1}, "Poison resistance; sure-footed in the deep places", "Fighter, Cleric, Paladin"},
+	{RaceHalfling, "Halfling", [6]int{0, 3, 1, 0, 2, 0}, "Lucky: once per combat, reroll a natural 1", "Rogue, Bard, Ranger"},
+	{RaceOrc, "Orc", [6]int{6, -1, 3, -1, -1, 0}, "Rage: once per combat, +50% damage for one turn", "Fighter, Ranger"},
+	{RaceTiefling, "Tiefling", [6]int{0, 2, 0, 1, 0, 3}, "Fiendish heritage: incoming fire damage halved", "Sorcerer, Warlock, Bard"},
+	{RaceHalfElf, "Half-Elf", [6]int{0, 2, 0, 1, 1, 2}, "Adaptable: cross-cultural know-how, equally at ease in any company", "Bard, Paladin, Sorcerer"},
 }
 
 var dndClasses = []DnDClassInfo{

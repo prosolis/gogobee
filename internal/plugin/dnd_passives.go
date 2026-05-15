@@ -75,10 +75,9 @@ func clampNonNeg(x int) int {
 }
 
 // applyRacePassives sets the combat-impacting flags from the player's race.
-// Races whose passives apply to skill checks or non-combat scenarios
-// (Tiefling fire resist, Elf sleep immunity, Half-Elf bonus profs, Human
-// floating +1) are handled in their respective phases and have no combat
-// hook in Phase 3.
+// Elf "trance" (resilience flavor), Half-Elf "adaptable" (cross-cultural know-
+// how), and the Human floating +1 are non-combat or stat-only and have no
+// engine hook here.
 func applyRacePassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharacter) {
 	switch c.Race {
 	case RaceHalfling:
@@ -87,6 +86,11 @@ func applyRacePassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharacte
 		mods.RageReady = true
 	case RaceDwarf:
 		mods.PoisonResist = true
+	case RaceTiefling:
+		// Fiendish heritage: incoming fire damage is halved by the combat
+		// engine (enemy attack path + aoe_fire ability) and by the trap
+		// resolver (fire-tagged traps).
+		mods.FireResist = true
 	}
 }
 

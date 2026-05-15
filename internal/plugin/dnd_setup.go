@@ -563,6 +563,9 @@ func renderRaceMenu() string {
 	var b strings.Builder
 	for _, ri := range dndRaces {
 		b.WriteString(fmt.Sprintf("  • **%s** — %s\n", ri.Display, ri.Passive))
+		if ri.BestFit != "" {
+			b.WriteString(fmt.Sprintf("    _best with: %s_\n", ri.BestFit))
+		}
 	}
 	return b.String()
 }

@@ -23,6 +23,12 @@ type DnDMonsterTemplate struct {
 	Ability     *MonsterAbility
 	XPValue     int
 	Notes       string
+
+	// FireAttacker: signature damage is fire. Tieflings (FireResist) take half
+	// damage from the enemy's main attack and from any aoe_fire ability rider.
+	// Tuned-bestiary generator sets this from SRD attack DamageType; the
+	// hand-authored entries below tag it explicitly.
+	FireAttacker bool
 }
 
 // dndBestiary is the canonical lookup. Keyed by ID.
@@ -174,6 +180,7 @@ var _ = func() bool {
 			Ability:   &MonsterAbility{Name: "Fireball", Phase: "decisive", ProcChance: 0.55, Effect: "aoe_fire"},
 			XPValue:   1100,
 			Notes:     "Elite. Fireball 8d6 DEX DC 13. Rejuvenation in 1h unless holy water used.",
+			FireAttacker: true,
 		},
 		"boss_grol_unbroken": {
 			ID: "boss_grol_unbroken", Name: "Grol the Unbroken",
@@ -382,6 +389,7 @@ var _ = func() bool {
 			Ability:   &MonsterAbility{Name: "Death Burst", Phase: "decisive", ProcChance: 1.00, Effect: "death_aoe"},
 			XPValue:   100,
 			Notes:     "Death Burst: 2d6 fire in 10 ft on death. Ignite flammable objects on touch.",
+			FireAttacker: true,
 		},
 		"azer": {
 			ID: "azer", Name: "Azer",
@@ -390,6 +398,7 @@ var _ = func() bool {
 			Ability:   &MonsterAbility{Name: "Fire Aura", Phase: "any", ProcChance: 0.50, Effect: "retaliate"},
 			XPValue:   450,
 			Notes:     "1d10 fire to melee attackers; immune to fire; weapons deal heated bonus damage.",
+			FireAttacker: true,
 		},
 		"salamander": {
 			ID: "salamander", Name: "Salamander",
@@ -398,6 +407,7 @@ var _ = func() bool {
 			Ability:   &MonsterAbility{Name: "Constrict", Phase: "any", ProcChance: 0.40, Effect: "stun"},
 			XPValue:   1800,
 			Notes:     "Constrict grapple + 2d6 fire/turn; spear multiattack; fire aura.",
+			FireAttacker: true,
 		},
 		"fire_elemental": {
 			ID: "fire_elemental", Name: "Fire Elemental",
@@ -406,6 +416,7 @@ var _ = func() bool {
 			Ability:   &MonsterAbility{Name: "Fire Form", Phase: "any", ProcChance: 0.50, Effect: "retaliate"},
 			XPValue:   1800,
 			Notes:     "1d10 contact fire damage; immune to fire; vulnerable to water/cold.",
+			FireAttacker: true,
 		},
 		"helmed_horror": {
 			ID: "helmed_horror", Name: "Helmed Horror",
@@ -422,6 +433,7 @@ var _ = func() bool {
 			Ability:   &MonsterAbility{Name: "Forge Breath", Phase: "any", ProcChance: 0.30, Effect: "aoe"},
 			XPValue:   5000,
 			Notes:     "Underforge boss. Phase 2 below 50% HP — spawns 2 Fire Elementals; breath recharge 4–6.",
+			FireAttacker: true,
 		},
 	}
 	for id, m := range tier3 {
@@ -586,6 +598,7 @@ var _ = func() bool {
 			Ability:   &MonsterAbility{Name: "Fire Breath", Phase: "any", ProcChance: 0.30, Effect: "aoe_fire"},
 			XPValue:   5900,
 			Notes:     "Elite. Fire Breath 16d6 DEX DC 21; Multiattack; Frightful Presence WIS DC 16.",
+			FireAttacker: true,
 		},
 		"boss_infernax": {
 			ID: "boss_infernax", Name: "Infernax the Undying",
@@ -594,6 +607,7 @@ var _ = func() bool {
 			Ability:   &MonsterAbility{Name: "Frightful Presence", Phase: "opening", ProcChance: 0.80, Effect: "stun"},
 			XPValue:   62000,
 			Notes:     "Dragon's Lair boss. Ancient Red Dragon. Legendary Actions; Lair Actions; phase 2 below 50% HP — fire ignores resistance.",
+			FireAttacker: true,
 		},
 		// ── Abyss Portal ─────────────────────────────────────────────────
 		"quasit": {
@@ -643,6 +657,7 @@ var _ = func() bool {
 			Ability:   &MonsterAbility{Name: "Lightning Discharge", Phase: "decisive", ProcChance: 0.40, Effect: "aoe"},
 			XPValue:   22000,
 			Notes:     "Abyss Portal boss. Balor. Fire Aura; Death Throes on death; Demonic Resilience; Legendary Resistance 3/combat; phase 2 below 40% HP — Huge size, advantage on attacks.",
+			FireAttacker: true,
 		},
 	}
 	for id, m := range tier45 {
@@ -675,6 +690,7 @@ func (m DnDMonsterTemplate) toCombatStats() (CombatStats, CombatModifiers) {
 		BlockRate:   m.BlockRate,
 		AC:          m.AC,
 		AttackBonus: m.AttackBonus,
+		FireAttacker: m.FireAttacker,
 	}
 	mods := CombatModifiers{DamageReduct: 1.0}
 	return stats, mods

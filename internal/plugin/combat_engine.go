@@ -36,6 +36,13 @@ type CombatStats struct {
 	AbilityModForDamage int
 	WeaponProficient    bool // false → -4 attack penalty (appendix §8 implementation note)
 	TwoHandedMode       bool // true + versatile weapon → use larger versatile die
+
+	// FireAttacker tags monsters whose signature damage is fire (red dragons,
+	// fire elementals, hell hounds, magmin, balor, …). The enemy-attack path
+	// halves incoming damage when this is set on the enemy and FireResist is
+	// set on the player. Carried via toCombatStats; tuned generator derives it
+	// from SRD attack DamageType; hand-authored entries set it explicitly.
+	FireAttacker bool
 }
 
 type CombatModifiers struct {
@@ -71,6 +78,7 @@ type CombatModifiers struct {
 	LuckyReroll  bool // Halfling: reroll the first nat 1 of the fight
 	RageReady    bool // Orc: when HP first drops <50%, next attack deals +50% damage
 	PoisonResist bool // Dwarf: poison tick damage halved
+	FireResist   bool // Tiefling: incoming damage from fire-tagged sources halved
 
 	// Phase 10 SUB2a — subclass combat hooks.
 	// CritThreshold: lowest d20 roll that crits. 0 = use default (20).
@@ -910,6 +918,13 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	if player.Mods.BerserkerRage && player.Mods.PhysicalResistRage {
 		dmg = max(1, dmg/2)
 	}
+	// Tiefling fire resistance — halve the enemy's primary attack when the
+	// monster's signature damage is fire (FireAttacker, set on the template).
+	// Aligned with the Berserker pattern: applied after crit-doubling so the
+	// resistance survives a nat 20.
+	if player.Mods.FireResist && enemy.Stats.FireAttacker {
+		dmg = max(1, dmg/2)
+	}
 	dmg = max(1, dmg)
 
 	if petDeflect {
@@ -1093,6 +1108,16 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 		// An area burst that partly bypasses armor (defWeight cut to 0.4), so a
 		// high-defense build still feels it. Rider on top of the normal attack.
 		dmg := abilityHitDamage(st, player, enemy, phase, 0.7, 0.4)
+		// Tiefling fire resistance: the aoe_fire effect name encodes a fire
+		// burst (Burning Hands, Fireball, Fire Breath). Halve for FireResist.
+		// Generic "aoe" / "death_aoe" don't always carry fire damage, so we
+		// gate on the effect string — the FireAttacker flag on the monster
+		// covers fire-themed creatures whose death/aura uses a non-aoe_fire
+		// effect (e.g., magmin's death_aoe burst rides their FireAttacker tag
+		// via the primary-attack halving path).
+		if ab.Effect == "aoe_fire" && player.Mods.FireResist {
+			dmg = max(1, dmg/2)
+		}
 		st.playerHP = max(0, st.playerHP-dmg)
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "aoe",

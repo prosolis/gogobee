@@ -67,16 +67,17 @@ func genTuned() error {
 // genTunedMonster mirrors plugin.DnDMonsterTemplate. Ability is nil when none
 // of the creature's SRD traits map onto an engine effect.
 type genTunedMonster struct {
-	ID, Name    string
-	CR          float64
-	HP, AC      int
-	Attack      int
-	AttackBonus int
-	Speed       int
-	BlockRate   float64
-	XPValue     int
-	Ability     *genMonsterAbility
-	Notes       string
+	ID, Name     string
+	CR           float64
+	HP, AC       int
+	Attack       int
+	AttackBonus  int
+	Speed        int
+	BlockRate    float64
+	XPValue      int
+	Ability      *genMonsterAbility
+	Notes        string
+	FireAttacker bool
 }
 
 // genMonsterAbility mirrors plugin.MonsterAbility.
@@ -95,19 +96,36 @@ func tuneMonster(b genStatBlock) genTunedMonster {
 	}
 	ability := abilityFromTraits(b.Traits)
 	return genTunedMonster{
-		ID:          b.Slug,
-		Name:        stripNameParenthetical(b.Name),
-		CR:          b.CR,
-		HP:          b.HP,
-		AC:          ac,
-		Attack:      attackByCR(b.CR),
-		AttackBonus: primaryAttackBonus(b.Attacks),
-		Speed:       tunedSpeed(b.SpeedWalk),
-		BlockRate:   tunedBlockRate(ac),
-		XPValue:     b.XP,
-		Ability:     ability,
-		Notes:       tunedNotes(b, ability),
+		ID:           b.Slug,
+		Name:         stripNameParenthetical(b.Name),
+		CR:           b.CR,
+		HP:           b.HP,
+		AC:           ac,
+		Attack:       attackByCR(b.CR),
+		AttackBonus:  primaryAttackBonus(b.Attacks),
+		Speed:        tunedSpeed(b.SpeedWalk),
+		BlockRate:    tunedBlockRate(ac),
+		XPValue:      b.XP,
+		Ability:      ability,
+		Notes:        tunedNotes(b, ability),
+		FireAttacker: isFireAttacker(b.Attacks),
 	}
+}
+
+// isFireAttacker returns true when a monster's signature damage is fire —
+// i.e., its highest-average-damage attack deals fire. Threshold at AvgDamage
+// >= 5 so a trivial fire fleck on an otherwise physical creature doesn't tag
+// the whole bestiary entry. Tieflings (FireResist) take half damage from the
+// primary attack of any creature flagged here.
+func isFireAttacker(attacks []genStatAttack) bool {
+	bestAvg, bestType := 0, ""
+	for _, a := range attacks {
+		if a.AvgDamage > bestAvg {
+			bestAvg = a.AvgDamage
+			bestType = a.DamageType
+		}
+	}
+	return bestType == "fire" && bestAvg >= 5
 }
 
 // stripNameParenthetical drops a trailing "(…)" qualifier from a monster
@@ -345,7 +363,11 @@ func buildTunedBestiarySRD() map[string]DnDMonsterTemplate {
 				strconv.FormatFloat(m.Ability.ProcChance, 'g', -1, 64),
 				m.Ability.Effect)
 		}
-		fmt.Fprintf(&b, "Notes: %q},\n", m.Notes)
+		fmt.Fprintf(&b, "Notes: %q", m.Notes)
+		if m.FireAttacker {
+			b.WriteString(", FireAttacker: true")
+		}
+		b.WriteString("},\n")
 	}
 	b.WriteString("\t}\n}\n")
 	return b.Bytes()

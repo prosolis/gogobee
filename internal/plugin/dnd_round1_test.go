@@ -15,16 +15,16 @@ import (
 
 func TestApplyRacePassives(t *testing.T) {
 	cases := []struct {
-		race                              DnDRace
-		wantLucky, wantRage, wantPoisonOK bool
+		race                                          DnDRace
+		wantLucky, wantRage, wantPoisonOK, wantFireOK bool
 	}{
-		{RaceHalfling, true, false, false},
-		{RaceOrc, false, true, false},
-		{RaceDwarf, false, false, true},
-		{RaceHuman, false, false, false},
-		{RaceElf, false, false, false},
-		{RaceTiefling, false, false, false},
-		{RaceHalfElf, false, false, false},
+		{RaceHalfling, true, false, false, false},
+		{RaceOrc, false, true, false, false},
+		{RaceDwarf, false, false, true, false},
+		{RaceHuman, false, false, false, false},
+		{RaceElf, false, false, false, false},
+		{RaceTiefling, false, false, false, true},
+		{RaceHalfElf, false, false, false, false},
 	}
 	for _, tc := range cases {
 		mods := CombatModifiers{}
@@ -38,6 +38,9 @@ func TestApplyRacePassives(t *testing.T) {
 		}
 		if mods.PoisonResist != tc.wantPoisonOK {
 			t.Errorf("%s PoisonResist = %v, want %v", tc.race, mods.PoisonResist, tc.wantPoisonOK)
+		}
+		if mods.FireResist != tc.wantFireOK {
+			t.Errorf("%s FireResist = %v, want %v", tc.race, mods.FireResist, tc.wantFireOK)
 		}
 	}
 }
@@ -157,6 +160,55 @@ func TestDwarfPoisonResistance(t *testing.T) {
 	ratio := avgP / avgU
 	if ratio < 0.35 || ratio > 0.65 {
 		t.Errorf("dwarf poison ratio = %.3f (avg unprot=%.1f, prot=%.1f); want ~0.5",
+			ratio, avgU, avgP)
+	}
+}
+
+// TestTieflingFireResistance: a fire-tagged monster's primary attack should
+// land for ~half damage on a Tiefling. Measured by summing the per-hit damage
+// events from a stat-locked encounter so the dice noise averages out.
+func TestTieflingFireResistance(t *testing.T) {
+	enemy := Combatant{
+		// FireAttacker tags this as fire-themed (e.g., fire elemental).
+		// AttackBonus high enough to land reliably against player AC 10.
+		Stats: CombatStats{MaxHP: 100000, Attack: 12, Defense: 0, Speed: 5, AC: 10, AttackBonus: 10, FireAttacker: true},
+		Mods:  CombatModifiers{DamageReduct: 1.0},
+	}
+	phases := []CombatPhase{{Name: "Bake", Rounds: 6, AttackWeight: 1.0, DefenseWeight: 1.0, SpeedWeight: 1.0}}
+
+	makePlayer := func(resist bool) Combatant {
+		// Sturdy player that won't die mid-trial; low attack so the enemy
+		// keeps swinging the whole phase. No block, no DR ride, no crit
+		// path on the enemy side beyond a nat 20.
+		return Combatant{
+			IsPlayer: true,
+			Stats:    CombatStats{MaxHP: 200000, Attack: 1, Defense: 0, Speed: 5, AC: 10, AttackBonus: 0},
+			Mods:     CombatModifiers{DamageReduct: 1.0, FireResist: resist},
+		}
+	}
+	sumEnemyHits := func(r CombatResult) int {
+		s := 0
+		for _, ev := range r.Events {
+			if ev.Actor == "enemy" && (ev.Action == "hit" || ev.Action == "crit") {
+				s += ev.Damage
+			}
+		}
+		return s
+	}
+	totalUnprot, totalProt := 0, 0
+	const trials = 300
+	for i := 0; i < trials; i++ {
+		totalUnprot += sumEnemyHits(SimulateCombat(makePlayer(false), enemy, phases))
+		totalProt += sumEnemyHits(SimulateCombat(makePlayer(true), enemy, phases))
+	}
+	if totalUnprot == 0 {
+		t.Fatal("no unprotected fire damage observed; test setup broken")
+	}
+	avgU := float64(totalUnprot) / float64(trials)
+	avgP := float64(totalProt) / float64(trials)
+	ratio := avgP / avgU
+	if ratio < 0.40 || ratio > 0.65 {
+		t.Errorf("tiefling fire ratio = %.3f (avg unprot=%.1f, prot=%.1f); want ~0.5",
 			ratio, avgU, avgP)
 	}
 }
