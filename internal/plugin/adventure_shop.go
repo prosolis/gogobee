@@ -841,9 +841,17 @@ func (p *AdventurePlugin) advSellAll(userID id.UserID) string {
 	var sold int
 	var keptSpecial int
 	var keptConsumable int
+	var keptMagic int
 	for _, item := range items {
 		if item.Type == "MasterworkGear" || item.Type == "ArenaGear" || item.Type == "card" {
 			keptSpecial++
+			continue
+		}
+		if item.Type == "magic_item" {
+			// B1: magic items are bonded curios, not bulk loot — sell-all must
+			// never silently delete them. Route the player to !adventure
+			// equip-magic instead.
+			keptMagic++
 			continue
 		}
 		if item.Type == "consumable" {
@@ -859,6 +867,10 @@ func (p *AdventurePlugin) advSellAll(userID id.UserID) string {
 
 	if sold == 0 {
 		switch {
+		case keptMagic > 0 && (keptSpecial > 0 || keptConsumable > 0):
+			return "Your inventory only contains special gear, curios, and/or consumables. The merchant won't touch any of it. Use `!adventure equip-magic` for curios, `!adventure equip` for gear, or `!adventure sell <name>` for individual consumables."
+		case keptMagic > 0:
+			return "Your inventory only contains curios (magic items). The merchant doesn't deal in those. Use `!adventure equip-magic` instead."
 		case keptSpecial > 0 && keptConsumable > 0:
 			return "Your inventory only contains special gear and consumables. The merchant won't touch any of it. Use `!adventure equip` for gear or `!adventure sell <name>` for individual consumables."
 		case keptSpecial > 0:
@@ -886,6 +898,9 @@ func (p *AdventurePlugin) advSellAll(userID id.UserID) string {
 	if keptConsumable > 0 {
 		msg += fmt.Sprintf("\n(%d consumable(s) kept — `sell all` doesn't touch them. Sell explicitly with `!adventure sell <name>`.)", keptConsumable)
 	}
+	if keptMagic > 0 {
+		msg += fmt.Sprintf("\n(%d curio(s) kept — `!adventure equip-magic` to bond them. The merchant wouldn't know what to do with them.)", keptMagic)
+	}
 	return msg
 }
 
@@ -900,6 +915,9 @@ func (p *AdventurePlugin) advSellItem(userID id.UserID, itemName string) string 
 		if containsFold(item.Name, itemName) {
 			if item.Type == "MasterworkGear" || item.Type == "ArenaGear" || item.Type == "card" {
 				return fmt.Sprintf("**%s** is special gear. The merchant won't touch it. Use `!adventure equip` to equip it.", item.Name)
+			}
+			if item.Type == "magic_item" {
+				return fmt.Sprintf("**%s** is a curio — the merchant doesn't deal in those. Use `!adventure equip-magic` to bond it instead.", item.Name)
 			}
 			if err := removeAdvInventoryItem(item.ID); err != nil {
 				return "Failed to sell that item."
