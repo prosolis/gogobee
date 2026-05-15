@@ -261,12 +261,21 @@ func zoneCryptValdris() ZoneDefinition {
 		MinRooms:   6,
 		MaxRooms:   7,
 		Enemies: []ZoneEnemy{
+			// Phase 4-B (outlier fix): the live roster was the only
+			// dual-killer-elite zone (wight + flameskull, both CR3+ on
+			// the T1 standards floor), so the InterruptElite bracket
+			// was effectively "pick your one-shot." Phase 2c skipped
+			// this zone because it was already dual-elite; Phase 4-A's
+			// per-monster trace caught the consequence (167/183
+			// deaths attributed to those two). Flameskull dropped here
+			// (still in underforge T3 where its CR fits); specter
+			// promoted from standard to the soft-elite dilutor slot
+			// at SW=3, matching Phase 2c's worg/owlbear shape.
 			{BestiaryID: "skeleton", SpawnWeight: 7},
 			{BestiaryID: "zombie", SpawnWeight: 6},
 			{BestiaryID: "shadow", SpawnWeight: 4},
-			{BestiaryID: "specter", SpawnWeight: 3},
+			{BestiaryID: "specter", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "wight", SpawnWeight: 1, IsElite: true},
-			{BestiaryID: "flameskull", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
 			BestiaryID:  "boss_valdris_unburied",
@@ -308,11 +317,29 @@ func zoneForestShadows() ZoneDefinition {
 		MinRooms:   6,
 		MaxRooms:   8,
 		Enemies: []ZoneEnemy{
+			// Phase 4-B (outlier fix): standard pool was carrying two
+			// real killers — Displacer Beast (38% win as a standard
+			// pick) and Bandit Captain (57% win). Re-flag Displacer
+			// Beast as elite so it leaves the standard slot, joining
+			// Owlbear/Hag as a third elite for pool dilution; trim
+			// Bandit Captain SW so the soft Dire Wolf carries more of
+			// the standard roll mass. Boss + standards now match the
+			// sibling sunken_temple's lethality shape.
+			//
+			// Second pass: a first attempt (Displacer→elite alone)
+			// only moved comp 0% → 0.5%. Phase 4-A re-trace showed
+			// Bandit Captain still bleeding the standard pool (321
+			// appearances, 54.8% win, 53 kills) and Owlbear monopolising
+			// the elite roll at SW=4. Promoted Captain to elite as
+			// well; cut Owlbear SW 4→2 so the 4-elite pool dilutes
+			// instead of front-loading Owlbear (9% win). Standard
+			// becomes Dire Wolf + Dryad, matching sunken_temple's
+			// "all standards ≥90% win" floor.
 			{BestiaryID: "dire_wolf", SpawnWeight: 6},
-			{BestiaryID: "bandit_captain", SpawnWeight: 4},
-			{BestiaryID: "owlbear", SpawnWeight: 4, IsElite: true},
 			{BestiaryID: "dryad_corrupted", SpawnWeight: 3},
-			{BestiaryID: "displacer_beast", SpawnWeight: 3},
+			{BestiaryID: "owlbear", SpawnWeight: 2, IsElite: true},
+			{BestiaryID: "bandit_captain", SpawnWeight: 3, IsElite: true},
+			{BestiaryID: "displacer_beast", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "green_hag", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
@@ -399,10 +426,17 @@ func zoneManorBlackspire() ZoneDefinition {
 		MinRooms:   7,
 		MaxRooms:   9,
 		Enemies: []ZoneEnemy{
+			// Phase 4-B (outlier fix): Wraith was the dominant
+			// standard-pool killer (45 hp loss/win, 85 attributed
+			// kills in Phase 4-A) — too punishing for the standard
+			// slot at T3. Promoted to elite; Spawn+Wraith+Revenant
+			// becomes a 3-elite pool with balanced dilution, leaving
+			// Shadow/Poltergeist/Banshee as a clean standard floor
+			// (all ≥92% win in the trace).
 			{BestiaryID: "shadow", SpawnWeight: 6},
 			{BestiaryID: "poltergeist", SpawnWeight: 5},
 			{BestiaryID: "banshee", SpawnWeight: 3},
-			{BestiaryID: "wraith", SpawnWeight: 3},
+			{BestiaryID: "wraith", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "vampire_spawn", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "revenant", SpawnWeight: 1, IsElite: true},
 		},
@@ -635,10 +669,30 @@ func zoneAbyssPortal() ZoneDefinition {
 		MinRooms:   9,
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{
+			// Phase 4-B (outlier fix): Nalfeshnee was mis-classified
+			// as a standard at T5 — Phase 4-A measured 2.8% win rate
+			// across 180 standard-pool picks, attributing 86 kills
+			// (43% of all deaths in the trace). Re-flagged as elite
+			// where its CR-13 stat block belongs; the new elite pool
+			// Hezrou+Nalfeshnee+Marilith mirrors the sibling
+			// dragons_lair's three-elite shape. Vrock SW shaved 5→4
+			// so the soft Quasit (≥99% win) takes a larger share of
+			// the standard mass, since Vrock was the secondary
+			// standard killer (53 kills, 44hp loss/win).
+			//
+			// Second pass: a first attempt (Nalf→elite, Vrock SW 5→4)
+			// only moved comp 0% → 9%. Re-trace showed Vrock still
+			// dominant in the standard pool (1013 appearances, 86.3%
+			// win, but 43.6 hp loss per win → 65 kills via attrition).
+			// The sibling dragons_lair posts zero standard-pool kills;
+			// promoting Vrock to elite brings abyss in line. Standard
+			// floor collapses to Quasit alone, which is fine — Quasit
+			// posts ≥99.9% win in trace and the elite bracket
+			// triggers ~7% of rolls anyway.
 			{BestiaryID: "quasit", SpawnWeight: 6},
-			{BestiaryID: "vrock", SpawnWeight: 5},
+			{BestiaryID: "vrock", SpawnWeight: 4, IsElite: true},
 			{BestiaryID: "hezrou", SpawnWeight: 4, IsElite: true},
-			{BestiaryID: "nalfeshnee", SpawnWeight: 2},
+			{BestiaryID: "nalfeshnee", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "marilith", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
