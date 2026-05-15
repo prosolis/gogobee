@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"sort"
 )
@@ -90,6 +91,12 @@ type expeditionBalanceProfile struct {
 	// CampType is the camp the player establishes each night.
 	// Standard is the spike default; Phase 3 may sweep this per cell.
 	CampType string
+	// HarvestRollsPerDay overrides the harness's default combat-interrupt
+	// roll count for the daytime phase. Zero means "use the package
+	// default" (harnessHarvestRollsPerDay). Phase 2's cadence
+	// calibration sweep sets this per cell; everyday callers leave it
+	// zero.
+	HarvestRollsPerDay int
 }
 
 // expeditionTrialResult is the outcome of one simulated expedition.
@@ -244,7 +251,7 @@ func (h *expeditionHarness) advanceExpeditionOneDay() expeditionTrialResult {
 	}
 
 	// 4. Daytime combat-interrupt rolls.
-	for i := 0; i < harnessHarvestRollsPerDay; i++ {
+	for i := 0; i < h.rollsPerDay; i++ {
 		kind, _ := resolveCombatInterrupt(
 			h.exp.ThreatLevel, int(zone.Tier), h.char.Class, h.exp.ZoneID, h.rng.d20,
 		)
@@ -366,7 +373,20 @@ func (h *expeditionHarness) runHarnessFight(zone ZoneDefinition, elite bool) Com
 		player.Stats.StartHP = h.char.HPCurrent
 	}
 	enemy := buildHarnessZoneEnemy(monster, int(zone.Tier))
-	return simulateCombatWithRNG(player, enemy, dungeonCombatPhases, h.rng.r)
+	hpBeforeFight := h.char.HPCurrent
+	result := simulateCombatWithRNG(player, enemy, dungeonCombatPhases, h.rng.r)
+	if h.traceFight != nil {
+		outcome := "WON"
+		if !result.PlayerWon {
+			outcome = "LOST"
+		}
+		h.traceFight(fmt.Sprintf(
+			"fight day=%d zone=%s tier=%d elite=%v monster=%s hp_max=%d nick=%d hp_pre=%d hp_post=%d enemy_ac=%d enemy_atk=%d → %s",
+			h.exp.CurrentDay, h.exp.ZoneID, int(zone.Tier), elite,
+			monster.Name, h.char.HPMax, nick, hpBeforeFight, result.PlayerEndHP,
+			enemy.Stats.AC, enemy.Stats.AttackBonus, outcome))
+	}
+	return result
 }
 
 // pickHarnessZoneEnemy is the harness's RNG-driven analogue of
@@ -447,10 +467,17 @@ func buildHarnessZoneEnemy(monster DnDMonsterTemplate, tier int) Combatant {
 // expeditionHarness threads per-trial mutable state (RNG, expedition,
 // character HP carryover, encounter count) through the day loop.
 type expeditionHarness struct {
-	exp        *Expedition
-	char       *DnDCharacter
-	rng        *harnessRNG
-	encounters int
+	exp          *Expedition
+	char         *DnDCharacter
+	rng          *harnessRNG
+	encounters   int
+	rollsPerDay  int // resolved from profile + default; never zero
+	// traceFight, if non-nil, is invoked once per fight inside
+	// runHarnessFight with a human-readable summary. Used by the
+	// Phase 2 lethality probe to spot whether the nick, the picked
+	// monster, or the combat fold itself is driving deaths. Nil in
+	// production runs — has zero cost when unused.
+	traceFight func(line string)
 }
 
 // harnessRNG is a thin wrapper around math/rand/v2 so the d20 helper
@@ -484,10 +511,15 @@ func runExpeditionBalanceTrial(p expeditionBalanceProfile, seed uint64) expediti
 		Subclass: p.Subclass,
 		Level:    p.Level,
 	})
+	rolls := p.HarvestRollsPerDay
+	if rolls <= 0 {
+		rolls = harnessHarvestRollsPerDay
+	}
 	h := &expeditionHarness{
-		exp:  exp,
-		char: char,
-		rng:  newHarnessRNG(seed),
+		exp:         exp,
+		char:        char,
+		rng:         newHarnessRNG(seed),
+		rollsPerDay: rolls,
 	}
 	for {
 		res := h.advanceExpeditionOneDay()

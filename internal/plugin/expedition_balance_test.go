@@ -95,23 +95,31 @@ func TestExpeditionBalance_Phase0_SeedSpread(t *testing.T) {
 	}
 }
 
-// phase1TierCenterline maps each tier to its centerline player level —
-// the median of the design-doc player-level range for the tier:
+// phase1TierCenterline maps each tier to its centerline player level.
+// Originally the design doc's median per tier; bumped where the
+// gear-ladder boundaries (gearTier in dnd_class_balance.go: 5/9/13/17)
+// pushed the median into a gear bracket *below* the zone's tier. The
+// harness's classLoadout is shared with the class-balance pass, and
+// retuning its boundaries would shift class-balance numbers too, so the
+// adjustment lands here instead: pick the lowest level inside each
+// tier's design-doc level range that resolves to gearTier == tier.
 //
-//	T1 (L1-4)  → 3
-//	T2 (L3-7)  → 5
-//	T3 (L5-10) → 8
-//	T4 (L7-15) → 11
-//	T5 (L10-20) → 15
+//	T1 (L1-4)   → 3   gearTier 1 = mundane              ✓
+//	T2 (L3-7)   → 5   gearTier 2 = +1 weapon/armor      ✓
+//	T3 (L5-10)  → 9   gearTier 3 = +2 (was L8 → +1)
+//	T4 (L7-15)  → 13  gearTier 4 = +3 (was L11 → +2)
+//	T5 (L10-20) → 17  gearTier 5 = +3 (was L15 → +3, but bumped
+//	                 for consistency with the rule, no stat impact)
 //
-// One level per tier keeps the matrix at zones × 1, not zones × range.
-// Phase 4 may widen this if a tier band looks level-sensitive.
+// All centerlines stay inside their design-doc range. One level per
+// tier keeps the matrix at zones × 1, not zones × range. Phase 4 may
+// widen this if a tier band looks level-sensitive.
 var phase1TierCenterline = map[ZoneTier]int{
 	ZoneTierBeginner:   3,
 	ZoneTierApprentice: 5,
-	ZoneTierJourneyman: 8,
-	ZoneTierVeteran:    11,
-	ZoneTierLegendary:  15,
+	ZoneTierJourneyman: 9,
+	ZoneTierVeteran:    13,
+	ZoneTierLegendary:  17,
 }
 
 // TestExpeditionBalance_Phase1_FullMatrix is the Phase 1 baseline-
@@ -250,6 +258,172 @@ func TestExpeditionBalance_Phase1_FullMatrix(t *testing.T) {
 		if row.zone.Tier == ZoneTierLegendary && r.Completions == r.Trials {
 			t.Logf("WARN  %s (T5): 100%% completions in %d trials — Phase 2 should pressure this",
 				row.zone.ID, r.Trials)
+		}
+	}
+}
+
+// TestExpeditionBalance_Phase2_CadenceCalibration sweeps the harness's
+// daytime combat-interrupt cadence across {1,2,3,4} rolls/day and logs
+// the full matrix per cadence. Diagnostic-only — no gates beyond the
+// Phase 1 wiring pathologies.
+//
+// Why this exists: Phase 1's baseline came back uniformly 0% / 100%
+// death at every cell, and the commit message named cadence as the
+// suspected lever. We can't compare against a live trace
+// (prod is too low-traffic; the corpus is one in-flight expedition
+// with zero interrupt rows), so the cadence constant is itself a
+// tunable. This test surfaces the curve so Phase 2's global-lever
+// pass starts from a cadence where the matrix has signal — i.e. where
+// T1 is roughly in the 70–90% band without flooring T5 to 100%.
+//
+// Cell shape mirrors Phase 1: every registered zone × its tier-
+// centerline level, Fighter, 200 trials. The only thing that varies
+// across runs is HarvestRollsPerDay.
+func TestExpeditionBalance_Phase2_CadenceCalibration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("phase 2 cadence sweep is heavy; -short skips it")
+	}
+
+	const trialsPerCell = 200
+	const baseSeed uint64 = 0xCAFEC1DE
+	cadences := []int{1, 2, 3, 4}
+
+	t.Logf("phase2 cadence calibration — %d zones × %d cadences × %d trials, Fighter @ tier-centerline level",
+		len(zoneOrder), len(cadences), trialsPerCell)
+
+	for _, rolls := range cadences {
+		// Per-tier aggregation for the headline view.
+		type tierStat struct {
+			cells int
+			sumC  float64
+			lo    float64
+			hi    float64
+		}
+		tierStats := map[ZoneTier]*tierStat{}
+
+		t.Logf("─── HarvestRollsPerDay=%d ───", rolls)
+		for i, id := range zoneOrder {
+			zone, ok := getZone(id)
+			if !ok {
+				t.Fatalf("zoneOrder[%d]=%q not in registry", i, id)
+			}
+			level, ok := phase1TierCenterline[zone.Tier]
+			if !ok {
+				t.Fatalf("zone %q has tier %d with no phase1 centerline mapping", id, zone.Tier)
+			}
+			profile := expeditionBalanceProfile{
+				ZoneID:             id,
+				Class:              ClassFighter,
+				Level:              level,
+				Supplies:           makeSupplies(zone.Tier, SupplyPurchase{StandardPacks: 3}),
+				CampType:           CampTypeStandard,
+				HarvestRollsPerDay: rolls,
+			}
+			// Seed schedule: same base + cell offset as Phase 1, plus a
+			// cadence-dependent salt so different cadences don't sample
+			// the same correlated streams.
+			seed := baseSeed + uint64(i)*1_000_003 + uint64(rolls)*7919
+			r := runExpeditionBalanceCell(profile, trialsPerCell, seed)
+
+			c := r.CompletionRate() * 100
+			t.Logf("CELL  rolls=%d  %-18s T%d  L%-2d  comp=%5.1f%% death=%5.1f%% starve=%5.1f%% med_days=%2d med_threat=%3d encs=%4.1f hp_left=%5.1f%%",
+				rolls, zone.ID, zone.Tier, r.Profile.Level,
+				c,
+				r.DeathRate()*100,
+				float64(r.StarvedOuts)/float64(r.Trials)*100,
+				r.MedianDays, r.MedianThreatEnd,
+				r.AvgEncounters, r.AvgHPRemainingPct*100,
+			)
+
+			ts, ok := tierStats[zone.Tier]
+			if !ok {
+				ts = &tierStat{lo: math.Inf(1), hi: math.Inf(-1)}
+				tierStats[zone.Tier] = ts
+			}
+			ts.cells++
+			ts.sumC += c
+			if c < ts.lo {
+				ts.lo = c
+			}
+			if c > ts.hi {
+				ts.hi = c
+			}
+		}
+
+		tiers := []ZoneTier{
+			ZoneTierBeginner, ZoneTierApprentice, ZoneTierJourneyman,
+			ZoneTierVeteran, ZoneTierLegendary,
+		}
+		for _, tier := range tiers {
+			ts := tierStats[tier]
+			if ts == nil || ts.cells == 0 {
+				continue
+			}
+			mean := ts.sumC / float64(ts.cells)
+			t.Logf("TIER  rolls=%d  T%d  n=%d  mean_comp=%5.1f%%  spread=%5.1f pp",
+				rolls, tier, ts.cells, mean, ts.hi-ts.lo)
+		}
+	}
+}
+
+// TestExpeditionBalance_Phase2_LethalityProbe runs a handful of trials
+// at the cleanest cell (T1 goblin_warrens L3 Fighter, gear-aligned so
+// gear mismatch isn't a factor) and logs per-fight details: monster,
+// max HP, surprise nick, HP pre/post fight, enemy AC/atk, outcome.
+//
+// The cadence sweep (TestExpeditionBalance_Phase2_CadenceCalibration)
+// proved cadence isn't the dominant lever — even at rolls=1 the T1
+// cell sits at 2% completion with bimodal hp_left (100% for survivors,
+// 0% for the dead). This probe is the next diagnostic step: see
+// whether the lethality comes from the pre-combat nick, the picked
+// monster's tier-floored stats, or the combat fold itself.
+//
+// Diagnostic-only — no assertions beyond "produced trace lines."
+// Next session reads the output and picks Phase 2's real first lever.
+func TestExpeditionBalance_Phase2_LethalityProbe(t *testing.T) {
+	if testing.Short() {
+		t.Skip("phase 2 lethality probe writes verbose log; -short skips it")
+	}
+
+	const trials = 5
+	const baseSeed uint64 = 0x1E7A11
+
+	profile := expeditionBalanceProfile{
+		ZoneID:             ZoneGoblinWarrens,
+		Class:              ClassFighter,
+		Level:              3,
+		Supplies:           makeSupplies(ZoneTierBeginner, SupplyPurchase{StandardPacks: 3}),
+		CampType:           CampTypeStandard,
+		HarvestRollsPerDay: 1, // sparse cadence so each fight is legible
+	}
+
+	t.Logf("phase2 lethality probe — %d trials at %s L%d %s (rolls=1)",
+		trials, profile.ZoneID, profile.Level, profile.Class)
+
+	for trial := 0; trial < trials; trial++ {
+		exp := newHarnessExpedition(profile)
+		char := buildHarnessCharacter(classBalanceProfile{
+			Class: profile.Class,
+			Level: profile.Level,
+		})
+		t.Logf("─── trial %d: hp_max=%d ───", trial, char.HPMax)
+		h := &expeditionHarness{
+			exp:         exp,
+			char:        char,
+			rng:         newHarnessRNG(baseSeed + uint64(trial)),
+			rollsPerDay: profile.HarvestRollsPerDay,
+			traceFight: func(line string) {
+				t.Logf("  %s", line)
+			},
+		}
+		for {
+			res := h.advanceExpeditionOneDay()
+			if res.EndedReason != "" {
+				t.Logf("END trial %d: reason=%s days=%d threat=%d encs=%d hp_left_pct=%.1f%%",
+					trial, res.EndedReason, res.DaysElapsed, res.ThreatAtEnd,
+					res.CombatEncounters, res.HPRemainingPct*100)
+				break
+			}
 		}
 	}
 }
