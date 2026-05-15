@@ -207,11 +207,11 @@ func (p *AdventurePlugin) dndSetupClass(ctx MessageContext, classArg string) err
 		return p.SendDM(ctx.Sender,"Couldn't save: "+err.Error())
 	}
 	ci, _ := classInfo(cl)
-	return p.SendDM(ctx.Sender,fmt.Sprintf("Class set: **%s** (HP die d%d, primary %s/%s).\n\n"+
+	return p.SendDM(ctx.Sender,fmt.Sprintf("Class set: **%s** — leans on %s & %s.\n\n"+
 		"Next: assign your stats. The standard array is **15 14 13 12 10 8** — six numbers, each used once.\n"+
 		"Order: STR DEX CON INT WIS CHA.\n\n"+
 		"Example: `!setup stats 15 14 13 12 10 8` (all rolled into STR-first; rearrange to taste).",
-		ci.Display, ci.HPDie, ci.PrimaryA, ci.PrimaryB))
+		ci.Display, ci.PrimaryA, ci.PrimaryB))
 }
 
 func (p *AdventurePlugin) dndSetupStats(ctx MessageContext, statsArg string) error {
@@ -576,7 +576,7 @@ func renderClassMenu() string {
 		if !ci.Playable {
 			continue // Open5e caster scaffold — hidden until spell lists land.
 		}
-		b.WriteString(fmt.Sprintf("  • **%s** (d%d, %s/%s)\n", ci.Display, ci.HPDie, ci.PrimaryA, ci.PrimaryB))
+		b.WriteString(fmt.Sprintf("  • **%s** — %s & %s\n", ci.Display, ci.PrimaryA, ci.PrimaryB))
 	}
 	return b.String()
 }

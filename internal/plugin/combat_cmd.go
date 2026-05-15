@@ -336,7 +336,7 @@ func parseCombatCast(userID id.UserID, c *DnDCharacter, args string) (SpellDefin
 	}
 	if c.Class == ClassRogue && c.Subclass == SubclassArcaneTrickster {
 		if mx := highestAvailableSlotForChar(c); spell.Level > mx {
-			return SpellDefinition{}, 0, fmt.Sprintf("Arcane Trickster L%d only has up to L%d slots.", c.Level, mx)
+			return SpellDefinition{}, 0, fmt.Sprintf("At level %d, your Arcane Trickster magic only reaches level-%d spells.", c.Level, mx)
 		}
 	}
 	known, prepared, err := playerKnowsSpell(userID, spell.ID)
@@ -473,7 +473,7 @@ func (p *AdventurePlugin) chargeSpellCost(userID id.UserID, spell SpellDefinitio
 			return "Couldn't consume slot: " + serr.Error()
 		}
 		if !ok {
-			return fmt.Sprintf("No L%d slot available. %s", slotLevel, renderSlotsBrief(userID))
+			return fmt.Sprintf("You're out of level-%d energy. %s", slotLevel, renderSlotsBrief(userID))
 		}
 	}
 	return ""

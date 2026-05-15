@@ -12,6 +12,11 @@ import "math"
 // Subclass active abilities (currently just Berserker's rage) are
 // registered via init() into dndActiveAbilities below, gated by
 // DnDAbility.Subclass.
+//
+// Comment convention: `// internal note (not user-facing)` marks block
+// comments documenting tuning history (Phase 2/3 balance notes, scaling
+// rationale, etc.). They are engineering context and must NOT be lifted
+// into Description / Flavor strings by codegen.
 
 func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharacter) {
 	if c == nil || c.Subclass == "" {

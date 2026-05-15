@@ -147,7 +147,7 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 	if c.Class == ClassRogue && c.Subclass == SubclassArcaneTrickster {
 		if max := highestAvailableSlotForChar(c); spell.Level > max {
 			return p.SendDM(ctx.Sender, fmt.Sprintf(
-				"Arcane Trickster L%d only has up to L%d slots.", c.Level, max))
+				"At level %d, your Arcane Trickster magic only reaches level-%d spells.", c.Level, max))
 		}
 	}
 
@@ -207,7 +207,7 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 		}
 		if !ok {
 			return p.SendDM(ctx.Sender, fmt.Sprintf(
-				"No L%d slot available. %s", slotLevel, renderSlotsBrief(ctx.Sender)))
+				"You're out of level-%d energy. %s", slotLevel, renderSlotsBrief(ctx.Sender)))
 		}
 	}
 
@@ -342,7 +342,7 @@ func (p *AdventurePlugin) queuePendingCast(ctx MessageContext, c *DnDCharacter, 
 
 	msg := fmt.Sprintf("✨ **%s** queued for next combat.", spell.Name)
 	if slotLevel > spell.Level {
-		msg += fmt.Sprintf(" _(upcast to L%d)_", slotLevel)
+		msg += " _(empowered)_"
 	}
 	if supersedes != "" {
 		msg += fmt.Sprintf("\n_(Concentration shifts: %s ended.)_", displaySpellName(supersedes))
@@ -438,9 +438,9 @@ func renderSpellsList(c *DnDCharacter) string {
 		}
 		sort.Ints(levels)
 		for _, lvl := range levels {
-			label := fmt.Sprintf("L%d", lvl)
+			label := fmt.Sprintf("Level %d", lvl)
 			if lvl == 0 {
-				label = "Cantrip"
+				label = "Cantrips"
 			}
 			b.WriteString(fmt.Sprintf("__%s__\n", label))
 			for _, k := range byLevel[lvl] {
@@ -460,23 +460,17 @@ func renderSpellsList(c *DnDCharacter) string {
 
 	slots, _ := getSpellSlots(c.UserID)
 	b.WriteString("\n**Slots:** " + renderSlotLine(slots) + "\n")
-	b.WriteString(fmt.Sprintf("**Spell DC:** %d   **Spell Atk:** +%d\n",
-		spellSaveDC(c), spellAttackBonus(c)))
 
 	if c.Class == ClassMage {
 		count, _ := mageLeveledKnownCount(c.UserID)
 		cap := mageKnownSpellsCap(c.Level)
-		b.WriteString(fmt.Sprintf("**Spellbook:** %d/%d leveled spells", count, cap))
-		if avail := cap - count; avail > 0 {
-			b.WriteString(fmt.Sprintf(" _(can learn %d more)_", avail))
-		}
-		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("**Spellbook:** %d / %d leveled spells learned\n", count, cap))
 	}
 
 	if pc, ok := decodePendingCast(c.PendingCast); ok {
 		b.WriteString(fmt.Sprintf("\n_Queued: **%s**", displaySpellName(pc.SpellID)))
-		if pc.SlotLevel > 0 {
-			b.WriteString(fmt.Sprintf(" (L%d slot)", pc.SlotLevel))
+		if s, ok := lookupSpell(pc.SpellID); ok && pc.SlotLevel > s.Level {
+			b.WriteString(" (empowered)")
 		}
 		b.WriteString(" — fires next combat._\n")
 	}

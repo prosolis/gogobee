@@ -7,6 +7,11 @@ package plugin
 // (the combat engine is one-shot, no turn-based UI). Active/reactive
 // abilities arrive once we have a model for them — likely tied to !arena
 // pre-arming or to a turn-based PvP variant.
+//
+// Comment convention: `// internal note (not user-facing)` marks block
+// comments that document tuning history (Phase 2/3 balance notes, scaling
+// rationale, etc.). Anything inside such a block is engineering context,
+// NOT a candidate for codegen to lift into a Description string.
 
 // ── Class passive definitions ────────────────────────────────────────────────
 
@@ -21,45 +26,43 @@ type DnDClassAbility struct {
 var dndClassAbilities = map[DnDClass]DnDClassAbility{
 	ClassFighter: {
 		Name:        "Battle Trained",
-		Description: "Years of weapon drill add +5% to all damage you deal.",
+		Description: "Years of weapon drill make every swing hit a little harder than it has any right to.",
 	},
 	ClassRogue: {
 		Name:        "Sneak Attack",
-		Description: "Your first strike each combat lands as a critical hit, doubling its damage; precision drills add +5% to all damage you deal.",
+		Description: "Your opening strike each fight finds a seam and crits — and the same trained precision keeps every follow-up sharper than it looks.",
 	},
 	ClassMage: {
 		Name:        "Arcane Focus",
-		Description: "Practiced channeling adds +1 to your attack rolls and a small bump (+5%) to all damage you deal.",
+		Description: "Practiced channeling steadies your aim and lets a faint arcane crackle leak into every blow you land.",
 	},
 	ClassCleric: {
 		Name:        "Divine Favor",
-		Description: "When you fall below half HP, divine intervention restores 5 HP. Once per combat.",
+		Description: "When the fight turns against you, a sliver of divine grace patches you up. Once per combat.",
 	},
 	ClassRanger: {
 		Name:        "Hunter's Mark",
-		Description: "You read your prey's weak points: +5% damage and +1 to attack rolls.",
+		Description: "You read your prey's tells — openings come easier, and the hits land where it hurts.",
 	},
-	// Open5e caster scaffold — one signature passive each, riding existing
-	// CombatModifiers channels the same way the original five do.
 	ClassDruid: {
 		Name:        "Wild Resilience",
-		Description: "The wild lends you its toughness — incoming damage is reduced 5% — and a thorn surge on engage scaled by your Wisdom.",
+		Description: "The wild lends you its hide — blows land softer — and the moment you engage, a thorn surge lashes back at whatever picked the fight.",
 	},
 	ClassBard: {
 		Name:        "Bardic Inspiration",
-		Description: "Quick wit keeps you a step ahead: +1 initiative, +1 attack, and +5% to all damage you deal.",
+		Description: "Wit and timing put you a beat ahead of the fight: you move first, swing truer, and turn the opening line into a small, mean encore.",
 	},
 	ClassSorcerer: {
 		Name:        "Innate Sorcery",
-		Description: "Raw magic spills out as the fight begins, dealing immediate damage scaled by your Charisma, and +5% to all damage you deal.",
+		Description: "Raw magic boils over the moment the fight starts, scorching whatever's nearest — and every swing rides the leftover heat.",
 	},
 	ClassWarlock: {
 		Name:        "Agonizing Blast",
-		Description: "Your pact-fueled eldritch power adds +12% to all damage you deal and +1 to attack rolls.",
+		Description: "Your pact whispers in the back of your skull; the favor it returns lands on your enemies, harder and surer than ought to be allowed.",
 	},
 	ClassPaladin: {
 		Name:        "Divine Smite",
-		Description: "You channel a burst of radiant power on engagement, dealing flat damage that grows with your level.",
+		Description: "On engagement you channel a burst of radiant power — a sworn promise, paid in light — that hits harder as your oath deepens.",
 	},
 }
 

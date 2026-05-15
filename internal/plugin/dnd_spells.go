@@ -952,9 +952,19 @@ func renderSlotLine(slots map[int][2]int) string {
 	}
 	var parts []string
 	for lvl := 1; lvl <= 5; lvl++ {
-		if pair, ok := slots[lvl]; ok {
-			parts = append(parts, fmt.Sprintf("L%d %d/%d", lvl, pair[0]-pair[1], pair[0]))
+		pair, ok := slots[lvl]
+		if !ok {
+			continue
 		}
+		total := pair[0]
+		left := pair[0] - pair[1]
+		if left < 0 {
+			left = 0
+		}
+		// Filled bullets = still available, hollow = spent. Player-friendly
+		// at a glance; no fractions, no "L1" jargon.
+		bullets := strings.Repeat("●", left) + strings.Repeat("○", total-left)
+		parts = append(parts, fmt.Sprintf("Level %d %s", lvl, bullets))
 	}
 	return strings.Join(parts, " · ")
 }
