@@ -70,6 +70,8 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 		return p.handleResumeCmd(ctx, rest)
 	case "map", "m":
 		return p.handleExpeditionMapCmd(ctx, "")
+	case "run", "explore", "advance":
+		return p.expeditionCmdRun(ctx)
 	default:
 		return p.SendDM(ctx.Sender, expeditionHelpText())
 	}
@@ -83,6 +85,7 @@ func expeditionHelpText() string {
 	b.WriteString("    `Ns` = N standard packs (10 SU, 50 coins, max 3)\n")
 	b.WriteString("    `Md` = M deluxe packs (20 SU, 90 coins, max 1)\n")
 	b.WriteString("    default: `1s`\n")
+	b.WriteString("`!expedition run` — autopilot: walk rooms until something needs you (alias `!explore`)\n")
 	b.WriteString("`!expedition status` — current expedition snapshot\n")
 	b.WriteString("`!expedition log` — last 5 log entries\n")
 	b.WriteString("`!expedition abandon` — end the expedition (no rewards)\n")
@@ -428,3 +431,143 @@ func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
 
 // helper: ensure we don't shadow id.UserID import in test harness.
 var _ id.UserID
+
+// ── run (autopilot) ─────────────────────────────────────────────────────────
+
+// autopilotRoomCap bounds a single `!expedition run` invocation. Real-time
+// background ticking is the planned long-game (see chat 2026-05-14); this
+// cap keeps the foreground walk from monopolising the bot for an
+// unbounded stretch and gives the player a natural "press to continue"
+// breath between long runs.
+const autopilotRoomCap = 6
+
+// autopilotLowHPPct stops the walk when current HP drops at or below this
+// fraction of max. 0.30 = "you're hurt enough that the next bad room
+// could end the run; pause, heal, or commit."
+const autopilotLowHPPct = 0.30
+
+// expeditionCmdRun is the autopilot surface. It loops advanceOnce until a
+// natural interrupt fires (fork, elite/boss doorway, death, complete) or
+// an injected interrupt fires (low HP, low SU, room cap). Each iteration's
+// staged narration is concatenated into a single 2–3s-paced stream so the
+// player reads the full multi-room walk as one continuous beat. Trash
+// combat already auto-resolves inside resolveCombatRoom; elite/boss
+// doorways stop here so the player can choose !fight on their own terms.
+func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
+	exp, err := getActiveExpedition(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+	}
+	if exp == nil {
+		return p.SendDM(ctx.Sender, "You're not on an expedition. `!expedition list` to pick one.")
+	}
+	if exp.RunID == "" {
+		return p.SendDM(ctx.Sender, "No active region run. Try `!region` to refresh.")
+	}
+
+	var stream []string
+	var finalMsg string
+	rooms := 0
+
+	for i := 0; i < autopilotRoomCap; i++ {
+		// Pre-iteration interrupts: low HP / low SU. Skip on the first
+		// iteration so the player always gets at least one room out of
+		// `!expedition run` even if they limped in — autopilot stops on
+		// thresholds *between* rooms, not before the first one.
+		if i > 0 {
+			if msg, stop := autopilotPreflight(ctx.Sender, exp); stop {
+				finalMsg = msg
+				break
+			}
+		}
+
+		res, aerr := p.advanceOnce(ctx)
+		if aerr != nil {
+			return p.SendDM(ctx.Sender, aerr.Error())
+		}
+
+		// Roll this step's beats into the running stream.
+		stream = append(stream, res.preStream...)
+		if res.intro != "" {
+			stream = append(stream, res.intro)
+		}
+		stream = append(stream, res.phases...)
+
+		// Doorway/blocked stops fire *before* the current room actually
+		// resolved — those don't count as a walked room. Everything else
+		// (OK, fork after a clear, ended after combat, complete) does.
+		if res.reason != stopBlocked && res.reason != stopElite && res.reason != stopBoss {
+			rooms++
+		}
+
+		if res.reason != stopOK {
+			footer := autopilotFooter(res.reason, rooms)
+			if footer != "" {
+				finalMsg = res.final + "\n\n" + footer
+			} else {
+				finalMsg = res.final
+			}
+			break
+		}
+
+		// Walked into the next room. Push this step's "✓ cleared / next
+		// room" block as a phase so the next iteration's intro lands
+		// after it, then loop. Refresh exp for the next preflight read
+		// (HP/SU may have moved during combat).
+		stream = append(stream, res.final)
+		if fresh, ferr := getActiveExpedition(ctx.Sender); ferr == nil && fresh != nil {
+			exp = fresh
+		}
+	}
+
+	if finalMsg == "" {
+		// Hit the room cap without a hard interrupt — synthesize a
+		// "press to continue" footer so the player knows autopilot
+		// stopped on its own clock, not because something needs them.
+		finalMsg = autopilotFooter(stopOK, rooms)
+	}
+	return p.streamFlow(ctx.Sender, stream, finalMsg)
+}
+
+// autopilotPreflight checks the threshold-based interrupts that fire
+// between rooms. Returns (footer, true) when autopilot should stop.
+func autopilotPreflight(userID id.UserID, exp *Expedition) (string, bool) {
+	cur, max := dndHPSnapshot(userID)
+	if max > 0 && float64(cur) <= float64(max)*autopilotLowHPPct {
+		return fmt.Sprintf(
+			"⏸ **Autopilot paused — HP low** (%d/%d). `!camp` to rest, `!cast` healing, or `!expedition run` to push on.",
+			cur, max), true
+	}
+	if exp.Supplies.DailyBurn > 0 && exp.Supplies.Current < exp.Supplies.DailyBurn {
+		return fmt.Sprintf(
+			"⏸ **Autopilot paused — supplies low** (%.1f / %.1f SU, under one day). `!extract` to bail, `!forage`, or `!expedition run` to push on.",
+			exp.Supplies.Current, exp.Supplies.DailyBurn), true
+	}
+	return "", false
+}
+
+// autopilotFooter renders the closing line for an autopilot walk. The
+// rooms-walked tally is informational; reason controls the verb and the
+// suggested next step.
+func autopilotFooter(reason stopReason, rooms int) string {
+	roomsStr := "1 room"
+	if rooms != 1 {
+		roomsStr = fmt.Sprintf("%d rooms", rooms)
+	}
+	switch reason {
+	case stopFork:
+		return fmt.Sprintf("⏸ **Autopilot paused at a fork** (after %s). `!zone go <n>` to choose, then `!expedition run` to keep walking.", roomsStr)
+	case stopElite:
+		return fmt.Sprintf("⏸ **Autopilot paused — elite ahead** (after %s). `!fight` when ready, then `!expedition run` to continue.", roomsStr)
+	case stopBoss:
+		return fmt.Sprintf("⏸ **Autopilot paused — boss ahead** (after %s). `!fight` when ready.", roomsStr)
+	case stopEnded:
+		return "" // death narration is the final; no footer
+	case stopComplete:
+		return "" // run-complete block is the final; no footer
+	case stopBlocked:
+		return "" // "finish your fight first" is the final; no footer
+	default: // stopOK — hit the room cap
+		return fmt.Sprintf("⏸ **Autopilot stretch complete** (%s). `!expedition run` to keep walking, or `!resources` / `!camp` first.", roomsStr)
+	}
+}

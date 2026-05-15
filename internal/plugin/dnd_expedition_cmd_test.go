@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"strings"
 	"testing"
 
 	"maunium.net/go/mautrix/id"
@@ -186,6 +187,139 @@ func TestExpeditionCmd_StartInsufficientCoins(t *testing.T) {
 	}
 	if got := euro.GetBalance(uid); got != bal {
 		t.Errorf("balance moved despite failed start: %v → %v", bal, got)
+	}
+}
+
+// TestExpeditionCmd_RunNoExpedition: !expedition run with no active
+// expedition is a friendly no-op, not an error.
+func TestExpeditionCmd_RunNoExpedition(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@exp-cmd-run-noexp:example")
+	expeditionCmdTestCharacter(t, uid, 1)
+	defer cleanupExpeditions(uid)
+
+	p := &AdventurePlugin{}
+	if err := p.handleDnDExpeditionCmd(MessageContext{Sender: uid}, "run"); err != nil {
+		t.Fatalf("run with no expedition: %v", err)
+	}
+}
+
+// TestExpeditionCmd_RunWalksRooms: starting an expedition then calling
+// `!expedition run` advances the underlying zone-run by at least one
+// room (and stops cleanly at a natural interrupt — fork, elite, boss,
+// complete, or the autopilot room cap).
+func TestExpeditionCmd_RunWalksRooms(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@exp-cmd-run-walk:example")
+	expeditionCmdTestCharacter(t, uid, 3)
+	defer cleanupExpeditions(uid)
+
+	euro := &EuroPlugin{}
+	euro.ensureBalance(uid)
+	euro.Credit(uid, 200, "test setup")
+	p := &AdventurePlugin{euro: euro}
+
+	if err := p.handleDnDExpeditionCmd(MessageContext{Sender: uid}, "start goblin_warrens"); err != nil {
+		t.Fatal(err)
+	}
+	exp, _ := getActiveExpedition(uid)
+	if exp == nil || exp.RunID == "" {
+		t.Fatal("expected active expedition with run")
+	}
+	startRun, _ := getZoneRun(exp.RunID)
+	if startRun == nil {
+		t.Fatal("expected zone run for expedition")
+	}
+	startRoom := startRun.CurrentRoom
+
+	if err := p.handleDnDExpeditionCmd(MessageContext{Sender: uid}, "run"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	// After autopilot, the run should have advanced. Either the room
+	// pointer moved, or the run completed (TotalRooms reached). For a
+	// fresh L3 run at GoblinWarrens we expect at least one room walked
+	// — the entry room is narration-only and never blocks.
+	endRun, _ := getZoneRun(exp.RunID)
+	if endRun == nil {
+		// Run could legitimately complete and be cleared; that's also fine.
+		return
+	}
+	if endRun.CurrentRoom <= startRoom {
+		t.Errorf("autopilot did not advance: room %d → %d", startRoom, endRun.CurrentRoom)
+	}
+}
+
+// TestAutopilotPreflight_LowHP: HP at or below the threshold trips the
+// preflight stop with the low-HP footer.
+func TestAutopilotPreflight_LowHP(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@exp-autopilot-lowhp:example")
+	expeditionCmdTestCharacter(t, uid, 1)
+	defer cleanupExpeditions(uid)
+
+	c, _ := LoadDnDCharacter(uid)
+	c.HPCurrent = 5 // 5/20 = 25%, below 30% threshold
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	exp := &Expedition{
+		Supplies: ExpeditionSupplies{Current: 10, DailyBurn: 1},
+	}
+	msg, stop := autopilotPreflight(uid, exp)
+	if !stop {
+		t.Fatal("expected low-HP stop")
+	}
+	if !strings.Contains(msg, "HP low") {
+		t.Errorf("expected HP-low footer, got %q", msg)
+	}
+}
+
+// TestAutopilotPreflight_LowSU: supplies under one day's burn trips.
+func TestAutopilotPreflight_LowSU(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@exp-autopilot-lowsu:example")
+	expeditionCmdTestCharacter(t, uid, 1)
+	defer cleanupExpeditions(uid)
+
+	exp := &Expedition{
+		Supplies: ExpeditionSupplies{Current: 0.5, DailyBurn: 1.5},
+	}
+	msg, stop := autopilotPreflight(uid, exp)
+	if !stop {
+		t.Fatal("expected low-SU stop")
+	}
+	if !strings.Contains(msg, "supplies low") {
+		t.Errorf("expected SU-low footer, got %q", msg)
+	}
+}
+
+// TestAutopilotFooter_Reasons: each stop reason gets a distinct,
+// non-empty footer (or empty for stops where the final block already
+// ends the message — death, complete, blocked).
+func TestAutopilotFooter_Reasons(t *testing.T) {
+	cases := []struct {
+		r       stopReason
+		want    string // substring; empty means footer must be empty
+		wantHas bool
+	}{
+		{stopFork, "fork", true},
+		{stopElite, "elite", true},
+		{stopBoss, "boss", true},
+		{stopOK, "stretch", true}, // hit room cap
+		{stopEnded, "", false},
+		{stopComplete, "", false},
+		{stopBlocked, "", false},
+	}
+	for _, c := range cases {
+		got := autopilotFooter(c.r, 3)
+		if c.wantHas {
+			if got == "" || !strings.Contains(got, c.want) {
+				t.Errorf("%v: got %q, want substring %q", c.r, got, c.want)
+			}
+		} else if got != "" {
+			t.Errorf("%v: expected empty footer, got %q", c.r, got)
+		}
 	}
 }
 

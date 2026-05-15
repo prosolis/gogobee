@@ -170,6 +170,7 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "commune", Description: "Commune with spiritual energy in your current expedition region (Cleric primary)", Usage: "!commune", Category: "Games"},
 		{Name: "fish", Description: "Fish in your current expedition region (DEX / Sleight of Hand; water zones only)", Usage: "!fish", Category: "Games"},
 		{Name: "resources", Description: "List harvestable resources in your current expedition region", Usage: "!resources", Category: "Games"},
+		{Name: "explore", Description: "Autopilot: walk through expedition rooms until something needs your attention (fork, elite/boss, low HP/supplies)", Usage: "!explore", Category: "Games"},
 		{Name: "sell", Description: "Sell harvested materials/fish/items to Thom Krooke (post-expedition; CHA Persuasion DC 17 = +15%)", Usage: "!sell [list|all|<item>]", Category: "Games"},
 		{Name: "craft", Description: "Craft a discovered recipe at Thom Krooke (consumes ingredients)", Usage: "!craft [list|<recipe>]", Category: "Games"},
 		{Name: "lore", Description: "Dig through Thom Krooke's lore stacks for an undiscovered recipe (INT/Arcana DC 15)", Usage: "!lore", Category: "Games"},
@@ -353,6 +354,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	}
 	if p.IsCommand(ctx.Body, "map") {
 		return p.handleExpeditionMapCmd(ctx, p.GetArgs(ctx.Body, "map"))
+	}
+	if p.IsCommand(ctx.Body, "explore") {
+		return p.expeditionCmdRun(ctx)
 	}
 	if p.IsCommand(ctx.Body, "forage") {
 		return p.handleHarvestCmd(ctx, HarvestForage)

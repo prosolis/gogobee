@@ -369,21 +369,69 @@ func roomGlyph(rt RoomType) string {
 
 // ── advance ─────────────────────────────────────────────────────────────────
 
+// stopReason classifies why a single advanceOnce step stopped. StopOK means
+// the step walked into the next room cleanly and a loop caller may keep
+// going. Everything else is an interrupt — the autopilot loop in
+// expeditionCmdRun renders the result and stops; the one-shot
+// zoneCmdAdvance treats them all the same (single dispatch).
+type stopReason int
+
+const (
+	stopOK       stopReason = iota // walked to next room; loop may continue
+	stopFork                       // advanceTransitionGraph returned a forkMsg
+	stopElite                      // standing at an Elite doorway; needs !fight
+	stopBoss                       // standing at a Boss doorway; needs !fight
+	stopEnded                      // patrol or room resolution killed the player
+	stopComplete                   // run cleared (boss down, no outgoing edges)
+	stopBlocked                    // an active CombatSession blocks the advance
+)
+
+// advanceResult bundles the staged narration + dispatch shape of one
+// advanceOnce step. preStream/intro/phases/final mirror the streamOrSend
+// contract — phases nil means "no per-step pacing required". reason tells
+// loop callers whether they may iterate again.
+type advanceResult struct {
+	preStream []string
+	intro     string
+	phases    []string
+	final     string
+	reason    stopReason
+}
+
 // zoneCmdAdvance resolves the room the player is currently standing in,
-// then moves them to the next. Resolution branches on RoomType — combat
-// for Exploration/Elite/Boss, a trap nick for Trap, narration-only for
-// Entry. Player loss aborts the run with a mood penalty and player-death
-// flavor; boss win drops the zone Loot table.
+// then moves them to the next. Thin wrapper over advanceOnce + dispatch;
+// the expedition autopilot (expeditionCmdRun) reuses advanceOnce in a
+// loop. Resolution branches on RoomType — combat for Exploration/Elite/
+// Boss, a trap nick for Trap, narration-only for Entry. Player loss
+// aborts the run with a mood penalty and player-death flavor; boss win
+// drops the zone Loot table.
 func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
+	res, err := p.advanceOnce(ctx)
+	if err != nil {
+		return p.SendDM(ctx.Sender, err.Error())
+	}
+	return p.streamOrSend(ctx.Sender, res.preStream, res.intro, res.phases, res.final)
+}
+
+// advanceOnce runs the single-room advance pipeline and returns a
+// structured result the caller can stream as-is or aggregate. Errors
+// returned here are user-facing (already prefixed with the appropriate
+// "Couldn't ..." context); callers should SendDM them verbatim. State
+// mutations on run / character / combat sessions persist regardless of
+// how the caller dispatches the narration.
+func (p *AdventurePlugin) advanceOnce(ctx MessageContext) (advanceResult, error) {
 	run, err := getActiveZoneRun(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read run state: "+err.Error())
+		return advanceResult{}, fmt.Errorf("Couldn't read run state: %s", err.Error())
 	}
 	if run == nil {
-		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
+		return advanceResult{}, fmt.Errorf("No active zone run. Use `!zone enter <id>`.")
 	}
 	if cs, _ := getActiveCombatSession(ctx.Sender); cs != nil {
-		return p.SendDM(ctx.Sender, "⚔️ Finish your fight first — `!attack` or `!flee`.")
+		return advanceResult{
+			final:  "⚔️ Finish your fight first — `!attack` or `!flee`.",
+			reason: stopBlocked,
+		}, nil
 	}
 	_ = applyMoodDecayIfStale(run)
 	zone := zoneOrFallback(run.ZoneID)
@@ -399,16 +447,20 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 		encID := encounterIDForRoom(prevIdx)
 		sess, serr := getCombatSessionForEncounter(run.RunID, encID)
 		if serr != nil {
-			return p.SendDM(ctx.Sender, "Couldn't read combat state: "+serr.Error())
+			return advanceResult{}, fmt.Errorf("Couldn't read combat state: %s", serr.Error())
 		}
 		if sess == nil || sess.Status != CombatStatusWon {
 			kind := "Elite"
+			r := stopElite
 			if prev == RoomBoss {
 				kind = "Boss"
+				r = stopBoss
 			}
-			return p.SendDM(ctx.Sender, fmt.Sprintf(
-				"**Room %d/%d — %s.** Type `!fight` to engage.",
-				prevIdx+1, run.TotalRooms, kind))
+			return advanceResult{
+				final: fmt.Sprintf("**Room %d/%d — %s.** Type `!fight` to engage.",
+					prevIdx+1, run.TotalRooms, kind),
+				reason: r,
+			}, nil
 		}
 	}
 
@@ -421,7 +473,7 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	// room intro → room play-by-play → final, in one continuous beat.
 	patrolIntro, patrolPhases, patrolOutcome, patrolEnded, perr := p.tryPatrolEncounter(ctx.Sender, run, zone)
 	if perr != nil {
-		return p.SendDM(ctx.Sender, "Couldn't resolve patrol: "+perr.Error())
+		return advanceResult{}, fmt.Errorf("Couldn't resolve patrol: %s", perr.Error())
 	}
 	var preStream []string
 	if patrolPhases != nil {
@@ -432,7 +484,11 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	}
 	if patrolEnded {
 		// Patrol dropped the player; run is over.
-		return p.streamFlow(ctx.Sender, preStream, patrolOutcome)
+		return advanceResult{
+			preStream: preStream,
+			final:     patrolOutcome,
+			reason:    stopEnded,
+		}, nil
 	}
 	// Patrol survived (or didn't fire). If it fired, patrolOutcome becomes
 	// a streamed midpoint between the patrol fight and the room resolver.
@@ -447,12 +503,18 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	// SendDM as before.
 	intro, phases, outcome, ended, err := p.resolveRoom(ctx.Sender, run, zone)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't resolve room: "+err.Error())
+		return advanceResult{}, fmt.Errorf("Couldn't resolve room: %s", err.Error())
 	}
 	if ended {
 		// Death (combat or otherwise). Stream phases if present, then the
 		// death narration as the final message.
-		return p.streamOrSend(ctx.Sender, preStream, intro, phases, outcome)
+		return advanceResult{
+			preStream: preStream,
+			intro:     intro,
+			phases:    phases,
+			final:     outcome,
+			reason:    stopEnded,
+		}, nil
 	}
 
 	// Graph-mode advance (G9a — only mode now): clear the current room,
@@ -460,11 +522,11 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	// for 2+ edges, or complete the run when there are 0 outgoing edges.
 	c, cerr := LoadDnDCharacter(ctx.Sender)
 	if cerr != nil {
-		return p.SendDM(ctx.Sender, "Couldn't load character: "+cerr.Error())
+		return advanceResult{}, fmt.Errorf("Couldn't load character: %s", cerr.Error())
 	}
 	next, forkMsg, complete, gerr := p.advanceTransitionGraph(run, zone, c)
 	if gerr != nil {
-		return p.SendDM(ctx.Sender, "Couldn't advance: "+gerr.Error())
+		return advanceResult{}, fmt.Errorf("Couldn't advance: %s", gerr.Error())
 	}
 	if complete {
 		_, _ = applyMoodEvent(run.RunID, MoodEventZoneComplete)
@@ -484,7 +546,13 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 				b.WriteString("• " + id + "\n")
 			}
 		}
-		return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
+		return advanceResult{
+			preStream: preStream,
+			intro:     intro,
+			phases:    phases,
+			final:     b.String(),
+			reason:    stopComplete,
+		}, nil
 	}
 	if forkMsg != "" {
 		var b strings.Builder
@@ -494,10 +562,21 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 		}
 		b.WriteString(fmt.Sprintf("✓ Cleared room %d (%s).\n\n", prevIdx+1, prettyRoomType(prev)))
 		b.WriteString(forkMsg)
-		return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
+		return advanceResult{
+			preStream: preStream,
+			intro:     intro,
+			phases:    phases,
+			final:     b.String(),
+			reason:    stopFork,
+		}, nil
 	}
-	return p.streamOrSend(ctx.Sender, preStream, intro, phases,
-		p.formatNextRoomMessage(run, zone, prev, prevIdx, outcome, next))
+	return advanceResult{
+		preStream: preStream,
+		intro:     intro,
+		phases:    phases,
+		final:     p.formatNextRoomMessage(run, zone, prev, prevIdx, outcome, next),
+		reason:    stopOK,
+	}, nil
 }
 
 // formatNextRoomMessage builds the "✓ Cleared room X. ... Room Y/N —
