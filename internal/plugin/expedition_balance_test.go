@@ -1082,6 +1082,193 @@ func TestExpeditionBalance_Phase4A_OutlierDiagnostic(t *testing.T) {
 	}
 }
 
+// TestExpeditionBalance_Phase5A_TierWideSensitivity is the tier-wide
+// counterpart to Phase 4-A. Phase 4-B closed the four named per-zone
+// outliers, but the b=50 sweep still left T2/T3/T5 sibling *pairs*
+// below the target band as a group (T2 7-13% vs 62-82%; T3 3-14% vs
+// 54-74%; T5 25-57% vs 36-56%). Both zones at each problem tier
+// underperform together, so no further per-zone tool will close it —
+// the lever has to be tier-wide. The plan doc names three candidate
+// moves:
+//
+//   1. Gear-tier centerline remap (phase1TierCenterline)   → axis L
+//   2. Per-tier elite-bracket threshold (vs global)        → axis E
+//   3. Ship burn=75 globally (Phase 3-B's high-burn cell)  → axis B
+//
+// This diagnostic does *not* pick the lever. It runs a one-axis-at-a-
+// time sensitivity sweep on the six under-band zones and lets the
+// numbers name the lever. Each axis holds the other two at Phase 3-B
+// best (e=23, d=1, burn=50) and walks the named axis through three
+// values. Three points per axis is enough to read the slope: flat-line
+// means the lever is inert for that tier, monotone climb means it's
+// the lever, non-monotone means a confound.
+//
+//   L: player level    = {centerline-2, centerline, centerline+2}
+//   E: elite threshold = {18, 23, 28}
+//   B: supply burn pct = {40, 50, 60}
+//
+// Per cell we log comp%/death%/starve% plus the elite-vs-standard
+// fight share (so axis E's slope can be cross-checked against the
+// fight-mix shift it actually produced). 200 trials/cell × 6 zones ×
+// 9 cells = 10.8k trials — heavier than Phase 4-A (1.6k) but bounded
+// and skipped under -short.
+//
+// Diagnostic-only — no gates. Output names the lever Phase 5-B
+// should pull.
+func TestExpeditionBalance_Phase5A_TierWideSensitivity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("phase 5-A sensitivity sweep walks 6 zones × 9 cells × 200 trials; -short skips it")
+	}
+
+	const trialsPerCell = 200
+	const baseSeed uint64 = 0xF50A5E
+
+	// Phase 3-B best cell (held constant on the two non-axis levers).
+	const eliteBaseline = 23
+	const driftBase = 1
+	const burnBaseline = 50
+
+	type tierGroup struct {
+		tier  ZoneTier
+		zones []ZoneID
+	}
+	groups := []tierGroup{
+		{ZoneTierApprentice, []ZoneID{ZoneForestShadows, ZoneSunkenTemple}},
+		{ZoneTierJourneyman, []ZoneID{ZoneManorBlackspire, ZoneUnderforge}},
+		{ZoneTierLegendary, []ZoneID{ZoneAbyssPortal, ZoneDragonsLair}},
+	}
+
+	// runCell is the inner-loop closure: one (zone, lever-triple) cell.
+	// Returns comp/death/starve counts plus elite/standard fight share
+	// so the caller can attribute the slope across axis values.
+	type cellOut struct {
+		comp, death, starve int
+		eliteFights, stdFights int
+	}
+	runCell := func(zid ZoneID, tier ZoneTier, level, elite, burn int) cellOut {
+		out := cellOut{}
+		profile := expeditionBalanceProfile{
+			ZoneID:                          zid,
+			Class:                           ClassFighter,
+			Level:                           level,
+			Supplies:                        makeSupplies(tier, SupplyPurchase{StandardPacks: 3}),
+			CampType:                        CampTypeStandard,
+			EliteInterruptThresholdOverride: elite,
+			ThreatDriftBaseOverride:         driftBase,
+			SupplyBurnRatePctOverride:       burn,
+		}
+		for trial := 0; trial < trialsPerCell; trial++ {
+			exp := newHarnessExpedition(profile)
+			char := buildHarnessCharacter(classBalanceProfile{
+				Class: profile.Class,
+				Level: profile.Level,
+			})
+			// Seed mixes trial, tier, zone, and the *axis values* so
+			// cells across the sweep draw distinct RNG streams. Without
+			// the lever mix-in, e.g. L=centerline cells would
+			// byte-match across axes and the slope reading would be
+			// degenerate on the shared row.
+			seed := baseSeed + uint64(trial) +
+				uint64(tier)*131 + zoneSeedSalt(zid) +
+				uint64(level)*1_000_003 +
+				uint64(elite)*7_919 +
+				uint64(burn)*17
+			h := &expeditionHarness{
+				exp:                             exp,
+				char:                            char,
+				rng:                             newHarnessRNG(seed),
+				rollsPerDay:                     harnessHarvestRollsPerDay,
+				eliteInterruptThresholdOverride: elite,
+				threatDriftBaseOverride:         driftBase,
+				supplyBurnRatePctOverride:       burn,
+				traceFightStruct: func(ft harnessFightTrace) {
+					if ft.Elite {
+						out.eliteFights++
+					} else {
+						out.stdFights++
+					}
+				},
+			}
+			var trialEnd expeditionTrialResult
+			for {
+				res := h.advanceExpeditionOneDay()
+				if res.EndedReason != "" {
+					trialEnd = res
+					break
+				}
+			}
+			switch {
+			case trialEnd.Completed:
+				out.comp++
+			case trialEnd.Died:
+				out.death++
+			case trialEnd.StarvedOut:
+				out.starve++
+			}
+		}
+		return out
+	}
+
+	logRow := func(axis, label string, zid ZoneID, val int, c cellOut) {
+		total := trialsPerCell
+		t.Logf("    %s  %-18s %s=%-3d  comp=%5.1f%% death=%5.1f%% starve=%5.1f%%  elite_fights=%-4d std_fights=%-4d",
+			axis, zid, label, val,
+			float64(c.comp)/float64(total)*100,
+			float64(c.death)/float64(total)*100,
+			float64(c.starve)/float64(total)*100,
+			c.eliteFights, c.stdFights)
+	}
+
+	for _, g := range groups {
+		center := phase1TierCenterline[g.tier]
+		t.Logf("═══ T%d zones=%v centerline=L%d (Fighter, %d trials/cell, baselines e=%d d=%d burn=%d) ═══",
+			g.tier, g.zones, center, trialsPerCell,
+			eliteBaseline, driftBase, burnBaseline)
+
+		// Axis L — player level. Centerline ± 2 keeps the move inside
+		// each tier's design-doc level range for T2/T3/T5 (T2: L3-7,
+		// centerline 5 → 3,5,7; T3: L5-10, centerline 9 → 7,9,11; T5:
+		// L10-20, centerline 17 → 15,17,19). No gear-tier boundary is
+		// crossed within ±2 for any of these (boundaries 5/9/13/17),
+		// so axis L isolates the "level inside same gear bracket"
+		// sensitivity. Phase 5-B may widen this if the slope is flat
+		// here but the boundary is the real lever.
+		t.Logf("  AXIS-L  player level ±2 (gear-tier mapping sensitivity)")
+		for _, zid := range g.zones {
+			for _, dl := range []int{-2, 0, +2} {
+				lvl := center + dl
+				out := runCell(zid, g.tier, lvl, eliteBaseline, burnBaseline)
+				logRow("L", "lvl", zid, lvl, out)
+			}
+		}
+
+		// Axis E — elite threshold. 23 is the Phase 3-B baseline; 18
+		// is "more elites" (lower bar → more interrupts roll elite);
+		// 28 is "fewer elites". Slope here disambiguates whether the
+		// tier is gated by elite mix vs baseline fights.
+		t.Logf("  AXIS-E  elite threshold ±5 (monster-side gate)")
+		for _, zid := range g.zones {
+			for _, eth := range []int{18, 23, 28} {
+				out := runCell(zid, g.tier, center, eth, burnBaseline)
+				logRow("E", "eth", zid, eth, out)
+			}
+		}
+
+		// Axis B — supply burn pct. Phase 3-B's negative result on
+		// burn=75 was tier-mean; reading this axis per under-band
+		// tier may surface a tier where burn is *the* lever (e.g. T5
+		// borderline 25-57% may close on burn alone). 40/50/60 brackets
+		// the Phase 3-B baseline and the candidate burn=75 direction.
+		t.Logf("  AXIS-B  supply burn ±10pp (resource pressure)")
+		for _, zid := range g.zones {
+			for _, b := range []int{40, 50, 60} {
+				out := runCell(zid, g.tier, center, eliteBaseline, b)
+				logRow("B", "burn", zid, b, out)
+			}
+		}
+	}
+}
+
 // zoneSeedSalt produces a stable per-zone seed offset so each
 // (outlier, sibling) draws from a distinct RNG stream without
 // hand-numbering. fnv-like fold over the bytes; small footprint, no

@@ -393,7 +393,87 @@ gear-tier mapping at T2/T3 (the centerline level vs gear ladder, see
 per-tier instead of global, or ship `burn=75` as the new live global
 since Phase 4-B already converted T4 to playable at b=50.
 
-### Phase 5 — optional MAD / second-order
+### Phase 5 — tier-wide pass (T2/T3/T5 under-band)
+
+Phase 4-B closed the per-zone outliers but left T2/T3/T5 sibling pairs
+below the target band as a *tier-wide* gap. The plan doc's three
+candidate moves (gear-tier centerline remap, per-tier elite threshold,
+ship `burn=75`) needed disambiguation before any of them got pulled —
+hence a measure-first sub-phase.
+
+#### Phase 5-A — tier-wide sensitivity sweep (shipped)
+
+`TestExpeditionBalance_Phase5A_TierWideSensitivity` runs the 6 under-
+band zones (T2: forest_shadows + sunken_temple; T3:
+manor_blackspire + underforge; T5: abyss_portal + dragons_lair) through
+three one-axis sweeps with the other two levers held at Phase 3-B best
+(e=23, d=1, burn=50): player level ±2 around tier centerline, elite
+threshold ∈ {18, 23, 28}, supply burn pct ∈ {40, 50, 60}. 200
+trials/cell × 6 zones × 9 cells = 10.8k trials; runs in <1s.
+
+Numbers (200 trials/cell, comp%):
+
+```
+T2 (band 62-82%)
+  L  forest=0→6.5→19    sunken=0→13.5→34.5     STRONG slope
+  E  forest=0.5→9→8     sunken=0→14.5→13       saturated @23; 18 collapses
+  B  forest=3.5→7→6.5   sunken=14→15.5→11      inert
+T3 (band 54-74%)
+  L  manor=3→10.5→13.5  under=0→4→8.5          clear slope
+  E  manor=0→9.5→9.5    under=0→3→4            saturated @23; 18 collapses
+  B  manor=13→9.5→9.5   under=2.5→4→2.5        inert
+T5 (band 36-56%)
+  L  abyss=21.5→28.5→32 dragons=60→60.5→53     gentle; dragons in-band
+  E  abyss=1→28.5→31    dragons=10→60.5→57.5   saturated @23; 18 collapses
+  B  abyss=27.5→28.5→0  dragons=59→60.5→0      burn=60 STARVE CLIFF
+```
+
+**Reading:**
+- **Player level is the dominant lever at T2/T3.** Every +2 levels
+  lifts completion meaningfully; the elite gate and supply burn are
+  inert or actively harmful around the Phase 3-B baseline.
+- **Elite threshold is already at its sweet spot at e=23.** Going to
+  e=18 floods elites and collapses every tier; e=28 is flat. The per-
+  tier-threshold candidate from Phase 4 close-out is killed: there's
+  no per-tier value to be found in the explored range.
+- **`burn=75` globally is killed.** burn=60 alone produces 36% / 61%
+  starve at T5; burn=75 would be catastrophic. The Phase 3-B negative
+  result holds tier-wide. burn must stay ≤50.
+- **T5 dragons_lair is already in-band** at the baseline (60.5%).
+  The T5 tier-wide gap is really an abyss_portal gap (28.5%); the
+  Phase 4-B re-class lifted it from outlier to "low-but-not-isolated,"
+  but it still sits below band by itself.
+- **The level-bump path has a catch.** L7 at T2 (still inside the
+  L3-7 design range and gearTier=2) only reaches ~27% mean — still
+  well below the 62-82% band. Closing T2 to band likely requires a
+  *cross-gearTier-boundary* centerline (T2 → L9 = gearTier 3) and/or
+  a player-side combat-math adjustment, not just a within-bracket
+  centerline shift. That's a design call, not a knob twist.
+
+**Next:** Phase 5-B is a design choice between three concrete moves
+that the measurement now backs:
+
+1. **Cross-bracket centerline bump** for T2 (→ L9) and T3 (→ L13),
+   plus T5 abyss-only level tweak. Lifts player gear bracket into the
+   next tier; closes the band gap directly but is a player-side power
+   move that affects the live game (chars at the centerline level
+   keep their existing gear; centerline only governs the harness's
+   measurement cell). The change is *in the harness*, but it admits
+   the live difficulty target was wrong for these tiers — Phase 5-C
+   would then carry it back to the live gear-acquisition curve.
+2. **Player combat-math retune** at T2/T3 (HP scaling, proficiency
+   curve, attack-bonus floor) — bigger lift, touches the class-balance
+   harness too, deserves its own pass.
+3. **Lower the band target** for T2/T3/T5 to ~30-50% mean and accept
+   that completion is meant to be hard. This is the "do nothing"
+   option dressed up as a design decision; surfaces the question of
+   whether the original 70% T2 target was ever the right number.
+
+Recommend option (1) for Phase 5-B since the harness already measures
+it cleanly and the data points at it; option (3) is the fallback if
+the cross-bracket numbers still don't close the band.
+
+### Phase 6 — optional MAD / second-order
 
 If post-Phase-3 the bands hold but feel wrong subjectively
 (e.g. "median days too short", "no expedition ever hits Siege"), add a
