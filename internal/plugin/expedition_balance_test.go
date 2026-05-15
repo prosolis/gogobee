@@ -428,6 +428,73 @@ func TestExpeditionBalance_Phase2_LethalityProbe(t *testing.T) {
 	}
 }
 
+// TestExpeditionBalance_Phase2_TierLethality is the tier-walking
+// companion to the T1-only lethality probe. Phase 1's matrix shows
+// uniform 0% across every tier at the default rolls=4 cadence, which
+// the T1/rolls=1 probe alone can't explain (its bimodal-warchief
+// finding wouldn't show at T5 vs an L17 fighter). This probe traces
+// every fight at the matrix cadence across one zone per tier so we
+// can read whether the deaths are elite-driven, standard-fight
+// chained, or something the harness combat fold itself is doing.
+//
+// Diagnostic-only — no assertions.
+func TestExpeditionBalance_Phase2_TierLethality(t *testing.T) {
+	if testing.Short() {
+		t.Skip("phase 2 tier-lethality probe writes verbose log; -short skips it")
+	}
+
+	const trialsPerTier = 3
+	const baseSeed uint64 = 0x7E11A1
+	cells := []struct {
+		zone ZoneID
+		tier ZoneTier
+	}{
+		{ZoneGoblinWarrens, ZoneTierBeginner},
+		{ZoneForestShadows, ZoneTierApprentice},
+		{ZoneUnderforge, ZoneTierJourneyman},
+		{ZoneUnderdark, ZoneTierVeteran},
+		{ZoneDragonsLair, ZoneTierLegendary},
+	}
+	for _, cell := range cells {
+		level := phase1TierCenterline[cell.tier]
+		profile := expeditionBalanceProfile{
+			ZoneID:             cell.zone,
+			Class:              ClassFighter,
+			Level:              level,
+			Supplies:           makeSupplies(cell.tier, SupplyPurchase{StandardPacks: 3}),
+			CampType:           CampTypeStandard,
+			HarvestRollsPerDay: 4, // matrix default, not the sparse probe
+		}
+		t.Logf("═══ %s T%d L%d Fighter rolls=4 ═══", cell.zone, cell.tier, level)
+		for trial := 0; trial < trialsPerTier; trial++ {
+			exp := newHarnessExpedition(profile)
+			char := buildHarnessCharacter(classBalanceProfile{
+				Class: profile.Class,
+				Level: profile.Level,
+			})
+			t.Logf("─── %s trial %d: hp_max=%d ───", cell.zone, trial, char.HPMax)
+			h := &expeditionHarness{
+				exp:         exp,
+				char:        char,
+				rng:         newHarnessRNG(baseSeed + uint64(trial) + uint64(cell.tier)*101),
+				rollsPerDay: profile.HarvestRollsPerDay,
+				traceFight: func(line string) {
+					t.Logf("  %s", line)
+				},
+			}
+			for {
+				res := h.advanceExpeditionOneDay()
+				if res.EndedReason != "" {
+					t.Logf("END %s trial %d: reason=%s days=%d threat=%d encs=%d hp_left_pct=%.1f%%",
+						cell.zone, trial, res.EndedReason, res.DaysElapsed, res.ThreatAtEnd,
+						res.CombatEncounters, res.HPRemainingPct*100)
+					break
+				}
+			}
+		}
+	}
+}
+
 // joinZones is a tiny helper kept local to the test file so the
 // per-tier log line reads in one logical chunk without pulling in
 // strings.Join's import for production code.

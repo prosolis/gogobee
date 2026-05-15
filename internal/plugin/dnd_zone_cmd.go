@@ -755,6 +755,12 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		}
 	}
 	if !result.PlayerWon {
+		// resolveCombatRoom gates room progression — a retreat here has
+		// nowhere to go (the elite/room is still blocking the way), so
+		// any loss ends the run. The retreat-continues semantic only
+		// fits the non-gating expedition paths (runHarvestInterrupt,
+		// tryPatrolEncounter); see retreatThreatBump in
+		// dnd_expedition_combat.go.
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		// Timeout loss = retreat; player took wounds but isn't actually

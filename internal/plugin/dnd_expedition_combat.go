@@ -30,6 +30,23 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
+// retreatThreatBump is the threat penalty applied when the player times
+// out of a combat (PlayerEndHP > 0 but PlayerWon == false). Retreats
+// represent the player breaking off wounded — the run continues, but the
+// zone's awareness ratchets up. Tuned alongside the expedition-difficulty
+// pass (see gogobee_expedition_difficulty.md): low enough not to compound
+// brutally with chained retreats, high enough that 3–4 retreats walks the
+// threat clock toward Stirring.
+//
+// History: pre-Phase-2 the engine's timeout-loss path called
+// abandonZoneRun + retireAllRegionRuns, ending the expedition outright
+// despite the engine's contract ("Timeout = retreat, not lethal blow").
+// That made any single fight loss across a 14-day expedition an
+// auto-fail, which the sim harness exposed as uniform-0% completion
+// across every tier. Splitting the retreat path here was Phase 2's
+// first lever.
+const retreatThreatBump = 5
+
 // ── Combat Interrupt (§4.2) ─────────────────────────────────────────────────
 
 // CombatInterruptKind is the bucket the d20+tier roll lands in.
@@ -146,21 +163,27 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 	}
 
 	if !result.PlayerWon {
+		if result.TimedOut {
+			// Retreat: fighter broke off wounded but alive. The engine's
+			// contract (combat_engine.go: "Timeout = retreat, not lethal
+			// blow") means HP stays where the engine left it and we keep
+			// the run going. The harvest slot is forfeit (no kill, no
+			// loot) and threat ticks up.
+			_ = applyThreatDelta(exp.ID, retreatThreatBump, "combat retreat")
+			b.WriteString(fmt.Sprintf("⏳ **%s** outlasts you. You break off, wounded but alive. (Threat +%d.)",
+				monster.Name, retreatThreatBump))
+			return b.String(), false
+		}
+		// True death.
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		_ = retireAllRegionRuns(exp)
-		if !result.TimedOut {
-			markAdventureDead(userID, "expedition", zone.Display)
-		}
+		markAdventureDead(userID, "expedition", zone.Display)
 		if line := flavor.Pick(flavor.PlayerDeath); line != "" {
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
-		if result.TimedOut {
-			b.WriteString(fmt.Sprintf("⏳ **%s** outlasts you. You retreat from the expedition, wounded but alive.", monster.Name))
-		} else {
-			b.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
-		}
+		b.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
 		return b.String(), true
 	}
 
@@ -390,21 +413,30 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 
 	var ob strings.Builder
 	if !result.PlayerWon {
+		if result.TimedOut {
+			// Retreat — see retreatThreatBump doc. Run continues; threat
+			// ticks; the patrol's awareness lingers as a soft penalty
+			// instead of an auto-fail.
+			_ = applyThreatDelta(exp.ID, retreatThreatBump, "patrol retreat")
+			ob.WriteString(fmt.Sprintf("⏳ The patrol drags on. You break off, wounded but alive. (Threat +%d.)",
+				retreatThreatBump))
+			if rollLine := dndRollSummaryLine(result); rollLine != "" {
+				ob.WriteString("\n")
+				ob.WriteString(rollLine)
+			}
+			outcome = ob.String()
+			ended = false
+			return
+		}
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		_ = retireAllRegionRuns(exp)
-		if !result.TimedOut {
-			markAdventureDead(userID, "patrol", zone.Display)
-		}
+		markAdventureDead(userID, "patrol", zone.Display)
 		if line := flavor.Pick(flavor.PlayerDeath); line != "" {
 			ob.WriteString(line)
 			ob.WriteString("\n")
 		}
-		if result.TimedOut {
-			ob.WriteString("⏳ The patrol drags on. You break off and retreat, wounded but alive.")
-		} else {
-			ob.WriteString("💀 The patrol takes you down. Run ended.")
-		}
+		ob.WriteString("💀 The patrol takes you down. Run ended.")
 		if rollLine := dndRollSummaryLine(result); rollLine != "" {
 			ob.WriteString("\n")
 			ob.WriteString(rollLine)

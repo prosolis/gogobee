@@ -269,6 +269,22 @@ func (h *expeditionHarness) advanceExpeditionOneDay() expeditionTrialResult {
 			res := h.runHarnessFight(zone, kind == InterruptElite)
 			h.encounters++
 			if !res.PlayerWon {
+				if res.TimedOut {
+					// Retreat — mirrors the live retreat semantics in
+					// dnd_expedition_combat.go (Phase 2). Run continues
+					// with carryover HP and a threat bump; the harvest
+					// slot's loot is just forfeit.
+					h.exp.ThreatLevel += retreatThreatBump
+					if h.exp.ThreatLevel > 100 {
+						h.exp.ThreatLevel = 100
+					}
+					h.char.HPCurrent = res.PlayerEndHP
+					if h.traceFight != nil {
+						h.traceFight(fmt.Sprintf("retreat day=%d hp=%d threat=%d",
+							h.exp.CurrentDay, h.char.HPCurrent, h.exp.ThreatLevel))
+					}
+					continue
+				}
 				return h.terminate("died_combat", false, true, false)
 			}
 			h.char.HPCurrent = res.PlayerEndHP
@@ -286,8 +302,10 @@ func (h *expeditionHarness) advanceExpeditionOneDay() expeditionTrialResult {
 	}
 	switch nc.Outcome {
 	case NightOutcomeStandard, NightOutcomeElite, NightOutcomeAmbush:
-		// Live path defers these to !advance; the harness resolves
-		// them inline so the night threat actually pressures the run.
+		// Live path defers these to !advance, where they resolve through
+		// resolveCombatRoom — which ends the run on any loss because
+		// the next-room path is gated on a win. Harness mirrors: a
+		// failed night encounter terminates the trial.
 		res := h.runHarnessFight(zone,
 			nc.Outcome == NightOutcomeElite || nc.Outcome == NightOutcomeAmbush)
 		h.encounters++
