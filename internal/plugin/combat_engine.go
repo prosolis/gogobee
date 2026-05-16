@@ -116,6 +116,16 @@ type CombatModifiers struct {
 	// no Weapon → no Divine Strike.
 	DivineStrikePerHit int
 
+	// Class-identity audit (2026-05-16) — Fighter Extra Attack as actual
+	// additional swings per round. 0 = legacy single swing. Each extra is
+	// a full resolvePlayerAttack call (own d20, own damage roll). 5e
+	// progression for Fighter: 1 at L5, 2 at L11, 3 at L20. Other martials
+	// (Paladin/Ranger/Barbarian/Bard-Valor) cap at 1 at L5 — wire as needed.
+	// Once-per-fight effects (AutoCritFirst, FirstAttackBonus, Assassinate
+	// reroll, SneakAttackDie applies every hit but Rogue has no extras) are
+	// guarded by st flags, so they correctly fire only on the first swing.
+	ExtraAttacks int
+
 	// Class-identity audit (2026-05-16) — Rogue Sneak Attack as actual
 	// per-hit Nd6 bonus damage. Number of d6 to roll on every player hit.
 	// 5e gates this on "once per turn given advantage/ally adjacent"; our
@@ -125,6 +135,23 @@ type CombatModifiers struct {
 	// Set in applyClassPassives based on Rogue level (1d6 at L1-2 → 4d6
 	// at L7-8 → 10d6 at L19-20, per 5e progression).
 	SneakAttackDie int
+
+	// Class-identity audit (2026-05-16) — Ranger Hunter's Mark as actual
+	// Nd6 bonus damage per hit. 5e: bonus action to mark a target, then
+	// +1d6 to every weapon hit vs. that target until concentration drops.
+	// In 1v1 there's effectively always a marked target (the only foe),
+	// so we model the mark as "always-on" — applies to every player hit.
+	// Number of d6 to roll: scales with class level (1 at L1, +1 every
+	// 5 levels per the 5e upcast progression, capped at 4d6).
+	HuntersMarkDie int
+
+	// Class-identity audit (2026-05-16) — Druid thorn-lash. Flat damage
+	// returned to the enemy whenever the enemy lands a hit on the player.
+	// 5e analogue: Spike Growth / Thorn Whip / the various druidic
+	// retaliation cantrips collapsed into a passive aura. Fires after
+	// damage is applied (and after ward absorption), so a "blocked but
+	// touched" hit still pricks back. Independent of crit doubling.
+	ThornLashDmg int
 
 	// Phase 10 SUB2b — Mage subclasses.
 	// ArcaneWardHP: flat HP buffer absorbed before player HP. Refilled at the
@@ -558,7 +585,7 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	playerFirst := playerInit >= enemyInit
 
 	if playerFirst {
-		if resolvePlayerAttack(st, player, enemy, phase, result) {
+		if resolvePlayerSwings(st, player, enemy, phase, result) {
 			return true
 		}
 		if !abilityDealtDamage {
@@ -572,7 +599,7 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 				return true
 			}
 		}
-		if resolvePlayerAttack(st, player, enemy, phase, result) {
+		if resolvePlayerSwings(st, player, enemy, phase, result) {
 			return true
 		}
 	}
@@ -693,6 +720,26 @@ func maybeTriggerOrcRage(st *combatState, player *Combatant, phaseName string) {
 }
 
 // ── Attack Resolution ────────────────────────────────────────────────────────
+
+// resolvePlayerSwings calls resolvePlayerAttack once, then up to
+// player.Mods.ExtraAttacks more times (5e Extra Attack). Each extra swing is
+// a full attack roll + damage roll. Stops early on enemy KO. The first swing
+// consumes once-per-fight openers (AutoCritFirst, FirstAttackBonus,
+// AssassinateAdvantage) via st flags — extras roll vanilla.
+func resolvePlayerSwings(st *combatState, player, enemy *Combatant, phase *CombatPhase, result *CombatResult) bool {
+	if resolvePlayerAttack(st, player, enemy, phase, result) {
+		return true
+	}
+	for i := 0; i < player.Mods.ExtraAttacks; i++ {
+		if st.enemyHP <= 0 || st.playerHP <= 0 {
+			return false
+		}
+		if resolvePlayerAttack(st, player, enemy, phase, result) {
+			return true
+		}
+	}
+	return false
+}
 
 // resolvePlayerAttack — d20 + AttackBonus vs enemy AC.
 // Nat 20 = auto-hit + crit. Nat 1 = auto-miss tagged "fumble".
@@ -1007,6 +1054,22 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "consumable", Action: "reflect_damage",
 			Damage: reflected, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if enemyDown(st, phaseName) {
+			return true
+		}
+	}
+
+	// Class-identity audit (2026-05-16) — Druid thorn lash. Fires on any
+	// landed enemy hit (dmg>0 after ward/block); independent flat-damage
+	// counter, not a fraction. Can drop the enemy.
+	if player.Mods.ThornLashDmg > 0 && dmg > 0 {
+		lash := player.Mods.ThornLashDmg
+		st.enemyHP = max(0, st.enemyHP-lash)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "player", Action: "thorn_lash",
+			Damage: lash, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			Desc: "Wild Resilience",
 		})
 		if enemyDown(st, phaseName) {
 			return true

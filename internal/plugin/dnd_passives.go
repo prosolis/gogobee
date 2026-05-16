@@ -115,6 +115,23 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 	switch c.Class {
 	case ClassFighter:
 		mods.DamageBonus += 0.05
+		// Class-identity audit (2026-05-16) — Extra Attack. 5e Fighter is
+		// defined by attack-action economy: L5 +1 swing/round, L11 +2,
+		// L20 +3. Prior to this the Fighter had only +5% Battle Trained
+		// at every level, which left the L5 "now I'm a real fighter"
+		// power-spike completely invisible. The +5% rider stays as the
+		// L1-4 floor; Extra Attack is what carries the chassis from L5.
+		// Other martials that 5e gives Extra Attack to (Paladin/Ranger/
+		// Barbarian) keep their existing DamageBonus proxies for now —
+		// re-tune in a follow-up if their win curves drift after this.
+		switch {
+		case c.Level >= 20:
+			mods.ExtraAttacks += 3
+		case c.Level >= 11:
+			mods.ExtraAttacks += 2
+		case c.Level >= 5:
+			mods.ExtraAttacks += 1
+		}
 	case ClassRogue:
 		mods.AutoCritFirst = true
 		// Phase 2 class-balance: rogue's once-per-fight auto-crit goes stale
@@ -150,8 +167,27 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		// Passive heal at <50% HP. Stacks additively with consumable HealItem.
 		mods.HealItem += 5
 	case ClassRanger:
-		mods.DamageBonus += 0.05
+		// Class-identity audit (2026-05-16) — Hunter's Mark as actual
+		// per-hit Nd6, plus L5 Extra Attack from the martial chassis. The
+		// previous +5% damage + +1 to-hit was a Phase-2 compensation
+		// rider for both being missing; +1 to-hit stays as the "read the
+		// prey's tells" half (it's not Hunter's Mark, that's the d6).
+		// HuntersMarkDie scales 1/5/10/15 per the 5e upcast progression
+		// (1d6 at L1, 2d6 L5+, 3d6 L11+, 4d6 L17+ as a soft proxy).
 		stats.AttackBonus++
+		switch {
+		case c.Level >= 17:
+			mods.HuntersMarkDie += 4
+		case c.Level >= 11:
+			mods.HuntersMarkDie += 3
+		case c.Level >= 5:
+			mods.HuntersMarkDie += 2
+		default:
+			mods.HuntersMarkDie += 1
+		}
+		if c.Level >= 5 {
+			mods.ExtraAttacks += 1
+		}
 	case ClassDruid:
 		// Wild Resilience — multiplicative, so it stacks cleanly with the
 		// subclass DamageReduct riders. DamageReduct is initialized to 1.0
@@ -165,6 +201,13 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		// identity, and the burst alone (plus the existing DR) lifts the
 		// off-tier cells without pushing in-tier wins past 1.0.
 		mods.FlatDmgStart += c.Level + clampNonNeg(abilityModifier(c.WIS))
+		// Class-identity audit (2026-05-16) — thorn lash, the offensive
+		// half of Wild Resilience the tooltip already promises ("a thorn
+		// surge lashes back at whatever picked the fight"). Per-hit flat
+		// counter when the enemy lands on the player. Scales modestly so
+		// it's a steady tick, not a damage-race winner — the chassis
+		// stays defensive-first.
+		mods.ThornLashDmg += 2 + c.Level/4
 	case ClassBard:
 		// Phase 2 class-balance: bare +1 initiative left Bard the weakest
 		// class chassis (T5 mean 0.48 pre-tune). Add a Ranger-tier rider
@@ -197,8 +240,18 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		stats.AttackBonus++
 		mods.FlatDmgStart += c.Level + clampNonNeg(abilityModifier(c.CHA))
 	case ClassPaladin:
-		// Divine Smite — radiant burst on engage, scaling with level so it
-		// stays relevant against tougher foes.
-		mods.FlatDmgStart += 4 + c.Level/2
+		// Class-identity audit (2026-05-16) — Divine Smite as actual
+		// per-hit radiant bonus + L5 Extra Attack. 5e: smite consumes a
+		// spell slot for Nd8 radiant on a hit. Our engine has no slot
+		// tracker for ad-hoc smites; we collapse "paladin has plenty of
+		// slots over an adventuring day" to a flat per-hit rider, scaled
+		// down so an extra-attack paladin doesn't trivialize every fight.
+		// Rides DivineStrikePerHit (already in the weapon-hit damage path).
+		// Previous FlatDmgStart opener felt like Lay on Hands, not Smite.
+		smite := 3 + c.Level/3
+		mods.DivineStrikePerHit += smite
+		if c.Level >= 5 {
+			mods.ExtraAttacks += 1
+		}
 	}
 }

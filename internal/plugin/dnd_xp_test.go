@@ -236,12 +236,18 @@ func TestApplyClassPassives(t *testing.T) {
 		{ClassRogue, 0.05, 0, true, 0, 1.0, 0, 0},
 		{ClassMage, 0.05, 1, false, 0, 1.0, 1, 0},
 		{ClassCleric, 0, 0, false, 5, 1.0, 0, 0},
-		{ClassRanger, 0.05, 1, false, 0, 1.0, 0, 0},
+		// Class-identity audit (2026-05-16): Ranger Hunter's Mark is now
+		// per-hit HuntersMarkDie (not asserted here — same shape as
+		// SneakAttackDie); Paladin Divine Smite is now per-hit
+		// DivineStrikePerHit (not asserted here). The +5% damage and
+		// FlatDmgStart compensation riders are gone; +1 to-hit stays on
+		// Ranger as the "read prey tells" half.
+		{ClassRanger, 0, 1, false, 0, 1.0, 0, 0},
 		{ClassDruid, 0, 0, false, 0, 0.95, 1, 0},
 		{ClassBard, 0.05, 1, false, 0, 1.0, 1, 1},
 		{ClassSorcerer, 0.05, 0, false, 0, 1.0, 6, 0},
 		{ClassWarlock, 0.12, 1, false, 0, 1.0, 1, 0},
-		{ClassPaladin, 0, 0, false, 0, 1.0, 4, 0},
+		{ClassPaladin, 0, 0, false, 0, 1.0, 0, 0},
 	}
 	for _, tc := range cases {
 		stats := CombatStats{AttackBonus: 5}

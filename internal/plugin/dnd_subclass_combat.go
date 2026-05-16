@@ -442,16 +442,16 @@ func applySubclassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDChar
 		}
 	case SubclassCollegeValor:
 		// L5 Combat Inspiration: songs that sharpen the blade (+10% damage).
-		// L7 Extra Attack: throughput — +1 attack and a further +10% damage
-		// proxy for the second swing. L10 Battle Magic: a bonus-action
-		// strike after a spell — a FlatDmgStart burst. L15: +1 AC, the
-		// late-game shield half of Combat Inspiration.
+		// L7 Extra Attack: a real second swing (5e literal Extra Attack).
+		// Class-identity audit (2026-05-16) — previously proxied as +1
+		// AttackBonus + 10% damage; now uses ExtraAttacks. L10 Battle
+		// Magic: a bonus-action strike after a spell — a FlatDmgStart
+		// burst. L15: +1 AC, late-game shield half of Combat Inspiration.
 		if c.Level >= 5 {
 			mods.DamageBonus += 0.10
 		}
 		if c.Level >= 7 {
-			stats.AttackBonus++
-			mods.DamageBonus += 0.10
+			mods.ExtraAttacks += 1
 		}
 		if c.Level >= 10 {
 			mods.FlatDmgStart += 6

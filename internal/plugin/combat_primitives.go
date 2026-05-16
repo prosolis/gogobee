@@ -103,6 +103,14 @@ func applyPlayerHitDamageMods(st *combatState, player *Combatant, dmg int, isCri
 			dmg += 1 + st.roll(6)
 		}
 	}
+	// Class-identity audit (2026-05-16) — Ranger Hunter's Mark. +Nd6 on
+	// every player hit. The implicit "you marked this enemy on round 0"
+	// model: in 1v1, the only foe is always the marked one.
+	if player.Mods.HuntersMarkDie > 0 {
+		for i := 0; i < player.Mods.HuntersMarkDie; i++ {
+			dmg += 1 + st.roll(6)
+		}
+	}
 	// Phase 10 SUB2a-ii — Assassin Death Strike proxy: bonus damage on the
 	// first hit only. Stacks on top of the Rogue's Sneak Attack auto-crit
 	// (which already doubled the base damage above) — the bonus itself is
