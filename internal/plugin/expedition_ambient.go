@@ -84,6 +84,15 @@ func (p *AdventurePlugin) fireExpeditionAmbients(now time.Time) {
 		if e.Status != ExpeditionStatusActive {
 			continue
 		}
+		// Safety net: if the wrapping zone run is abandoned or completed,
+		// the player has functionally left the dungeon even though the
+		// expedition row hasn't been flipped. Skip silently rather than
+		// DM about a place they're no longer in.
+		if e.RunID != "" {
+			if run, _ := getZoneRun(e.RunID); run != nil && !run.IsActive() {
+				continue
+			}
+		}
 		uid := id.UserID(e.UserID)
 		if hasActiveCombatSession(uid) {
 			continue

@@ -188,6 +188,7 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		_ = retireAllRegionRuns(exp)
+		_, _, _ = forcedExtractExpedition(exp.ID, "interrupt death")
 		markAdventureDead(userID, "expedition", zone.Display)
 		if line := flavor.Pick(flavor.PlayerDeath); line != "" {
 			b.WriteString(line)
@@ -513,6 +514,7 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		_ = retireAllRegionRuns(exp)
+		_, _, _ = forcedExtractExpedition(exp.ID, "patrol death")
 		markAdventureDead(userID, "patrol", zone.Display)
 		if line := flavor.Pick(flavor.PlayerDeath); line != "" {
 			ob.WriteString(line)

@@ -861,6 +861,9 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		// respawn timer for what is mechanically "ran out the clock".
 		if !result.TimedOut {
 			markAdventureDead(userID, "zone", zone.Display)
+			forceExtractExpeditionForRunLoss(userID, "combat death")
+		} else {
+			forceExtractExpeditionForRunLoss(userID, "combat retreat")
 		}
 		if line := twinBeeLine(zone.ID, DMPlayerDeath, run.RunID, narrationCadence(run)); line != "" {
 			ob.WriteString(line)

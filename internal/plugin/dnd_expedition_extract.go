@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -90,6 +91,23 @@ func forcedExtractExpedition(expID, reason string) (*Expedition, int, error) {
 	e.Status = ExpeditionStatusAbandoned
 	_ = retireAllRegionRuns(e)
 	return e, tax, nil
+}
+
+// forceExtractExpeditionForRunLoss bridges run-loss call sites (turn-based
+// elite/boss death or flee, exploration combat death, patrol-interrupt
+// death) into the forced-extract flow. Those sites already abandon the
+// zone run, but without flipping the wrapping expedition the ambient
+// ticker keeps DMing about a dungeon the player walked away from. No-op
+// when there is no active expedition for this user.
+func forceExtractExpeditionForRunLoss(userID id.UserID, reason string) {
+	exp, err := getActiveExpedition(userID)
+	if err != nil || exp == nil {
+		return
+	}
+	if _, _, err := forcedExtractExpedition(exp.ID, reason); err != nil {
+		slog.Warn("expedition: force-extract on run loss",
+			"user", userID, "expedition", exp.ID, "reason", reason, "err", err)
+	}
 }
 
 // getResumableExpedition returns the most recent 'extracting' row for the

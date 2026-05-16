@@ -267,6 +267,7 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 			_, _ = applyMoodEvent(sess.RunID, MoodEventPlayerDeath)
 		}
 		_ = abandonZoneRun(userID)
+		forceExtractExpeditionForRunLoss(userID, "combat death")
 		markAdventureDead(userID, "zone", zone.Display)
 		if line := twinBeeLine(zone.ID, DMPlayerDeath, sess.RunID, cadence); line != "" {
 			b.WriteString(line + "\n")
@@ -278,6 +279,7 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 		// but no death timer. Chosen candidate from the migration plan's
 		// open question on flee outcome.
 		_ = abandonZoneRun(userID)
+		forceExtractExpeditionForRunLoss(userID, "combat flee")
 		b.WriteString(fmt.Sprintf("🏃 You broke off from **%s** and slipped away. Run ended — you keep your wounds, but you live.", enemy.Name))
 
 	default:
