@@ -233,7 +233,7 @@ func buildSpellList() []SpellDefinition {
 			Upcast:      "more vigour per slot above 2nd"},
 		{ID: "augury", Name: "Augury", Level: 2, School: "divination",
 			Classes: cleric, Effect: EffectUtility, CastTime: CastRitual,
-			Description: "Ask the next half-hour a yes-or-no question. TwinBee relays the omen, mostly straight."},
+			Description: "Ask the next half-hour a yes-or-no question. I relay the omen, mostly straight."},
 
 		// ── 2nd level — Ranger ────────────────────────────────────────────────
 		{ID: "pass_without_trace", Name: "Pass Without Trace", Level: 2, School: "abjuration",

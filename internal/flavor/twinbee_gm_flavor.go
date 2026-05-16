@@ -22,7 +22,7 @@ var RoomEntryGeneric = []string{
 	"The room is quiet. I appreciate quiet. Quiet means the enemies haven't spotted you yet. Yet.",
 	"Forward. Always forward. I once tried going backward in a dungeon. It looped. This one might too.",
 	"Stock of the situation: ceiling intact, floor suspicious, walls leaning in slightly. Proceed.",
-	"You've cleared the room. I give a small, dignified nod. 'One continues,' I say, in the voice of someone who has seen this before and is choosing optimism anyway.",
+	"You've cleared the room. I give a small, dignified nod. 'One continues,' I say, in the voice of someone who has seen this before and am choosing optimism anyway.",
 	"The corridor ahead is long and straight. I find long straight corridors meditative. Also concerning. Mostly concerning.",
 	"A torch sputters on the wall. I light it mentally. 'It would be a shame,' I say, 'to come all this way and trip over something.'",
 }
@@ -124,7 +124,7 @@ var CombatStart = []string{
 	"They've seen you. The kind of seeing that comes with intent. I suggest acting first.",
 	"FIGHT. I don't need to say more than that but I will absolutely say more than that.",
 	"Roll for initiative. This is the part I've been looking forward to since the Entry Room.",
-	"And we're in combat. I remind you to breathe, track your conditions, and remember that your character's survival is not guaranteed but is definitely preferred.",
+	"And we're in combat. I remind you to breathe, track your conditions, and remember that your character's survival is not guaranteed but am definitely preferred.",
 	"Something about your posture or your smell or your general presence has been found unacceptable. Combat begins.",
 	"I press start. Player one, it's your turn.",
 	"The enemy acts first — or thinks it does. I watch your dice like they're the only thing in the room, which, right now, they are.",
@@ -329,7 +329,7 @@ var TrapTriggered = []string{
 var LoreLines = []string{
 	"I settle in and prepare to speak at length, because I've been waiting for this question since you entered and I have a lot of thoughts.",
 	"Ah. A good question. I have context for this. I have more context than will fit comfortably in one telling but I'll try to prioritize.",
-	"The history of this place is long and not entirely flattering to anyone involved. I begin at the beginning, which is not actually the beginning, but is the closest I can find.",
+	"The history of this place is long and not entirely flattering to anyone involved. I begin at the beginning, which is not actually the beginning, but am the closest I can find.",
 	"I consult what I know — which is more than most, less than everything, and presented in order of relevance to your immediate survival.",
 	"Sit with this for a moment. What you're standing in has a story and I believe knowing it will change how you fight in it. Stories are tactical documents if you read them right.",
 	"You want lore? I have lore. I have so much lore that the challenge is not having it but choosing which pieces are useful and which are just fascinating.",
@@ -358,7 +358,7 @@ var ItemFound = []string{
 	"Something catches the light that isn't supposed to be here. I watch you reach for it with the specific alertness of someone who has seen cursed items do cursed things. It appears fine. I relax incrementally.",
 	"Loot. I say this word with genuine reverence. The whole system — the dungeon, the enemies, the traps — exists in part to produce this moment. I think it's worth it.",
 	"A chest. Unlocked. I note the unlocked status and consider what that might mean. Probably nothing. Possibly something. You open it while I consider.",
-	"The item is good. I evaluate it quickly — the stats, the rarity, the class match — and nod with the confidence of someone who has seen a lot of items and knows when one is worth finding.",
+	"The item is good. I evaluate it quickly — the stats, the rarity, the class match — and nod with the confidence of someone who has seen a lot of items and know when one is worth finding.",
 	"That's a rare one. I've seen fewer of those than common ones, by definition, but that doesn't stop me from being specifically pleased each time.",
 	"Like finding the Beam Sword in Kirby, the Boomerang in Zelda, the P Wing in Super Mario 3 — the right item at the right time changes what's possible. I think this might be that item. I hope it is.",
 	"Equipment upgrade. I watch the math update — new AC, new attack bonus, new possibilities — and file this moment under 'things going right.'",
@@ -485,7 +485,7 @@ var SaveSuccess = []string{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var SaveFailed = []string{
-	"The save fails. I watch the condition take hold with the resignation of someone who has seen this before and knows there's a path through it, just not a comfortable one.",
+	"The save fails. I watch the condition take hold with the resignation of someone who has seen this before and know there's a path through it, just not a comfortable one.",
 	"It lands. Whatever the enemy threw at you, the dice didn't cooperate. I note the condition and its duration and suggest dealing with it before it compounds.",
 	"Failed. The number wasn't enough and I was rooting for the number. The condition applies. Fight through it.",
 	"Like the NES game over screen — inevitable in this moment, fixable in the next. The save failed. The dungeon continues. So do you.",

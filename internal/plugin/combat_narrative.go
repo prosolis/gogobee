@@ -150,12 +150,12 @@ func isTrivialEvent(e CombatEvent) bool {
 // (misses, whiffs) so long boss fights don't read as a wall of
 // "you swing wide / they swing wide" lines.
 var narrativeFillerSlog = []string{
-	"_The exchange settles into a rhythm. A few rounds of nothing meaningful — TwinBee skips to the next thing that matters._",
-	"_TwinBee narrates the next few seconds in a single sigh. Both sides keep swinging. Both sides keep missing._",
-	"_And the battle goes on. Yadda yadda yadda. TwinBee will narrate the next part where something actually lands._",
-	"_The grind continues. TwinBee uses the time to mentally redesign the dungeon's lighting._",
-	"_A flurry of misses on both sides. Nobody is impressing anybody. TwinBee waits for the next hit._",
-	"_TwinBee politely declines to narrate this stretch. It was, in TwinBee's professional opinion, a waste of everyone's time._",
+	"_The exchange settles into a rhythm. A few rounds of nothing meaningful — I skip to the next thing that matters._",
+	"_I narrate the next few seconds in a single sigh. Both sides keep swinging. Both sides keep missing._",
+	"_And the battle goes on. Yadda yadda yadda. I will narrate the next part where something actually lands._",
+	"_The grind continues. I use the time to mentally redesign the dungeon's lighting._",
+	"_A flurry of misses on both sides. Nobody is impressing anybody. I wait for the next hit._",
+	"_I politely decline to narrate this stretch. It was, in my professional opinion, a waste of everyone's time._",
 }
 
 func clampHP(hp int) int {
@@ -896,7 +896,7 @@ func renderTurnEvent(e CombatEvent, playerName, enemyName string, picker *action
 
 var narrativeTurnFlee = []string{
 	"🏃 You break off and run. No shame in it — the dead don't get a sequel.",
-	"🏃 You decide this fight isn't yours to win and make for the exit. TwinBee respects the math.",
+	"🏃 You decide this fight isn't yours to win and make for the exit. I respect the math.",
 	"🏃 You disengage and bolt. The enemy doesn't chase. The enemy didn't have to.",
 }
 

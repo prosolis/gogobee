@@ -323,6 +323,16 @@ func runMigrations(d *sql.DB) error {
 		// Real-time between-day events fire at most once per ambientCooldown
 		// while an expedition is active; idempotent CAS on this column.
 		`ALTER TABLE dnd_expedition ADD COLUMN last_ambient_at DATETIME`,
+		// Kind-level anti-repeat for the ambient ticker: the previous
+		// pick's Kind biases the next pick away from itself so two
+		// back-to-back pack_rat / monologue / etc. DMs don't read as
+		// duplicates on small flavor pools.
+		`ALTER TABLE dnd_expedition ADD COLUMN last_ambient_kind TEXT NOT NULL DEFAULT ''`,
+		// Expedition autopilot Phase 4 — background auto-run ticker. Real-
+		// time room-walking between player commands so the player only
+		// engages when a fork / elite / boss / supply pinch actually
+		// needs a decision. CAS-claim on this column gates re-entry.
+		`ALTER TABLE dnd_expedition ADD COLUMN last_autorun_at DATETIME`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1890,6 +1900,8 @@ CREATE TABLE IF NOT EXISTS dnd_expedition (
     last_briefing_at DATETIME,
     last_recap_at    DATETIME,
     last_ambient_at  DATETIME,
+    last_ambient_kind TEXT NOT NULL DEFAULT '',
+    last_autorun_at  DATETIME,
     last_activity    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at     DATETIME
 );

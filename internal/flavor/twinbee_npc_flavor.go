@@ -154,7 +154,7 @@ var PeteZoneUnlock = []string{
 }
 
 var PeteTier5Complete = []string{
-	"📣 Pete: {player_name} has completed {zone_name}. Expedition duration: {days} days. Boss defeated. Legendary loot confirmed. TwinBee has noted this one.",
+	"📣 Pete: {player_name} has completed {zone_name}. Expedition duration: {days} days. Boss defeated. Legendary loot confirmed. I have noted this one.",
 	"📣 Pete: {zone_name} cleared by {player_name} on Day {day}. The {boss_name} is down. Community achievement recorded.",
 }
 
@@ -165,7 +165,7 @@ var PeteStreakMilestone = []string{
 
 var PeteCommunityBoost = []string{
 	"📣 Pete: Community activity this week has been strong. TwinBee's mood is elevated. Dungeon drop rates and milestone rewards have been adjusted upward for 48 hours.",
-	"📣 Pete: TwinBee is in a good mood. Reasons cited: community engagement, a particularly impressive nat 20, and general satisfaction with how things have been going. Enhanced rewards active through Sunday.",
+	"📣 Pete: I am in a good mood. Reasons cited: community engagement, a particularly impressive nat 20, and general satisfaction with how things have been going. Enhanced rewards active through Sunday.",
 }
 
 var PeteMaintenance = []string{
@@ -174,12 +174,12 @@ var PeteMaintenance = []string{
 }
 
 var PeteExpeditionBulletin = []string{
-	"📣 Pete: Expedition update — {count} active expeditions in progress across {zones}. Longest running: Day {max_day}. TwinBee is busy.",
+	"📣 Pete: Expedition update — {count} active expeditions in progress across {zones}. Longest running: Day {max_day}. I am busy.",
 	"📣 Pete: Current expedition activity: {count} players in the field. The dungeon is occupied. Good.",
 }
 
 var PetePatchNotes = []string{
-	"📣 Pete: Update deployed. Changes: {summary}. Full notes available on request. TwinBee has been briefed.",
+	"📣 Pete: Update deployed. Changes: {summary}. Full notes available on request. I have been briefed.",
 }
 
 var PeteMortgageRate = []string{

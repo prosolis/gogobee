@@ -121,6 +121,19 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		// at high tiers (T5 mean trails leaders by ~10pp pre-tune). Add a
 		// modest steady-DPS rider so post-opener rounds aren't pure attrition.
 		mods.DamageBonus += 0.05
+		// Class-identity audit (2026-05-16) — actual Sneak Attack as Nd6
+		// per hit, scaling with level per 5e (1d6 L1-2 ... 10d6 L19-20).
+		// AutoCritFirst + DamageBonus alone left the rogue's defining
+		// mechanic invisible at the table: monte-carlo win rates looked
+		// fine but a player hitting once per round saw weapon-only damage
+		// every swing after the opener. Engine path uses the same "every
+		// hit" treatment as Divine Strike (rogues swing 1×/round so this
+		// matches the 5e once-per-turn cadence in practice).
+		sneakDice := (c.Level + 1) / 2
+		if sneakDice > 10 {
+			sneakDice = 10
+		}
+		mods.SneakAttackDie += sneakDice
 	case ClassMage:
 		stats.AttackBonus++
 		// Phase 2 class-balance: +1 attack alone left Mage mid-pack on damage

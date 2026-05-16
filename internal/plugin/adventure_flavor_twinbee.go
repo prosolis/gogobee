@@ -7,268 +7,268 @@ package plugin
 // from victories, looked at the right way, which is TwinBee's way.
 
 var TwinBeeSuccess = []string{
-	"TwinBee descended into {location} with characteristic enthusiasm " +
+	"I descended into {location} with characteristic enthusiasm " +
 		"and the kind of confidence that makes dungeon monsters briefly " +
 		"reconsider their career choices. Several reconsidered too slowly. " +
-		"TwinBee has returned with {loot} worth €{value} and a new personal philosophy " +
+		"I have returned with {loot} worth €{value} and a new personal philosophy " +
 		"regarding the optimum angle of attack on a Stone Golem. " +
 		"The philosophy works. It has been field-tested. Just now.",
 
-	"Another flawless operation. TwinBee entered {location}, assessed the situation " +
+	"Another flawless operation. I entered {location}, assessed the situation " +
 		"with professional precision, and extracted {loot} worth €{value} " +
-		"with minimal collateral damage to TwinBee specifically. " +
+		"with minimal collateral damage to me specifically. " +
 		"The dungeon has been informed it performed adequately. " +
-		"TwinBee does not give compliments freely. This was a compliment.",
+		"I do not give compliments freely. This was a compliment.",
 
-	"TwinBee has returned from {location} victorious, which is to say " +
-		"TwinBee has returned from {location}, because for TwinBee these are the same thing. " +
-		"{loot} worth €{value}. {xp} XP that TwinBee does not need " +
-		"but accepts graciously, as a gift, from the dungeon. " +
+	"I have returned from {location} victorious, which is to say " +
+		"I have returned from {location}, because for me these are the same thing. " +
+		"{loot} worth €{value}. {xp} XP that I do not need " +
+		"but accept graciously, as a gift, from the dungeon. " +
 		"The dungeon can try harder next time. It probably won't. They never do.",
 
-	"TwinBee located {loot} worth €{value} in {location} after what TwinBee " +
-		"is describing in the post-mission debrief as 'a series of increasingly correct decisions.' " +
+	"I located {loot} worth €{value} in {location} after what I am " +
+		"describing in the post-mission debrief as 'a series of increasingly correct decisions.' " +
 		"The monsters involved have been described as 'adequate opposition' " +
-		"in the same debrief. TwinBee is generous with these things.",
+		"in the same debrief. I am generous with these things.",
 
 	"In. Retrieved {loot}. Out. €{value}. {xp} XP. " +
-		"TwinBee has the efficiency of someone who has done this many times " +
+		"I have the efficiency of someone who has done this many times " +
 		"and the confidence of someone who has never once considered " +
 		"that it might not go well. These two qualities, combined, produce results. " +
 		"The results are in your share of the haul.",
 
-	"TwinBee reports: {location} cleared, {loot} secured, €{value} assessed, " +
-		"one near-miss that TwinBee is not classifying as a near-miss " +
-		"because TwinBee does not have near-misses, TwinBee has " +
+	"I report: {location} cleared, {loot} secured, €{value} assessed, " +
+		"one near-miss that I am not classifying as a near-miss " +
+		"because I do not have near-misses, I have " +
 		"'moments of dynamic tactical adjustment that resolved favorably.' " +
 		"The moment resolved favorably. Obviously.",
 
-	"The {location} boss encountered TwinBee today. " +
-		"This is how TwinBee prefers to frame the encounter — " +
-		"the boss encountered TwinBee, not the other way around — " +
+	"The {location} boss encountered me today. " +
+		"This is how I prefer to frame the encounter — " +
+		"the boss encountered me, not the other way around — " +
 		"because it accurately reflects the power dynamics. " +
 		"{loot} worth €{value}. The boss has been encountered.",
 
-	"TwinBee went to {location} and came back with {loot} worth €{value}, " +
-		"which is what TwinBee does, and {xp} XP, which TwinBee acknowledges " +
+	"I went to {location} and came back with {loot} worth €{value}, " +
+		"which is what I do, and {xp} XP, which I acknowledge " +
 		"with the quiet grace of someone for whom excellence " +
 		"has long since stopped being a surprise.",
 
 	"Professional assessment of today's {location} operation: successful. " +
 		"Loot: {loot}, €{value}. Opposition: handled. Duration: optimal. " +
-		"TwinBee's equipment: immaculate. TwinBee: as expected.",
+		"My equipment: immaculate. Me: as expected.",
 
-	"TwinBee extracted {loot} worth €{value} from {location} " +
+	"I extracted {loot} worth €{value} from {location} " +
 		"with the efficiency of a professional and the cheerfulness of someone " +
-		"who genuinely enjoys doing this, which TwinBee does, " +
-		"which is why TwinBee is better at it than everyone else, " +
-		"which TwinBee is.",
+		"who genuinely enjoys doing this, which I do, " +
+		"which is why I am better at it than everyone else, " +
+		"which I am.",
 
 	"The monsters in {location} gave it their best today. " +
-		"TwinBee noticed this and respected it for the duration of the encounter, " +
+		"I noticed this and respected it for the duration of the encounter, " +
 		"which was brief. {loot} worth €{value}. {xp} XP. " +
-		"TwinBee has returned in excellent spirits, which is not news, " +
+		"I have returned in excellent spirits, which is not news, " +
 		"but it is accurate.",
 
-	"TwinBee's route through {location} was, according to TwinBee's own review, " +
+	"My route through {location} was, according to my own review, " +
 		"'essentially perfect.' No argument has been presented to the contrary. " +
-		"TwinBee returned with {loot} worth €{value} and a complete absence " +
-		"of anything that went wrong, which is TwinBee's preferred kind of absence.",
+		"I returned with {loot} worth €{value} and a complete absence " +
+		"of anything that went wrong, which is my preferred kind of absence.",
 
 	"A lesser adventurer would have found {location} challenging today. " +
-		"TwinBee found it brisk. {loot}, €{value}, {xp} XP, " +
+		"I found it brisk. {loot}, €{value}, {xp} XP, " +
 		"and the mild satisfaction of a problem that turned out " +
-		"to be an appropriately-sized problem. TwinBee appreciates appropriate sizing.",
+		"to be an appropriately-sized problem. I appreciate appropriate sizing.",
 
-	"TwinBee entered {location} from the north approach, which TwinBee has determined " +
+	"I entered {location} from the north approach, which I have determined " +
 		"is the correct approach, and exited with {loot} worth €{value}. " +
 		"The southern approach is noted. It is not the correct approach. " +
-		"TwinBee has opinions about approaches and they are correct opinions.",
+		"I have opinions about approaches and they are correct opinions.",
 
 	"Operational summary: {location} visited, opposition encountered, opposition handled, " +
 		"{loot} extracted at €{value} assessed value, {xp} XP collected, " +
-		"TwinBee returned in the condition TwinBee left in, " +
-		"which is optimal, because TwinBee is always in optimal condition.",
+		"I returned in the condition I left in, " +
+		"which is optimal, because I am always in optimal condition.",
 }
 
 var TwinBeeExceptional = []string{
-	"OUTSTANDING PERFORMANCE. TwinBee located and neutralised the dungeon boss " +
-		"— which TwinBee describes as 'a scheduling conflict that has now been resolved' — " +
+	"OUTSTANDING PERFORMANCE. I located and neutralised the dungeon boss " +
+		"— which I describe as 'a scheduling conflict that has now been resolved' — " +
 		"and recovered {loot} worth €{value}. " +
-		"This is, according to TwinBee, a typical Tuesday. " +
-		"TwinBee has had many exceptional Tuesdays. The dungeons are aware.",
+		"This is, by my reckoning, a typical Tuesday. " +
+		"I have had many exceptional Tuesdays. The dungeons are aware.",
 
-	"TwinBee found {loot} worth €{value} in {location} after what TwinBee " +
-		"is calling 'a brief but educational exchange' with something very large " +
+	"I found {loot} worth €{value} in {location} after what I am " +
+		"calling 'a brief but educational exchange' with something very large " +
 		"that is no longer a going concern. Bonus XP noted. " +
-		"TwinBee noted it first. TwinBee notes everything first.",
+		"I noted it first. I note everything first.",
 
-	"The inner chamber. TwinBee reached the inner chamber. " +
-		"TwinBee notes that reaching the inner chamber requires " +
+	"The inner chamber. I reached the inner chamber. " +
+		"I note that reaching the inner chamber requires " +
 		"the successful navigation of everything between here and the inner chamber, " +
-		"which TwinBee navigated successfully, and then {loot} worth €{value} " +
-		"was in the inner chamber, and TwinBee took it. " +
+		"which I navigated successfully, and then {loot} worth €{value} " +
+		"was in the inner chamber, and I took it. " +
 		"The inner chamber is now available to be an outer chamber.",
 
-	"A boss encounter. TwinBee's assessment of the boss: 'interesting.' " +
-		"The boss's assessment of TwinBee: insufficient time to complete. " +
-		"{loot} worth €{value}. TwinBee has forwarded the boss's personnel file " +
+	"A boss encounter. My assessment of the boss: 'interesting.' " +
+		"The boss's assessment of me: insufficient time to complete. " +
+		"{loot} worth €{value}. I have forwarded the boss's personnel file " +
 		"to the relevant afterlife authorities with a positive reference.",
 
-	"EXCEPTIONAL. TwinBee's word, used sparingly. " +
+	"EXCEPTIONAL. My word, used sparingly. " +
 		"Today merits it. {loot} worth €{value} from the deepest chamber " +
-		"of {location}, retrieved past opposition that TwinBee describes " +
+		"of {location}, retrieved past opposition that I describe " +
 		"as 'the most interesting opposition I've faced this week,' " +
-		"which is high praise from TwinBee and accurately assesses the week so far.",
+		"which is high praise from me and accurately assesses the week so far.",
 
-	"TwinBee found something the dungeon wasn't offering publicly. " +
-		"TwinBee finds things dungeons aren't offering publicly. " +
+	"I found something the dungeon wasn't offering publicly. " +
+		"I find things dungeons aren't offering publicly. " +
 		"It's a skill. {loot} worth €{value}. {xp} XP. " +
-		"The dungeon has updated its offering. TwinBee approves of the update " +
+		"The dungeon has updated its offering. I approve of the update " +
 		"from a position of already having taken the thing.",
 
 	"A critical run. Every encounter resolved correctly. Every chamber yielded. " +
 		"Every roll, every decision, every approach: correct. " +
 		"{loot} worth €{value}. {xp} XP. " +
-		"TwinBee submits this run as the reference standard for {location}. " +
+		"I submit this run as the reference standard for {location}. " +
 		"Future runs should aspire to this. They will not reach it.",
 
-	"The boss was large. TwinBee is TwinBee. " +
+	"The boss was large. I am here. " +
 		"These two facts met in {location} and produced {loot} worth €{value} " +
-		"and a story that TwinBee is telling to everyone and will continue telling " +
-		"until a better story replaces it, which will also be TwinBee's story.",
+		"and a story that I am telling to everyone and will continue telling " +
+		"until a better story replaces it, which will also be my story.",
 }
 
 var TwinBeeWithdrawal = []string{
-	"TwinBee has completed today's operation and is taking the remainder " +
+	"I have completed today's operation and am taking the remainder " +
 		"of the afternoon for strategic planning. " +
 		"This is unrelated to {location}. {location} is unrelated to everything. " +
-		"TwinBee has already moved on and suggests you do the same.",
+		"I have already moved on and suggest you do the same.",
 
-	"TwinBee assessed {location} with characteristic thoroughness, " +
+	"I assessed {location} with characteristic thoroughness, " +
 		"identified that today's objectives had been sufficiently advanced " +
 		"by the reconnaissance phase, and withdrew in good order " +
-		"before the situation became interesting in ways TwinBee did not schedule. " +
-		"This is called professionalism. TwinBee has it.",
+		"before the situation became interesting in ways I did not schedule. " +
+		"This is called professionalism. I have it.",
 
 	"Today's operation at {location} concluded earlier than projected. " +
-		"TwinBee encountered something very large, evaluated the encounter on its merits, " +
+		"I encountered something very large, evaluated the encounter on its merits, " +
 		"and determined that returning tomorrow with more information " +
 		"was the superior strategic outcome. " +
-		"TwinBee was not running. TwinBee does not run. " +
-		"TwinBee was moving with purpose in the opposite direction. These are different.",
+		"I was not running. I do not run. " +
+		"I was moving with purpose in the opposite direction. These are different.",
 
-	"TwinBee left {location} at a time of TwinBee's choosing, " +
+	"I left {location} at a time of my own choosing, " +
 		"which happened to coincide with the arrival of something " +
-		"that TwinBee is describing in the official report as 'a scheduling conflict.' " +
+		"that I am describing in the official report as 'a scheduling conflict.' " +
 		"The conflict has been noted. It will be addressed. Tomorrow. " +
-		"At a time that suits TwinBee.",
+		"At a time that suits me.",
 
 	"TACTICAL WITHDRAWAL EXECUTED. {location} has been informed, " +
-		"via the medium of TwinBee's departure, that today was not the day. " +
-		"TwinBee knows which days are the days. Today was for gathering intelligence. " +
+		"via the medium of my departure, that today was not the day. " +
+		"I know which days are the days. Today was for gathering intelligence. " +
 		"The intelligence gathered is: {location} still exists and should watch itself.",
 
-	"TwinBee retreated from {location} in the same way the tide retreats from the shore — " +
+	"I retreated from {location} in the same way the tide retreats from the shore — " +
 		"deliberately, inevitably, and with the full understanding that it will be back, " +
 		"and the shore knows this, and the shore is thinking about it right now.",
 
-	"Something in {location} today required TwinBee to make a decision. " +
-		"TwinBee made the decision. The decision was: not today. " +
-		"TwinBee's decisions are correct decisions by definition, " +
+	"Something in {location} today required me to make a decision. " +
+		"I made the decision. The decision was: not today. " +
+		"My decisions are correct decisions by definition, " +
 		"which means 'not today' was correct, which will be proven correct " +
-		"when TwinBee returns tomorrow and the thing is no longer a factor. " +
-		"These things always work out when TwinBee decides they will.",
+		"when I return tomorrow and the thing is no longer a factor. " +
+		"These things always work out when I decide they will.",
 
 	"The mission objectives for today's {location} operation have been " +
 		"reclassified as 'Phase One of a Two-Phase Operation,' " +
 		"where Phase One is reconnaissance and Phase Two is tomorrow. " +
 		"Phase One is complete. Phase One was, in retrospect, always the plan.",
 
-	"TwinBee encountered something in {location} that TwinBee is describing " +
+	"I encountered something in {location} that I am describing " +
 		"as 'an opportunity to demonstrate strategic patience.' " +
-		"TwinBee demonstrated strategic patience. The patience was demonstrated " +
+		"I demonstrated strategic patience. The patience was demonstrated " +
 		"at significant velocity in the direction of the exit, " +
 		"but the patience was present throughout.",
 
-	"Official statement from TwinBee regarding today's {location} operation: " +
+	"Official statement from me regarding today's {location} operation: " +
 		"'Everything went according to plan.' " +
 		"The plan has been updated to reflect what happened. " +
 		"The updated plan describes what happened as planned. " +
-		"TwinBee's plans are always accurate.",
+		"My plans are always accurate.",
 
-	"TwinBee is back. The thing in {location} is also still there. " +
-		"TwinBee is aware of the thing. The thing is aware of TwinBee. " +
-		"This is a stalemate that TwinBee will resolve on TwinBee's timeline, " +
+	"I am back. The thing in {location} is also still there. " +
+		"I am aware of the thing. The thing is aware of me. " +
+		"This is a stalemate that I will resolve on my own timeline, " +
 		"which is different from the thing's timeline, " +
-		"and TwinBee's timeline is the one that matters.",
+		"and my timeline is the one that matters.",
 
-	"The {location} situation has been described by TwinBee as " +
-		"'temporarily inconclusive,' which is a phrase TwinBee uses " +
+	"The {location} situation has been described, by me, as " +
+		"'temporarily inconclusive,' which is a phrase I use " +
 		"when something very large expressed a strong position " +
-		"and TwinBee has chosen to revisit the position on better terms. " +
-		"The terms will be better. TwinBee will see to it.",
+		"and I have chosen to revisit the position on better terms. " +
+		"The terms will be better. I will see to it.",
 
-	"Today, TwinBee gathered extensive tactical data on {location}. " +
+	"Today, I gathered extensive tactical data on {location}. " +
 		"The data indicates that {location} is well-defended. " +
 		"The data was gathered by going in and then coming back out, " +
 		"which is a time-honoured data gathering methodology " +
-		"that TwinBee has employed before and will employ again, ideally less urgently.",
+		"that I have employed before and will employ again, ideally less urgently.",
 
-	"TwinBee's return today is best understood as a 'victory lap around the outside,' " +
-		"which is a phrase TwinBee has just coined and will be using going forward. " +
+	"My return today is best understood as a 'victory lap around the outside,' " +
+		"which is a phrase I have just coined and will be using going forward. " +
 		"A victory lap around the outside of {location} has been completed. " +
-		"TwinBee is home. The inside of {location} is tomorrow's victory lap.",
+		"I am home. The inside of {location} is tomorrow's victory lap.",
 
-	"Something the size of a building expressed interest in TwinBee at depth. " +
-		"TwinBee expressed equal and opposite interest in being elsewhere. " +
-		"Both interests were satisfied. TwinBee is elsewhere. " +
+	"Something the size of a building expressed interest in me at depth. " +
+		"I expressed equal and opposite interest in being elsewhere. " +
+		"Both interests were satisfied. I am elsewhere. " +
 		"The something is where it was. The relationship is stable.",
 }
 
 var TwinBeeEmpty = []string{
-	"TwinBee has returned from {location} and wishes it to be known " +
-		"that the dungeon was empty, which TwinBee attributes entirely to their reputation " +
-		"preceding them. The monsters left. They knew. " +
-		"TwinBee respects this. TwinBee also found nothing. These facts are unrelated.",
+	"I have returned from {location} and wish it to be known " +
+		"that the dungeon was empty, which I attribute entirely to my reputation " +
+		"preceding me. The monsters left. They knew. " +
+		"I respect this. I also found nothing. These facts are unrelated.",
 
 	"Intelligence suggested {location} would be productive today. " +
-		"TwinBee's intelligence was incorrect. " +
-		"TwinBee's intelligence is reviewing its methodology. " +
+		"My intelligence was incorrect. " +
+		"My intelligence is reviewing its methodology. " +
 		"The dungeon contained no loot, no monsters worth discussing, " +
-		"and one confused bat that TwinBee has agreed not to mention publicly. " +
+		"and one confused bat that I have agreed not to mention publicly. " +
 		"Moving on.",
 
-	"{location} was cleared. By whom is unclear. TwinBee suspects a rival. " +
-		"TwinBee does not have rivals, technically, " +
-		"but is prepared to invent one for the purposes of this grievance. " +
+	"{location} was cleared. By whom is unclear. I suspect a rival. " +
+		"I do not have rivals, technically, " +
+		"but am prepared to invent one for the purposes of this grievance. " +
 		"No loot. No comment. The rival has been noted.",
 
 	"The {location} run today yielded nothing of material value, " +
-		"which TwinBee attributes to the universe's temporary misalignment " +
-		"with TwinBee's interests. The universe will correct itself. " +
-		"TwinBee is giving it until tomorrow.",
+		"which I attribute to the universe's temporary misalignment " +
+		"with my interests. The universe will correct itself. " +
+		"I am giving it until tomorrow.",
 
 	"Empty. {location} was empty today, which is {location}'s problem. " +
-		"TwinBee showed up. TwinBee was prepared. TwinBee had the right equipment. " +
+		"I showed up. I was prepared. I had the right equipment. " +
 		"The dungeon failed to provide an adequate challenge or adequate reward. " +
 		"This reflects poorly on the dungeon.",
 
-	"TwinBee cleared four rooms of {location} and found nothing worth the trip. " +
-		"TwinBee is not saying the trip was not worth it — TwinBee does not say that — " +
+	"I cleared four rooms of {location} and found nothing worth the trip. " +
+		"I am not saying the trip was not worth it — I do not say that — " +
 		"but the material outcome was zero and the XP was minimal " +
-		"and TwinBee would like to register this as feedback for the dungeon.",
+		"and I would like to register this as feedback for the dungeon.",
 
-	"The treasure was already gone when TwinBee arrived, " +
-		"which means someone got there before TwinBee, " +
+	"The treasure was already gone when I arrived, " +
+		"which means someone got there before me, " +
 		"which is a sentence that has never previously been true " +
-		"and which TwinBee is treating as a statistical anomaly " +
+		"and which I am treating as a statistical anomaly " +
 		"rather than a pattern that might develop.",
 
 	"No monsters. No treasure. No meaningful opposition. " +
-		"Just TwinBee in {location} swinging at things that weren't there. " +
-		"TwinBee has described this run as 'character-building.' " +
-		"TwinBee's character was already built. " +
+		"Just me in {location} swinging at things that weren't there. " +
+		"I have described this run as 'character-building.' " +
+		"My character was already built. " +
 		"This run has contributed nothing to the structure.",
 }
 
@@ -530,7 +530,7 @@ var RespawnDM = []string{
 
 var IdleShameDM = []string{
 	"{name}, hey. Didn't see you out there today.\n\n" +
-		"TwinBee swung by the hovel — door was shut, no answer.\n" +
+		"I swung by the hovel — door was shut, no answer.\n" +
 		"Hope you're alright. The dungeon will keep. The mine will keep.\n" +
 		"They've been there a while; they're patient.\n\n" +
 		"Tomorrow: 08:00 UTC. We'll be ready when you are.",
@@ -538,16 +538,16 @@ var IdleShameDM = []string{
 	"Quiet day for you, {name}.\n\n" +
 		"The morning DM went out and didn't come back. That happens.\n" +
 		"Real life sometimes shows up uninvited and stays for dinner.\n" +
-		"TwinBee picked up a little extra in the field — covered for you.\n\n" +
+		"I picked up a little extra in the field — covered for you.\n\n" +
 		"Tomorrow morning the choices reset. Drop by when you can.",
 
 	"{name}, no sign of you in the field today.\n\n" +
 		"The forest is still there. So's the mine. So's that one rusted sword\n" +
 		"you keep meaning to replace. Nothing important moved.\n\n" +
-		"08:00 UTC tomorrow — fresh menu, same patient TwinBee.",
+		"08:00 UTC tomorrow — fresh menu, same patient narrator.",
 
 	"Missed you out there, {name}.\n\n" +
-		"TwinBee went on a haul today and saved a corner of the splits for you,\n" +
+		"I went on a haul today and saved a corner of the splits for you,\n" +
 		"then ate it on principle when you didn't show. (Sorry. House rule.)\n" +
 		"Nothing's lost that can't be earned back.\n\n" +
 		"Tomorrow: 08:00 UTC. The dungeons are warm.",
@@ -558,7 +558,7 @@ var IdleShameDM = []string{
 		"08:00 UTC. Whenever you're back, we pick up where we left off.",
 
 	"{name}. Hope you had a good rest day.\n\n" +
-		"TwinBee held down the fort. Nothing dramatic, nothing lost —\n" +
+		"I held down the fort. Nothing dramatic, nothing lost —\n" +
 		"the world declined to end on your behalf, which feels generous.\n\n" +
 		"When you're ready, the morning DM hits at 08:00 UTC. No rush.",
 }
@@ -584,8 +584,8 @@ var OnboardingDM = []string{
 var MorningDM = []string{
 	"⚔️ Good morning, {name}. Another day, another opportunity for regret.\n\n" +
 		"{character_sheet}\n\n" +
-		"Where are you headed? TwinBee would choose the dungeon.\n" +
-		"TwinBee would also survive it. You are not TwinBee. Choose wisely.",
+		"Where are you headed? I would choose the dungeon.\n" +
+		"I would also survive it. You are not TwinBee. Choose wisely.",
 
 	"⚔️ {name}. You're alive. The options are:\n\n" +
 		"{character_sheet}\n\n" +
@@ -609,6 +609,6 @@ var MorningDM = []string{
 		"{character_sheet}\n\n" +
 		"Or don't. You could rest. You could do nothing.\n" +
 		"The bot will send you a disappointed DM at midnight.\n" +
-		"TwinBee will know. TwinBee always knows.\n" +
+		"I will know. I always know.\n" +
 		"Reply to choose.",
 }

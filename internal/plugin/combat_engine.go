@@ -116,6 +116,16 @@ type CombatModifiers struct {
 	// no Weapon → no Divine Strike.
 	DivineStrikePerHit int
 
+	// Class-identity audit (2026-05-16) — Rogue Sneak Attack as actual
+	// per-hit Nd6 bonus damage. Number of d6 to roll on every player hit.
+	// 5e gates this on "once per turn given advantage/ally adjacent"; our
+	// 1v1 engine has no turn-boundary concept, so the same "lands every
+	// hit" convention as DivineStrikePerHit applies — and since Rogues
+	// only get one swing per round, this naturally caps at once/round.
+	// Set in applyClassPassives based on Rogue level (1d6 at L1-2 → 4d6
+	// at L7-8 → 10d6 at L19-20, per 5e progression).
+	SneakAttackDie int
+
 	// Phase 10 SUB2b — Mage subclasses.
 	// ArcaneWardHP: flat HP buffer absorbed before player HP. Refilled at the
 	// start of each combat by Abjuration L5+ (2× Mage level, +prof at L7).

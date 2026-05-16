@@ -96,7 +96,7 @@ type ZoneDefinition struct {
 	LevelMax   int
 	Faction    string
 	Atmosphere string // one-line biome description
-	Hook       string // entry-room narration seed (TwinBee voice, italic)
+	Hook       string // entry-room narration seed (I voice, italic)
 	MinRooms   int
 	MaxRooms   int
 	Enemies    []ZoneEnemy
@@ -213,7 +213,7 @@ func zoneGoblinWarrens() ZoneDefinition {
 		LevelMax:   3,
 		Faction:    "Goblins, Hobgoblins",
 		Atmosphere: "Low ceilings, torchlight, crude traps, cackling in the dark.",
-		Hook:       "A network of fetid tunnels burrowed beneath the Merchant's Road. The smell arrives before the sounds — smoke, rot, and something worse. TwinBee advises keeping one hand on your blade.",
+		Hook:       "A network of fetid tunnels burrowed beneath the Merchant's Road. The smell arrives before the sounds — smoke, rot, and something worse. I advise keeping one hand on your blade.",
 		MinRooms:   6,
 		MaxRooms:   7,
 		Enemies: []ZoneEnemy{
@@ -257,7 +257,7 @@ func zoneCryptValdris() ZoneDefinition {
 		LevelMax:   3,
 		Faction:    "Undead",
 		Atmosphere: "Stone corridors, dripping water, candles that shouldn't still be burning.",
-		Hook:       "The iron gate hangs open — someone left in a hurry. Carved into the stone above: \"HERE LIES VALDRIS. DO NOT.\" The rest has been chiseled away. TwinBee declines to speculate.",
+		Hook:       "The iron gate hangs open — someone left in a hurry. Carved into the stone above: \"HERE LIES VALDRIS. DO NOT.\" The rest has been chiseled away. I decline to speculate.",
 		MinRooms:   6,
 		MaxRooms:   7,
 		Enemies: []ZoneEnemy{
@@ -313,7 +313,7 @@ func zoneForestShadows() ZoneDefinition {
 		LevelMax:   5,
 		Faction:    "Beasts, Fey-corrupted creatures, Bandits",
 		Atmosphere: "Ancient forest, twisted paths, eerie silence, bioluminescent fungi, things in the canopy.",
-		Hook:       "The forest was beautiful once. Travelers still say so, usually right before they stop saying anything at all. The trees lean in when you're not looking. TwinBee has noted this is not a metaphor.",
+		Hook:       "The forest was beautiful once. Travelers still say so, usually right before they stop saying anything at all. The trees lean in when you're not looking. I have noted this is not a metaphor.",
 		MinRooms:   6,
 		MaxRooms:   8,
 		Enemies: []ZoneEnemy{
@@ -376,7 +376,7 @@ func zoneSunkenTemple() ZoneDefinition {
 		LevelMax:   5,
 		Faction:    "Kuo-toa, Water Elementals, Aboleth-touched",
 		Atmosphere: "Flooded stone chambers, barnacled pillars, salt smell, alien glyphs, things that swim in the dark water.",
-		Hook:       "The tide went out thirty years ago and never fully came back. The temple stayed wet anyway. Something down there keeps it that way. TwinBee suggests waterproofing your spellbook.",
+		Hook:       "The tide went out thirty years ago and never fully came back. The temple stayed wet anyway. Something down there keeps it that way. I suggest waterproofing your spellbook.",
 		MinRooms:   6,
 		MaxRooms:   8,
 		Enemies: []ZoneEnemy{
@@ -422,7 +422,7 @@ func zoneManorBlackspire() ZoneDefinition {
 		LevelMax:   8,
 		Faction:    "Undead, Shadows, Vampiric",
 		Atmosphere: "Victorian decay, impossible architecture, portraits whose eyes follow movement, cold spots, locked rooms that weren't locked before.",
-		Hook:       "The manor has been for sale for eleven years. Every buyer has either left immediately or not left at all. The real estate listing describes it as 'full of character.' TwinBee finds this accurate.",
+		Hook:       "The manor has been for sale for eleven years. Every buyer has either left immediately or not left at all. The real estate listing describes it as 'full of character.' I find this accurate.",
 		MinRooms:   7,
 		MaxRooms:   9,
 		Enemies: []ZoneEnemy{
@@ -490,7 +490,7 @@ func zoneUnderforge() ZoneDefinition {
 		LevelMax:   8,
 		Faction:    "Fire Elementals, Constructs, Salamanders, Azers",
 		Atmosphere: "Volcanic caverns, rivers of cooling lava, ancient dwarven stonework, the constant bass note of something very large moving below.",
-		Hook:       "The dwarven forge-city of Kharak Dûn was not abandoned. It was sealed from the outside. TwinBee does not have information on what they were sealing in.",
+		Hook:       "The dwarven forge-city of Kharak Dûn was not abandoned. It was sealed from the outside. I do not have information on what they were sealing in.",
 		MinRooms:   7,
 		MaxRooms:   9,
 		Enemies: []ZoneEnemy{
@@ -547,7 +547,7 @@ func zoneUnderdark() ZoneDefinition {
 		LevelMax:   12,
 		Faction:    "Drow, Mind Flayers, Beholders (far), Ropers, Hook Horrors",
 		Atmosphere: "Absolute darkness, phosphorescent mushroom groves, vast underground seas, carved drow cities in the distance, things older than the surface world.",
-		Hook:       "There is a world below the world. It has its own cities, its own wars, its own sky — which is stone, and has never once been kind. TwinBee speaks more quietly here. Something might be listening.",
+		Hook:       "There is a world below the world. It has its own cities, its own wars, its own sky — which is stone, and has never once been kind. I speak more quietly here. Something might be listening.",
 		MinRooms:   8,
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{
@@ -604,7 +604,7 @@ func zoneFeywildCrossing() ZoneDefinition {
 		LevelMax:   12,
 		Faction:    "Hags, Redcaps, Will-o-Wisps, Fomorians, Unseelie Fey",
 		Atmosphere: "Impossible beauty, treacherous whimsy, time distortion, rules that change without notice, bargains with terrible fine print.",
-		Hook:       "The veil between worlds is thin here. Colors are too saturated. The mushrooms are too large. A small creature made of starlight just offered you a deal. TwinBee advises extreme caution regarding deals.",
+		Hook:       "The veil between worlds is thin here. Colors are too saturated. The mushrooms are too large. A small creature made of starlight just offered you a deal. I advise extreme caution regarding deals.",
 		MinRooms:   8,
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{
@@ -662,7 +662,7 @@ func zoneDragonsLair() ZoneDefinition {
 		LevelMax:   20,
 		Faction:    "Kobolds, Drakes, Young Dragons, Wyrm",
 		Atmosphere: "Scorched stone, rivers of gold coins half-melted into the floor, kobold warrens as outer defenses, growing heat, the unmistakable smell of something ancient and enormous.",
-		Hook:       "The mountain has not erupted in forty years. The locals say it is dormant. The locals are wrong about what lives in mountains. TwinBee has prepared an unusually long entry description for this one.",
+		Hook:       "The mountain has not erupted in forty years. The locals say it is dormant. The locals are wrong about what lives in mountains. I have prepared an unusually long entry description for this one.",
 		MinRooms:   9,
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{
@@ -710,7 +710,7 @@ func zoneAbyssPortal() ZoneDefinition {
 		LevelMax:   20,
 		Faction:    "Demons, Fiends, Corrupted Celestials",
 		Atmosphere: "Reality fractures, impossible geometry, constant low psychic pressure, the feeling of being watched by something that has no eyes.",
-		Hook:       "Someone opened a door they should not have opened. The door is still open. Things are still coming through. TwinBee is not making jokes about this one.",
+		Hook:       "Someone opened a door they should not have opened. The door is still open. Things are still coming through. I am not making jokes about this one.",
 		MinRooms:   9,
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{

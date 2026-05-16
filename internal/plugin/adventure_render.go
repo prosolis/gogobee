@@ -250,7 +250,7 @@ func craftingTeaserText(foragingSkill, craftsSucceeded int, userID id.UserID) st
 	// Post-unlock: nudge when no successful crafts yet (gentle), or once a
 	// week (loose periodicity via day-of-year %).
 	if craftsSucceeded == 0 {
-		return "🧪 **Crafting is unlocked.** Gather a couple of matching ingredients and TwinBee will auto-craft consumables — try `!adventure recipes` to see what your level supports."
+		return "🧪 **Crafting is unlocked.** Gather a couple of matching ingredients and I will auto-craft consumables — try `!adventure recipes` to see what your level supports."
 	}
 	if int(time.Now().UTC().Weekday()) == craftingReminderWeekday(userID, time.Now().UTC()) {
 		return "🧪 *Crafting reminder* — `!adventure recipes` shows what's available at Foraging Lv." + fmt.Sprintf("%d.", foragingSkill)
@@ -836,7 +836,7 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 				sb.WriteString(fmt.Sprintf("Rewards distributed to %d participating adventurers: jackshit.\n", tbRewards.Eligible))
 			}
 		}
-		sb.WriteString("\n(Players who rested today received nothing. Fallen adventurers still earn their share. TwinBee noticed.)\n\n")
+		sb.WriteString("\n(Players who rested today received nothing. Fallen adventurers still earn their share. I noticed.)\n\n")
 		sb.WriteString("───────────────────\n\n")
 	}
 

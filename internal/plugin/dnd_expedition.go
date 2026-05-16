@@ -85,8 +85,12 @@ type Expedition struct {
 	DMMood         int
 	LastBriefingAt *time.Time
 	LastRecapAt    *time.Time
-	LastActivity   time.Time
-	CompletedAt    *time.Time
+	// LastAmbientKind — the Kind of the most recent ambient event the
+	// ticker fired (e.g. "pack_rat", "monologue"). Empty when no ambient
+	// has fired yet. Used by pickAmbientEvent for back-to-back anti-repeat.
+	LastAmbientKind string
+	LastActivity    time.Time
+	CompletedAt     *time.Time
 }
 
 // IsActive reports whether the expedition is in flight.
@@ -189,7 +193,8 @@ func getActiveExpedition(userID id.UserID) (*Expedition, error) {
 		       supplies_json, camp_json, threat_level, threat_siege,
 		       threat_events, temporal_stack, region_state,
 		       xp_earned, coins_earned, gm_mood,
-		       last_briefing_at, last_recap_at, last_activity, completed_at
+		       last_briefing_at, last_recap_at, last_ambient_kind,
+		       last_activity, completed_at
 		  FROM dnd_expedition
 		 WHERE user_id = ?
 		   AND status = 'active'
@@ -210,7 +215,8 @@ func getExpedition(id string) (*Expedition, error) {
 		       supplies_json, camp_json, threat_level, threat_siege,
 		       threat_events, temporal_stack, region_state,
 		       xp_earned, coins_earned, gm_mood,
-		       last_briefing_at, last_recap_at, last_activity, completed_at
+		       last_briefing_at, last_recap_at, last_ambient_kind,
+		       last_activity, completed_at
 		  FROM dnd_expedition WHERE expedition_id = ?`, id)
 	e, err := scanExpedition(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -240,7 +246,8 @@ func scanExpedition(row scanner) (*Expedition, error) {
 		&suppliesJSON, &campJSON, &e.ThreatLevel, &siegeI,
 		&threatJSON, &e.TemporalStack, &regionJSON,
 		&e.XPEarned, &e.CoinsEarned, &e.DMMood,
-		&lastBriefingRaw, &lastRecapRaw, &e.LastActivity, &completedRaw,
+		&lastBriefingRaw, &lastRecapRaw, &e.LastAmbientKind,
+		&e.LastActivity, &completedRaw,
 	); err != nil {
 		return nil, err
 	}

@@ -50,7 +50,7 @@ func TestPickAmbientEvent_AlwaysReturnsEligible(t *testing.T) {
 	}
 	for i := 0; i < 200; i++ {
 		rng := rand.New(rand.NewPCG(uint64(i), uint64(i*7+1)))
-		ev := pickAmbientEvent(e, rng)
+		ev := pickAmbientEvent(e, rng, "")
 		if disallowed[ev.Kind] {
 			t.Fatalf("seed %d picked ineligible event %q", i, ev.Kind)
 		}
@@ -66,7 +66,7 @@ func TestPickAmbientEvent_CampVisitorRequiresCamp(t *testing.T) {
 	sawVisitor := false
 	for i := 0; i < 500; i++ {
 		rng := rand.New(rand.NewPCG(uint64(i+1), uint64(i*13+2)))
-		if pickAmbientEvent(e, rng).Kind == "camp_visitor" {
+		if pickAmbientEvent(e, rng, "").Kind == "camp_visitor" {
 			sawVisitor = true
 			break
 		}
@@ -82,7 +82,7 @@ func TestPickAmbientEvent_PackRatNeedsSupplies(t *testing.T) {
 	e := &Expedition{Supplies: ExpeditionSupplies{Current: 0}}
 	for i := 0; i < 200; i++ {
 		rng := rand.New(rand.NewPCG(uint64(i+3), uint64(i*5+7)))
-		if pickAmbientEvent(e, rng).Kind == "pack_rat" {
+		if pickAmbientEvent(e, rng, "").Kind == "pack_rat" {
 			t.Fatalf("seed %d: pack_rat fired with no supplies", i)
 		}
 	}
@@ -92,7 +92,7 @@ func TestPickAmbientEvent_WhisperNeedsThreat(t *testing.T) {
 	low := &Expedition{Supplies: ExpeditionSupplies{Current: 5}, ThreatLevel: 10}
 	for i := 0; i < 200; i++ {
 		rng := rand.New(rand.NewPCG(uint64(i+5), uint64(i*11+3)))
-		if pickAmbientEvent(low, rng).Kind == "faction_whisper" {
+		if pickAmbientEvent(low, rng, "").Kind == "faction_whisper" {
 			t.Fatalf("seed %d: whisper fired below threshold", i)
 		}
 	}
@@ -100,7 +100,7 @@ func TestPickAmbientEvent_WhisperNeedsThreat(t *testing.T) {
 	saw := false
 	for i := 0; i < 500; i++ {
 		rng := rand.New(rand.NewPCG(uint64(i+9), uint64(i*17+5)))
-		if pickAmbientEvent(hot, rng).Kind == "faction_whisper" {
+		if pickAmbientEvent(hot, rng, "").Kind == "faction_whisper" {
 			saw = true
 			break
 		}
@@ -120,9 +120,38 @@ func TestPickAmbientEvent_SiegeSuppressesWhisper(t *testing.T) {
 	}
 	for i := 0; i < 200; i++ {
 		rng := rand.New(rand.NewPCG(uint64(i+13), uint64(i*19+11)))
-		if pickAmbientEvent(e, rng).Kind == "faction_whisper" {
+		if pickAmbientEvent(e, rng, "").Kind == "faction_whisper" {
 			t.Fatalf("seed %d: whisper fired during siege", i)
 		}
+	}
+}
+
+func TestPickAmbientEvent_AntiRepeatRerollsOnce(t *testing.T) {
+	// When the first roll lands on avoidKind, we re-roll once. We can't
+	// guarantee the second roll diverges (the same Kind can win twice
+	// legitimately), but across many seeds the same-Kind repeat rate
+	// must drop materially vs the no-avoid baseline.
+	e := &Expedition{Supplies: ExpeditionSupplies{Current: 5}}
+	const trials = 2000
+	baseline := 0 // Kind == "pack_rat" with no avoid
+	guarded := 0  // Kind == "pack_rat" with avoidKind == "pack_rat"
+	for i := 0; i < trials; i++ {
+		seedA := uint64(i*2 + 1)
+		seedB := uint64(i*2 + 2)
+		if pickAmbientEvent(e, rand.New(rand.NewPCG(seedA, seedB)), "").Kind == "pack_rat" {
+			baseline++
+		}
+		if pickAmbientEvent(e, rand.New(rand.NewPCG(seedA, seedB)), "pack_rat").Kind == "pack_rat" {
+			guarded++
+		}
+	}
+	if guarded >= baseline {
+		t.Fatalf("anti-repeat did not reduce pack_rat hits: baseline=%d guarded=%d", baseline, guarded)
+	}
+	// Sanity: the guarded count should be small (≈ baseline²/total), not
+	// just one less. Allow generous slack but flag obvious regressions.
+	if guarded*3 > baseline {
+		t.Errorf("anti-repeat reduction weaker than expected: baseline=%d guarded=%d", baseline, guarded)
 	}
 }
 

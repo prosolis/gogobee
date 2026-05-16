@@ -56,7 +56,18 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 		return p.SendDM(ctx.Sender, expeditionHelpText())
 	case "list", "ls":
 		return p.expeditionCmdList(ctx, c)
-	case "start", "begin", "go":
+	case "start", "begin":
+		return p.expeditionCmdStart(ctx, c, rest)
+	case "go", "choose":
+		// Context-sensitive: with an active expedition + numeric rest,
+		// treat as "take fork path N" (forwards to zoneCmdGo so the
+		// player doesn't have to remember the !zone seam). Otherwise
+		// fall back to the historical alias for `!expedition start`.
+		if rest != "" && isAllDigits(strings.TrimSpace(rest)) {
+			if exp, _ := getActiveExpedition(ctx.Sender); exp != nil {
+				return p.zoneCmdGo(ctx, rest)
+			}
+		}
 		return p.expeditionCmdStart(ctx, c, rest)
 	case "status", "info":
 		return p.expeditionCmdStatus(ctx, rest)
@@ -458,6 +469,22 @@ func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
 // helper: ensure we don't shadow id.UserID import in test harness.
 var _ id.UserID
 
+// isAllDigits reports whether s is a non-empty string of ASCII digits.
+// Used to route `!expedition go N` to the fork-choice handler when N is
+// numeric; non-numeric rest (`!expedition go ironforge`) still falls
+// through to expeditionCmdStart.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // ── run (autopilot) ─────────────────────────────────────────────────────────
 
 // autopilotRoomCap bounds a single `!expedition run` invocation. Real-time
@@ -472,6 +499,19 @@ const autopilotRoomCap = 6
 // could end the run; pause, heal, or commit."
 const autopilotLowHPPct = 0.30
 
+// autopilotWalkResult bundles the staged narration plus structured
+// metadata so foreground (streamFlow) and background (single DM, with
+// progress-based DM suppression) callers can share the same walk loop.
+type autopilotWalkResult struct {
+	stream   []string
+	finalMsg string
+	rooms    int
+	reason   stopReason
+	// initErr — populated when the walk couldn't start (no expedition,
+	// no run). Foreground surfaces it as a DM; background swallows it.
+	initErr string
+}
+
 // expeditionCmdRun is the autopilot surface. It loops advanceOnce until a
 // natural interrupt fires (fork, elite/boss doorway, death, complete) or
 // an injected interrupt fires (low HP, low SU, room cap). Each iteration's
@@ -480,27 +520,42 @@ const autopilotLowHPPct = 0.30
 // combat already auto-resolves inside resolveCombatRoom; elite/boss
 // doorways stop here so the player can choose !fight on their own terms.
 func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
+	r := p.runAutopilotWalk(ctx, autopilotRoomCap, false)
+	if r.initErr != "" {
+		return p.SendDM(ctx.Sender, r.initErr)
+	}
+	return p.streamFlow(ctx.Sender, r.stream, r.finalMsg)
+}
+
+// runAutopilotWalk runs the autopilot loop up to maxRooms times and
+// returns a bundle the caller can either streamFlow (foreground) or
+// post as a single DM (background ticker). Pure side effects on the
+// run graph / harvest tally / supplies / threat — same as before, just
+// no streamFlow here. compact==true switches the underlying combat
+// narration into terse mode and auto-resolves elite (not boss) rooms.
+func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, compact bool) autopilotWalkResult {
 	exp, err := getActiveExpedition(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+		return autopilotWalkResult{initErr: "Couldn't read expedition state: " + err.Error()}
 	}
 	if exp == nil {
-		return p.SendDM(ctx.Sender, "You're not on an expedition. `!expedition list` to pick one.")
+		return autopilotWalkResult{initErr: "You're not on an expedition. `!expedition list` to pick one."}
 	}
 	if exp.RunID == "" {
-		return p.SendDM(ctx.Sender, "No active region run. Try `!region` to refresh.")
+		return autopilotWalkResult{initErr: "No active region run. Try `!region` to refresh."}
 	}
 
 	var stream []string
 	var finalMsg string
 	rooms := 0
+	reason := stopOK // sticky: last loop-exit reason
 
 	// Phase 2 — walk-wide auto-harvest tally. Per-room footers go into the
 	// stream as we go; the cumulative haul renders on the final block.
 	walkYields := map[string]int{}
 	walkNames := map[string]string{}
 
-	for i := 0; i < autopilotRoomCap; i++ {
+	for i := 0; i < maxRooms; i++ {
 		// Pre-iteration interrupts: low HP / low SU. Skip on the first
 		// iteration so the player always gets at least one room out of
 		// `!expedition run` even if they limped in — autopilot stops on
@@ -508,13 +563,14 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 		if i > 0 {
 			if msg, stop := autopilotPreflight(ctx.Sender, exp); stop {
 				finalMsg = msg
+				reason = stopPreflight
 				break
 			}
 		}
 
-		res, aerr := p.advanceOnce(ctx)
+		res, aerr := p.advanceOnceWithOpts(ctx, compact)
 		if aerr != nil {
-			return p.SendDM(ctx.Sender, aerr.Error())
+			return autopilotWalkResult{initErr: aerr.Error()}
 		}
 
 		// Roll this step's beats into the running stream.
@@ -538,6 +594,7 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 			} else {
 				finalMsg = res.final
 			}
+			reason = res.reason
 			break
 		}
 
@@ -548,6 +605,24 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 		stream = append(stream, res.final)
 		if fresh, ferr := getActiveExpedition(ctx.Sender); ferr == nil && fresh != nil {
 			exp = fresh
+		}
+
+		// Arrived at a Boss doorway: stop here. The "Room X/Y — Boss.
+		// !fight when ready." line in res.final already tells the player
+		// what to do; another loop iteration would just hit the gate and
+		// emit a duplicate "Room X/Y — Boss" message.
+		//
+		// For Elite + non-compact, do the same. In compact mode we let
+		// the next iteration run because the gate will auto-resolve the
+		// elite inline (which is the whole point of compact mode).
+		if res.nextRoomType == RoomBoss || (res.nextRoomType == RoomElite && !compact) {
+			r := stopBoss
+			if res.nextRoomType == RoomElite {
+				r = stopElite
+			}
+			finalMsg = autopilotFooter(r, rooms)
+			reason = r
+			break
 		}
 
 		// Phase 2 — auto-harvest the room we just walked into. Aggregates
@@ -562,6 +637,7 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 		if herr != nil {
 			continue
 		}
+
 		for k, v := range hr.Summary.Yields {
 			walkYields[k] += v
 			walkNames[k] = hr.Summary.Names[k]
@@ -572,11 +648,11 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 		if hr.CombatNarr != "" {
 			// A harvest interrupt fired combat. The combat narration
 			// becomes the final block; reason classifies death vs survive.
-			reason := stopHarvestCombat
+			r := stopHarvestCombat
 			if hr.PlayerEnded {
-				reason = stopEnded
+				r = stopEnded
 			}
-			footer := autopilotFooter(reason, rooms)
+			footer := autopilotFooter(r, rooms)
 			finalMsg = hr.CombatNarr
 			if footer != "" {
 				finalMsg += "\n\n" + footer
@@ -584,6 +660,7 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 			if tally := renderWalkTally(walkYields, walkNames); tally != "" && !hr.PlayerEnded {
 				finalMsg += "\n\n" + tally
 			}
+			reason = r
 			break
 		}
 		if len(hr.RarePending) > 0 {
@@ -591,6 +668,7 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 			if tally := renderWalkTally(walkYields, walkNames); tally != "" {
 				finalMsg += "\n\n" + tally
 			}
+			reason = stopRareNode
 			break
 		}
 
@@ -614,7 +692,12 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 		!strings.Contains(finalMsg, "Walk haul:") {
 		finalMsg += "\n\n" + tally
 	}
-	return p.streamFlow(ctx.Sender, stream, finalMsg)
+	return autopilotWalkResult{
+		stream:   stream,
+		finalMsg: finalMsg,
+		rooms:    rooms,
+		reason:   reason,
+	}
 }
 
 // autopilotPreflight checks the threshold-based interrupts that fire
@@ -644,7 +727,7 @@ func autopilotFooter(reason stopReason, rooms int) string {
 	}
 	switch reason {
 	case stopFork:
-		return fmt.Sprintf("⏸ **Autopilot paused at a fork** (after %s). `!zone go <n>` to choose, then `!expedition run` to keep walking.", roomsStr)
+		return fmt.Sprintf("⏸ **Autopilot paused at a fork** (after %s). `!expedition go <n>` to choose; auto-walk resumes automatically.", roomsStr)
 	case stopElite:
 		return fmt.Sprintf("⏸ **Autopilot paused — elite ahead** (after %s). `!fight` when ready, then `!expedition run` to continue.", roomsStr)
 	case stopBoss:

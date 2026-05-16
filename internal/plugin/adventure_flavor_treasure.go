@@ -442,7 +442,7 @@ var SummaryResting = []string{
 	"Resting today. XP: zero. Loot: zero. Alive: yes.",
 	"No action. Hovel. Wall. Nothing. Home.",
 	"Sat this one out. The dungeons noticed. The dungeons don't care.",
-	"Rest day. TwinBee noticed.",
+	"Rest day. I noticed.",
 }
 
 var SummaryDead = []string{
@@ -487,8 +487,8 @@ var SummaryStandoutHornets = []string{
 var TwinBeeSummarySuccess = []string{
 	"Visited {location}. Retrieved {loot} worth €{value}. Returned in excellent condition.",
 	"{location}: success. {loot} recovered at €{value}. Standard operation.",
-	"Cleared {location}. {loot}, €{value}. TwinBee has reported this as typical.",
-	"{loot} worth €{value} from {location}. TwinBee is unsurprised.",
+	"Cleared {location}. {loot}, €{value}. I have reported this as typical.",
+	"{loot} worth €{value} from {location}. I am unsurprised.",
 	"Professional operation in {location}. {loot}, €{value}. No further comment.",
 }
 
@@ -497,11 +497,11 @@ var TwinBeeSummaryWithdrawal = []string{
 	"{location}: early departure. Strategic positioning. Returns tomorrow.",
 	"Reconnaissance of {location} complete. Phase Two: tomorrow.",
 	"Withdrew from {location} on schedule. The schedule has been updated.",
-	"{location} assessed. TwinBee returns tomorrow. The {location} has been warned.",
+	"{location} assessed. I return tomorrow. The {location} has been warned.",
 }
 
 var TwinBeeSummaryEmpty = []string{
-	"Visited {location}. Nothing there today. TwinBee notes this for the record.",
-	"{location}: empty. The dungeon has failed to provide. TwinBee has noted it.",
-	"Nothing found in {location}. TwinBee is filing feedback with the dungeon.",
+	"Visited {location}. Nothing there today. I note this for the record.",
+	"{location}: empty. The dungeon has failed to provide. I have noted it.",
+	"Nothing found in {location}. I am filing feedback with the dungeon.",
 }

@@ -227,7 +227,7 @@ var LootDropUncommon = []string{
 }
 
 var LootDropRare = []string{
-	"I stop. Actually stop. 'That's rare,' I say, with the specific register of someone who uses the word correctly and uses it seldom.",
+	"I stop. Actually stop. 'That's rare,' I say, with the specific register of someone who uses the word correctly and use it seldom.",
 	"A rare drop. I examine it the way you examine something that doesn't appear often — thoroughly, quietly, with appropriate appreciation.",
 	"The loot table gave you something uncommon and then kept going. Rare rarity. Filed in the column I reserve for things worth remembering.",
 }

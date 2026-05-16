@@ -90,6 +90,19 @@ func applyPlayerHitDamageMods(st *combatState, player *Combatant, dmg int, isCri
 	if player.Mods.DivineStrikePerHit > 0 && player.Stats.Weapon != nil {
 		dmg += player.Mods.DivineStrikePerHit
 	}
+	// Class-identity audit (2026-05-16) — Rogue Sneak Attack. Add Nd6 on
+	// every player hit. Same "once per turn = every hit" convention as
+	// Divine Strike. Rogues swing once per round so this naturally lands
+	// once/round at the cadence 5e expects. The bonus rides through the
+	// crit doubling above (already applied to dmg) so a sneak-attack crit
+	// reads correctly: doubled weapon dmg, then +Nd6 unaffected by the
+	// crit. (5e doubles the sneak attack dice on crit too — we under-
+	// shoot by ~Nd6 on the rare crit, which is acceptable for now.)
+	if player.Mods.SneakAttackDie > 0 {
+		for i := 0; i < player.Mods.SneakAttackDie; i++ {
+			dmg += 1 + st.roll(6)
+		}
+	}
 	// Phase 10 SUB2a-ii — Assassin Death Strike proxy: bonus damage on the
 	// first hit only. Stacks on top of the Rogue's Sneak Attack auto-crit
 	// (which already doubled the base damage above) — the bonus itself is

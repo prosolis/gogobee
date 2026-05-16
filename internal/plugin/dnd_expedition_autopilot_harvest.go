@@ -11,22 +11,30 @@ import (
 
 // Phase 2 of expedition autopilot — auto-harvest on room entry.
 //
-// Design (settled 2026-05-14):
+// Design (settled 2026-05-14, harvest-until-dry added 2026-05-16):
 //   - All applicable actions auto-run on every walked room. Class- and
 //     kill-gated nodes filter themselves out via the existing per-resource
 //     restrictions.
 //   - Rare+ nodes are NOT auto-attempted. If any sit available in the
 //     room, autopilot stops with stopRareNode so the player can spend the
 //     attempt deliberately.
-//   - One attempt per eligible node per visit. A failed roll doesn't
-//     retry; it logs the fail and moves on. Charges only decrement on
-//     non-Nothing outcomes (mirrors handleHarvestCmd).
+//   - Each eligible (Common/Uncommon) node is ground until it runs dry or
+//     until autoHarvestPerNodeAttempts attempts have been spent — whichever
+//     comes first. Failed rolls re-roll without depleting charges, same
+//     as a manual player retrying !forage/!scavenge/etc. The cap stops
+//     the walk from getting stuck on a hard-DC node forever.
 //   - Noise interrupts apply threat++ and continue (parity with manual).
 //   - Standard/Elite/Patrol combat interrupts hard-stop the walk:
 //     stopEnded on death, stopHarvestCombat otherwise.
 //   - No SU surcharge — manual !harvest is free; autopilot matches.
 //   - Per-room footer ("+2 Iron, +1 Sage; 1 fail") + a walk-end tally
 //     across all rooms.
+
+// autoHarvestPerNodeAttempts bounds how many times autopilot will swing
+// at a single node before giving up for this visit. Sized to handle a
+// typical Common/Uncommon node (charges 1–3, success rate 50–80%) with
+// margin, while keeping a DC-20 outlier from spinning indefinitely.
+const autoHarvestPerNodeAttempts = 8
 
 // autoHarvestSummary holds the aggregated outcome for one room's
 // auto-harvest pass. Per-room footer renders from this; expeditionCmdRun
@@ -135,69 +143,75 @@ func (p *AdventurePlugin) autoHarvestRoom(
 				continue
 			}
 
-			// Interrupt roll, same model as handleHarvestCmd.
-			interrupt, intTotal := resolveCombatInterrupt(
-				exp.ThreatLevel, int(zone.Tier), char.Class, exp.ZoneID, nil)
-			switch interrupt {
-			case InterruptNoise:
-				_ = applyThreatDelta(exp.ID, 2, "harvest noise (§4.2, autopilot)")
-				res.Summary.NoiseInts++
-				_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
-					fmt.Sprintf("autopilot noise %s total=%d", string(action), intTotal), "")
-				// fall through to the d20 roll, same as manual harvest.
-			case InterruptStandard, InterruptElite, InterruptPatrol:
-				body, ended := p.runHarvestInterrupt(userID, exp, run, zone, interrupt)
-				res.CombatNarr = body
-				res.PlayerEnded = ended
-				_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
-					fmt.Sprintf("autopilot %s kind=%d total=%d", string(action), int(interrupt), intTotal), "")
-				if persistNodes {
-					_ = saveHarvestNodes(exp, nodeID, nodes)
+			// Grind this node until it's dry or until the per-node attempt
+			// cap fires. A failed roll re-rolls (mirrors a manual player
+			// pressing the harvest command again); only successful pulls
+			// decrement charges.
+			for attempt := 0; attempt < autoHarvestPerNodeAttempts && n.CurrentCharges > 0; attempt++ {
+				// Interrupt roll, same model as handleHarvestCmd.
+				interrupt, intTotal := resolveCombatInterrupt(
+					exp.ThreatLevel, int(zone.Tier), char.Class, exp.ZoneID, nil)
+				switch interrupt {
+				case InterruptNoise:
+					_ = applyThreatDelta(exp.ID, 2, "harvest noise (§4.2, autopilot)")
+					res.Summary.NoiseInts++
+					_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
+						fmt.Sprintf("autopilot noise %s total=%d", string(action), intTotal), "")
+					// fall through to the d20 roll, same as manual harvest.
+				case InterruptStandard, InterruptElite, InterruptPatrol:
+					body, ended := p.runHarvestInterrupt(userID, exp, run, zone, interrupt)
+					res.CombatNarr = body
+					res.PlayerEnded = ended
+					_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
+						fmt.Sprintf("autopilot %s kind=%d total=%d", string(action), int(interrupt), intTotal), "")
+					if persistNodes {
+						_ = saveHarvestNodes(exp, nodeID, nodes)
+					}
+					return res, nil
 				}
-				return res, nil
-			}
 
-			// Resolve the harvest attempt.
-			roll := rand.IntN(20) + 1
-			mod := harvestActionAbility(char, action) + classHarvestBonus(char.Class, action)
-			if action == HarvestFish {
-				if adv, _ := loadAdvCharacter(userID); adv != nil {
-					mod += fishingSkillBonus(adv.FishingSkill)
+				// Resolve the harvest attempt.
+				roll := rand.IntN(20) + 1
+				mod := harvestActionAbility(char, action) + classHarvestBonus(char.Class, action)
+				if action == HarvestFish {
+					if adv, _ := loadAdvCharacter(userID); adv != nil {
+						mod += fishingSkillBonus(adv.FishingSkill)
+					}
 				}
-			}
-			total := roll + mod
-			dcDelta, _ := zoneConditionHarvestDCMod(exp, action)
-			effectiveDC := rdef.DC + dcDelta
-			outcome := resolveHarvestOutcome(total, effectiveDC)
-			outcome = rangerRareCatchUpgrade(char.Class, action, outcome, nil)
+				total := roll + mod
+				dcDelta, _ := zoneConditionHarvestDCMod(exp, action)
+				effectiveDC := rdef.DC + dcDelta
+				outcome := resolveHarvestOutcome(total, effectiveDC)
+				outcome = rangerRareCatchUpgrade(char.Class, action, outcome, nil)
 
-			var grantedQty int
-			switch outcome {
-			case OutcomeNothing:
-				res.Summary.Fails++
-			case OutcomeCommon:
-				grantedQty = 1
-			case OutcomeStandard:
-				grantedQty = rand.IntN(3) + 1
-			case OutcomeRich:
-				grantedQty = rand.IntN(3) + 1
-				if bonus := pickRichBonus(exp.ZoneID, rdef.ID); bonus != nil {
-					_ = grantHarvestYield(userID, *bonus, 1)
-					res.Summary.Yields[bonus.ID] += 1
-					res.Summary.Names[bonus.ID] = bonus.Name
+				var grantedQty int
+				switch outcome {
+				case OutcomeNothing:
+					res.Summary.Fails++
+				case OutcomeCommon:
+					grantedQty = 1
+				case OutcomeStandard:
+					grantedQty = rand.IntN(3) + 1
+				case OutcomeRich:
+					grantedQty = rand.IntN(3) + 1
+					if bonus := pickRichBonus(exp.ZoneID, rdef.ID); bonus != nil {
+						_ = grantHarvestYield(userID, *bonus, 1)
+						res.Summary.Yields[bonus.ID] += 1
+						res.Summary.Names[bonus.ID] = bonus.Name
+					}
 				}
-			}
-			if grantedQty > 0 {
-				_ = grantHarvestYield(userID, rdef, grantedQty)
-				res.Summary.Yields[rdef.ID] += grantedQty
-				res.Summary.Names[rdef.ID] = rdef.Name
-				n.CurrentCharges--
-				persistNodes = true
-			}
+				if grantedQty > 0 {
+					_ = grantHarvestYield(userID, rdef, grantedQty)
+					res.Summary.Yields[rdef.ID] += grantedQty
+					res.Summary.Names[rdef.ID] = rdef.Name
+					n.CurrentCharges--
+					persistNodes = true
+				}
 
-			_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "harvest",
-				fmt.Sprintf("autopilot %s %s d20=%d total=%d dc=%d → %s",
-					string(action), rdef.ID, roll, total, rdef.DC, string(outcome)), "")
+				_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "harvest",
+					fmt.Sprintf("autopilot %s %s d20=%d total=%d dc=%d → %s",
+						string(action), rdef.ID, roll, total, rdef.DC, string(outcome)), "")
+			}
 		}
 	}
 

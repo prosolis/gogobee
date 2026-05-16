@@ -651,5 +651,5 @@ var potionOfHealingZoneFlavor = map[ZoneID]string{
 	ZoneUnderdark:       "Drow-made. The formula is different. The effect is the same. The ingredients are not discussed.",
 	ZoneFeywildCrossing: "It shifts color when you look at it sideways. The fey make medicine the way they make everything: beautifully and with caveats.",
 	ZoneDragonsLair:     "A kobold medic's field kit, looted from a belt pouch. The kobolds take care of their own.",
-	ZoneAbyssPortal:     "Glows faintly red. Still works. TwinBee recommends not asking what's in it.",
+	ZoneAbyssPortal:     "Glows faintly red. Still works. I recommend not asking what's in it.",
 }

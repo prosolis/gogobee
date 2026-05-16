@@ -145,29 +145,35 @@ func loadExpeditionsForAmbient(cutoff time.Time) ([]string, error) {
 // DMs the player, and appends a log entry. Idempotent: the CAS update
 // short-circuits on rowsAffected == 0 so a double-fire is a no-op.
 func (p *AdventurePlugin) deliverAmbient(e *Expedition, now time.Time) error {
-	cutoff := now.Add(-ambientCooldown)
-	res, err := db.Get().Exec(`
-		UPDATE dnd_expedition
-		   SET last_ambient_at = ?,
-		       last_activity = ?
-		 WHERE expedition_id = ?
-		   AND status = 'active'
-		   AND (last_ambient_at IS NULL OR last_ambient_at < ?)`,
-		now, now, e.ID, cutoff)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return nil // someone else got there first
-	}
-
-	ev := pickAmbientEvent(e, defaultAmbientRNG())
+	// Pick before claiming the slot so the CAS can persist the new Kind
+	// alongside last_ambient_at — that way back-to-back fires for the
+	// same expedition (different ticker tick, different rng) read the
+	// updated LastAmbientKind on the next load. Picking is pure and
+	// cheap; if the CAS loses, we simply discard the picked event.
+	ev := pickAmbientEvent(e, defaultAmbientRNG(), e.LastAmbientKind)
 	line := flavor.Pick(ev.Pool)
 	if line == "" {
 		// Pool was empty — degrade to a generic monologue rather than
 		// firing an event with no narration.
 		ev = ambientEventMonologue()
 		line = flavor.Pick(ev.Pool)
+	}
+
+	cutoff := now.Add(-ambientCooldown)
+	res, err := db.Get().Exec(`
+		UPDATE dnd_expedition
+		   SET last_ambient_at = ?,
+		       last_ambient_kind = ?,
+		       last_activity = ?
+		 WHERE expedition_id = ?
+		   AND status = 'active'
+		   AND (last_ambient_at IS NULL OR last_ambient_at < ?)`,
+		now, ev.Kind, now, e.ID, cutoff)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil // someone else got there first
 	}
 
 	footer := p.applyAmbientEffect(e, ev)
@@ -267,9 +273,23 @@ func ambientEvents() []ambientEvent {
 	}
 }
 
-// pickAmbientEvent runs a weighted pick over eligible events.
+// pickAmbientEvent runs a weighted pick over eligible events. avoidKind
+// is the Kind of the previous fire (or "" if none); when a pick lands on
+// that same Kind, we re-roll once. We only re-roll once so the bias is a
+// soft nudge — if the user is in a state where most weight sits on one
+// Kind (e.g. starving cuts pack_rat → camped + low threat narrows the
+// table further) we still let it repeat rather than loop forever.
 // Exposed for tests; the rng parameter lets them seed deterministically.
-func pickAmbientEvent(e *Expedition, rng *rand.Rand) ambientEvent {
+func pickAmbientEvent(e *Expedition, rng *rand.Rand, avoidKind string) ambientEvent {
+	first := weightedPickAmbient(e, rng)
+	if avoidKind == "" || first.Kind != avoidKind {
+		return first
+	}
+	return weightedPickAmbient(e, rng)
+}
+
+// weightedPickAmbient is the underlying weighted-pick over eligible events.
+func weightedPickAmbient(e *Expedition, rng *rand.Rand) ambientEvent {
 	events := ambientEvents()
 	total := 0
 	for _, ev := range events {

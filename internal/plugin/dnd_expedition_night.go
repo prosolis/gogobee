@@ -44,7 +44,7 @@ type NightCheck struct {
 	MonsterID    string // bestiary id of the encounter, if any
 	MonsterName  string
 	Summary      string // short factual line
-	Flavor       string // TwinBee voice line, may be empty
+	Flavor       string // I voice line, may be empty
 	ThreatBumped bool   // signs-of-passage adds +2 threat
 }
 

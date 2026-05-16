@@ -91,7 +91,7 @@ func (p *AdventurePlugin) reapCombatSession(userIDStr, sessionID string) {
 	}
 
 	outcome := p.finishCombatSession(userID, sess, enemy)
-	preamble := fmt.Sprintf("⏳ Your fight with **%s** timed out — TwinBee finished it for you.\n\n", enemy.Name)
+	preamble := fmt.Sprintf("⏳ Your fight with **%s** timed out — I finished it for you.\n\n", enemy.Name)
 	if err := p.SendDM(userID, preamble+outcome); err != nil {
 		slog.Error("combat: reaper failed to DM outcome", "user", userID, "err", err)
 	}

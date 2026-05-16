@@ -202,7 +202,7 @@ func (p *AdventurePlugin) selectTwinBeeFlavor(result *TwinBeeResult) string {
 	}
 
 	if len(pool) == 0 {
-		return "TwinBee went to " + result.Location.Name + ". Results pending."
+		return "I went to " + result.Location.Name + ". Results pending."
 	}
 
 	text := pool[rand.IntN(len(pool))]
@@ -330,13 +330,13 @@ type twinBeeGiftDef struct {
 }
 
 var twinBeeGifts = []twinBeeGiftDef{
-	{"success_chance", "TwinBee's Lucky Star ⭐", 10, 24 * time.Hour, "TwinBee sends a star. They have many stars. Use it well."},
+	{"success_chance", "TwinBee's Lucky Star ⭐", 10, 24 * time.Hour, "I send a star. They have many stars. Use it well."},
 	{"death_chance", "Bec's Blessing 🐝", -5, 48 * time.Hour, "Bec has blessed you. Bec does not do this lightly. Don't die."},
 	{"loot_quality", "WinBee's Coin 🪙", 15, 24 * time.Hour, "WinBee flipped this coin and it came up you. Lucky."},
 	{"mining_success", "Goemon's Pipe 🎋", 8, 48 * time.Hour, "Borrowed from Goemon. Return not expected. Results expected."},
 	{"foraging_death", "Pentarou's Feather 🪶", -10, 24 * time.Hour, "Pentarou parted with this reluctantly. They like you enough. Mostly."},
 	{"xp_multiplier", "TwinBee's Bell Fragment 🔔", 5, 48 * time.Hour, "A piece of the Bell. It rings when you're doing well. It will ring."},
-	{"exceptional_chance", "Power Up Pod 🫛", 50, 48 * time.Hour, "TwinBee found extras. This is not a common occurrence. Don't waste it."},
+	{"exceptional_chance", "Power Up Pod 🫛", 50, 48 * time.Hour, "I found extras. This is not a common occurrence. Don't waste it."},
 }
 
 const twinBeeGiftChance = 0.15

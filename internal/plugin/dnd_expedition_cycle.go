@@ -130,7 +130,8 @@ func loadExpeditionsNeedingBriefing(threshold time.Time) ([]*Expedition, error) 
 		       supplies_json, camp_json, threat_level, threat_siege,
 		       threat_events, temporal_stack, region_state,
 		       xp_earned, coins_earned, gm_mood,
-		       last_briefing_at, last_recap_at, last_activity, completed_at
+		       last_briefing_at, last_recap_at, last_ambient_kind,
+		       last_activity, completed_at
 		  FROM dnd_expedition
 		 WHERE status = 'active'
 		   AND start_date < ?
@@ -151,7 +152,8 @@ func loadExpeditionsNeedingRecap(threshold time.Time) ([]*Expedition, error) {
 		       supplies_json, camp_json, threat_level, threat_siege,
 		       threat_events, temporal_stack, region_state,
 		       xp_earned, coins_earned, gm_mood,
-		       last_briefing_at, last_recap_at, last_activity, completed_at
+		       last_briefing_at, last_recap_at, last_ambient_kind,
+		       last_activity, completed_at
 		  FROM dnd_expedition
 		 WHERE status = 'active'
 		   AND (last_recap_at IS NULL OR last_recap_at < ?)`, threshold)
