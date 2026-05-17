@@ -384,6 +384,12 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap int) (*S
 					res.Outcome = "fled"
 				}
 				i = walkCap
+			} else {
+				// Combat won — a competent prod player would short-rest
+				// between fights when wounded or down on slots (H5 added
+				// the partial slot refresh). Without this the sim
+				// under-counts caster mid-expedition staying power.
+				s.maybeShortRest(ctx, uid)
 			}
 			// Boss kill closes the run via combat resolution → continue
 			// the loop so the next walk picks up the cleared-run state.
@@ -600,6 +606,39 @@ func (s *SimRunner) autoResolveCombat(ctx MessageContext) (bool, error) {
 		}
 	}
 	return false, fmt.Errorf("combat exceeded %d rounds", autoCombatRoundCap)
+}
+
+// simShortRestHPPct is the HP-percentage threshold below which the sim
+// pulls the short-rest lever after a combat. 60% mirrors the
+// "competent prod player" model: rest when you've taken real damage and
+// have charges to spend, but don't burn charges on scratches.
+const simShortRestHPPct = 60
+
+// maybeShortRest fires a short rest after a won combat when the
+// character has charges and either (a) HP is below simShortRestHPPct or
+// (b) any spell slots have been used. Mirrors what a prod player would
+// type between rooms; H5 (commit 1cd53eb) made this slot-recovering for
+// casters. Errors are swallowed — short rest is best-effort QoL and a
+// failure should not abort the sim run.
+func (s *SimRunner) maybeShortRest(ctx MessageContext, uid id.UserID) {
+	c, _ := LoadDnDCharacter(uid)
+	if c == nil || c.ShortRestCharges <= 0 {
+		return
+	}
+	needsHP := c.HPMax > 0 && c.HPCurrent*100 < c.HPMax*simShortRestHPPct
+	hasUsedSlots, _ := casterHasUsedSlots(uid)
+	if !needsHP && !hasUsedSlots {
+		return
+	}
+	_ = s.P.handleDnDShortRest(ctx)
+	// handleDnDShortRest sets RestingUntil = now+1h. The autopilot walk
+	// doesn't gate on that, but TickDay's overnight camp / future zone
+	// transitions might — clear it so the sim isn't accidentally
+	// locked out of state it would otherwise reach.
+	if c2, _ := LoadDnDCharacter(uid); c2 != nil && c2.RestingUntil != nil {
+		c2.RestingUntil = nil
+		_ = SaveDnDCharacter(c2)
+	}
 }
 
 // simHealHPThresholdPct is the player-HP percentage below which the sim
