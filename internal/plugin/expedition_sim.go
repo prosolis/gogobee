@@ -14,6 +14,7 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"gogobee/internal/db"
@@ -90,6 +91,13 @@ func (s *SimRunner) BuildCharacter(uid id.UserID, class DnDClass, level int) (*D
 		if err := setSpellSlotsForLevel(uid, class, level); err != nil {
 			return nil, fmt.Errorf("setSpellSlotsForLevel: %w", err)
 		}
+	}
+	// Populate the known+prepared spell list. ensureSpellsForCharacter is
+	// the canonical seeder used by !setup and the auto-migrate path; prod
+	// players hit it on character create. The sim has to call it
+	// explicitly so simPickSpell sees a real spellbook. No-op for martials.
+	if err := ensureSpellsForCharacter(c); err != nil {
+		return nil, fmt.Errorf("ensureSpellsForCharacter: %w", err)
 	}
 	if err := outfitSimCharacter(uid, level); err != nil {
 		return nil, fmt.Errorf("outfitSimCharacter: %w", err)
@@ -274,7 +282,23 @@ type SimCombatSummary struct {
 	EnemyMisses  int
 	PlayerAC     int // inferred from RollAgainst on enemy attack events
 	EnemyAC      int // inferred from RollAgainst on player attack events
+	// Events is the raw per-round TurnLog. Populated only when
+	// SetSimIncludeTrace(true) has been called, and only on the LAST
+	// combat per expedition (the boss room) to keep JSONL size bounded.
+	// Used by J2 caster-survival analysis.
+	Events []CombatEvent `json:",omitempty"`
 }
+
+// simIncludeTrace gates per-round event capture on SimCombatSummary.
+// Off by default — matrix runs already emit megabytes of summary rows
+// and the raw turn log multiplies that. SetSimIncludeTrace flips it on
+// for targeted J2-style diagnostic sweeps.
+var simIncludeTrace = false
+
+// SetSimIncludeTrace toggles inclusion of the raw per-round CombatEvent
+// stream on the LAST SimCombatSummary of each expedition (the boss
+// room). Callers should flip this on before BuildCharacter / RunExpedition.
+func SetSimIncludeTrace(on bool) { simIncludeTrace = on }
 
 // SimLogEntry is a JSONL-friendly projection of one dnd_expedition_log
 // row. We expose just the fields a post-hoc analyzer needs without
@@ -442,6 +466,7 @@ func simCombatSummaries(uid id.UserID) []SimCombatSummary {
 	}
 	defer rows.Close()
 	var out []SimCombatSummary
+	var lastEvents []CombatEvent
 	for rows.Next() {
 		var s SimCombatSummary
 		var turnLogJSON string
@@ -455,6 +480,7 @@ func simCombatSummaries(uid id.UserID) []SimCombatSummary {
 		if turnLogJSON != "" {
 			_ = json.Unmarshal([]byte(turnLogJSON), &events)
 		}
+		lastEvents = events
 		for _, ev := range events {
 			switch ev.Actor {
 			case "player":
@@ -488,6 +514,9 @@ func simCombatSummaries(uid id.UserID) []SimCombatSummary {
 			}
 		}
 		out = append(out, s)
+	}
+	if simIncludeTrace && len(out) > 0 {
+		out[len(out)-1].Events = lastEvents
 	}
 	return out
 }
@@ -556,11 +585,157 @@ func (s *SimRunner) autoResolveCombat(ctx MessageContext) (bool, error) {
 		case CombatStatusLost, CombatStatusFled:
 			return false, nil
 		}
-		if err := s.P.handleAttackCmd(ctx); err != nil {
-			return false, fmt.Errorf("attack iter %d: %w", i, err)
+		kind, arg := s.simPickCombatAction(ctx.Sender, cur)
+		var dispatchErr error
+		switch kind {
+		case "consume":
+			dispatchErr = s.P.handleConsumeCmd(ctx, arg)
+		case "cast":
+			dispatchErr = s.P.handleCombatCastCmd(ctx, arg)
+		default:
+			dispatchErr = s.P.handleAttackCmd(ctx)
+		}
+		if dispatchErr != nil {
+			return false, fmt.Errorf("%s iter %d: %w", kind, i, dispatchErr)
 		}
 	}
 	return false, fmt.Errorf("combat exceeded %d rounds", autoCombatRoundCap)
+}
+
+// simHealHPThresholdPct is the player-HP percentage below which the sim
+// reaches for a heal consumable before its !attack/!cast. 40% mirrors
+// the "competent player" prod assumption — heal early enough to absorb
+// one more big hit, not so early that a 1-HP scratch burns a potion.
+const simHealHPThresholdPct = 40
+
+// simPickCombatAction is the sim's per-turn decision tree, mirroring
+// what a competent prod player would type:
+//
+//  1. If HP is below simHealHPThresholdPct and the inventory has a heal
+//     consumable, !consume <heal>. (Slot-spell heals were tried in J2c
+//     but regressed druid by 10pp — slot heals like cure_wounds heal
+//     ~10HP vs 40HP from a tier-4 Spirit Tonic, and burned a slot the
+//     caster needed for damage spells. Consumable-first wins.)
+//  2. Else if the character is a non-martial-first spellcaster with a
+//     usable damage spell + slot (or a damaging cantrip), !cast it.
+//     Higher-slot damage outranks lower-slot damage. (J2c also tried
+//     scoring control spells; net ±0 vs J2b in the n=100 sweep, and
+//     a higher control weight regressed warlock by 6.6pp — control
+//     scoring was reverted. Bard/cleric trailing remains a class-pool
+//     issue, not a picker issue.)
+//  3. Else !attack.
+//
+// Pre-J2a the sim looped !attack only, which underweighted every caster
+// class — see sim_results/j2_findings.md for the trace evidence.
+func (s *SimRunner) simPickCombatAction(uid id.UserID, sess *CombatSession) (kind, arg string) {
+	c, _ := LoadDnDCharacter(uid)
+	if c == nil || sess == nil {
+		return "attack", ""
+	}
+	lowHP := sess.PlayerHPMax > 0 && sess.PlayerHP*100 < sess.PlayerHPMax*simHealHPThresholdPct
+	if lowHP {
+		inv := s.P.loadConsumableInventory(uid)
+		for _, it := range inv {
+			if it.Def.Effect == EffectHeal {
+				return "consume", it.Def.Name
+			}
+		}
+	}
+	if isSpellcaster(c) && !simMartialFirstClass(c.Class) {
+		if id := simPickSpell(c, uid); id != "" {
+			return "cast", id
+		}
+	}
+	return "attack", ""
+}
+
+// simMartialFirstClass marks the half-casters whose damage identity is
+// weapon-attack + ExtraAttack rather than slot spells. Picker skips
+// !cast for these — Ranger's weapon swing with Hunter's Mark + Extra
+// Attack out-damages a single Lightning Arrow at L12, and the J2b
+// re-baseline measured a 35pp regression when the picker burned slots
+// on damage_save spells for them. Paladin currently has no damage-
+// effect spells in defaults (kit is bless/cure/buff), so the picker is
+// already a no-op there; listed here for intent.
+func simMartialFirstClass(class DnDClass) bool {
+	switch class {
+	case ClassRanger, ClassPaladin:
+		return true
+	}
+	return false
+}
+
+// simPickSpell returns the spell ID a competent player would cast this
+// turn, or "" when no usable spell is available (forcing a !attack).
+// Selection rules:
+//   - Only damage-effect spells (damage_attack / damage_save / damage_auto).
+//     Control/buff/heal are out (J2c sweep showed control scoring at
+//     either 22 or 5 nets ≤±2pp at L12 and regresses warlock at 22 —
+//     no headroom worth the complexity). Healing is handled by the
+//     consumable-first branch in simPickCombatAction.
+//   - Reaction-cast spells are excluded (engine rejects them).
+//   - Non-cantrips require an available slot at their native level (no
+//     upcasting — preserves high slots for high-level spells).
+//   - Among feasible candidates, prefer higher slot level; tie-break on
+//     expected damage from the dice string.
+//
+// Returns the spell ID for handleCombatCastCmd.
+func simPickSpell(c *DnDCharacter, uid id.UserID) string {
+	known, err := listKnownSpells(uid)
+	if err != nil || len(known) == 0 {
+		return ""
+	}
+	slots, _ := getSpellSlots(uid)
+	type cand struct {
+		id     string
+		level  int
+		expDmg float64
+	}
+	var cands []cand
+	for _, k := range known {
+		if !k.Prepared {
+			continue
+		}
+		sp, ok := lookupSpell(k.SpellID)
+		if !ok {
+			continue
+		}
+		switch sp.Effect {
+		case EffectDamageAttack, EffectDamageSave, EffectDamageAuto:
+		default:
+			continue
+		}
+		if sp.CastTime == CastReaction {
+			continue
+		}
+		onList := false
+		for _, cl := range sp.Classes {
+			if cl == c.Class {
+				onList = true
+				break
+			}
+		}
+		if !onList {
+			continue
+		}
+		if sp.Level > 0 {
+			pair, ok := slots[sp.Level]
+			if !ok || pair[0]-pair[1] <= 0 {
+				continue
+			}
+		}
+		cands = append(cands, cand{id: sp.ID, level: sp.Level, expDmg: spellExpectedDamage(sp, sp.Level, c.Level)})
+	}
+	if len(cands) == 0 {
+		return ""
+	}
+	sort.Slice(cands, func(i, j int) bool {
+		if cands[i].level != cands[j].level {
+			return cands[i].level > cands[j].level
+		}
+		return cands[i].expDmg > cands[j].expDmg
+	})
+	return cands[0].id
 }
 
 // TickDay drives one synthetic day rollover for exp: 21:00 recap of

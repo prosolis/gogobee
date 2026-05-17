@@ -116,8 +116,12 @@ func (p *AdventurePlugin) expeditionCmdList(ctx MessageContext, c *DnDCharacter)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("**Expeditions available at L%d** (you can enter zones up to 2 tiers above your current tier):\n\n", c.Level))
 	for i, z := range zones {
-		b.WriteString(fmt.Sprintf("**%d.** %s — _T%d, L%d–%d_  `!expedition start %s`\n",
-			i+1, z.Display, int(z.Tier), z.LevelMin, z.LevelMax, z.ID))
+		suffix := ""
+		if raidContentWarning(z.ID) != "" {
+			suffix = "  _⚠ raid-shaped — solo runs not yet survivable_"
+		}
+		b.WriteString(fmt.Sprintf("**%d.** %s — _T%d, L%d–%d_  `!expedition start %s`%s\n",
+			i+1, z.Display, int(z.Tier), z.LevelMin, z.LevelMax, z.ID, suffix))
 		b.WriteString(fmt.Sprintf("    %s\n", z.Atmosphere))
 	}
 	if exp, _ := getActiveExpedition(ctx.Sender); exp != nil {
@@ -269,8 +273,29 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 		b.WriteString(startLine)
 		b.WriteString("\n\n")
 	}
+	if w := raidContentWarning(zoneID); w != "" {
+		b.WriteString(w)
+		b.WriteString("\n\n")
+	}
 	b.WriteString("Use `!expedition status` for the daily briefing format. Day 1 begins now.")
 	return p.SendDM(ctx.Sender, b.String())
+}
+
+// raidContentWarning returns a TwinBee-voiced heads-up for zones whose
+// boss is tuned for a party rather than a solo adventurer. T5 zones
+// (Dragon's Lair / Abyss Portal) have boss HP / damage curves that the
+// solo combat path can't realistically clear — the J3 trace sweep at
+// L12 showed 0% solo clears across all 10 classes. Until multiplayer
+// expeditions ship, this is the surface that tells a player what
+// they're walking into without nerfing the encounter for parties later.
+func raidContentWarning(zoneID ZoneID) string {
+	switch zoneID {
+	case ZoneDragonsLair:
+		return "⚠ A note before we commit. Infernax doesn't go down to one sword. I've watched better-prepared adventurers walk in here and not walk back out, and I haven't yet seen the lone exception. Bring friends when you can. For tonight — I'm with you anyway."
+	case ZoneAbyssPortal:
+		return "⚠ A note before we commit. Belaxath is the kind of enemy you bring a band to. Not one solo hero has put him down yet, and I'd rather you weren't the first to try. We can still go. I just want the record to show I said this."
+	}
+	return ""
 }
 
 func estimateDays(maxSU, dailyBurn float32) int {

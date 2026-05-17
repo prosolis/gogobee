@@ -1,0 +1,398 @@
+2026/05/17 14:33:32 INFO database initialized path=/tmp/expedition-sim-1435326323/gogobee.db
+2026/05/17 14:33:32 INFO database initialized path=/tmp/expedition-sim-570080482/gogobee.db
+2026/05/17 14:33:32 INFO database initialized path=/tmp/expedition-sim-1961067701/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-2587622653/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-1858572084/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-891082602/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-3411481929/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-4180440505/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-1352384336/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-1857658664/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-1053057170/gogobee.db
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-0 ability="Healing Word"
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-0 ability="Healing Word"
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-0 ability="Healing Word"
+2026/05/17 14:33:33 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-manor_blackspire-0 wanted=1 removed=0
+2026/05/17 14:33:33 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-manor_blackspire-0 wanted=1 removed=0
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-972878641/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-256884369/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-3470319547/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-961022847/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-2323722081/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-2780245983/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-2761994054/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-59185064/gogobee.db
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-1 ability="Healing Word"
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-1 ability="Healing Word"
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-1505145848/gogobee.db
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-1 ability="Healing Word"
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-1383216459/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-1328601750/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-98864978/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-2659914046/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-1386804201/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-163421166/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-220854570/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-3389300164/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-1934711212/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-683711492/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-3235526877/gogobee.db
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-2 ability="Healing Word"
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-2 ability="Healing Word"
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-2 ability="Healing Word"
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-403680368/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-1224265812/gogobee.db
+2026/05/17 14:33:33 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-manor_blackspire-2 wanted=1 removed=0
+2026/05/17 14:33:33 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-manor_blackspire-2 wanted=1 removed=0
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-3033798307/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-4169972330/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-3094361155/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-39807966/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-2571438535/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-2572980888/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-2578263003/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-2463584493/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-1572790867/gogobee.db
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-3 ability="Healing Word"
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-2937583366/gogobee.db
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-3 ability="Healing Word"
+2026/05/17 14:33:33 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-3 ability="Healing Word"
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-3613819748/gogobee.db
+2026/05/17 14:33:33 INFO database initialized path=/tmp/expedition-sim-2540828918/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1139909187/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-4142969182/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-2019276704/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-2988018196/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1795837828/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1760808843/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-2153283131/gogobee.db
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-4 ability="Healing Word"
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1942277386/gogobee.db
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-4 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-4 ability="Healing Word"
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1406817335/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1271254441/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-854529878/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1694073851/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-3038451926/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-2343863670/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1295476148/gogobee.db
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-0 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-0 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-0 ability="Healing Word"
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1125646836/gogobee.db
+2026/05/17 14:33:34 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-0 wanted=1 removed=0
+2026/05/17 14:33:34 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-0 wanted=1 removed=0
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1333512022/gogobee.db
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-5 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-5 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-5 ability="Healing Word"
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-220710329/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-3277829553/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1865701626/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-935594784/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-827715148/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-68986296/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1012607066/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-2500951803/gogobee.db
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-1 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-1 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-1 ability="Healing Word"
+2026/05/17 14:33:34 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-1 wanted=1 removed=0
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-557441740/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-914070631/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-2271572170/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-2949698724/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1061067707/gogobee.db
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-6 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-6 ability="Healing Word"
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1705075809/gogobee.db
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-6 ability="Healing Word"
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1523470365/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-3499970093/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-830760784/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-3280978624/gogobee.db
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-2 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-2 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-2 ability="Healing Word"
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-307271588/gogobee.db
+2026/05/17 14:33:34 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-2 wanted=1 removed=0
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-2775243793/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-3018564373/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-3030586970/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1029269349/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-4002156351/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-183864816/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-3257645146/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1929325151/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-225751687/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-3615293801/gogobee.db
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-3 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-3 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-7 ability="Healing Word"
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-7 ability="Healing Word"
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-576438996/gogobee.db
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-3 ability="Healing Word"
+2026/05/17 14:33:34 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-3 wanted=1 removed=0
+2026/05/17 14:33:34 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-7 ability="Healing Word"
+2026/05/17 14:33:34 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-3 wanted=1 removed=0
+2026/05/17 14:33:34 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-3 wanted=1 removed=0
+2026/05/17 14:33:34 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-3 wanted=1 removed=0
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-2421935970/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-1180856031/gogobee.db
+2026/05/17 14:33:34 INFO database initialized path=/tmp/expedition-sim-2369465835/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-3833483254/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-224923423/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2726204412/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2419377482/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-4254550146/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-658875425/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2977421017/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2945912897/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1223443637/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-4 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-8 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-4 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-8 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-8 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-4 ability="Healing Word"
+2026/05/17 14:33:35 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-4 wanted=1 removed=0
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1646450137/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1481312023/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-3507008659/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1516972004/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-28609871/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1430768706/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-4220398274/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1646369506/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2125090382/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-5 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-5 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-5 ability="Healing Word"
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1488901552/gogobee.db
+2026/05/17 14:33:35 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-5 wanted=1 removed=0
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-4060999029/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-9 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-9 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-9 ability="Healing Word"
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1980401808/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1684418884/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1794726509/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1749345557/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2740874960/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-3925551982/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2864919519/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-6 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-6 ability="Healing Word"
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-3095718542/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-6 ability="Healing Word"
+2026/05/17 14:33:35 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-6 wanted=1 removed=0
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-3373738734/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-10 ability="Healing Word"
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-3789457226/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-10 ability="Healing Word"
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-4094310036/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-10 ability="Healing Word"
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-3470990917/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-3142853546/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-309817808/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2429653290/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-3580392471/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-597247584/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2154392471/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-7 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-7 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-7 ability="Healing Word"
+2026/05/17 14:33:35 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-7 wanted=1 removed=0
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2565782481/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-3549806484/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-574287783/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1200079250/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1394948982/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-847854238/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-1817871372/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2323220882/gogobee.db
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-2450392709/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-11 ability="Healing Word"
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-4012828053/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-11 ability="Healing Word"
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-276814314/gogobee.db
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-11 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-8 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-8 ability="Healing Word"
+2026/05/17 14:33:35 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-8 ability="Healing Word"
+2026/05/17 14:33:35 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-8 wanted=1 removed=0
+2026/05/17 14:33:35 INFO database initialized path=/tmp/expedition-sim-133917226/gogobee.db
+2026/05/17 14:33:35 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-8 wanted=1 removed=0
+2026/05/17 14:33:36 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-8 wanted=1 removed=0
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-27695044/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-2595221952/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-3729100327/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-40630619/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1451440739/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1823882855/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-2323272789/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1841383835/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-540980082/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1023722670/gogobee.db
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-9 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-9 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-9 ability="Healing Word"
+2026/05/17 14:33:36 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-9 wanted=1 removed=0
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-776796602/gogobee.db
+2026/05/17 14:33:36 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-9 wanted=1 removed=0
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-12 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-12 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-12 ability="Healing Word"
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-376454587/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-4137125856/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1977687003/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-482104267/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-4191466593/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-3413343421/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-337500389/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1161698075/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-3923717903/gogobee.db
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-10 ability="Healing Word"
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1486542255/gogobee.db
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-10 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-10 ability="Healing Word"
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-609549845/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-2314709835/gogobee.db
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-13 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-13 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-13 ability="Healing Word"
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-2226585091/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-4285465609/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1152863169/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1140564116/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-247538292/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-12727718/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-493249432/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-3457453074/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-4126564222/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-2948190870/gogobee.db
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-11 ability="Healing Word"
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-2937358906/gogobee.db
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-11 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-14 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-11 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-14 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-14 ability="Healing Word"
+2026/05/17 14:33:36 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-11 wanted=1 removed=0
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-2940956075/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-940255277/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1219888338/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1737695406/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1364107823/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-3928809135/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-2770426133/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-4112019964/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-2920118324/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-841285958/gogobee.db
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-2359475009/gogobee.db
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-12 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-15 ability="Healing Word"
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-4003732719/gogobee.db
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-15 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-12 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-15 ability="Healing Word"
+2026/05/17 14:33:36 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-12 ability="Healing Word"
+2026/05/17 14:33:36 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-manor_blackspire-15 wanted=1 removed=0
+2026/05/17 14:33:36 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-manor_blackspire-15 wanted=1 removed=0
+2026/05/17 14:33:36 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-manor_blackspire-15 wanted=1 removed=0
+2026/05/17 14:33:36 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-manor_blackspire-15 wanted=1 removed=0
+2026/05/17 14:33:36 INFO database initialized path=/tmp/expedition-sim-1124627013/gogobee.db
+2026/05/17 14:33:36 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-manor_blackspire-15 wanted=1 removed=0
+2026/05/17 14:33:36 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-12 wanted=1 removed=0
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-3360721450/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-2189731270/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-2135723417/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-4081839001/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-3089792466/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-2658215845/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-711568570/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-2452659043/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-690174537/gogobee.db
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-16 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-16 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-16 ability="Healing Word"
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-1712861838/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-839790690/gogobee.db
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-13 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-13 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-13 ability="Healing Word"
+2026/05/17 14:33:37 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-13 wanted=1 removed=0
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-2069258505/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-448809708/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-870225890/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-1394846529/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-713189544/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-3333028202/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-3490413428/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-216826575/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-2600575392/gogobee.db
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-17 ability="Healing Word"
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-3247025114/gogobee.db
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-17 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-17 ability="Healing Word"
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-575813843/gogobee.db
+2026/05/17 14:33:37 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-manor_blackspire-17 wanted=1 removed=0
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-852951387/gogobee.db
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-14 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-14 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-14 ability="Healing Word"
+2026/05/17 14:33:37 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-14 wanted=1 removed=0
+2026/05/17 14:33:37 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-14 wanted=1 removed=0
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-1698113894/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-3570143397/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-2415058239/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-637325677/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-1149336246/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-2613071951/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-4240410874/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-1918837118/gogobee.db
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-18 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-18 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-18 ability="Healing Word"
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-1562628221/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-741594747/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-3917775001/gogobee.db
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-15 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-15 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-15 ability="Healing Word"
+2026/05/17 14:33:37 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-15 wanted=1 removed=0
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-1103274777/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-2655969463/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-2440241823/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-3285403820/gogobee.db
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-19 ability="Healing Word"
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-1632108061/gogobee.db
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-19 ability="Healing Word"
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-704442070/gogobee.db
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-manor_blackspire-19 ability="Healing Word"
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-917462476/gogobee.db
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-702958523/gogobee.db
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-16 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-16 ability="Healing Word"
+2026/05/17 14:33:37 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-16 ability="Healing Word"
+2026/05/17 14:33:37 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-16 wanted=1 removed=0
+2026/05/17 14:33:37 INFO database initialized path=/tmp/expedition-sim-3461168624/gogobee.db
+2026/05/17 14:33:38 INFO database initialized path=/tmp/expedition-sim-2994824878/gogobee.db
+2026/05/17 14:33:38 INFO database initialized path=/tmp/expedition-sim-2518451673/gogobee.db
+2026/05/17 14:33:38 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-17 ability="Healing Word"
+2026/05/17 14:33:38 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-17 ability="Healing Word"
+2026/05/17 14:33:38 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-17 ability="Healing Word"
+2026/05/17 14:33:38 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-17 wanted=1 removed=0
+2026/05/17 14:33:38 INFO database initialized path=/tmp/expedition-sim-3320304407/gogobee.db
+2026/05/17 14:33:38 INFO database initialized path=/tmp/expedition-sim-1135211496/gogobee.db
+2026/05/17 14:33:38 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-18 ability="Healing Word"
+2026/05/17 14:33:38 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-18 ability="Healing Word"
+2026/05/17 14:33:38 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-18 ability="Healing Word"
+2026/05/17 14:33:38 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-18 wanted=1 removed=0
+2026/05/17 14:33:38 INFO database initialized path=/tmp/expedition-sim-741208661/gogobee.db
+2026/05/17 14:33:38 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-19 ability="Healing Word"
+2026/05/17 14:33:38 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-19 ability="Healing Word"
+2026/05/17 14:33:38 INFO dnd: armed ability fired (turn-based build) user=@sim:cleric-l12-underdark-19 ability="Healing Word"
+2026/05/17 14:33:38 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-19 wanted=1 removed=0
+2026/05/17 14:33:38 WARN auto-heal cleanup: short on inventory user=@sim:cleric-l12-underdark-19 wanted=1 removed=0

@@ -215,28 +215,57 @@ Before any tuning, freeze a reproducible baseline:
 
 **Definition of done:** Fighter L12 manor clears jump from 0% to **≥50%** at n=30; T2 forest clears stay ≥80% (don't break the leader); T4 underdark clears non-zero.
 
-### J2 — Mage T2+ wall
+### J2 — Caster boss-survival cliff
 
-**Hypothesis menu:**
+**Scope (reframed 2026-05-17 after post-J1 n=100 sweep, `sim_results/baseline_j1_all10.jsonl`):** five caster classes — **mage, cleric, sorcerer, warlock, bard** — all cluster at 19–22% L12 mean %clr across the 5 zones, vs four martial leaders (fighter/ranger/paladin/rogue) at 70–80%. They reach the boss room 62–82% of the time but TPK there. So the gap is **boss-fight burst/durability**, not zone traversal.
 
-1. **No defensive layer.** Mage AC = 10 + DEX (no armor proficiency). At T2+ monster Attack, 70%+ hit rate every round.
-2. **Slot economy.** L7 mage has 4 L1 + 3 L2 + 2 L3 slots — enough for one elite, not a manor's worth.
-3. **No Shield spell auto-cast.** 5e Mage gets `Shield` (reaction: +5 AC until next turn). Verify it exists and fires.
-4. **Mage Armor not active.** `Mage Armor` (+3 AC for 8h) should be a pre-walk default; check whether the autopilot starts it.
+Druid sits between the bands at 39% L12 clr (88% boss-reach) — the only mid-band class — because Wild Shape gives a real HP buffer. That's the diagnostic: the trailers lack a durability or burst lever that pulls them through the final fight.
+
+**Cell snapshot (L12, %clr | %boss):**
+
+| Class    | goblin (T1) | forest (T2) | manor (T3) | underdark (T4) | dragons (T5) |
+|----------|-------------|-------------|------------|----------------|--------------|
+| mage     | 100\|100    | 0\|99       | 0\|63      | 0\|56          | 0\|68        |
+| cleric   | 93\|93      | 0\|87       | 0\|70      | 0\|8           | 0\|50        |
+| sorcerer | 100\|100    | 0\|97       | 0\|57      | 0\|38          | 0\|60        |
+| warlock  | 100\|100    | 7\|100      | 0\|71      | 0\|62          | 0\|78        |
+| bard     | 100\|100    | 8\|100      | 0\|70      | 0\|66          | 0\|74        |
+| *druid (ref)* | *100\|100* | *93\|100* | *0\|74* | *90\|100* | *0\|78* |
+
+Cleric is doubly broken: lowest boss-reach (62% mean) **and** lowest clear (19%) — pure-support kit doesn't carry solo expeditions even before the boss.
+
+**Hypothesis menu (cheapest first):**
+
+1. **Damage falls off a cliff at mid-level boss HP.** L12 boss HP grows ~linearly; cantrip damage scales (Fire Bolt 2d10 at L11) but slot-spell burst is gated by 2–3 high-level slots used earlier in the zone. Trace `EnemyHPEnd` at TPK across the 5 classes vs druid.
+2. **No durability backstop.** Druid (Wild Shape ≈ +temp HP pool) clears 39%; the five trailers have no equivalent. Mage's `Shield` reaction and `Mage Armor` may already exist but aren't firing in turn-engine boss rooms — verify.
+3. **Slot/resource economy.** L7/L12 casters reach boss with slots spent; H5 partial short-rest refresh (already planned) is the obvious lever and might solo-fix several of the five.
+4. **Cleric class identity.** Bottom-of-band even at boss-reach. Whatever differentiated cleric from "AC 16 melee with no Extra Attack" probably isn't wired into turn engine (e.g. Channel Divinity, Spiritual Weapon auto-cast).
 
 **Investigation steps:**
 
-- Grep for `MageArmor|ShieldSpell|mageArmor`. If they exist, why doesn't the sim cast them?
-- Trace a single mage L7 manor run: does the character ever cast a defensive spell?
-- Check `dnd_spells.go` for any auto-cast pre-combat hook the sim could opt into.
+- Pull per-round combat traces from boss rooms for mage/cleric/sorc/warlock/bard at L12 manor and underdark. Look at: did a slot spell ever fire? did a reaction fire? what was player HP when boss died vs when player died?
+- Grep `Shield\b|MageArmor|SpiritualWeapon|ChannelDivinity|EldritchBlast|HealingWord` for existing wiring; check whether each fires from `combat_turn_engine.go` paths.
+- Cross-check whether the J1 [[project_j1_turn_engine_fix]] turn-engine seam exposed any *caster* wiring that was previously only firing in `SimulateCombat`. If yes, that's the cheapest fix: same pattern.
+- Compare druid L12 underdark trace (90% clr) to cleric L12 underdark (0% clr / 8% boss-reach) — what's druid doing that cleric isn't?
 
-**Likely levers:**
+**Findings (2026-05-17 trace sweep, `sim_results/j2_findings.md`):** zero slot casts and zero mid-fight consumable uses across 240 boss-room combats. `autoResolveCombat` dispatches `!attack` only — the entire caster-cliff diagnosis was built on a strawman where casters couldn't cast and didn't quaff heals. Druid's outperformance is its `ThornLashDmg` passive firing on the weapon-attack path, not Wild Shape durability (Wild Shape isn't wired into autoResolveCombat at all). Reaction-spell hypothesis is also moot: `dnd_spells.go` skips reaction-cast spells globally — no reaction window exists yet. Hypothesis 3 (slot economy) is confirmed-but-inverted: casters reach boss with slots intact because the sim refuses to spend them.
 
-- **Wire Mage Armor as a long-rest auto-buff** when not already active and the mage has spell slots. Production characters benefit too.
-- **Add Shield-spell reaction** in combat: if available slot + about-to-be-hit + AC < threshold, burn a L1 slot for +5 AC. Reaction-based survival lever 5e mages depend on.
-- **Slot economy:** H5 partial short-rest refresh (already in this plan) helps mage longevity directly. May land alongside J2 if it's the cleanest fix.
+**Reframed levers (replaces the original menu):**
 
-**Definition of done:** Mage L12 forest clears ≥60%; manor clears non-zero; T1 yield density doesn't drop more than 10%.
+- **J2a — Teach `autoResolveCombat` to cast and consume.** Before each `!attack`, mirror the prod player decision: heal at low HP if a heal consumable is in inventory; otherwise cast the highest-impact available slot/cantrip; fall back to weapon swing. Class-blind first cut is fine — pick by damage-vs-remaining-enemy-HP, with a small heal-trigger at player HP < ~40%. Surface: `expedition_sim.go:530`. Heal-side mirrors `combat_bridge.go`'s `SelectConsumables`.
+- **J2b — Re-baseline.** Re-run the n=100 all-class corpus with the fixed `autoResolveCombat`. The current `baseline_j1_all10.jsonl` cell numbers do not measure caster boss-survival; they measure "caster forced to swing a stick". Only after J2b do we have a real read on whether a class-level lever is needed.
+- *Deferred until after J2b's real read:* shared boss-room cushion, cleric-specific intervention, H5 short-rest refresh wired to J2. Don't pre-commit balance changes against a strawman.
+- *Out of scope:* reaction-spell wiring — the reaction phase doesn't exist; lifting that ban is its own surface (post-J2).
+- *Avoid:* per-class HP/AC stat riders. Per accessibility-over-crunch, prefer surfacing a verb (cast, ward, channel) over inflating numbers.
+
+**Definition of done (reframed 2026-05-17):**
+- **J2a:** at least one of {slot cast, cantrip cast, mid-fight heal-consumable} fires in ≥80% of boss-room fights for every caster class in a small (n≥10) verification sweep. ✅ **MET** — 100% cast rate in `sim_results/j2a_findings.md`.
+- **J2b:** new `sim_results/baseline_j2a_v2_all10.jsonl` (n=100). 3 of 5 trailer casters cleared the floor: mage 49% / sorcerer 47% manor at L12 (>40%). Warlock 34%, bard 2%, cleric 9% — these three are now spell-pool-bottlenecked, not sim-artifact-bottlenecked. Writeup: `sim_results/j2b_findings.md`.
+- *No martial leader cell drops by more than 10pp from `baseline_j1_all10.jsonl`* — ✅ **MET** (all +0.4 to +6.2pp). Required adding `simMartialFirstClass` after a v1 sweep showed Ranger regressed -35.8pp when the picker burned L3 slots; the gate skips cast-mode for half-caster martials.
+
+**J2c — tried + reverted 2026-05-17.** Both proposed widening levers regressed: heal-spell preempt cost druid 10pp (slot heals are 10HP vs 40HP consumables); control-spell scoring at 22 cost warlock 6.6pp (hypnotic_pattern beat vampiric_touch wrongly), and at 5 the level-first sort made it inert. Picker reverted to the J2b shape. Bard/cleric trailing is a prod-level `defaultKnownSpells` problem (their damage rosters cap at L2), not a sim-picker problem — separate decision. Corpora `baseline_j2c_all10.jsonl` and `baseline_j2c_v2_all10.jsonl` retained for the post-mortem in `sim_results/j2b_findings.md`.
+
+T5 dragons_lair stays J3's problem — J2 isn't on the hook for it. (J2a will partially overlap J3 hypothesis 1, which already flagged this exact sim-artifact for T5.)
 
 ### J3 — T5 boss universal wall
 
@@ -274,9 +303,9 @@ After each of J1/J2/J3 lands:
 
 J0 first — n=10 noise floor is too high to read 10pp movements; without a tighter baseline we'll chase ghosts.
 
-J1 and J2 are independent and can ship in either order. J1 is probably easier (Second Wind is a well-understood beat); J2 has more design surface (auto-cast policy, Shield-spell reactions). If only one ships, J1 has the cleaner DoD.
+J1 shipped 2026-05-17 (commit 519964f) — turn-engine Extra Attack wired. J2 is now reframed (above) from "Mage walls" to a five-class caster boss-survival problem spanning mage/cleric/sorc/warlock/bard; investigation may share a lever or split into per-class fixes after the per-round trace. Cleric likely needs its own intervention regardless.
 
-J3 can ship in parallel with J1/J2. If sim-artifact, fix is in expedition_sim.go and doesn't touch balance. If a real wall, depends on J1/J2 outcomes — a buffed Fighter or Mage might already reach the boss-doorway more often.
+J3 can ship in parallel with J2. If sim-artifact, fix is in expedition_sim.go and doesn't touch balance. If a real wall, depends on J2 outcomes — a more durable caster reaching the boss room with slots intact might already reach the boss-doorway more often.
 
 J4 is the gate. Don't merge a class buff without the validation matrix showing the leader didn't regress.
 
@@ -285,7 +314,7 @@ After Phase J converges, return to H4 with a meaningful baseline.
 ### Open questions (J phases)
 
 - **Sim party scaling.** Sim character = solo player, party of 4, or band? Production is solo. Tune for solo or we make group play trivial. Document the choice.
-- **Subclass coverage.** Sim builds vanilla-class synthetics (no subclass). Subclass passives at L3+ probably matter a lot for Fighter and Mage. Pick a "best" subclass for the sim or sweep across subclasses in a separate pass.
+- **Subclass coverage.** Sim builds vanilla-class synthetics (no subclass). Subclass passives at L3+ probably matter a lot — particularly for the five J2 trailers where the subclass often *is* the survival kit (e.g. Bard College of Valor's extra attack, Cleric domains' bonus-action burst). Pick a "best" subclass per class for the sim or sweep across subclasses in a separate pass before pre-committing J2 levers.
 - **Mage Armor as auto-buff.** Player-side spell they cast, or a passive we toggle? Auto-toggling preserves accessibility-over-crunch but removes a (small) tactical decision. Probably worth auto-toggling and noting it in per-class help.
 - **Boss consumable refresh.** At T5 elite gates, should the autopilot offer a "rest and re-stock" prompt before the boss? Mirrors real-game tension; closes the sim/prod gap.
 

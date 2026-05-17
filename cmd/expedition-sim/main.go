@@ -41,8 +41,12 @@ func main() {
 		levels  = flag.String("levels", "", "comma-separated levels (matrix mode)")
 		zones   = flag.String("zones", "", "comma-separated zone ids (matrix mode)")
 		runs    = flag.Int("runs", 1, "replicates per (class,level,zone) cell (matrix mode)")
+
+		trace = flag.Bool("trace", false, "include raw per-round CombatEvent stream on the LAST combat of each expedition (boss room) — for J2 diagnostic sweeps")
 	)
 	flag.Parse()
+
+	plugin.SetSimIncludeTrace(*trace)
 
 	if *matrix {
 		// Matrix default: drop log to keep stdout manageable; explicit
