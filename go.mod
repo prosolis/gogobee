@@ -3,16 +3,16 @@ module gogobee
 go 1.25.0
 
 require (
-	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/chehsunliu/poker v0.1.0
-	github.com/expr-lang/expr v1.17.5
+	github.com/expr-lang/expr v1.17.8
 	github.com/fogleman/gg v1.3.0
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/olebedev/when v1.1.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	golang.org/x/image v0.36.0
+	golang.org/x/image v0.40.0
 	maunium.net/go/mautrix v0.28.0
 	modernc.org/sqlite v1.50.1
 )
