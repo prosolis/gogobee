@@ -404,6 +404,12 @@ type advanceResult struct {
 	// re-emit the Boss/Elite doorway gate (and produce a duplicate
 	// "Room X/Y — Boss" line in the same DM).
 	nextRoomType RoomType
+	// harvest carries the auto-harvest pass result for the room the
+	// player just walked into (Josie H2 — auto-harvest parity between
+	// `!zone advance` and `!expedition run`). Zero value when no
+	// harvest ran (Entry/Trap/Elite/Boss rooms, forks, stops).
+	harvest       autoHarvestResult
+	harvestFooter string
 }
 
 // zoneCmdAdvance resolves the room the player is currently standing in,
@@ -622,14 +628,65 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 			reason:    stopFork,
 		}, nil
 	}
-	return advanceResult{
-		preStream:    preStream,
-		intro:        intro,
-		phases:       phases,
-		final:        p.formatNextRoomMessage(run, zone, prev, prevIdx, outcome, next),
-		reason:       stopOK,
-		nextRoomType: next,
-	}, nil
+	finalMsg := p.formatNextRoomMessage(run, zone, prev, prevIdx, outcome, next)
+
+	// H2 — auto-harvest the room the player just walked into. Only fires
+	// for Exploration rooms (Entry/Trap/Elite/Boss self-skip via
+	// currentRoomCleared / autoHarvestRoom's no-op when there's nothing
+	// to harvest). Uses standalone storage when there's no active
+	// expedition, expedition region_state when there is.
+	hr, hfooter := p.runHarvestForAdvance(ctx.Sender, run.RunID, c, next)
+	if hfooter != "" {
+		finalMsg += "\n\n" + hfooter
+	}
+	if hr.CombatNarr != "" {
+		// Harvest interrupt fired combat. Append the narration to the
+		// final block; reclassify reason for the autopilot loop so it
+		// can break with the right footer/tally treatment.
+		finalMsg += "\n\n" + hr.CombatNarr
+	}
+	res := advanceResult{
+		preStream:     preStream,
+		intro:         intro,
+		phases:        phases,
+		final:         finalMsg,
+		reason:        stopOK,
+		nextRoomType:  next,
+		harvest:       hr,
+		harvestFooter: hfooter,
+	}
+	if hr.CombatNarr != "" {
+		res.reason = stopHarvestCombat
+		if hr.PlayerEnded {
+			res.reason = stopEnded
+		}
+	}
+	return res, nil
+}
+
+// runHarvestForAdvance runs an auto-harvest pass on the room the player
+// just walked into and returns the result plus a rendered per-room
+// footer. Reloads the run so the harvest sees the post-graph-advance
+// current node; binds to the active expedition when one exists, falls
+// through to standalone (per-run) storage otherwise. nextRoomType is a
+// fast-path filter so we don't even touch the DB for Entry/Trap/Elite/
+// Boss rooms — autoHarvestRoom would no-op on them anyway.
+func (p *AdventurePlugin) runHarvestForAdvance(
+	userID id.UserID, runID string, c *DnDCharacter, nextRoomType RoomType,
+) (autoHarvestResult, string) {
+	if nextRoomType != RoomExploration {
+		return autoHarvestResult{}, ""
+	}
+	fresh, ferr := getZoneRun(runID)
+	if ferr != nil || fresh == nil {
+		return autoHarvestResult{}, ""
+	}
+	exp, _ := getActiveExpedition(userID)
+	hr, herr := p.autoHarvestRoom(userID, fresh, c, exp)
+	if herr != nil {
+		return autoHarvestResult{}, ""
+	}
+	return hr, renderAutoHarvestFooter(hr.Summary)
 }
 
 // formatNextRoomMessage builds the "✓ Cleared room X. ... Room Y/N —

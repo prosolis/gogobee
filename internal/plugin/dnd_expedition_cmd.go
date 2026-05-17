@@ -625,41 +625,41 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 			break
 		}
 
-		// Phase 2 — auto-harvest the room we just walked into. Aggregates
-		// into walkYields/walkNames; per-room footer goes straight into
-		// the stream. Combat interrupts hard-stop the walk with a
-		// dedicated stop reason; Josie semantics mean rarity no longer
-		// pauses the autopilot.
-		char, cerr := LoadDnDCharacter(ctx.Sender)
-		if cerr != nil || char == nil {
-			continue
-		}
-		hr, herr := p.autoHarvestRoom(ctx.Sender, exp, char)
-		if herr != nil {
-			continue
-		}
-
+		// Phase 2 — auto-harvest the room we just walked into.
+		// advanceOnceWithOpts now runs the pass inline and surfaces the
+		// result via res.harvest + res.harvestFooter. The "✓ cleared /
+		// next room" line in res.final already has the per-room footer
+		// appended (and the combat-interrupt narration if one fired);
+		// we still need to aggregate into walkYields/walkNames and to
+		// split out the harvest-combat path so the walk-end footer/tally
+		// rendering matches the pre-H2 behavior.
+		hr := res.harvest
 		for k, v := range hr.Summary.Yields {
 			walkYields[k] += v
 			walkNames[k] = hr.Summary.Names[k]
 		}
-		if footer := renderAutoHarvestFooter(hr.Summary); footer != "" {
-			stream = append(stream, footer)
-		}
 		if hr.CombatNarr != "" {
-			// A harvest interrupt fired combat. The combat narration
-			// becomes the final block; reason classifies death vs survive.
+			// A harvest interrupt fired combat. res.final already
+			// includes the ✓-cleared block, the harvest footer, and the
+			// combat narration; just attach the walk footer/tally and
+			// stop.
 			r := stopHarvestCombat
 			if hr.PlayerEnded {
 				r = stopEnded
 			}
 			footer := autopilotFooter(r, rooms)
-			finalMsg = hr.CombatNarr
+			finalMsg = res.final
 			if footer != "" {
 				finalMsg += "\n\n" + footer
 			}
 			if tally := renderWalkTally(walkYields, walkNames); tally != "" && !hr.PlayerEnded {
 				finalMsg += "\n\n" + tally
+			}
+			// Drop the just-pushed res.final from the stream so the
+			// combined finalMsg lands as the closer, not as a duplicate
+			// phase entry.
+			if len(stream) > 0 && stream[len(stream)-1] == res.final {
+				stream = stream[:len(stream)-1]
 			}
 			reason = r
 			break

@@ -10,6 +10,11 @@ import (
 )
 
 // Phase 2 of expedition autopilot — auto-harvest on room entry.
+// H2 extends this so `!zone advance` calls the same path for standalone
+// (no-expedition) zone runs. When exp is nil the loop uses the per-run
+// storage in dnd_zone_run.harvest_nodes_json and skips the
+// expedition-only side effects (threat, log, region conditions,
+// combat-interrupt roll).
 //
 // Design (Josie semantics, settled 2026-05-17):
 //   - All applicable actions auto-run on every walked room. Class- and
@@ -23,6 +28,9 @@ import (
 //   - Noise interrupts apply threat++ and continue the per-charge loop
 //     (parity with manual). Standard/Elite/Patrol combat interrupts
 //     hard-stop the walk: stopEnded on death, stopHarvestCombat otherwise.
+//     Standalone (exp==nil) mode skips the interrupt roll entirely —
+//     zone runs already have a patrol mechanism baked into the advance
+//     pipeline.
 //   - No SU surcharge — manual !harvest is free; autopilot matches.
 //   - Per-room footer ("+2 Iron, +1 Sage; 3 fails") + a walk-end tally
 //     across all rooms.
@@ -57,10 +65,12 @@ var allHarvestActions = []HarvestAction{
 }
 
 // autoHarvestRoom runs a single auto-harvest pass on the player's current
-// room. Called by expeditionCmdRun between walked rooms. Does not advance
-// the room; only resolves nodes already at the player's feet.
+// room. exp may be nil for standalone zone runs (no expedition); in that
+// mode the function uses per-run storage and skips threat/interrupts/log.
+// Does not advance the room; only resolves nodes already at the player's
+// feet.
 func (p *AdventurePlugin) autoHarvestRoom(
-	userID id.UserID, exp *Expedition, char *DnDCharacter,
+	userID id.UserID, run *DungeonRun, char *DnDCharacter, exp *Expedition,
 ) (autoHarvestResult, error) {
 	res := autoHarvestResult{
 		Summary: autoHarvestSummary{
@@ -68,32 +78,44 @@ func (p *AdventurePlugin) autoHarvestRoom(
 			Names:  map[string]string{},
 		},
 	}
-	if exp == nil || exp.RunID == "" {
-		return res, nil
-	}
-	run, err := getZoneRun(exp.RunID)
-	if err != nil || run == nil {
+	if run == nil {
 		return res, nil
 	}
 	if !currentRoomCleared(run) {
 		return res, nil
 	}
 
+	zoneID := run.ZoneID
+	if exp != nil {
+		zoneID = exp.ZoneID
+	}
+
 	nodeID := harvestNodeIDFor(run)
-	nodes := loadHarvestNodes(exp, nodeID)
+	var nodes []HarvestNode
+	if exp != nil {
+		nodes = loadHarvestNodes(exp, nodeID)
+	} else {
+		loaded, lerr := loadStandaloneHarvestNodes(run.RunID, zoneID, nodeID)
+		if lerr != nil {
+			return res, nil
+		}
+		nodes = loaded
+	}
 	if len(nodes) == 0 {
 		return res, nil
 	}
 
-	zone, _ := getZone(exp.ZoneID)
+	zone, _ := getZone(zoneID)
 	persistNodes := false
 
 	for _, action := range allHarvestActions {
-		if action == HarvestFish && !isFishingZone(exp.ZoneID) {
+		if action == HarvestFish && !isFishingZone(zoneID) {
 			continue
 		}
-		if blockReason := zoneConditionHarvestBlock(exp, action); blockReason != "" {
-			continue
+		if exp != nil {
+			if blockReason := zoneConditionHarvestBlock(exp, action); blockReason != "" {
+				continue
+			}
 		}
 
 		// One pass per action. Iterate every eligible node (not just the
@@ -103,43 +125,55 @@ func (p *AdventurePlugin) autoHarvestRoom(
 			if n.CurrentCharges <= 0 {
 				continue
 			}
-			rdef, ok := FindZoneResource(exp.ZoneID, n.ResourceID)
+			rdef, ok := FindZoneResource(zoneID, n.ResourceID)
 			if !ok || rdef.Action != action {
 				continue
 			}
 			if rdef.ClassRestrict != "" && rdef.ClassRestrict != char.Class {
 				continue
 			}
-			if rdef.RequiresKill != "" && !regionKillsContains(exp, rdef.RequiresKill) {
-				continue
+			if rdef.RequiresKill != "" {
+				if exp == nil || !regionKillsContains(exp, rdef.RequiresKill) {
+					continue
+				}
 			}
-			if rdef.ConditionalEvent != "" && !regionEventActive(exp, rdef.ConditionalEvent) {
-				continue
+			if rdef.ConditionalEvent != "" {
+				if exp == nil || !regionEventActive(exp, rdef.ConditionalEvent) {
+					continue
+				}
 			}
 
 			// Josie semantics: swing exactly once per remaining charge.
 			// Each swing consumes a charge regardless of outcome.
 			for n.CurrentCharges > 0 {
-				// Interrupt roll, same model as handleHarvestCmd.
-				interrupt, intTotal := resolveCombatInterrupt(
-					exp.ThreatLevel, int(zone.Tier), char.Class, exp.ZoneID, nil)
-				switch interrupt {
-				case InterruptNoise:
-					_ = applyThreatDelta(exp.ID, 2, "harvest noise (§4.2, autopilot)")
-					res.Summary.NoiseInts++
-					_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
-						fmt.Sprintf("autopilot noise %s total=%d", string(action), intTotal), "")
-					// fall through to the d20 roll, same as manual harvest.
-				case InterruptStandard, InterruptElite, InterruptPatrol:
-					body, ended := p.runHarvestInterrupt(userID, exp, run, zone, interrupt)
-					res.CombatNarr = body
-					res.PlayerEnded = ended
-					_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
-						fmt.Sprintf("autopilot %s kind=%d total=%d", string(action), int(interrupt), intTotal), "")
-					if persistNodes {
-						_ = saveHarvestNodes(exp, nodeID, nodes)
+				// Interrupt roll, same model as handleHarvestCmd —
+				// expedition-only. Standalone zone runs already have a
+				// patrol mechanism in the advance pipeline.
+				if exp != nil {
+					interrupt, intTotal := resolveCombatInterrupt(
+						exp.ThreatLevel, int(zone.Tier), char.Class, zoneID, nil)
+					switch interrupt {
+					case InterruptNoise:
+						_ = applyThreatDelta(exp.ID, 2, "harvest noise (§4.2, autopilot)")
+						res.Summary.NoiseInts++
+						_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
+							fmt.Sprintf("autopilot noise %s total=%d", string(action), intTotal), "")
+						// fall through to the d20 roll, same as manual harvest.
+					case InterruptStandard, InterruptElite, InterruptPatrol:
+						body, ended := p.runHarvestInterrupt(userID, exp, run, zone, interrupt)
+						res.CombatNarr = body
+						res.PlayerEnded = ended
+						_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
+							fmt.Sprintf("autopilot %s kind=%d total=%d", string(action), int(interrupt), intTotal), "")
+						if persistNodes {
+							if exp != nil {
+								_ = saveHarvestNodes(exp, nodeID, nodes)
+							} else {
+								_ = saveStandaloneHarvestNodes(run.RunID, zoneID, nodeID, nodes)
+							}
+						}
+						return res, nil
 					}
-					return res, nil
 				}
 
 				// Resolve the harvest attempt.
@@ -151,7 +185,10 @@ func (p *AdventurePlugin) autoHarvestRoom(
 					}
 				}
 				total := roll + mod
-				dcDelta, _ := zoneConditionHarvestDCMod(exp, action)
+				dcDelta := 0
+				if exp != nil {
+					dcDelta, _ = zoneConditionHarvestDCMod(exp, action)
+				}
 				effectiveDC := rdef.DC + dcDelta
 				outcome := resolveHarvestOutcome(total, effectiveDC)
 				outcome = rangerRareCatchUpgrade(char.Class, action, outcome, nil)
@@ -166,7 +203,7 @@ func (p *AdventurePlugin) autoHarvestRoom(
 					grantedQty = rand.IntN(3) + 1
 				case OutcomeRich:
 					grantedQty = rand.IntN(3) + 1
-					if bonus := pickRichBonus(exp.ZoneID, rdef.ID); bonus != nil {
+					if bonus := pickRichBonus(zoneID, rdef.ID); bonus != nil {
 						_ = grantHarvestYield(userID, *bonus, 1)
 						res.Summary.Yields[bonus.ID] += 1
 						res.Summary.Names[bonus.ID] = bonus.Name
@@ -181,17 +218,25 @@ func (p *AdventurePlugin) autoHarvestRoom(
 				n.CurrentCharges--
 				persistNodes = true
 
-				_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "harvest",
-					fmt.Sprintf("autopilot %s %s d20=%d total=%d dc=%d → %s",
-						string(action), rdef.ID, roll, total, rdef.DC, string(outcome)), "")
+				if exp != nil {
+					_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "harvest",
+						fmt.Sprintf("autopilot %s %s d20=%d total=%d dc=%d → %s",
+							string(action), rdef.ID, roll, total, rdef.DC, string(outcome)), "")
+				}
 			}
 		}
 	}
 
 	if persistNodes {
-		if err := saveHarvestNodes(exp, nodeID, nodes); err != nil {
+		var perr error
+		if exp != nil {
+			perr = saveHarvestNodes(exp, nodeID, nodes)
+		} else {
+			perr = saveStandaloneHarvestNodes(run.RunID, zoneID, nodeID, nodes)
+		}
+		if perr != nil && exp != nil {
 			_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "harvest",
-				fmt.Sprintf("autopilot persistence error: %v", err), "")
+				fmt.Sprintf("autopilot persistence error: %v", perr), "")
 		}
 	}
 	return res, nil
