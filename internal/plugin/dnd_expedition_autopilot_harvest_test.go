@@ -10,26 +10,6 @@ import (
 // region state) and lives behind the same setupAuditTestDB gate as the
 // other expedition tests.
 
-func TestIsRarePlus(t *testing.T) {
-	cases := []struct {
-		in   DnDRarity
-		want bool
-	}{
-		{RarityCommon, false},
-		{RarityUncommon, false},
-		{RarityRare, true},
-		{RarityEpic, true},
-		{RarityVeryRare, true},
-		{RarityLegendary, true},
-		{"", false},
-	}
-	for _, c := range cases {
-		if got := isRarePlus(c.in); got != c.want {
-			t.Errorf("isRarePlus(%q) = %v, want %v", c.in, got, c.want)
-		}
-	}
-}
-
 func TestRenderAutoHarvestFooter_EmptyIsEmpty(t *testing.T) {
 	s := autoHarvestSummary{Yields: map[string]int{}, Names: map[string]string{}}
 	if got := renderAutoHarvestFooter(s); got != "" {
@@ -57,6 +37,12 @@ func TestRenderAutoHarvestFooter_YieldsAndFailsAndNoise(t *testing.T) {
 	if !strings.Contains(got, "1 close call") || strings.Contains(got, "close calls") {
 		t.Errorf("expected singular 'close call', got %q", got)
 	}
+	// Plural "fails" when fails>1 — Josie semantics make this common.
+	s.Fails = 3
+	got = renderAutoHarvestFooter(s)
+	if !strings.Contains(got, "3 fails") {
+		t.Errorf("expected plural 'fails', got %q", got)
+	}
 }
 
 func TestRenderWalkTally_EmptyIsEmpty(t *testing.T) {
@@ -76,35 +62,5 @@ func TestRenderWalkTally_SortsByID(t *testing.T) {
 	}
 	if iAlpha, iZinc := strings.Index(got, "Alphite"), strings.Index(got, "Zinc"); iAlpha >= iZinc {
 		t.Errorf("Alphite should precede Zinc: %q", got)
-	}
-}
-
-func TestRenderRarePendingFooter_EmptyIsEmpty(t *testing.T) {
-	if got := renderRarePendingFooter(nil); got != "" {
-		t.Errorf("expected empty rare-pending footer, got %q", got)
-	}
-}
-
-func TestRenderRarePendingFooter_DedupsByID(t *testing.T) {
-	r := ZoneResource{ID: "war_standard", Name: "Hobgoblin War Standard", Rarity: RarityRare, Action: HarvestScavenge}
-	got := renderRarePendingFooter([]ZoneResource{r, r, r})
-	// Single mention even with 3 copies in the pending slice.
-	if strings.Count(got, "Hobgoblin War Standard") != 1 {
-		t.Errorf("expected single mention, got %q", got)
-	}
-	if !strings.Contains(got, "!scavenge") {
-		t.Errorf("expected action hint '!scavenge' in footer, got %q", got)
-	}
-	if !strings.Contains(got, "Rare") {
-		t.Errorf("expected rarity label in footer, got %q", got)
-	}
-}
-
-func TestRenderRarePendingFooter_MultiplePlural(t *testing.T) {
-	a := ZoneResource{ID: "a", Name: "Aaa", Rarity: RarityRare, Action: HarvestForage}
-	b := ZoneResource{ID: "b", Name: "Bbb", Rarity: RarityVeryRare, Action: HarvestForage}
-	got := renderRarePendingFooter([]ZoneResource{a, b})
-	if !strings.Contains(got, "are sitting in this room") {
-		t.Errorf("expected plural verb for two items, got %q", got)
 	}
 }

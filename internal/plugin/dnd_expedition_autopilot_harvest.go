@@ -11,30 +11,21 @@ import (
 
 // Phase 2 of expedition autopilot — auto-harvest on room entry.
 //
-// Design (settled 2026-05-14, harvest-until-dry added 2026-05-16):
+// Design (Josie semantics, settled 2026-05-17):
 //   - All applicable actions auto-run on every walked room. Class- and
 //     kill-gated nodes filter themselves out via the existing per-resource
 //     restrictions.
-//   - Rare+ nodes are NOT auto-attempted. If any sit available in the
-//     room, autopilot stops with stopRareNode so the player can spend the
-//     attempt deliberately.
-//   - Each eligible (Common/Uncommon) node is ground until it runs dry or
-//     until autoHarvestPerNodeAttempts attempts have been spent — whichever
-//     comes first. Failed rolls re-roll without depleting charges, same
-//     as a manual player retrying !forage/!scavenge/etc. The cap stops
-//     the walk from getting stuck on a hard-DC node forever.
-//   - Noise interrupts apply threat++ and continue (parity with manual).
-//   - Standard/Elite/Patrol combat interrupts hard-stop the walk:
-//     stopEnded on death, stopHarvestCombat otherwise.
+//   - Every node — Common through Legendary — is auto-attempted. Rarity
+//     no longer pauses the walk; a whiff on a Rare node is a whiff.
+//   - A node spawns with N charges. Auto-harvest swings exactly once per
+//     remaining charge. Success or failure both consume a charge — no
+//     retry-to-success. This is the entire point of the redesign.
+//   - Noise interrupts apply threat++ and continue the per-charge loop
+//     (parity with manual). Standard/Elite/Patrol combat interrupts
+//     hard-stop the walk: stopEnded on death, stopHarvestCombat otherwise.
 //   - No SU surcharge — manual !harvest is free; autopilot matches.
-//   - Per-room footer ("+2 Iron, +1 Sage; 1 fail") + a walk-end tally
+//   - Per-room footer ("+2 Iron, +1 Sage; 3 fails") + a walk-end tally
 //     across all rooms.
-
-// autoHarvestPerNodeAttempts bounds how many times autopilot will swing
-// at a single node before giving up for this visit. Sized to handle a
-// typical Common/Uncommon node (charges 1–3, success rate 50–80%) with
-// margin, while keeping a DC-20 outlier from spinning indefinitely.
-const autoHarvestPerNodeAttempts = 8
 
 // autoHarvestSummary holds the aggregated outcome for one room's
 // auto-harvest pass. Per-room footer renders from this; expeditionCmdRun
@@ -49,9 +40,8 @@ type autoHarvestSummary struct {
 // autoHarvestResult is what autoHarvestRoom returns to the autopilot loop.
 type autoHarvestResult struct {
 	Summary     autoHarvestSummary
-	RarePending []ZoneResource // non-empty = at least one Rare+ node sits in the room
-	CombatNarr  string         // non-empty = a combat interrupt fired during the pass
-	PlayerEnded bool           // true = combat killed the player
+	CombatNarr  string // non-empty = a combat interrupt fired during the pass
+	PlayerEnded bool   // true = combat killed the player
 }
 
 // allHarvestActions lists every action autopilot will try per room. Order
@@ -64,16 +54,6 @@ var allHarvestActions = []HarvestAction{
 	HarvestFish,
 	HarvestEssence,
 	HarvestCommune,
-}
-
-// isRarePlus reports whether a resource's rarity should pause autopilot.
-// Common/Uncommon are auto-attempted; Rare and above stop the walk.
-func isRarePlus(r DnDRarity) bool {
-	switch r {
-	case RarityRare, RarityEpic, RarityVeryRare, RarityLegendary:
-		return true
-	}
-	return false
 }
 
 // autoHarvestRoom runs a single auto-harvest pass on the player's current
@@ -137,17 +117,9 @@ func (p *AdventurePlugin) autoHarvestRoom(
 				continue
 			}
 
-			if isRarePlus(rdef.Rarity) {
-				// Defer the decision to the player; don't consume the attempt.
-				res.RarePending = append(res.RarePending, rdef)
-				continue
-			}
-
-			// Grind this node until it's dry or until the per-node attempt
-			// cap fires. A failed roll re-rolls (mirrors a manual player
-			// pressing the harvest command again); only successful pulls
-			// decrement charges.
-			for attempt := 0; attempt < autoHarvestPerNodeAttempts && n.CurrentCharges > 0; attempt++ {
+			// Josie semantics: swing exactly once per remaining charge.
+			// Each swing consumes a charge regardless of outcome.
+			for n.CurrentCharges > 0 {
 				// Interrupt roll, same model as handleHarvestCmd.
 				interrupt, intTotal := resolveCombatInterrupt(
 					exp.ThreatLevel, int(zone.Tier), char.Class, exp.ZoneID, nil)
@@ -204,9 +176,10 @@ func (p *AdventurePlugin) autoHarvestRoom(
 					_ = grantHarvestYield(userID, rdef, grantedQty)
 					res.Summary.Yields[rdef.ID] += grantedQty
 					res.Summary.Names[rdef.ID] = rdef.Name
-					n.CurrentCharges--
-					persistNodes = true
 				}
+				// Charge is spent either way under Josie semantics.
+				n.CurrentCharges--
+				persistNodes = true
 
 				_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "harvest",
 					fmt.Sprintf("autopilot %s %s d20=%d total=%d dc=%d → %s",
@@ -243,7 +216,11 @@ func renderAutoHarvestFooter(s autoHarvestSummary) string {
 		parts = append(parts, fmt.Sprintf("+%d %s", s.Yields[k], s.Names[k]))
 	}
 	if s.Fails > 0 {
-		parts = append(parts, fmt.Sprintf("%d fail", s.Fails))
+		noun := "fail"
+		if s.Fails > 1 {
+			noun = "fails"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", s.Fails, noun))
 	}
 	if s.NoiseInts > 0 {
 		noun := "close call"
@@ -275,32 +252,4 @@ func renderWalkTally(yields map[string]int, names map[string]string) string {
 		b.WriteString(fmt.Sprintf("%d %s", yields[k], names[k]))
 	}
 	return b.String()
-}
-
-// renderRarePendingFooter announces which Rare+ nodes triggered the
-// autopilot pause. Used by the stop reason footer in expeditionCmdRun.
-func renderRarePendingFooter(pending []ZoneResource) string {
-	if len(pending) == 0 {
-		return ""
-	}
-	// De-dup by ID (a single resource can have multiple charges across
-	// nodes; we want one mention).
-	seen := map[string]bool{}
-	var names []string
-	for _, r := range pending {
-		if seen[r.ID] {
-			continue
-		}
-		seen[r.ID] = true
-		names = append(names, fmt.Sprintf("**%s** (%s)", r.Name, string(r.Rarity)))
-	}
-	sort.Strings(names)
-	verb := "is"
-	if len(names) > 1 {
-		verb = "are"
-	}
-	return fmt.Sprintf("⏸ **Autopilot paused — rare yield nearby.** %s %s sitting in this room. `!%s` to take the shot, or `!expedition run` to push past.",
-		strings.Join(names, ", "), verb,
-		// suggest the action of the first pending resource as a hint.
-		string(pending[0].Action))
 }

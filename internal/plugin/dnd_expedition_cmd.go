@@ -627,8 +627,9 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 
 		// Phase 2 — auto-harvest the room we just walked into. Aggregates
 		// into walkYields/walkNames; per-room footer goes straight into
-		// the stream. Rare+ nodes and combat interrupts hard-stop the
-		// walk with dedicated stop reasons.
+		// the stream. Combat interrupts hard-stop the walk with a
+		// dedicated stop reason; Josie semantics mean rarity no longer
+		// pauses the autopilot.
 		char, cerr := LoadDnDCharacter(ctx.Sender)
 		if cerr != nil || char == nil {
 			continue
@@ -663,15 +664,6 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 			reason = r
 			break
 		}
-		if len(hr.RarePending) > 0 {
-			finalMsg = renderRarePendingFooter(hr.RarePending)
-			if tally := renderWalkTally(walkYields, walkNames); tally != "" {
-				finalMsg += "\n\n" + tally
-			}
-			reason = stopRareNode
-			break
-		}
-
 		// Refresh exp once more — auto-harvest may have bumped threat
 		// via noise interrupts.
 		if fresh, ferr := getActiveExpedition(ctx.Sender); ferr == nil && fresh != nil {
@@ -738,8 +730,6 @@ func autopilotFooter(reason stopReason, rooms int) string {
 		return "" // run-complete block is the final; no footer
 	case stopBlocked:
 		return "" // "finish your fight first" is the final; no footer
-	case stopRareNode:
-		return "" // rare-pending footer is the final; no extra suffix
 	case stopHarvestCombat:
 		return fmt.Sprintf("⏸ **Autopilot paused — interrupted while gathering** (after %s). Reassess and `!expedition run` to continue.", roomsStr)
 	default: // stopOK — hit the room cap
