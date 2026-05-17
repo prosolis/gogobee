@@ -197,10 +197,18 @@ func (te *turnEngine) stepPlayerTurn(action PlayerAction) {
 		te.stepPlayerActionEffect(action.Effect)
 		return
 	}
-	// Default: weapon attack. resolvePlayerAttack returns true once the fight
-	// is decided — usually the enemy is down, but a retaliate aura can drop the
-	// player on their own swing, so disambiguate the outcome by HP.
-	if resolvePlayerAttack(te.st, te.player, te.enemy, &turnCombatPhase, te.result) {
+	// Default: weapon attack. resolvePlayerSwings rolls the base swing plus
+	// Mods.ExtraAttacks follow-ups (5e Extra Attack at Fighter L5/L11/L20,
+	// Ranger/Paladin L5, Bard College of Valor L7). One !attack press in the
+	// turn-based engine == one 5e Attack action == all swings in sequence.
+	// Before this, the turn path called single-swing resolvePlayerAttack and
+	// Extra Attack only fired in the auto-resolve SimulateCombat path; that
+	// left every elite/boss !fight at L11+ short two swings/turn, which the
+	// J1 boss-trace surfaced as Fighter's T3+ wall.
+	// Returns true once the fight is decided — usually the enemy is down,
+	// but a retaliate aura can drop the player on their own swing, so
+	// disambiguate the outcome by HP.
+	if resolvePlayerSwings(te.st, te.player, te.enemy, &turnCombatPhase, te.result) {
 		if te.st.playerHP <= 0 {
 			te.finish(CombatStatusLost)
 		} else {

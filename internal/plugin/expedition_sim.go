@@ -12,6 +12,7 @@ package plugin
 // real-time waits.
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -35,6 +36,11 @@ func NewSimRunner(dataDir string) (*SimRunner, error) {
 	if err := db.Init(dataDir); err != nil {
 		return nil, fmt.Errorf("db init: %w", err)
 	}
+	// Synthetic players don't type !arm between fights; flip on the
+	// in-combat auto-arm so Fighter Second Wind, Cleric Healing Word,
+	// etc. fire the way a competent prod player would set them up.
+	// Without this the sim under-counts class survival.
+	simAutoArmEnabled = true
 	euro := &EuroPlugin{}
 	p := &AdventurePlugin{euro: euro}
 	return &SimRunner{P: p, Euro: euro}, nil
@@ -73,6 +79,12 @@ func (s *SimRunner) BuildCharacter(uid id.UserID, class DnDClass, level int) (*D
 	c.ShortRestCharges = level
 	if err := SaveDnDCharacter(c); err != nil {
 		return nil, fmt.Errorf("SaveDnDCharacter: %w", err)
+	}
+	// Class resource pool (stamina/favor/focus/spell_slot). !setup writes
+	// this for prod players; the sim has to do it explicitly so Second
+	// Wind / Healing Word / etc. have a pool to draw from.
+	if err := initResources(uid, class); err != nil {
+		return nil, fmt.Errorf("initResources: %w", err)
 	}
 	if pool := slotsForClassLevel(class, level); len(pool) > 0 {
 		if err := setSpellSlotsForLevel(uid, class, level); err != nil {
@@ -231,7 +243,37 @@ type SimResult struct {
 	// adventure_inventory at end-of-run.
 	YieldCount    int
 	YieldsByName  map[string]int
-	Log           []SimLogEntry
+	// Combats holds a per-combat trace for every fight the synthetic
+	// player entered during the expedition (boss + elites + patrols).
+	// Used by post-hoc analysis to dig into class-survival walls
+	// without re-running the matrix. Populated from combat_sessions
+	// rows + their TurnLog at end-of-run.
+	Combats []SimCombatSummary
+	Log     []SimLogEntry
+}
+
+// SimCombatSummary is a compact per-fight trace: the entry stats, the
+// per-round damage dealt by each side, and the outcome. Lets J-phase
+// analysis ask "did Fighter L12 hit the manor boss often enough?"
+// without re-running the matrix.
+type SimCombatSummary struct {
+	SessionID    string
+	EncounterID  string
+	EnemyID      string
+	Status       string // active/won/lost/fled/expired
+	Rounds       int
+	PlayerHPMax  int
+	PlayerHPEnd  int
+	EnemyHPMax   int
+	EnemyHPEnd   int
+	PlayerDamage int // total damage dealt by player across the fight
+	EnemyDamage  int // total damage dealt by enemy across the fight
+	PlayerHits   int // d20 rolls by player that landed (>= enemy AC)
+	PlayerMisses int
+	EnemyHits    int
+	EnemyMisses  int
+	PlayerAC     int // inferred from RollAgainst on enemy attack events
+	EnemyAC      int // inferred from RollAgainst on player attack events
 }
 
 // SimLogEntry is a JSONL-friendly projection of one dnd_expedition_log
@@ -379,7 +421,75 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap int) (*S
 		}
 	}
 	res.YieldCount, res.YieldsByName = simMaterialYields(uid)
+	res.Combats = simCombatSummaries(uid)
 	return res, nil
+}
+
+// simCombatSummaries pulls every combat_sessions row for uid and folds
+// its TurnLog into a SimCombatSummary. AC values are inferred from the
+// RollAgainst column on attack events (the engine writes the defender's
+// AC there). Rows are ordered by started_at so the boss fight is last.
+func simCombatSummaries(uid id.UserID) []SimCombatSummary {
+	rows, err := db.Get().Query(`
+		SELECT session_id, encounter_id, enemy_id, status, round,
+		       player_hp, player_hp_max, enemy_hp, enemy_hp_max,
+		       turn_log_json
+		  FROM combat_session
+		 WHERE user_id = ?
+		 ORDER BY started_at ASC`, string(uid))
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []SimCombatSummary
+	for rows.Next() {
+		var s SimCombatSummary
+		var turnLogJSON string
+		if err := rows.Scan(
+			&s.SessionID, &s.EncounterID, &s.EnemyID, &s.Status, &s.Rounds,
+			&s.PlayerHPEnd, &s.PlayerHPMax, &s.EnemyHPEnd, &s.EnemyHPMax,
+			&turnLogJSON); err != nil {
+			continue
+		}
+		var events []CombatEvent
+		if turnLogJSON != "" {
+			_ = json.Unmarshal([]byte(turnLogJSON), &events)
+		}
+		for _, ev := range events {
+			switch ev.Actor {
+			case "player":
+				if ev.Roll > 0 {
+					if ev.Damage > 0 {
+						s.PlayerHits++
+					} else {
+						s.PlayerMisses++
+					}
+					if ev.RollAgainst > s.EnemyAC {
+						s.EnemyAC = ev.RollAgainst
+					}
+				}
+				if ev.Damage > 0 {
+					s.PlayerDamage += ev.Damage
+				}
+			case "enemy":
+				if ev.Roll > 0 {
+					if ev.Damage > 0 {
+						s.EnemyHits++
+					} else {
+						s.EnemyMisses++
+					}
+					if ev.RollAgainst > s.PlayerAC {
+						s.PlayerAC = ev.RollAgainst
+					}
+				}
+				if ev.Damage > 0 {
+					s.EnemyDamage += ev.Damage
+				}
+			}
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // simMaterialYields tallies the material rows the synthetic player
