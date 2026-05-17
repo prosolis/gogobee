@@ -60,6 +60,12 @@ func (s *SimRunner) BuildCharacter(uid id.UserID, class DnDClass, level int) (*D
 		Level:  level,
 	}
 	applyClassBaselineStats(c)
+	// Match prod char-creation: race mods on top of the class array.
+	// BuildCharacter has historically defaulted to Human (+1 to all);
+	// without this step the synthetic character ran a full point under
+	// every real player at the same level.
+	scores := applyRaceMods(c.Race, [6]int{c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA})
+	c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA = scores[0], scores[1], scores[2], scores[3], scores[4], scores[5]
 	conMod := abilityModifier(c.CON)
 	c.HPMax = computeMaxHP(c.Class, conMod, level)
 	c.HPCurrent = c.HPMax
@@ -73,7 +79,109 @@ func (s *SimRunner) BuildCharacter(uid id.UserID, class DnDClass, level int) (*D
 			return nil, fmt.Errorf("setSpellSlotsForLevel: %w", err)
 		}
 	}
+	if err := outfitSimCharacter(uid, level); err != nil {
+		return nil, fmt.Errorf("outfitSimCharacter: %w", err)
+	}
+	if err := stockSimConsumables(uid, level); err != nil {
+		return nil, fmt.Errorf("stockSimConsumables: %w", err)
+	}
 	return c, nil
+}
+
+// stockSimConsumables drops a small tier-appropriate bundle of potions
+// + a couple offensive items into the synthetic player's inventory so
+// SelectConsumables / setupAutoHealFromInventory have something to fire
+// during autoResolveCombat. Counts are deliberately modest — a real
+// L7+ player typically carries 3-6 heals plus a couple of buffs; we
+// mirror that band rather than max-stocking, which would mask class
+// power gaps.
+func stockSimConsumables(uid id.UserID, level int) error {
+	tier := simGearTierForLevel(level)
+	bundle := simConsumableBundle(tier)
+	for name, qty := range bundle {
+		def := consumableDefByName(name)
+		if def == nil {
+			continue
+		}
+		for i := 0; i < qty; i++ {
+			item := AdvItem{
+				Name:  def.Name,
+				Type:  "consumable",
+				Tier:  def.Tier,
+				Value: int64(def.Price),
+			}
+			if err := addAdvInventoryItem(uid, item); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// simConsumableBundle returns the name→qty bundle for a given gear tier.
+// Counts are deliberately lean — real players don't haul unlimited
+// potions, and over-stocking would mask class-power gaps by letting the
+// sim heal through any combat. The picker is heal-biased; the offensive
+// item gives one boost cycle, not a sustained buff. Inventory rows are
+// consumed in-combat by SelectConsumables, so a long expedition will
+// run dry on its own.
+func simConsumableBundle(tier int) map[string]int {
+	switch tier {
+	case 1:
+		return map[string]int{"Berry Poultice": 2}
+	case 2:
+		return map[string]int{"Herb Salve": 2, "Coal Bomb": 1}
+	case 3:
+		return map[string]int{"Herb Salve": 2, "Goblin Grease": 1}
+	case 4:
+		return map[string]int{"Spirit Tonic": 2, "Sapphire Elixir": 1}
+	default: // 5
+		return map[string]int{"Spirit Tonic": 3, "Ancient Artifact Oil": 1, "Voidstone Shard": 1}
+	}
+}
+
+// outfitSimCharacter promotes every adventure_equipment row for uid to
+// a tier matched to character level, with full condition. createAdvCharacter
+// seeds tier-0 ("Basic Ass Sword" etc) which leaves the sim character
+// effectively unarmed; without this step the synthetic player can't beat
+// anything above goblin_warrens regardless of stats.
+//
+// Tier mapping mirrors the zone-tier curve (L1-3 → T1, L4-6 → T2,
+// L7-9 → T3, L10-12 → T4, L13+ → T5). It's a "kitted-out at expected
+// difficulty" baseline, not a min-max — players past the appropriate
+// shop visit should be at or above this band.
+func outfitSimCharacter(uid id.UserID, level int) error {
+	tier := simGearTierForLevel(level)
+	equip, err := loadAdvEquipment(uid)
+	if err != nil {
+		return err
+	}
+	for slot, eq := range equip {
+		def := equipmentDefByTier(slot, tier)
+		eq.Tier = tier
+		eq.Condition = 100
+		eq.Name = def.Name
+		eq.ActionsUsed = 0
+		if err := saveAdvEquipment(uid, eq); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func simGearTierForLevel(level int) int {
+	switch {
+	case level >= 13:
+		return 5
+	case level >= 10:
+		return 4
+	case level >= 7:
+		return 3
+	case level >= 4:
+		return 2
+	default:
+		return 1
+	}
 }
 
 // applyClassBaselineStats sets ability scores that put each class in
@@ -116,7 +224,14 @@ type SimResult struct {
 	SUEnd     float32
 	DaysAtEnd int
 	Threat    int
-	Log       []SimLogEntry
+	// YieldCount is the total number of material rows the synthetic
+	// player banked across the expedition (one row per +1 of any
+	// resource). YieldsByName breaks that total down by resource name
+	// for tier/per-resource calibration. Both are read from
+	// adventure_inventory at end-of-run.
+	YieldCount    int
+	YieldsByName  map[string]int
+	Log           []SimLogEntry
 }
 
 // SimLogEntry is a JSONL-friendly projection of one dnd_expedition_log
@@ -263,7 +378,35 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap int) (*S
 			res.Log, _ = simLogEntries(past)
 		}
 	}
+	res.YieldCount, res.YieldsByName = simMaterialYields(uid)
 	return res, nil
+}
+
+// simMaterialYields tallies the material rows the synthetic player
+// banked in adventure_inventory. One row per +1, so the count is the
+// raw resource-unit total. Map breakdown is keyed by resource name.
+func simMaterialYields(uid id.UserID) (int, map[string]int) {
+	rows, err := db.Get().Query(`
+		SELECT name, COUNT(*)
+		  FROM adventure_inventory
+		 WHERE user_id = ? AND item_type = 'material'
+		 GROUP BY name`, string(uid))
+	if err != nil {
+		return 0, nil
+	}
+	defer rows.Close()
+	out := make(map[string]int)
+	total := 0
+	for rows.Next() {
+		var name string
+		var n int
+		if err := rows.Scan(&name, &n); err != nil {
+			return total, out
+		}
+		out[name] = n
+		total += n
+	}
+	return total, out
 }
 
 // autoResolveCombat dispatches !fight at the current elite/boss gate,
