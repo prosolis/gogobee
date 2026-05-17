@@ -106,6 +106,8 @@ The user-facing pitch: stop typing `!mine`/`!scavenge`/etc. The walk handles it.
 
 **⚠ Blocked on Phase J (below).** First hardened-sim sweep showed yield is gated by survival, not charge counts: Fighter/Mage TPK at T3+, no class extracts T5 boss. Tuning charges before fixing survival would over-tune against a strawman. Run J0–J3 first, then this phase.
 
+**Shipped 2026-05-17 (post-J).** Uncommon/Rare MaxCharges bumped 1 → 2 (53 resources). Yield deltas vs J2b baseline: −2.5% to +4.7% across the four cleared zones — within band but with much less leverage than expected. Full write-up in `sim_results/h4_findings.md`: the binding constraint on per-room yield is interrupt-truncation, not charge count. The Common consolation bracket (delta ≥ -4 yields +1) already absorbs most of the Josie nerf. Future yield-tuning effort should target `resolveCombatInterrupt` rates, not charges. H4 closes.
+
 ### H5 — Partial spell-slot refresh on short rest
 
 `internal/plugin/dnd_rest.go` + `internal/plugin/dnd_spells.go`
