@@ -375,7 +375,7 @@ func renderAdvMorningDM(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment,
 	sb.WriteString("**🗺️ Adventure** — head into a zone:\n")
 	sb.WriteString("• `!expedition` — overview & open expeditions\n")
 	sb.WriteString("• `!expedition start <zone>` — begin a new run\n")
-	sb.WriteString("• `!forage` · `!mine` · `!scavenge` · `!fish` · `!essence` · `!commune` — harvest in cleared rooms\n")
+	sb.WriteString("• Harvest is automatic — yields land as you walk through cleared rooms.\n")
 	sb.WriteString("\n")
 
 	sb.WriteString("**🏘️ In town:**\n")

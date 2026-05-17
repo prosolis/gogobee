@@ -163,12 +163,6 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "cast", Description: "Cast a spell (queues for next combat, or resolves now if out of combat)", Usage: "!cast <spell> [--upcast N] [--target @user]", Category: "Games"},
 		{Name: "spells", Description: "List your known spells, prepared spells, and remaining casts", Usage: "!spells [learn <spell>]", Category: "Games"},
 		{Name: "prepare", Description: "Cleric: prepare a spell for the day", Usage: "!prepare <spell> | !prepare clear <spell>", Category: "Games"},
-		{Name: "forage", Description: "Search your expedition region for plants, herbs, and tracks", Usage: "!forage", Category: "Games"},
-		{Name: "mine", Description: "Dig or salvage stone, ore, and scrap in your expedition region", Usage: "!mine", Category: "Games"},
-		{Name: "scavenge", Description: "Pick through your expedition region for left-behind valuables", Usage: "!scavenge", Category: "Games"},
-		{Name: "essence", Description: "Pull magical essence from your expedition region", Usage: "!essence", Category: "Games"},
-		{Name: "commune", Description: "Reach out to the spirits of your expedition region (Cleric specialty)", Usage: "!commune", Category: "Games"},
-		{Name: "fish", Description: "Fish in your expedition region (water zones only)", Usage: "!fish", Category: "Games"},
 		{Name: "resources", Description: "List what's harvestable in your current expedition region", Usage: "!resources", Category: "Games"},
 		{Name: "explore", Description: "Autopilot: walk through expedition rooms until something needs your attention (fork, elite/boss, low HP/supplies)", Usage: "!explore", Category: "Games"},
 		{Name: "sell", Description: "Sell your hauled materials, fish, and items to Thom Krooke after an expedition (a smooth pitch can land a better price)", Usage: "!sell [list|all|<item>]", Category: "Games"},
@@ -367,23 +361,13 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "explore") {
 		return p.expeditionCmdRun(ctx)
 	}
-	if p.IsCommand(ctx.Body, "forage") {
-		return p.handleHarvestCmd(ctx, HarvestForage)
-	}
-	if p.IsCommand(ctx.Body, "mine") {
-		return p.handleHarvestCmd(ctx, HarvestMine)
-	}
-	if p.IsCommand(ctx.Body, "scavenge") {
-		return p.handleHarvestCmd(ctx, HarvestScavenge)
-	}
-	if p.IsCommand(ctx.Body, "essence") {
-		return p.handleHarvestCmd(ctx, HarvestEssence)
-	}
-	if p.IsCommand(ctx.Body, "commune") {
-		return p.handleHarvestCmd(ctx, HarvestCommune)
-	}
-	if p.IsCommand(ctx.Body, "fish") {
-		return p.handleHarvestCmd(ctx, HarvestFish)
+	if p.IsCommand(ctx.Body, "forage") ||
+		p.IsCommand(ctx.Body, "mine") ||
+		p.IsCommand(ctx.Body, "scavenge") ||
+		p.IsCommand(ctx.Body, "essence") ||
+		p.IsCommand(ctx.Body, "commune") ||
+		p.IsCommand(ctx.Body, "fish") {
+		return p.SendDM(ctx.Sender, "Harvest is automatic now — just walk. (`!expedition run` or `!zone advance`)")
 	}
 	if p.IsCommand(ctx.Body, "resources") {
 		return p.handleResourcesCmd(ctx)
@@ -1015,7 +999,7 @@ func renderLegacyActivityDeprecation(char *AdventureCharacter) string {
 	sb.WriteString("Get started:\n")
 	sb.WriteString("• `!expedition` — overview & open expeditions\n")
 	sb.WriteString("• `!expedition start <zone>` — begin a new run\n")
-	sb.WriteString("• `!forage` · `!mine` · `!scavenge` · `!fish` · `!essence` · `!commune` — harvest in cleared rooms\n")
+	sb.WriteString("• Harvest is automatic — yields land as you walk through cleared rooms.\n")
 	sb.WriteString("• `!resources` — list nodes in your current room\n\n")
 	sb.WriteString("Shop, blacksmith, rest, and Thom Krooke are still here on `!adventure`.")
 	return sb.String()

@@ -728,7 +728,7 @@ func autopilotPreflight(userID id.UserID, exp *Expedition) (string, bool) {
 	}
 	if exp.Supplies.DailyBurn > 0 && exp.Supplies.Current < exp.Supplies.DailyBurn {
 		return fmt.Sprintf(
-			"⏸ **Autopilot paused — supplies low** (%.1f / %.1f SU, under one day). `!extract` to bail, `!forage`, or `!expedition run` to push on.",
+			"⏸ **Autopilot paused — supplies low** (%.1f / %.1f SU, under one day). `!extract` to bail or `!expedition run` to push on.",
 			exp.Supplies.Current, exp.Supplies.DailyBurn), true
 	}
 	return "", false

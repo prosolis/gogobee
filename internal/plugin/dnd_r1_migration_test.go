@@ -163,7 +163,7 @@ func TestIsLegacyActivityInput(t *testing.T) {
 // and the harvest entry-points so the user has somewhere to go.
 func TestRenderLegacyActivityDeprecation(t *testing.T) {
 	out := renderLegacyActivityDeprecation(nil)
-	for _, want := range []string{"expedition", "!forage", "!mine", "retired"} {
+	for _, want := range []string{"expedition", "Harvest is automatic", "retired"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("deprecation DM missing %q; got:\n%s", want, out)
 		}
