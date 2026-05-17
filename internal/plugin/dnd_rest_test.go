@@ -265,6 +265,65 @@ func TestShortRest_RefreshesPartialSlotsForMage(t *testing.T) {
 	}
 }
 
+// TestShortRest_FullHPCasterCanRefreshSlots covers the H5 follow-up: a
+// caster at full HP with spent slots must still be allowed to short rest
+// to recover them. Before the fix the HP-full guard short-circuited and
+// the slot refresh was unreachable.
+func TestShortRest_FullHPCasterCanRefreshSlots(t *testing.T) {
+	setupRestTestDB(t)
+	uid := id.UserID("@short_full_hp_mage:example")
+	c := makeRestTestMage(t, uid, 5)
+	c.HPCurrent = c.HPMax
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	pool := slotsForClassLevel(ClassMage, 5)
+	for lvl, total := range pool {
+		for i := 0; i < total; i++ {
+			consumeSpellSlot(uid, lvl)
+		}
+	}
+
+	p := &AdventurePlugin{}
+	if err := p.handleDnDShortRest(MessageContext{Sender: uid}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := LoadDnDCharacter(uid)
+	if got.HPCurrent != got.HPMax {
+		t.Errorf("HP changed despite full-HP entry: %d/%d", got.HPCurrent, got.HPMax)
+	}
+	if got.ShortRestCharges != c.ShortRestCharges-1 {
+		t.Errorf("charge not spent: %d → %d", c.ShortRestCharges, got.ShortRestCharges)
+	}
+	slots, _ := getSpellSlots(uid)
+	if used := slots[1][1]; used != 0 {
+		t.Errorf("L1 used after short rest = %d, want 0", used)
+	}
+}
+
+// TestShortRest_FullHPMartialBails confirms a non-caster at full HP is
+// still told to save the charge — the relaxed gate only opens for casters
+// who actually have refreshable slots.
+func TestShortRest_FullHPMartialBails(t *testing.T) {
+	setupRestTestDB(t)
+	uid := id.UserID("@short_full_hp_fighter:example")
+	makeRestTestChar(t, uid, 5)
+	c, _ := LoadDnDCharacter(uid)
+	c.HPCurrent = c.HPMax
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &AdventurePlugin{}
+	if err := p.handleDnDShortRest(MessageContext{Sender: uid}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := LoadDnDCharacter(uid)
+	if got.ShortRestCharges != c.ShortRestCharges {
+		t.Errorf("charge spent on no-op short rest: %d → %d", c.ShortRestCharges, got.ShortRestCharges)
+	}
+}
+
 func TestDndShortRestSlotLine(t *testing.T) {
 	if got := dndShortRestSlotLine(nil); got != "" {
 		t.Errorf("nil → %q, want empty", got)

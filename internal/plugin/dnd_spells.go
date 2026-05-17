@@ -543,6 +543,18 @@ func refundSpellSlot(userID id.UserID, slotLevel int) error {
 	return err
 }
 
+// casterHasUsedSlots reports whether any spell slot for userID has used>0.
+// Used by the short-rest gate so casters at full HP can still rest to
+// recover slots (partialRefreshSpellSlots is otherwise unreachable for
+// them).
+func casterHasUsedSlots(userID id.UserID) (bool, error) {
+	var n int
+	err := db.Get().QueryRow(
+		`SELECT COUNT(*) FROM dnd_spell_slots WHERE user_id = ? AND used > 0`,
+		string(userID)).Scan(&n)
+	return n > 0, err
+}
+
 // refreshSpellSlots resets used=0 across all of a player's slots. Called
 // on long rest.
 func refreshSpellSlots(userID id.UserID) error {

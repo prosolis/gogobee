@@ -81,24 +81,27 @@ func (p *AdventurePlugin) handleDnDShortRest(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender,
 			"You're out of short rest charges. Take a `!rest long` to restore them.")
 	}
-	if c.HPCurrent >= c.HPMax {
-		return p.SendDM(ctx.Sender, "You're already at full HP. Save the charge for when you need it.")
-	}
-
-	conMod := abilityModifier(c.CON)
-	healDie := 1 + rand.IntN(6) // 1d6
-	heal := healDie + conMod
-	if heal < 1 {
-		heal = 1
-	}
-	if c.Level >= 5 {
-		heal *= 2 // v1.0 §10.1: "x2 at levels 5+"
+	hpFull := c.HPCurrent >= c.HPMax
+	hasRefreshableSlots, _ := casterHasUsedSlots(ctx.Sender)
+	if hpFull && !hasRefreshableSlots {
+		return p.SendDM(ctx.Sender, "You're at full HP and your slots are full. Save the charge for when you need it.")
 	}
 
 	before := c.HPCurrent
-	c.HPCurrent += heal
-	if c.HPCurrent > c.HPMax {
-		c.HPCurrent = c.HPMax
+	if !hpFull {
+		conMod := abilityModifier(c.CON)
+		healDie := 1 + rand.IntN(6) // 1d6
+		heal := healDie + conMod
+		if heal < 1 {
+			heal = 1
+		}
+		if c.Level >= 5 {
+			heal *= 2 // v1.0 §10.1: "x2 at levels 5+"
+		}
+		c.HPCurrent += heal
+		if c.HPCurrent > c.HPMax {
+			c.HPCurrent = c.HPMax
+		}
 	}
 	c.ShortRestCharges--
 	now := time.Now().UTC()
@@ -112,9 +115,16 @@ func (p *AdventurePlugin) handleDnDShortRest(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Couldn't save rest state: "+err.Error())
 	}
 
-	msg := fmt.Sprintf(
-		"🛌 **Short rest.** You recover **%d HP** (%d→%d / %d).\n_Charges remaining: %d. You're resting — `!zone` and `!expedition` locked for 1 hour._",
-		c.HPCurrent-before, before, c.HPCurrent, c.HPMax, c.ShortRestCharges)
+	var msg string
+	if c.HPCurrent > before {
+		msg = fmt.Sprintf(
+			"🛌 **Short rest.** You recover **%d HP** (%d→%d / %d).\n_Charges remaining: %d. You're resting — `!zone` and `!expedition` locked for 1 hour._",
+			c.HPCurrent-before, before, c.HPCurrent, c.HPMax, c.ShortRestCharges)
+	} else {
+		msg = fmt.Sprintf(
+			"🛌 **Short rest.** You catch your breath — HP already full (%d/%d).\n_Charges remaining: %d. You're resting — `!zone` and `!expedition` locked for 1 hour._",
+			c.HPCurrent, c.HPMax, c.ShortRestCharges)
+	}
 	if slotLine := dndShortRestSlotLine(slotsRestored); slotLine != "" {
 		msg += "\n_" + slotLine + "_"
 	}
