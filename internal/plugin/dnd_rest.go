@@ -3,6 +3,7 @@ package plugin
 import (
 	"fmt"
 	"math/rand/v2"
+	"sort"
 	"strings"
 	"time"
 )
@@ -105,6 +106,8 @@ func (p *AdventurePlugin) handleDnDShortRest(ctx MessageContext) error {
 	lockoutEnd := now.Add(dndShortRestLockoutHours * time.Hour)
 	c.RestingUntil = &lockoutEnd
 
+	slotsRestored, _ := partialRefreshSpellSlots(ctx.Sender, c.Level)
+
 	if err := SaveDnDCharacter(c); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't save rest state: "+err.Error())
 	}
@@ -112,10 +115,32 @@ func (p *AdventurePlugin) handleDnDShortRest(ctx MessageContext) error {
 	msg := fmt.Sprintf(
 		"🛌 **Short rest.** You recover **%d HP** (%d→%d / %d).\n_Charges remaining: %d. You're resting — `!zone` and `!expedition` locked for 1 hour._",
 		c.HPCurrent-before, before, c.HPCurrent, c.HPMax, c.ShortRestCharges)
+	if slotLine := dndShortRestSlotLine(slotsRestored); slotLine != "" {
+		msg += "\n_" + slotLine + "_"
+	}
 	if line := dndRestShortFlavorLine(); line != "" {
 		msg += "\n\n_" + line + "_"
 	}
 	return p.SendDM(ctx.Sender, msg)
+}
+
+// dndShortRestSlotLine renders a "Spell slots restored: 2 (L1), 1 (L2)."
+// footer. Returns "" if nothing was restored, suppressing the line for
+// martials and casters already at full.
+func dndShortRestSlotLine(restored map[int]int) string {
+	if len(restored) == 0 {
+		return ""
+	}
+	levels := make([]int, 0, len(restored))
+	for lvl := range restored {
+		levels = append(levels, lvl)
+	}
+	sort.Ints(levels)
+	parts := make([]string, 0, len(levels))
+	for _, lvl := range levels {
+		parts = append(parts, fmt.Sprintf("%d (L%d)", restored[lvl], lvl))
+	}
+	return "Spell slots restored: " + strings.Join(parts, ", ") + "."
 }
 
 // ── Long rest ────────────────────────────────────────────────────────────────

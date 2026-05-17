@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -549,6 +550,61 @@ func refreshSpellSlots(userID id.UserID) error {
 		`UPDATE dnd_spell_slots SET used = 0 WHERE user_id = ?`,
 		string(userID))
 	return err
+}
+
+// partialRefreshSpellSlots restores spell slots on short rest. All L1 slots
+// come back, plus floor(charLevel/4) additional slots distributed
+// lowest-first across tiers ≥2. Returns slot_level→count restored so the
+// caller can render a footer.
+func partialRefreshSpellSlots(userID id.UserID, charLevel int) (map[int]int, error) {
+	slots, err := getSpellSlots(userID)
+	if err != nil {
+		return nil, err
+	}
+	restored := map[int]int{}
+	if pair, ok := slots[1]; ok && pair[1] > 0 {
+		if _, err := db.Get().Exec(
+			`UPDATE dnd_spell_slots SET used = 0 WHERE user_id = ? AND slot_level = 1`,
+			string(userID)); err != nil {
+			return nil, err
+		}
+		restored[1] = pair[1]
+	}
+	budget := charLevel / 4
+	if budget <= 0 {
+		if len(restored) == 0 {
+			return nil, nil
+		}
+		return restored, nil
+	}
+	levels := make([]int, 0, len(slots))
+	for lvl, pair := range slots {
+		if lvl >= 2 && pair[1] > 0 {
+			levels = append(levels, lvl)
+		}
+	}
+	sort.Ints(levels)
+	for _, lvl := range levels {
+		if budget <= 0 {
+			break
+		}
+		used := slots[lvl][1]
+		take := used
+		if take > budget {
+			take = budget
+		}
+		if _, err := db.Get().Exec(
+			`UPDATE dnd_spell_slots SET used = MAX(0, used - ?) WHERE user_id = ? AND slot_level = ?`,
+			take, string(userID), lvl); err != nil {
+			return restored, err
+		}
+		restored[lvl] = take
+		budget -= take
+	}
+	if len(restored) == 0 {
+		return nil, nil
+	}
+	return restored, nil
 }
 
 // ── Known spells ─────────────────────────────────────────────────────────────
