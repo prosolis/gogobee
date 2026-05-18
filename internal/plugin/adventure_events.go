@@ -53,6 +53,9 @@ func (p *AdventurePlugin) eventTicker() {
 			// Expire stale pending events every tick
 			expireAdvPendingEvents()
 
+			// Auto-play any combat sessions past their 1h timeout.
+			p.reapExpiredCombatSessions()
+
 			advEventScheduleMu.Lock()
 			if advEventScheduleDay != dateKey {
 				advEventSchedule = make(map[string]int)
@@ -114,6 +117,13 @@ func (p *AdventurePlugin) tryTriggerEvent(userID id.UserID) {
 	// Already has an active event?
 	active, _ := loadAdvActiveEvent(userID)
 	if active != nil {
+		return
+	}
+
+	// Mid-fight: a turn-based session locks the run. Don't drop a random
+	// overworld event into a live fight — the player can't act on it without
+	// finishing the fight first, and the trigger DM talks over the combat feed.
+	if hasActiveCombatSession(userID) {
 		return
 	}
 

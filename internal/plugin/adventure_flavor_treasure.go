@@ -353,13 +353,13 @@ var SummaryDungeonExceptional = []string{
 }
 
 var SummaryDungeonDeath = []string{
-	"Died in {location}. Back in {hours}h. The {location} remains standing.",
-	"{location}: death. Equipment damaged. Healthcare involved. {hours}h respawn.",
-	"Did not survive {location}. The {location} did. {hours}h recovery.",
-	"Killed in {location}. American healthcare has the rest. {hours}h.",
-	"{location} wins this round. {name} recovers in {hours}h.",
-	"Dead. {location}. {hours} hours. The equipment is worse.",
-	"{name} lost the argument with {location}. Healthcare is mediating. {hours}h.",
+	"Died in {location}. Back in {duration}. The {location} remains standing.",
+	"{location}: death. Equipment damaged. Healthcare involved. {duration} respawn.",
+	"Did not survive {location}. The {location} did. {duration} recovery.",
+	"Killed in {location}. American healthcare has the rest. {duration}.",
+	"{location} wins this round. {name} recovers in {duration}.",
+	"Dead. {location}. {duration}. The equipment is worse.",
+	"{name} lost the argument with {location}. Healthcare is mediating. {duration}.",
 }
 
 var SummaryDungeonEmpty = []string{
@@ -381,11 +381,11 @@ var SummaryMiningSuccess = []string{
 }
 
 var SummaryMiningDeath = []string{
-	"Cave-in. {location}. Healthcare called. {hours}h.",
-	"Died in {location}. Mining death. Rarer than dungeon death. Still death. {hours}h.",
-	"{location} expressed structural concerns physically. {name}: {hours}h recovery.",
-	"The {location} ceiling had a perspective. {name}: medical. {hours}h.",
-	"Dead in {location}. The ore is still in there. {hours}h.",
+	"Cave-in. {location}. Healthcare called. {duration}.",
+	"Died in {location}. Mining death. Rarer than dungeon death. Still death. {duration}.",
+	"{location} expressed structural concerns physically. {name}: {duration} recovery.",
+	"The {location} ceiling had a perspective. {name}: medical. {duration}.",
+	"Dead in {location}. The ore is still in there. {duration}.",
 }
 
 var SummaryMiningEmpty = []string{
@@ -412,10 +412,10 @@ var SummaryForagingEmpty = []string{
 }
 
 var SummaryForagingDeath = []string{
-	"Died foraging. In {location}. Yes, foraging. {hours}h.",
-	"{location} produced a fatal outcome via non-combat means. {hours}h.",
-	"Dead in {location}. Bear/hornets/river/tree/mushroom involvement. {hours}h.",
-	"Foraging death. {location}. The forest won. {hours}h.",
+	"Died foraging. In {location}. Yes, foraging. {duration}.",
+	"{location} produced a fatal outcome via non-combat means. {duration}.",
+	"Dead in {location}. Bear/hornets/river/tree/mushroom involvement. {duration}.",
+	"Foraging death. {location}. The forest won. {duration}.",
 }
 
 var SummaryForagingHornets = []string{
@@ -442,7 +442,7 @@ var SummaryResting = []string{
 	"Resting today. XP: zero. Loot: zero. Alive: yes.",
 	"No action. Hovel. Wall. Nothing. Home.",
 	"Sat this one out. The dungeons noticed. The dungeons don't care.",
-	"Rest day. TwinBee noticed.",
+	"Rest day. I noticed.",
 }
 
 var SummaryDead = []string{
@@ -468,7 +468,7 @@ var SummaryStandoutDeath = []string{
 	"💀 {name} lost to {location}. The rats/goblins/trolls send their regards.",
 	"💀 Notable loss: {name} in {location}. Healthcare is familiar with the file.",
 	"💀 {name} did not survive {location} today. A learning experience. Expensive.",
-	"💀 {location} claimed {name}. {hours}h recovery. The dungeon has been noted.",
+	"💀 {location} claimed {name}. {duration} recovery. The dungeon has been noted.",
 }
 
 var SummaryStandoutTreasure = []string{
@@ -487,8 +487,8 @@ var SummaryStandoutHornets = []string{
 var TwinBeeSummarySuccess = []string{
 	"Visited {location}. Retrieved {loot} worth €{value}. Returned in excellent condition.",
 	"{location}: success. {loot} recovered at €{value}. Standard operation.",
-	"Cleared {location}. {loot}, €{value}. TwinBee has reported this as typical.",
-	"{loot} worth €{value} from {location}. TwinBee is unsurprised.",
+	"Cleared {location}. {loot}, €{value}. I have reported this as typical.",
+	"{loot} worth €{value} from {location}. I am unsurprised.",
 	"Professional operation in {location}. {loot}, €{value}. No further comment.",
 }
 
@@ -497,11 +497,11 @@ var TwinBeeSummaryWithdrawal = []string{
 	"{location}: early departure. Strategic positioning. Returns tomorrow.",
 	"Reconnaissance of {location} complete. Phase Two: tomorrow.",
 	"Withdrew from {location} on schedule. The schedule has been updated.",
-	"{location} assessed. TwinBee returns tomorrow. The {location} has been warned.",
+	"{location} assessed. I return tomorrow. The {location} has been warned.",
 }
 
 var TwinBeeSummaryEmpty = []string{
-	"Visited {location}. Nothing there today. TwinBee notes this for the record.",
-	"{location}: empty. The dungeon has failed to provide. TwinBee has noted it.",
-	"Nothing found in {location}. TwinBee is filing feedback with the dungeon.",
+	"Visited {location}. Nothing there today. I note this for the record.",
+	"{location}: empty. The dungeon has failed to provide. I have noted it.",
+	"Nothing found in {location}. I am filing feedback with the dungeon.",
 }

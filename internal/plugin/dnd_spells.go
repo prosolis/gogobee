@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -57,7 +58,7 @@ const (
 type SpellDefinition struct {
 	ID            string
 	Name          string
-	Level         int      // 0 = cantrip
+	Level         int // 0 = cantrip
 	School        string
 	Classes       []DnDClass
 	Effect        SpellEffectKind
@@ -83,13 +84,51 @@ type SpellDefinition struct {
 
 // ── Registry ─────────────────────────────────────────────────────────────────
 
+// dndSpellRegistry merges the vendored Open5e SRD dump with the hand-authored
+// spell list. SRD loads first as the broad baseline; buildSpellList() overlays
+// it and wins on any ID collision — the hand-authored entries carry the tuned
+// Effect/DamageDice/Upcast values, the SRD entry is the fallback shape.
+//
+// One special-case on collision: the Classes slice is *unioned* across both
+// sources rather than replaced. The hand-authored tables were written before
+// the Open5e caster scaffolds (Druid/Bard/Sorcerer/Warlock/Paladin) landed,
+// so most entries are tagged Mage-only; the SRD knows the broader 5e class
+// list. Unioning means a Sorcerer can actually cast a `magic_missile` they
+// were auto-granted, without us having to hand-fix every overlay entry.
 var dndSpellRegistry = func() map[string]SpellDefinition {
-	out := make(map[string]SpellDefinition, 80)
+	out := make(map[string]SpellDefinition, 320)
+	for _, s := range buildSRDSpellList() {
+		out[s.ID] = s
+	}
 	for _, s := range buildSpellList() {
+		if prev, ok := out[s.ID]; ok {
+			s.Classes = mergeClassList(prev.Classes, s.Classes)
+		}
 		out[s.ID] = s
 	}
 	return out
 }()
+
+// mergeClassList returns the union of two class slices, preserving the order
+// of the first (SRD baseline) and appending any classes only in the second.
+// Order-stability matters for any callers that iterate Classes deterministically.
+func mergeClassList(a, b []DnDClass) []DnDClass {
+	seen := make(map[DnDClass]bool, len(a)+len(b))
+	out := make([]DnDClass, 0, len(a)+len(b))
+	for _, c := range a {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	for _, c := range b {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 func lookupSpell(id string) (SpellDefinition, bool) {
 	s, ok := dndSpellRegistry[strings.ToLower(strings.TrimSpace(id))]
@@ -138,12 +177,16 @@ func slotsForClassLevel(class DnDClass, level int) map[int]int {
 		return nil
 	}
 	switch class {
-	case ClassMage:
-		return mageSlots(level)
+	case ClassMage, ClassDruid, ClassBard, ClassSorcerer:
+		// All 5e full casters share one slot progression.
+		return fullCasterSlots(level)
 	case ClassCleric:
 		return clericSlots(level)
-	case ClassRanger:
+	case ClassRanger, ClassPaladin:
+		// Half-casters share the Ranger progression: no slots until L2.
 		return rangerSlots(level)
+	case ClassWarlock:
+		return warlockSlots(level)
 	}
 	return nil
 }
@@ -191,8 +234,10 @@ func slotsForCharacter(c *DnDCharacter) map[int]int {
 
 // Tables transcribed from gogobee_spell_system.md §1. We interpolate
 // between the doc's milestone rows so every level 1..20 has a defined pool.
-func mageSlots(level int) map[int]int {
-	// Standard 5e full caster table (mage = wizard).
+// fullCasterSlots is the standard 5e full-caster slot progression, shared by
+// Mage, Druid, Bard and Sorcerer. (Was mageSlots — generalized when the
+// Open5e caster classes landed; output is byte-identical for Mage.)
+func fullCasterSlots(level int) map[int]int {
 	rows := [][6]int{
 		// L1, L2, L3, L4, L5
 		{2, 0, 0, 0, 0}, // 1
@@ -284,6 +329,41 @@ func rangerSlots(level int) map[int]int {
 	return packSlots(r[0], r[1], r[2], r[3], r[4])
 }
 
+// warlockSlots — simplified pool. Real 5e Pact Magic gives a tiny number of
+// slots that all sit at the highest level and recharge on a short rest; we
+// deliberately don't model that (see the Open5e class-scaffold decision —
+// "simplified pool, long-rest reset like everyone else"). Instead the Warlock
+// gets a modest long-rest pool that tops out at 4th-level slots.
+func warlockSlots(level int) map[int]int {
+	rows := [][6]int{
+		{1, 0, 0, 0, 0}, // 1
+		{2, 0, 0, 0, 0}, // 2
+		{2, 2, 0, 0, 0}, // 3
+		{2, 2, 0, 0, 0}, // 4
+		{2, 2, 2, 0, 0}, // 5
+		{2, 2, 2, 0, 0}, // 6
+		{2, 2, 2, 1, 0}, // 7
+		{2, 2, 2, 1, 0}, // 8
+		{2, 2, 2, 2, 0}, // 9
+		{2, 2, 2, 2, 0}, // 10
+		{3, 2, 2, 2, 0}, // 11
+		{3, 2, 2, 2, 0}, // 12
+		{3, 3, 2, 2, 0}, // 13
+		{3, 3, 2, 2, 0}, // 14
+		{3, 3, 3, 2, 0}, // 15
+		{3, 3, 3, 2, 0}, // 16
+		{4, 3, 3, 2, 0}, // 17
+		{4, 3, 3, 2, 0}, // 18
+		{4, 3, 3, 3, 0}, // 19
+		{4, 3, 3, 3, 0}, // 20
+	}
+	if level > len(rows) {
+		level = len(rows)
+	}
+	r := rows[level-1]
+	return packSlots(r[0], r[1], r[2], r[3], r[4])
+}
+
 func packSlots(l1, l2, l3, l4, l5 int) map[int]int {
 	out := map[int]int{}
 	for i, n := range []int{l1, l2, l3, l4, l5} {
@@ -304,8 +384,10 @@ func spellcastingMod(c *DnDCharacter) int {
 	switch c.Class {
 	case ClassMage:
 		return abilityModifier(c.INT)
-	case ClassCleric, ClassRanger:
+	case ClassCleric, ClassRanger, ClassDruid:
 		return abilityModifier(c.WIS)
+	case ClassBard, ClassSorcerer, ClassWarlock, ClassPaladin:
+		return abilityModifier(c.CHA)
 	case ClassRogue:
 		// Phase 10 SUB2-AT: Arcane Trickster is INT-based.
 		if c.Subclass == SubclassArcaneTrickster {
@@ -334,10 +416,14 @@ func spellAttackBonus(c *DnDCharacter) int {
 	return proficiencyBonus(c.Level) + spellcastingMod(c)
 }
 
-// classIsCaster returns true for the three caster classes Phase 9 covers.
+// classIsCaster returns true for every spellcasting class. The Open5e
+// scaffold classes (Druid/Bard/Sorcerer/Warlock/Paladin) are casters by the
+// engine's reckoning even while Playable=false — they have slot tables and a
+// spellcasting ability; they just have no spell list to know yet.
 func classIsCaster(class DnDClass) bool {
 	switch class {
-	case ClassMage, ClassCleric, ClassRanger:
+	case ClassMage, ClassCleric, ClassRanger,
+		ClassDruid, ClassBard, ClassSorcerer, ClassWarlock, ClassPaladin:
 		return true
 	}
 	return false
@@ -457,6 +543,18 @@ func refundSpellSlot(userID id.UserID, slotLevel int) error {
 	return err
 }
 
+// casterHasUsedSlots reports whether any spell slot for userID has used>0.
+// Used by the short-rest gate so casters at full HP can still rest to
+// recover slots (partialRefreshSpellSlots is otherwise unreachable for
+// them).
+func casterHasUsedSlots(userID id.UserID) (bool, error) {
+	var n int
+	err := db.Get().QueryRow(
+		`SELECT COUNT(*) FROM dnd_spell_slots WHERE user_id = ? AND used > 0`,
+		string(userID)).Scan(&n)
+	return n > 0, err
+}
+
 // refreshSpellSlots resets used=0 across all of a player's slots. Called
 // on long rest.
 func refreshSpellSlots(userID id.UserID) error {
@@ -464,6 +562,61 @@ func refreshSpellSlots(userID id.UserID) error {
 		`UPDATE dnd_spell_slots SET used = 0 WHERE user_id = ?`,
 		string(userID))
 	return err
+}
+
+// partialRefreshSpellSlots restores spell slots on short rest. All L1 slots
+// come back, plus floor(charLevel/4) additional slots distributed
+// lowest-first across tiers ≥2. Returns slot_level→count restored so the
+// caller can render a footer.
+func partialRefreshSpellSlots(userID id.UserID, charLevel int) (map[int]int, error) {
+	slots, err := getSpellSlots(userID)
+	if err != nil {
+		return nil, err
+	}
+	restored := map[int]int{}
+	if pair, ok := slots[1]; ok && pair[1] > 0 {
+		if _, err := db.Get().Exec(
+			`UPDATE dnd_spell_slots SET used = 0 WHERE user_id = ? AND slot_level = 1`,
+			string(userID)); err != nil {
+			return nil, err
+		}
+		restored[1] = pair[1]
+	}
+	budget := charLevel / 4
+	if budget <= 0 {
+		if len(restored) == 0 {
+			return nil, nil
+		}
+		return restored, nil
+	}
+	levels := make([]int, 0, len(slots))
+	for lvl, pair := range slots {
+		if lvl >= 2 && pair[1] > 0 {
+			levels = append(levels, lvl)
+		}
+	}
+	sort.Ints(levels)
+	for _, lvl := range levels {
+		if budget <= 0 {
+			break
+		}
+		used := slots[lvl][1]
+		take := used
+		if take > budget {
+			take = budget
+		}
+		if _, err := db.Get().Exec(
+			`UPDATE dnd_spell_slots SET used = MAX(0, used - ?) WHERE user_id = ? AND slot_level = ?`,
+			take, string(userID), lvl); err != nil {
+			return restored, err
+		}
+		restored[lvl] = take
+		budget -= take
+	}
+	if len(restored) == 0 {
+		return nil, nil
+	}
+	return restored, nil
 }
 
 // ── Known spells ─────────────────────────────────────────────────────────────
@@ -644,13 +797,17 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 	case ClassMage:
 		out := []string{"fire_bolt", "minor_illusion", "mending"}
 		if level >= 1 {
-			out = append(out, "magic_missile", "mage_armor", "shield", "burning_hands", "detect_magic")
+			// No `shield` here — it's a reaction (EffectReaction) and combat
+			// has no reaction window yet, so an auto-granted shield is just
+			// a dead entry in the player's spellbook. Reinstated when SP-Reactions ships.
+			out = append(out, "magic_missile", "mage_armor", "burning_hands", "detect_magic", "sleep")
 		}
 		if maxSlot >= 2 {
 			out = append(out, "scorching_ray", "misty_step", "mirror_image")
 		}
 		if maxSlot >= 3 {
-			out = append(out, "fireball", "counterspell")
+			// `counterspell` deferred for the same reason as `shield`.
+			out = append(out, "fireball", "fly")
 		}
 		if maxSlot >= 4 {
 			out = append(out, "ice_storm", "greater_invisibility")
@@ -662,7 +819,7 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 	case ClassCleric:
 		out := []string{"sacred_flame", "guidance", "mending"}
 		if level >= 1 {
-			out = append(out, "cure_wounds", "healing_word_spell", "bless", "guiding_bolt", "shield_of_faith")
+			out = append(out, "cure_wounds", "healing_word", "bless", "guiding_bolt", "shield_of_faith")
 		}
 		if maxSlot >= 2 {
 			out = append(out, "spiritual_weapon", "lesser_restoration", "aid")
@@ -689,6 +846,106 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 		}
 		if maxSlot >= 3 {
 			out = append(out, "lightning_arrow", "conjure_barrage")
+		}
+		return out
+
+	// ── Open5e caster scaffold classes ───────────────────────────────────
+	// Picks are SRD spell IDs (dnd_spells_srd_data.go); a handful resolve to
+	// the hand-authored overlay on ID collision, which is fine. Each list
+	// gives the class a damage option, control, and a heal/buff where the
+	// class fantasy expects one.
+	case ClassDruid:
+		// `shillelagh` deferred — the overlay flags it ranger/cleric only and
+		// it has no real attack profile in the engine yet (BuffSelf, no damage
+		// dice). Reinstated when weapon-bonus casts wire up.
+		out := []string{"produce_flame", "guidance", "mending"}
+		if level >= 1 {
+			out = append(out, "cure_wounds", "healing_word", "faerie_fire", "thunderwave", "entangle")
+		}
+		if maxSlot >= 2 {
+			out = append(out, "flaming_sphere", "heat_metal", "hold_person", "lesser_restoration")
+		}
+		if maxSlot >= 3 {
+			out = append(out, "call_lightning", "conjure_animals", "dispel_magic")
+		}
+		if maxSlot >= 4 {
+			out = append(out, "ice_storm", "polymorph")
+		}
+		if maxSlot >= 5 {
+			out = append(out, "insect_plague", "mass_cure_wounds")
+		}
+		return out
+	case ClassBard:
+		out := []string{"vicious_mockery", "minor_illusion", "message"}
+		if level >= 1 {
+			out = append(out, "cure_wounds", "healing_word", "heroism", "hideous_laughter", "faerie_fire")
+		}
+		if maxSlot >= 2 {
+			out = append(out, "hold_person", "shatter", "invisibility", "lesser_restoration")
+		}
+		if maxSlot >= 3 {
+			out = append(out, "hypnotic_pattern", "dispel_magic", "fear")
+		}
+		if maxSlot >= 4 {
+			out = append(out, "greater_invisibility", "polymorph")
+		}
+		if maxSlot >= 5 {
+			out = append(out, "hold_monster", "mass_cure_wounds")
+		}
+		return out
+	case ClassSorcerer:
+		out := []string{"fire_bolt", "ray_of_frost", "shocking_grasp", "mending"}
+		if level >= 1 {
+			// `shield` skipped — reaction spell, no usable window in current combat.
+			out = append(out, "magic_missile", "burning_hands", "mage_armor", "thunderwave", "sleep")
+		}
+		if maxSlot >= 2 {
+			out = append(out, "scorching_ray", "mirror_image", "misty_step", "hold_person")
+		}
+		if maxSlot >= 3 {
+			// `counterspell` skipped — reaction.
+			out = append(out, "fireball", "lightning_bolt", "haste", "fly")
+		}
+		if maxSlot >= 4 {
+			out = append(out, "ice_storm", "greater_invisibility")
+		}
+		if maxSlot >= 5 {
+			out = append(out, "cone_of_cold", "hold_monster")
+		}
+		return out
+	case ClassWarlock:
+		out := []string{"eldritch_blast", "chill_touch", "minor_illusion"}
+		if level >= 1 {
+			// `hellish_rebuke` skipped — reaction spell, no usable window
+			// in current combat. Substituting `burning_hands` as the L1
+			// damage staple (SRD: Mage/Cleric/Sorcerer/Warlock).
+			out = append(out, "burning_hands", "command", "charm_person", "hideous_laughter")
+		}
+		if maxSlot >= 2 {
+			out = append(out, "scorching_ray", "misty_step", "hold_person", "invisibility")
+		}
+		if maxSlot >= 3 {
+			// `counterspell` skipped — reaction.
+			out = append(out, "fly", "vampiric_touch", "hypnotic_pattern")
+		}
+		if maxSlot >= 4 {
+			out = append(out, "banishment", "greater_invisibility")
+		}
+		if maxSlot >= 5 {
+			out = append(out, "hold_monster", "scrying")
+		}
+		return out
+	case ClassPaladin:
+		// Half-caster — no cantrips, no spells until level 2.
+		if level < 2 {
+			return nil
+		}
+		out := []string{"bless", "cure_wounds", "divine_favor", "shield_of_faith", "command"}
+		if maxSlot >= 2 {
+			out = append(out, "aid", "find_steed", "magic_weapon", "lesser_restoration")
+		}
+		if maxSlot >= 3 {
+			out = append(out, "revivify", "dispel_magic", "haste")
 		}
 		return out
 	}
@@ -763,9 +1020,19 @@ func renderSlotLine(slots map[int][2]int) string {
 	}
 	var parts []string
 	for lvl := 1; lvl <= 5; lvl++ {
-		if pair, ok := slots[lvl]; ok {
-			parts = append(parts, fmt.Sprintf("L%d %d/%d", lvl, pair[0]-pair[1], pair[0]))
+		pair, ok := slots[lvl]
+		if !ok {
+			continue
 		}
+		total := pair[0]
+		left := pair[0] - pair[1]
+		if left < 0 {
+			left = 0
+		}
+		// Filled bullets = still available, hollow = spent. Player-friendly
+		// at a glance; no fractions, no "L1" jargon.
+		bullets := strings.Repeat("●", left) + strings.Repeat("○", total-left)
+		parts = append(parts, fmt.Sprintf("Level %d %s", lvl, bullets))
 	}
 	return strings.Join(parts, " · ")
 }

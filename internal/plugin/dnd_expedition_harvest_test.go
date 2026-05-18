@@ -229,19 +229,40 @@ func TestPickAvailableNode_SkipsRequiresKill(t *testing.T) {
 func TestCurrentRoomCleared_EntryAutoPasses(t *testing.T) {
 	run := &DungeonRun{
 		CurrentRoom:  0,
-		RoomSeq:      []RoomType{RoomEntry, RoomExploration, RoomBoss},
+		RoomSeq:      []RoomType{RoomEntry, RoomExploration, RoomTrap, RoomElite, RoomBoss},
 		RoomsCleared: []int{},
 	}
 	if !currentRoomCleared(run) {
 		t.Error("entry room should auto-clear")
 	}
+	// Exploration always allowed — interrupt roll handles risk.
 	run.CurrentRoom = 1
-	if currentRoomCleared(run) {
-		t.Error("non-cleared exploration room should not be cleared")
-	}
-	run.RoomsCleared = []int{1}
 	if !currentRoomCleared(run) {
-		t.Error("room in RoomsCleared should report cleared")
+		t.Error("exploration room should always allow harvest")
+	}
+	// Trap always allowed.
+	run.CurrentRoom = 2
+	if !currentRoomCleared(run) {
+		t.Error("trap room should always allow harvest")
+	}
+	// Elite gated until in RoomsCleared.
+	run.CurrentRoom = 3
+	if currentRoomCleared(run) {
+		t.Error("uncleared elite room should block harvest")
+	}
+	run.RoomsCleared = []int{3}
+	if !currentRoomCleared(run) {
+		t.Error("elite room in RoomsCleared should report cleared")
+	}
+	// Boss gated until in RoomsCleared.
+	run.CurrentRoom = 4
+	run.RoomsCleared = []int{3}
+	if currentRoomCleared(run) {
+		t.Error("uncleared boss room should block harvest")
+	}
+	run.RoomsCleared = []int{3, 4}
+	if !currentRoomCleared(run) {
+		t.Error("boss room in RoomsCleared should report cleared")
 	}
 }
 

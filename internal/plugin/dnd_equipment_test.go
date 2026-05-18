@@ -80,7 +80,7 @@ func TestDnDSlotOrderComplete(t *testing.T) {
 		seen[s] = true
 	}
 	expected := []DnDSlot{
-		DnDSlotHead, DnDSlotChest, DnDSlotLegs, DnDSlotHands, DnDSlotFeet,
+		DnDSlotHead, DnDSlotChest, DnDSlotCloak, DnDSlotLegs, DnDSlotHands, DnDSlotFeet,
 		DnDSlotMainHand, DnDSlotOffHand,
 		DnDSlotRing1, DnDSlotRing2, DnDSlotAmulet,
 	}

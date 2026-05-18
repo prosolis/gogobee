@@ -24,11 +24,17 @@ const (
 	DnDSlotRing1    DnDSlot = "ring_1"
 	DnDSlotRing2    DnDSlot = "ring_2"
 	DnDSlotAmulet   DnDSlot = "amulet"
+	// DnDSlotCloak is a magic-item-only slot. Cloaks/capes/mantles drape over
+	// chest armor in 5e fiction, so giving them their own slot lets a player
+	// wear a Cloak of Protection on top of a Mithral Plate without one
+	// silently evicting the other. The legacy equipment mapper never targets
+	// this slot — only magic_items_srd_data.go writes to it.
+	DnDSlotCloak DnDSlot = "cloak"
 )
 
 // dndSlotOrder controls display order for !sheet.
 var dndSlotOrder = []DnDSlot{
-	DnDSlotHead, DnDSlotChest, DnDSlotLegs, DnDSlotHands, DnDSlotFeet,
+	DnDSlotHead, DnDSlotChest, DnDSlotCloak, DnDSlotLegs, DnDSlotHands, DnDSlotFeet,
 	DnDSlotMainHand, DnDSlotOffHand,
 	DnDSlotRing1, DnDSlotRing2, DnDSlotAmulet,
 }
@@ -78,7 +84,7 @@ func rarityIcon(r DnDRarity) string {
 		return "🟩"
 	case RarityRare:
 		return "🟦"
-	case RarityEpic:
+	case RarityEpic, RarityVeryRare:
 		return "🟪"
 	case RarityLegendary:
 		return "🟧"

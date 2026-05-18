@@ -58,8 +58,9 @@ func TestRegionTravel_AdvancesDayBurnsSuppliesAndUpdatesRegion(t *testing.T) {
 
 	// Mimic regionCmdTravel core: burn one day, advance, mark visited.
 	newSupplies, burned := applyDailyBurn(exp.Supplies, false, false)
-	if burned != 2 {
-		t.Errorf("burned = %v, want 2", burned)
+	// Phase 5-B: applyDailyBurn × phase5B 50%; 2 base × 0.5 = 1.
+	if burned != 1 {
+		t.Errorf("burned = %v, want 1", burned)
 	}
 	exp.Supplies = newSupplies
 	if err := updateSupplies(exp.ID, exp.Supplies); err != nil {
@@ -79,8 +80,8 @@ func TestRegionTravel_AdvancesDayBurnsSuppliesAndUpdatesRegion(t *testing.T) {
 	if loaded.CurrentDay != startDay+1 {
 		t.Errorf("day did not advance: %d → %d", startDay, loaded.CurrentDay)
 	}
-	if loaded.Supplies.Current != startSupplies-2 {
-		t.Errorf("supplies after burn = %v, want %v", loaded.Supplies.Current, startSupplies-2)
+	if loaded.Supplies.Current != startSupplies-1 {
+		t.Errorf("supplies after burn = %v, want %v", loaded.Supplies.Current, startSupplies-1)
 	}
 	if loaded.CurrentRegion != "underdark_drow_outpost" {
 		t.Errorf("CurrentRegion = %q", loaded.CurrentRegion)

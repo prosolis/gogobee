@@ -2,31 +2,34 @@ package plugin
 
 import (
 	"log/slog"
-	"math"
 	"time"
 
 	"gogobee/internal/db"
 	"maunium.net/go/mautrix/id"
 )
 
-// Phase 2 — D&D combat layer hookup.
+// D&D combat layer.
 //
-// Phase 2 strategy: keep legacy HP/damage/dodge-rate scaling intact. The D&D
-// layer adds AC + d20-vs-AC hit resolution on top. This preserves the
-// existing balance while making combat read as D&D for opted-in players.
-//
-// HP rescaling and condition-system overhaul are deferred to later phases.
+// applyDnDPlayerLayer reseats stats.MaxHP onto the dnd_character HP scale
+// (c.HPMax + the gear/arena/housing bonus DerivePlayerStats captured in
+// HPBonus). Wound carry-over via applyDnDHPScaling is a direct integer
+// copy — there is no longer a percentage bridge between scales.
 
 // ── Tunable constants ────────────────────────────────────────────────────────
 
 // Class-derived "weapon proficiency" bonus baked into AttackBonus.
 // Fighter is a martial class; Mage uses spell-attack baseline.
 var dndClassWeaponBonus = map[DnDClass]int{
-	ClassFighter: 2,
-	ClassRanger:  1,
-	ClassRogue:   1,
-	ClassCleric:  0,
-	ClassMage:    0,
+	ClassFighter:  2,
+	ClassPaladin:  2,
+	ClassRanger:   1,
+	ClassRogue:    1,
+	ClassDruid:    1,
+	ClassBard:     1,
+	ClassCleric:   0,
+	ClassMage:     0,
+	ClassSorcerer: 0,
+	ClassWarlock:  0,
 }
 
 // Monster AC formulas. Tuned so a typical L1 player (+5 attack bonus) hits
@@ -63,14 +66,16 @@ func proficiencyBonus(level int) int {
 // uses INT (spell attack), Cleric uses WIS.
 func classAttackStatMod(c *DnDCharacter) int {
 	switch c.Class {
-	case ClassFighter:
+	case ClassFighter, ClassPaladin:
 		return abilityModifier(c.STR)
 	case ClassRogue, ClassRanger:
 		return abilityModifier(c.DEX)
 	case ClassMage:
 		return abilityModifier(c.INT)
-	case ClassCleric:
+	case ClassCleric, ClassDruid:
 		return abilityModifier(c.WIS)
+	case ClassBard, ClassSorcerer, ClassWarlock:
+		return abilityModifier(c.CHA)
 	}
 	return abilityModifier(c.STR)
 }
@@ -80,12 +85,15 @@ func dndPlayerAttackBonus(c *DnDCharacter) int {
 	return classAttackStatMod(c) + proficiencyBonus(c.Level) + dndClassWeaponBonus[c.Class]
 }
 
-// applyDnDPlayerLayer sets AC and AttackBonus on a stat block from the
-// player's D&D character. Called after DerivePlayerStats has populated
-// HP/Attack/Defense/etc. Phase 8: also wires equipped weapon/armor profiles
-// into CombatStats so the d20 attack path uses real weapon dice and AC
-// computation per gogobee_equipment_appendix.md.
+// applyDnDPlayerLayer sets HP/AC/AttackBonus on a stat block from the
+// player's D&D character. Combat MaxHP is the sheet HPMax plus the
+// equipment/arena/housing bonus DerivePlayerStats accumulated into
+// stats.HPBonus — so dnd_character.hp_current can be the single source of
+// truth for wounds while gear keeps adding flat HP to the fight.
+//
+// Phase 8 wires equipped weapon/armor profiles in via applyDnDEquipmentLayer.
 func applyDnDPlayerLayer(stats *CombatStats, c *DnDCharacter) {
+	stats.MaxHP = c.HPMax + stats.HPBonus
 	stats.AC = c.ArmorClass
 	stats.AttackBonus = dndPlayerAttackBonus(c)
 }
@@ -137,6 +145,46 @@ func applyDnDEquipmentLayer(stats *CombatStats, c *DnDCharacter, equip map[Equip
 	if armor != nil || shield != nil {
 		stats.AC = computeArmorAC(armor, shield, dexMod)
 	}
+
+	// Phase 5-B player power floor — see applyPhase5BPlayerFloor doc.
+	// Lives at the end of the equipment layer so it lands AFTER the AC
+	// override above (otherwise the +3 AC bonus from the floor would be
+	// stomped by computeArmorAC's overwrite).
+	applyPhase5BPlayerFloor(stats)
+}
+
+// Phase 5-B player power floor — uniform combat-stat lift added on top
+// of class + equipment to land the expedition harness in the band the
+// user chose for the "fairly breezy with some death" difficulty target.
+// See gogobee_expedition_difficulty.md Phase 5-B for the sweep that
+// picked these values (gear floor +3, paired with HP ×phase5BHPMult in
+// computeMaxHP).
+//
+// Applied as a *flat* lift, not via gearTier — keeps the in-game gear
+// narrative untouched (a player's +1 longsword still reads as +1 in
+// their inventory; the floor stacks invisibly at combat-stat time).
+// Uniform across classes so the class-balance harness's in-tier parity
+// spread is unaffected.
+//
+// Called from both applyDnDEquipmentLayer (live combat) and
+// buildHarnessPlayer (expedition / class-balance harnesses) so the
+// harness's measurement matches what live players experience.
+const (
+	phase5BACBonus       = 3
+	phase5BAttackBonus   = 3
+	phase5BWeaponMagicBonus = 3
+)
+
+func applyPhase5BPlayerFloor(stats *CombatStats) {
+	stats.AC += phase5BACBonus
+	stats.AttackBonus += phase5BAttackBonus
+	if stats.Weapon != nil {
+		// Mutate the weapon copy in place — applyDnDEquipmentLayer and
+		// buildHarnessPlayer both already hand us a fresh copy (the
+		// synthesize* / classLoadout chain returns a new profile), so
+		// this doesn't leak into the registry.
+		stats.Weapon.MagicBonus += phase5BWeaponMagicBonus
+	}
 }
 
 // pickWeaponAbilityMod returns the ability modifier added to weapon damage:
@@ -176,17 +224,35 @@ func applyDnDDungeonMonsterLayer(stats *CombatStats, tier int) {
 // (which is allowed without respec cooldown when auto_migrated=1).
 func classStatPriority(class DnDClass) [6]int {
 	// Returned array is in STR, DEX, CON, INT, WIS, CHA order.
+	//
+	// Design note: every class gets DEX ≥ 14 baseline. DEX drives AC (via
+	// armor synthesis) and initiative, so dumping it leaves players in
+	// armor dead-zones where T3 chain shirt provides no AC over their
+	// class floor. The previous Cleric DEX=10 / Mage DEX=12 spread was
+	// faithful to standard array prioritization but produced unfun
+	// outcomes — gear upgrades didn't visibly help. Pumping the floor
+	// trades canonical purity for "armor upgrades feel like upgrades."
 	switch class {
 	case ClassFighter:
-		return [6]int{15, 13, 14, 8, 12, 10} // STR, CON, DEX prioritized
+		return [6]int{15, 14, 13, 8, 12, 10} // STR, DEX, CON
 	case ClassRogue:
 		return [6]int{8, 15, 13, 14, 10, 12} // DEX, INT, CON
 	case ClassMage:
-		return [6]int{8, 12, 13, 15, 14, 10} // INT, WIS, CON
+		return [6]int{8, 14, 13, 15, 12, 10} // INT, DEX, CON
 	case ClassCleric:
-		return [6]int{12, 10, 13, 8, 15, 14} // WIS, CHA, CON
+		return [6]int{12, 14, 13, 8, 15, 10} // WIS, DEX, CON
 	case ClassRanger:
 		return [6]int{12, 15, 13, 10, 14, 8} // DEX, WIS, CON
+	case ClassDruid:
+		return [6]int{8, 14, 13, 10, 15, 12} // WIS, DEX, CON
+	case ClassBard:
+		return [6]int{8, 14, 13, 10, 12, 15} // CHA, DEX, CON
+	case ClassSorcerer:
+		return [6]int{8, 14, 13, 12, 10, 15} // CHA, DEX, CON
+	case ClassWarlock:
+		return [6]int{8, 14, 13, 12, 10, 15} // CHA, DEX, CON
+	case ClassPaladin:
+		return [6]int{15, 14, 13, 8, 10, 12} // STR, DEX, CON
 	}
 	return [6]int{15, 14, 13, 12, 10, 8} // fallback: martial-ish
 }
@@ -280,6 +346,7 @@ func autoBuildCharacter(userID id.UserID, char *AdventureCharacter) *DnDCharacte
 	c.HPMax = computeMaxHP(c.Class, conMod, c.Level)
 	c.HPCurrent = c.HPMax
 	c.ArmorClass = computeAC(c.Class, dexMod)
+	c.ShortRestCharges = c.Level
 	return c
 }
 
@@ -406,79 +473,42 @@ func formatN(n int, word string) string {
 	return string(out)
 }
 
-// ── Combat HP scaling (rest teeth) ───────────────────────────────────────────
+// ── Combat HP carry-over ─────────────────────────────────────────────────────
 
-// dndWoundFloor — when scaling combat MaxHP from sheet HP%, never reduce
-// below this fraction of the legacy max. Prevents one-shot deaths when the
-// sheet is at 0 HP.
-const dndWoundFloor = 0.25
-
-// applyDnDHPScaling scales playerStats.MaxHP based on the player's current
-// dnd_character HP fraction. A fully-rested player fights at full legacy HP;
-// a wounded player fights at reduced HP, with a floor at dndWoundFloor.
-//
-// This is what makes !rest mechanically meaningful — without it, the rest
-// system is purely cosmetic.
+// applyDnDHPScaling sets stats.StartHP from the player's persisted wounds.
+// A full-HP character enters at MaxHP (StartHP=0 means "use MaxHP"); a
+// wounded character enters at c.HPCurrent + HPBonus — the persistent dnd
+// wound layered with the fresh equipment cushion. There is no scale
+// conversion; persistDnDHPAfterCombat is the inverse direct copy.
 func applyDnDHPScaling(stats *CombatStats, c *DnDCharacter) {
-	if c == nil || c.HPMax <= 0 {
+	if c == nil || c.HPMax <= 0 || c.HPCurrent >= c.HPMax {
 		return
 	}
-	pct := float64(c.HPCurrent) / float64(c.HPMax)
-	if pct >= 1.0 {
-		return
+	startHP := c.HPCurrent + stats.HPBonus
+	if startHP < 1 {
+		startHP = 1
 	}
-	if pct < dndWoundFloor {
-		pct = dndWoundFloor
+	if startHP > stats.MaxHP {
+		startHP = stats.MaxHP
 	}
-	// Round half-up. Naive int truncation loses up to 1 HP on every
-	// round-trip through the dndChar scale (which is coarser than the
-	// legacy combat scale): 101/123 → persist as 64/78 → restore as
-	// int(100.92) = 100, silently dropping a HP between fights.
-	scaled := int(math.Round(float64(stats.MaxHP) * pct))
-	if scaled < 1 {
-		scaled = 1
-	}
-	if scaled > stats.MaxHP {
-		scaled = stats.MaxHP
-	}
-	// Set StartHP rather than overwriting MaxHP. The combat engine reads
-	// StartHP as the entry-HP, but display denominators (e.g. "101/123")
-	// keep using MaxHP — so wounded carry-over reads "wounded out of full"
-	// rather than "full out of shrunk-max", which previously made wound
-	// state invisible across battles.
-	stats.StartHP = scaled
+	stats.StartHP = startHP
 }
 
 // ── HP persistence ───────────────────────────────────────────────────────────
 
-// persistDnDHPAfterCombat updates dnd_character.hp_current to reflect wounds
-// from a fight, scaled to the D&D HP scale (since combat uses legacy HP).
-//
-// We compute the % of legacy HP the player ended with and apply the same %
-// to dnd_character.hp_max. This keeps the player's "displayed health" in
-// the sheet honest even though the combat engine itself uses legacy HP.
-//
-// No-op if the player has no dnd_character row or hasn't completed setup.
-func persistDnDHPAfterCombat(userID id.UserID, legacyStartHP, legacyEndHP int) {
+// persistDnDHPAfterCombat copies endHP into dnd_character.hp_current,
+// clamped to [0, c.HPMax]. The HPBonus from gear is fight-only and does
+// not carry over — anything above c.HPMax is treated as unused armor
+// cushion and clamped down. No-op if the row is missing or pending setup.
+func persistDnDHPAfterCombat(userID id.UserID, endHP int) {
 	c, err := LoadDnDCharacter(userID)
 	if err != nil || c == nil || c.PendingSetup {
 		return
 	}
-	if legacyStartHP <= 0 || c.HPMax <= 0 {
+	if c.HPMax <= 0 {
 		return
 	}
-
-	pct := float64(legacyEndHP) / float64(legacyStartHP)
-	if pct < 0 {
-		pct = 0
-	} else if pct > 1 {
-		pct = 1
-	}
-
-	// Round half-up to mirror applyDnDHPScaling — a fight that ends at
-	// 101/123 should round-trip cleanly through the dndChar (78-scale)
-	// store and come back as 101, not 100.
-	newHP := int(math.Round(float64(c.HPMax) * pct))
+	newHP := endHP
 	if newHP < 0 {
 		newHP = 0
 	}
@@ -494,11 +524,10 @@ func persistDnDHPAfterCombat(userID id.UserID, legacyStartHP, legacyEndHP int) {
 	}
 }
 
-// dndHPSnapshot returns the user's D&D-scale (current, max) HP. Caller
-// captures pre-combat values via this helper, runs combat (which calls
-// persistDnDHPAfterCombat internally), then re-snapshots for the post
-// values. Used so combat outcome narration shows sheet HP rather than
-// the legacy combat-engine HP scale.
+// dndHPSnapshot returns the user's persisted (current, max) HP. Combat
+// callers snapshot pre-combat, run the fight (persistDnDHPAfterCombat
+// updates hp_current), then re-snapshot for the post values to render
+// the sheet's wound state in narration.
 func dndHPSnapshot(userID id.UserID) (cur, max int) {
 	c, err := LoadDnDCharacter(userID)
 	if err != nil || c == nil {

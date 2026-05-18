@@ -79,7 +79,7 @@ var ClosingSuccess = []string{
 		"in business and out of the deeper healthcare plans.\n\n" +
 		"Next action: {reset_time} ({time_until})\n" +
 		"Morning DM: {morning_time} UTC\n" +
-		"Evening summary: {summary_time} UTC — TwinBee will be there.\n\n" +
+		"Evening summary: {summary_time} UTC — I will be there.\n\n" +
 		"So will everyone else who showed up today.",
 }
 
@@ -171,7 +171,7 @@ var ClosingFailure = []string{
 		"So will you, which is the important part.\n\n" +
 		"Next action: {reset_time} ({time_until})\n" +
 		"Tomorrow's choices at {morning_time} UTC.\n" +
-		"TwinBee had a better day. The summary at {summary_time} UTC will confirm this.\n\n" +
+		"I had a better day. The summary at {summary_time} UTC will confirm this.\n\n" +
 		"Rest. You've earned the rest, at least.",
 
 	"─────────────────────────────\n" +

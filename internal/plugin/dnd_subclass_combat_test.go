@@ -446,6 +446,45 @@ func TestTripAttack_ApplySetsEnemySkipFirst(t *testing.T) {
 	}
 }
 
+func TestDisarmingAttack_ApplyMultipliesDamageReduct(t *testing.T) {
+	// Regression: this used to set DamageReduct via math.Max(_, 0.25),
+	// which against the default 1.0 was a no-op. Should multiply down.
+	ab, ok := dndActiveAbilities["disarming_attack"]
+	if !ok {
+		t.Fatal("disarming_attack not registered")
+	}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	ab.Apply(&DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 5}, mods)
+	if mods.DamageReduct >= 1.0 {
+		t.Errorf("Disarming Attack DamageReduct = %.3f, want < 1.0", mods.DamageReduct)
+	}
+	if mods.DamageReduct < 0.74 || mods.DamageReduct > 0.76 {
+		t.Errorf("Disarming Attack DamageReduct = %.3f, want ~0.75", mods.DamageReduct)
+	}
+	// Stacks multiplicatively with prior reductions.
+	mods2 := &CombatModifiers{DamageReduct: 0.90}
+	ab.Apply(&DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 5}, mods2)
+	if mods2.DamageReduct >= 0.90 {
+		t.Errorf("Disarming Attack should stack: got %.3f, want < 0.90", mods2.DamageReduct)
+	}
+}
+
+func TestParry_ApplyMultipliesDamageReduct(t *testing.T) {
+	// Regression: math.Max(_, 0.40) against default 1.0 was a no-op.
+	ab, ok := dndActiveAbilities["parry"]
+	if !ok {
+		t.Fatal("parry not registered")
+	}
+	mods := &CombatModifiers{DamageReduct: 1.0}
+	ab.Apply(&DnDCharacter{Class: ClassFighter, Subclass: SubclassBattleMaster, Level: 5}, mods)
+	if mods.DamageReduct >= 1.0 {
+		t.Errorf("Parry DamageReduct = %.3f, want < 1.0", mods.DamageReduct)
+	}
+	if mods.DamageReduct < 0.59 || mods.DamageReduct > 0.61 {
+		t.Errorf("Parry DamageReduct = %.3f, want ~0.60", mods.DamageReduct)
+	}
+}
+
 func TestRally_ApplySetsHealItem(t *testing.T) {
 	ab := dndActiveAbilities["rally"]
 	mods := &CombatModifiers{DamageReduct: 1.0}

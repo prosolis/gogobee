@@ -146,6 +146,11 @@ func (p *PresencePlugin) handleWhois(ctx MessageContext) error {
 		displayName = string(targetUser)
 	}
 
+	// best-effort: activity tracking is non-critical; missing rows are
+	// expected for new users. The cluster of `_ = QueryRow(...).Scan(...)`
+	// calls below all share this rationale — zero values are the correct
+	// fallback (no messages yet, no streak, no rep, no presence row).
+
 	// Get stats
 	var totalMessages, totalWords int
 	_ = db.Get().QueryRow(

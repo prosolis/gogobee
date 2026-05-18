@@ -12,9 +12,9 @@ import (
 
 // ── Registry sanity ──────────────────────────────────────────────────────
 
-func TestSubclassRegistry_FifteenEntriesThreePerClass(t *testing.T) {
-	if got := len(dndSubclassRegistry); got != 15 {
-		t.Fatalf("registry size: got %d, want 15", got)
+func TestSubclassRegistry_ThirtyEntriesThreePerClass(t *testing.T) {
+	if got := len(dndSubclassRegistry); got != 30 {
+		t.Fatalf("registry size: got %d, want 30", got)
 	}
 	perClass := map[DnDClass]int{}
 	for _, s := range dndSubclassRegistry {
@@ -23,7 +23,10 @@ func TestSubclassRegistry_FifteenEntriesThreePerClass(t *testing.T) {
 			t.Errorf("incomplete entry: %+v", s)
 		}
 	}
-	for _, cls := range []DnDClass{ClassFighter, ClassRogue, ClassMage, ClassCleric, ClassRanger} {
+	for _, cls := range []DnDClass{
+		ClassFighter, ClassRogue, ClassMage, ClassCleric, ClassRanger,
+		ClassDruid, ClassBard, ClassSorcerer, ClassWarlock, ClassPaladin,
+	} {
 		if perClass[cls] != 3 {
 			t.Errorf("%s: %d subclasses, want 3", cls, perClass[cls])
 		}
@@ -308,7 +311,7 @@ func TestSheet_ShowsSubclassWhenChosen(t *testing.T) {
 		STR: 16, DEX: 12, CON: 14, INT: 8, WIS: 10, CHA: 10,
 		Subclass: SubclassBattleMaster,
 	}
-	out := renderDnDSheet(c, nil, nil, HouseState{}, nil, nil)
+	out := renderDnDSheet(c, nil, nil, HouseState{}, nil, nil, nil)
 	if !strings.Contains(out, "Battle Master") {
 		t.Errorf("sheet missing subclass name:\n%s", out)
 	}
@@ -320,7 +323,7 @@ func TestSheet_PromptsWhenUnchosenAtL5(t *testing.T) {
 		Level: 5, HPMax: 40, HPCurrent: 40, ArmorClass: 16,
 		STR: 16, DEX: 12, CON: 14, INT: 8, WIS: 10, CHA: 10,
 	}
-	out := renderDnDSheet(c, nil, nil, HouseState{}, nil, nil)
+	out := renderDnDSheet(c, nil, nil, HouseState{}, nil, nil, nil)
 	if !strings.Contains(out, "!subclass") {
 		t.Errorf("sheet should nudge `!subclass` when unchosen at L5:\n%s", out)
 	}

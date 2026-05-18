@@ -49,17 +49,28 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 	case "":
 		// If active, show status; otherwise help.
 		if exp, _ := getActiveExpedition(ctx.Sender); exp != nil {
-			return p.expeditionCmdStatus(ctx)
+			return p.expeditionCmdStatus(ctx, "")
 		}
 		return p.SendDM(ctx.Sender, expeditionHelpText())
 	case "help", "?":
 		return p.SendDM(ctx.Sender, expeditionHelpText())
 	case "list", "ls":
 		return p.expeditionCmdList(ctx, c)
-	case "start", "begin", "go":
+	case "start", "begin":
+		return p.expeditionCmdStart(ctx, c, rest)
+	case "go", "choose":
+		// Context-sensitive: with an active expedition + numeric rest,
+		// treat as "take fork path N" (forwards to zoneCmdGo so the
+		// player doesn't have to remember the !zone seam). Otherwise
+		// fall back to the historical alias for `!expedition start`.
+		if rest != "" && isAllDigits(strings.TrimSpace(rest)) {
+			if exp, _ := getActiveExpedition(ctx.Sender); exp != nil {
+				return p.zoneCmdGo(ctx, rest)
+			}
+		}
 		return p.expeditionCmdStart(ctx, c, rest)
 	case "status", "info":
-		return p.expeditionCmdStatus(ctx)
+		return p.expeditionCmdStatus(ctx, rest)
 	case "log", "history":
 		return p.expeditionCmdLog(ctx)
 	case "abandon", "quit":
@@ -70,6 +81,8 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 		return p.handleResumeCmd(ctx, rest)
 	case "map", "m":
 		return p.handleExpeditionMapCmd(ctx, "")
+	case "run", "explore", "advance":
+		return p.expeditionCmdRun(ctx)
 	default:
 		return p.SendDM(ctx.Sender, expeditionHelpText())
 	}
@@ -83,6 +96,7 @@ func expeditionHelpText() string {
 	b.WriteString("    `Ns` = N standard packs (10 SU, 50 coins, max 3)\n")
 	b.WriteString("    `Md` = M deluxe packs (20 SU, 90 coins, max 1)\n")
 	b.WriteString("    default: `1s`\n")
+	b.WriteString("`!expedition run` — autopilot: walk rooms until something needs you (alias `!explore`)\n")
 	b.WriteString("`!expedition status` — current expedition snapshot\n")
 	b.WriteString("`!expedition log` — last 5 log entries\n")
 	b.WriteString("`!expedition abandon` — end the expedition (no rewards)\n")
@@ -102,8 +116,12 @@ func (p *AdventurePlugin) expeditionCmdList(ctx MessageContext, c *DnDCharacter)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("**Expeditions available at L%d** (you can enter zones up to 2 tiers above your current tier):\n\n", c.Level))
 	for i, z := range zones {
-		b.WriteString(fmt.Sprintf("**%d.** %s — _T%d, L%d–%d_  `!expedition start %s`\n",
-			i+1, z.Display, int(z.Tier), z.LevelMin, z.LevelMax, z.ID))
+		suffix := ""
+		if raidContentWarning(z.ID) != "" {
+			suffix = "  _⚠ raid-shaped — solo runs not yet survivable_"
+		}
+		b.WriteString(fmt.Sprintf("**%d.** %s — _T%d, L%d–%d_  `!expedition start %s`%s\n",
+			i+1, z.Display, int(z.Tier), z.LevelMin, z.LevelMax, z.ID, suffix))
 		b.WriteString(fmt.Sprintf("    %s\n", z.Atmosphere))
 	}
 	if exp, _ := getActiveExpedition(ctx.Sender); exp != nil {
@@ -164,6 +182,11 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	if rest == "" {
 		return p.SendDM(ctx.Sender,
 			"`!expedition start <zone> [Ns] [Md]` — pick from `!expedition list`. Example: `!expedition start goblin_warrens 2s` (2 standard packs).")
+	}
+	if remaining := restingLockoutRemaining(c); remaining > 0 {
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"🛌 You're still resting — %s remaining. Pack up after.",
+			formatRespecDuration(remaining)))
 	}
 	zoneTok, packTok := splitFirstWord(rest)
 	available := zonesForLevel(c.Level)
@@ -250,8 +273,29 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 		b.WriteString(startLine)
 		b.WriteString("\n\n")
 	}
+	if w := raidContentWarning(zoneID); w != "" {
+		b.WriteString(w)
+		b.WriteString("\n\n")
+	}
 	b.WriteString("Use `!expedition status` for the daily briefing format. Day 1 begins now.")
 	return p.SendDM(ctx.Sender, b.String())
+}
+
+// raidContentWarning returns a TwinBee-voiced heads-up for zones whose
+// boss is tuned for a party rather than a solo adventurer. T5 zones
+// (Dragon's Lair / Abyss Portal) have boss HP / damage curves that the
+// solo combat path can't realistically clear — the J3 trace sweep at
+// L12 showed 0% solo clears across all 10 classes. Until multiplayer
+// expeditions ship, this is the surface that tells a player what
+// they're walking into without nerfing the encounter for parties later.
+func raidContentWarning(zoneID ZoneID) string {
+	switch zoneID {
+	case ZoneDragonsLair:
+		return "⚠ A note before we commit. Infernax doesn't go down to one sword. I've watched better-prepared adventurers walk in here and not walk back out, and I haven't yet seen the lone exception. Bring friends when you can. For tonight — I'm with you anyway."
+	case ZoneAbyssPortal:
+		return "⚠ A note before we commit. Belaxath is the kind of enemy you bring a band to. Not one solo hero has put him down yet, and I'd rather you weren't the first to try. We can still go. I just want the record to show I said this."
+	}
+	return ""
 }
 
 func estimateDays(maxSU, dailyBurn float32) int {
@@ -263,7 +307,18 @@ func estimateDays(maxSU, dailyBurn float32) int {
 
 // ── status ──────────────────────────────────────────────────────────────────
 
-func (p *AdventurePlugin) expeditionCmdStatus(ctx MessageContext) error {
+func (p *AdventurePlugin) expeditionCmdStatus(ctx MessageContext, args string) error {
+	debug := false
+	for _, tok := range strings.Fields(args) {
+		switch strings.ToLower(tok) {
+		case "--debug", "-d", "debug", "raw":
+			debug = true
+		}
+	}
+	return p.expeditionCmdStatusImpl(ctx, debug)
+}
+
+func (p *AdventurePlugin) expeditionCmdStatusImpl(ctx MessageContext, debug bool) error {
 	exp, err := getActiveExpedition(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
@@ -290,21 +345,36 @@ func (p *AdventurePlugin) expeditionCmdStatus(ctx MessageContext) error {
 	if c != nil {
 		b.WriteString(fmt.Sprintf("❤️  **HP:** %d / %d\n", c.HPCurrent, c.HPMax))
 	}
-	b.WriteString(fmt.Sprintf("🎒 **Supplies:** %.1f / %.1f SU  _(burn %.1f/day → ~%d days left)_\n",
-		exp.Supplies.Current, exp.Supplies.Max, currentBurn(exp),
-		estimateDays(exp.Supplies.Current, currentBurn(exp))))
-	b.WriteString(fmt.Sprintf("⏰ **Threat:** %d / 100 — %s\n",
-		exp.ThreatLevel, threatThresholdLabel(exp.ThreatLevel, exp.SiegeMode)))
-	if exp.TemporalStack != 0 {
-		b.WriteString(fmt.Sprintf("🌡 **Zone stack:** %d\n", exp.TemporalStack))
+	// Default view is verb/outcome-led: days-left summary + threat label,
+	// no raw SU / threat-out-of-100 / zone-stack / roll-modifier numbers.
+	// Pass `--debug` to !expedition status for the engineering view.
+	days := estimateDays(exp.Supplies.Current, currentBurn(exp))
+	if debug {
+		b.WriteString(fmt.Sprintf("🎒 **Supplies:** %.1f / %.1f SU  _(burn %.1f/day → ~%d days left)_\n",
+			exp.Supplies.Current, exp.Supplies.Max, currentBurn(exp), days))
+		b.WriteString(fmt.Sprintf("⏰ **Threat:** %d / 100 — %s\n",
+			exp.ThreatLevel, threatThresholdLabel(exp.ThreatLevel, exp.SiegeMode)))
+		if exp.TemporalStack != 0 {
+			b.WriteString(fmt.Sprintf("🌡 **Zone stack:** %d\n", exp.TemporalStack))
+		}
+	} else {
+		b.WriteString(fmt.Sprintf("🎒 **Supplies:** ~%d day%s left\n",
+			days, plural(days)))
+		b.WriteString(fmt.Sprintf("⏰ **Threat:** %s\n",
+			threatThresholdLabel(exp.ThreatLevel, exp.SiegeMode)))
 	}
 	if exp.Camp != nil && exp.Camp.Active {
 		b.WriteString(fmt.Sprintf("⛺ **Camp:** %s (room %d)\n", exp.Camp.Type, exp.Camp.RoomIndex+1))
 	}
 	state := supplyDepletion(exp.Supplies)
 	if state != SupplyNormal {
-		b.WriteString(fmt.Sprintf("⚠ **%s** — roll modifier %d\n",
-			depletionLabel(state), supplyRollModifier(state)))
+		if debug {
+			b.WriteString(fmt.Sprintf("⚠ **%s** — roll modifier %d\n",
+				depletionLabel(state), supplyRollModifier(state)))
+		} else {
+			b.WriteString(fmt.Sprintf("⚠ **%s** — you're slower and clumsier than usual.\n",
+				depletionLabel(state)))
+		}
 	}
 	b.WriteString(fmt.Sprintf("\nStarted: %s   Last activity: %s",
 		exp.StartDate.Format("2006-01-02 15:04"),
@@ -423,3 +493,271 @@ func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
 
 // helper: ensure we don't shadow id.UserID import in test harness.
 var _ id.UserID
+
+// isAllDigits reports whether s is a non-empty string of ASCII digits.
+// Used to route `!expedition go N` to the fork-choice handler when N is
+// numeric; non-numeric rest (`!expedition go ironforge`) still falls
+// through to expeditionCmdStart.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// ── run (autopilot) ─────────────────────────────────────────────────────────
+
+// autopilotRoomCap bounds a single `!expedition run` invocation. Real-time
+// background ticking is the planned long-game (see chat 2026-05-14); this
+// cap keeps the foreground walk from monopolising the bot for an
+// unbounded stretch and gives the player a natural "press to continue"
+// breath between long runs.
+const autopilotRoomCap = 6
+
+// autopilotLowHPPct stops the walk when current HP drops at or below this
+// fraction of max. 0.30 = "you're hurt enough that the next bad room
+// could end the run; pause, heal, or commit."
+const autopilotLowHPPct = 0.30
+
+// autopilotWalkResult bundles the staged narration plus structured
+// metadata so foreground (streamFlow) and background (single DM, with
+// progress-based DM suppression) callers can share the same walk loop.
+type autopilotWalkResult struct {
+	stream   []string
+	finalMsg string
+	rooms    int
+	reason   stopReason
+	// initErr — populated when the walk couldn't start (no expedition,
+	// no run). Foreground surfaces it as a DM; background swallows it.
+	initErr string
+}
+
+// expeditionCmdRun is the autopilot surface. It loops advanceOnce until a
+// natural interrupt fires (fork, elite/boss doorway, death, complete) or
+// an injected interrupt fires (low HP, low SU, room cap). Each iteration's
+// staged narration is concatenated into a single 2–3s-paced stream so the
+// player reads the full multi-room walk as one continuous beat. Trash
+// combat already auto-resolves inside resolveCombatRoom; elite/boss
+// doorways stop here so the player can choose !fight on their own terms.
+func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
+	r := p.runAutopilotWalk(ctx, autopilotRoomCap, false)
+	if r.initErr != "" {
+		return p.SendDM(ctx.Sender, r.initErr)
+	}
+	return p.streamFlow(ctx.Sender, r.stream, r.finalMsg)
+}
+
+// runAutopilotWalk runs the autopilot loop up to maxRooms times and
+// returns a bundle the caller can either streamFlow (foreground) or
+// post as a single DM (background ticker). Pure side effects on the
+// run graph / harvest tally / supplies / threat — same as before, just
+// no streamFlow here. compact==true switches the underlying combat
+// narration into terse mode and auto-resolves elite (not boss) rooms.
+func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, compact bool) autopilotWalkResult {
+	exp, err := getActiveExpedition(ctx.Sender)
+	if err != nil {
+		return autopilotWalkResult{initErr: "Couldn't read expedition state: " + err.Error()}
+	}
+	if exp == nil {
+		return autopilotWalkResult{initErr: "You're not on an expedition. `!expedition list` to pick one."}
+	}
+	if exp.RunID == "" {
+		return autopilotWalkResult{initErr: "No active region run. Try `!region` to refresh."}
+	}
+
+	var stream []string
+	var finalMsg string
+	rooms := 0
+	reason := stopOK // sticky: last loop-exit reason
+
+	// Phase 2 — walk-wide auto-harvest tally. Per-room footers go into the
+	// stream as we go; the cumulative haul renders on the final block.
+	walkYields := map[string]int{}
+	walkNames := map[string]string{}
+
+	for i := 0; i < maxRooms; i++ {
+		// Pre-iteration interrupts: low HP / low SU. Skip on the first
+		// iteration so the player always gets at least one room out of
+		// `!expedition run` even if they limped in — autopilot stops on
+		// thresholds *between* rooms, not before the first one.
+		if i > 0 {
+			if msg, stop := autopilotPreflight(ctx.Sender, exp); stop {
+				finalMsg = msg
+				reason = stopPreflight
+				break
+			}
+		}
+
+		res, aerr := p.advanceOnceWithOpts(ctx, compact)
+		if aerr != nil {
+			return autopilotWalkResult{initErr: aerr.Error()}
+		}
+
+		// Roll this step's beats into the running stream.
+		stream = append(stream, res.preStream...)
+		if res.intro != "" {
+			stream = append(stream, res.intro)
+		}
+		stream = append(stream, res.phases...)
+
+		// Doorway/blocked stops fire *before* the current room actually
+		// resolved — those don't count as a walked room. Everything else
+		// (OK, fork after a clear, ended after combat, complete) does.
+		if res.reason != stopBlocked && res.reason != stopElite && res.reason != stopBoss {
+			rooms++
+		}
+
+		if res.reason != stopOK {
+			footer := autopilotFooter(res.reason, rooms)
+			if footer != "" {
+				finalMsg = res.final + "\n\n" + footer
+			} else {
+				finalMsg = res.final
+			}
+			reason = res.reason
+			break
+		}
+
+		// Walked into the next room. Push this step's "✓ cleared / next
+		// room" block as a phase so the next iteration's intro lands
+		// after it, then loop. Refresh exp for the next preflight read
+		// (HP/SU may have moved during combat).
+		stream = append(stream, res.final)
+		if fresh, ferr := getActiveExpedition(ctx.Sender); ferr == nil && fresh != nil {
+			exp = fresh
+		}
+
+		// Arrived at a Boss doorway: stop here. The "Room X/Y — Boss.
+		// !fight when ready." line in res.final already tells the player
+		// what to do; another loop iteration would just hit the gate and
+		// emit a duplicate "Room X/Y — Boss" message.
+		//
+		// For Elite + non-compact, do the same. In compact mode we let
+		// the next iteration run because the gate will auto-resolve the
+		// elite inline (which is the whole point of compact mode).
+		if res.nextRoomType == RoomBoss || (res.nextRoomType == RoomElite && !compact) {
+			r := stopBoss
+			if res.nextRoomType == RoomElite {
+				r = stopElite
+			}
+			finalMsg = autopilotFooter(r, rooms)
+			reason = r
+			break
+		}
+
+		// Phase 2 — auto-harvest the room we just walked into.
+		// advanceOnceWithOpts now runs the pass inline and surfaces the
+		// result via res.harvest + res.harvestFooter. The "✓ cleared /
+		// next room" line in res.final already has the per-room footer
+		// appended (and the combat-interrupt narration if one fired);
+		// we still need to aggregate into walkYields/walkNames and to
+		// split out the harvest-combat path so the walk-end footer/tally
+		// rendering matches the pre-H2 behavior.
+		hr := res.harvest
+		for k, v := range hr.Summary.Yields {
+			walkYields[k] += v
+			walkNames[k] = hr.Summary.Names[k]
+		}
+		if hr.CombatNarr != "" {
+			// A harvest interrupt fired combat. res.final already
+			// includes the ✓-cleared block, the harvest footer, and the
+			// combat narration; just attach the walk footer/tally and
+			// stop.
+			r := stopHarvestCombat
+			if hr.PlayerEnded {
+				r = stopEnded
+			}
+			footer := autopilotFooter(r, rooms)
+			finalMsg = res.final
+			if footer != "" {
+				finalMsg += "\n\n" + footer
+			}
+			if tally := renderWalkTally(walkYields, walkNames); tally != "" && !hr.PlayerEnded {
+				finalMsg += "\n\n" + tally
+			}
+			// Drop the just-pushed res.final from the stream so the
+			// combined finalMsg lands as the closer, not as a duplicate
+			// phase entry.
+			if len(stream) > 0 && stream[len(stream)-1] == res.final {
+				stream = stream[:len(stream)-1]
+			}
+			reason = r
+			break
+		}
+		// Refresh exp once more — auto-harvest may have bumped threat
+		// via noise interrupts.
+		if fresh, ferr := getActiveExpedition(ctx.Sender); ferr == nil && fresh != nil {
+			exp = fresh
+		}
+	}
+
+	if finalMsg == "" {
+		// Hit the room cap without a hard interrupt — synthesize a
+		// "press to continue" footer so the player knows autopilot
+		// stopped on its own clock, not because something needs them.
+		finalMsg = autopilotFooter(stopOK, rooms)
+	}
+	// Walk-wide haul tally — appended to whatever the final block is,
+	// unless a combat-interrupt branch already added it (death suppresses
+	// it; harvest-combat survival adds it inline).
+	if tally := renderWalkTally(walkYields, walkNames); tally != "" &&
+		!strings.Contains(finalMsg, "Walk haul:") {
+		finalMsg += "\n\n" + tally
+	}
+	return autopilotWalkResult{
+		stream:   stream,
+		finalMsg: finalMsg,
+		rooms:    rooms,
+		reason:   reason,
+	}
+}
+
+// autopilotPreflight checks the threshold-based interrupts that fire
+// between rooms. Returns (footer, true) when autopilot should stop.
+func autopilotPreflight(userID id.UserID, exp *Expedition) (string, bool) {
+	cur, max := dndHPSnapshot(userID)
+	if max > 0 && float64(cur) <= float64(max)*autopilotLowHPPct {
+		return fmt.Sprintf(
+			"⏸ **Autopilot paused — HP low** (%d/%d). `!camp` to rest, `!cast` healing, or `!expedition run` to push on.",
+			cur, max), true
+	}
+	if exp.Supplies.DailyBurn > 0 && exp.Supplies.Current < exp.Supplies.DailyBurn {
+		return fmt.Sprintf(
+			"⏸ **Autopilot paused — supplies low** (%.1f / %.1f SU, under one day). `!extract` to bail or `!expedition run` to push on.",
+			exp.Supplies.Current, exp.Supplies.DailyBurn), true
+	}
+	return "", false
+}
+
+// autopilotFooter renders the closing line for an autopilot walk. The
+// rooms-walked tally is informational; reason controls the verb and the
+// suggested next step.
+func autopilotFooter(reason stopReason, rooms int) string {
+	roomsStr := "1 room"
+	if rooms != 1 {
+		roomsStr = fmt.Sprintf("%d rooms", rooms)
+	}
+	switch reason {
+	case stopFork:
+		return fmt.Sprintf("⏸ **Autopilot paused at a fork** (after %s). `!expedition go <n>` to choose; auto-walk resumes automatically.", roomsStr)
+	case stopElite:
+		return fmt.Sprintf("⏸ **Autopilot paused — elite ahead** (after %s). `!fight` when ready, then `!expedition run` to continue.", roomsStr)
+	case stopBoss:
+		return fmt.Sprintf("⏸ **Autopilot paused — boss ahead** (after %s). `!fight` when ready.", roomsStr)
+	case stopEnded:
+		return "" // death narration is the final; no footer
+	case stopComplete:
+		return "" // run-complete block is the final; no footer
+	case stopBlocked:
+		return "" // "finish your fight first" is the final; no footer
+	case stopHarvestCombat:
+		return fmt.Sprintf("⏸ **Autopilot paused — interrupted while gathering** (after %s). Reassess and `!expedition run` to continue.", roomsStr)
+	default: // stopOK — hit the room cap
+		return fmt.Sprintf("⏸ **Autopilot stretch complete** (%s). `!expedition run` to keep walking, or `!resources` / `!camp` first.", roomsStr)
+	}
+}

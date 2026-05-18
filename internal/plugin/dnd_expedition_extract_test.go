@@ -33,8 +33,9 @@ func TestVoluntaryExtract_FlipsToExtracting(t *testing.T) {
 		t.Errorf("current_day = %d, want %d", updated.CurrentDay, startDay+1)
 	}
 	got, _ := getExpedition(exp.ID)
-	if got.Supplies.Current != 9 {
-		t.Errorf("supplies after extract = %.1f, want 9", got.Supplies.Current)
+	// Phase 5-B: applyDailyBurn × phase5B 50%; 1 base × 0.5 = 0.5 burned.
+	if got.Supplies.Current != 9.5 {
+		t.Errorf("supplies after extract = %.1f, want 9.5", got.Supplies.Current)
 	}
 	if got.CompletedAt == nil {
 		t.Error("expected completed_at to be set")

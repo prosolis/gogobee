@@ -156,9 +156,10 @@ func TestGrantDnDXP_LevelUpCascade(t *testing.T) {
 	if got.XP != 300 {
 		t.Errorf("xp carryover = %d, want 300", got.XP)
 	}
-	// Fighter d10 + CON+2 at L1 = 12. Per-level after: 6+2 = 8. L5 = 12 + 4*8 = 44.
-	if got.HPMax != 44 {
-		t.Errorf("L5 HPMax = %d, want 44", got.HPMax)
+	// Fighter d10 + CON+2 at L1 = 12. Per-level after: 6+2 = 8. L5 = 12 + 4*8 = 44 raw.
+	// Phase 5-B multiplies by phase5BHPMult (1.5) → 66.
+	if got.HPMax != 66 {
+		t.Errorf("L5 HPMax = %d, want 66 (44 raw × phase5BHPMult)", got.HPMax)
 	}
 	// Each level-up bumps HPCurrent by the gain. Started at full (12), gained
 	// 8 four times = 12+32 = 44. So HPCurrent = HPMax = 44.
@@ -219,17 +220,39 @@ func TestApplyClassPassives(t *testing.T) {
 		wantAtkBonusAdd int
 		wantAutoCrit    bool
 		wantHealItem    int
+		wantDmgReduct   float64
+		wantFlatStart   int
+		wantInitBias    float64
 	}{
-		{ClassFighter, 0.05, 0, false, 0},
-		{ClassRogue, 0, 0, true, 0},
-		{ClassMage, 0, 1, false, 0},
-		{ClassCleric, 0, 0, false, 5},
-		{ClassRanger, 0.05, 1, false, 0},
+		{ClassFighter, 0.05, 0, false, 0, 1.0, 0, 0},
+		// Phase 2 class-balance rebalance: rogue picked up +5% damage,
+		// Mage/Bard/Warlock gained a level-scaled FlatDmgStart burst, Sorcerer's
+		// burst now also scales with level, and Warlock picked up +1 attack.
+		// CHA/INT are 0 in this zero-value sheet → abilityModifier = -5,
+		// clamped to 0 by clampNonNeg. Paladin at L1 is still 4 + 0.
+		// Phase 3 class-balance: Druid picked up a WIS-scaled FlatDmgStart burst
+		// (lvl 1 + clamp(mod(WIS=0)) = 1), and Sorcerer's burst base went 3→5
+		// (5 + 1 + clamp(mod(CHA=10)=0) = 6).
+		{ClassRogue, 0.05, 0, true, 0, 1.0, 0, 0},
+		{ClassMage, 0.05, 1, false, 0, 1.0, 1, 0},
+		{ClassCleric, 0, 0, false, 5, 1.0, 0, 0},
+		// Class-identity audit (2026-05-16): Ranger Hunter's Mark is now
+		// per-hit HuntersMarkDie (not asserted here — same shape as
+		// SneakAttackDie); Paladin Divine Smite is now per-hit
+		// DivineStrikePerHit (not asserted here). The +5% damage and
+		// FlatDmgStart compensation riders are gone; +1 to-hit stays on
+		// Ranger as the "read prey tells" half.
+		{ClassRanger, 0, 1, false, 0, 1.0, 0, 0},
+		{ClassDruid, 0, 0, false, 0, 0.95, 1, 0},
+		{ClassBard, 0.05, 1, false, 0, 1.0, 1, 1},
+		{ClassSorcerer, 0.05, 0, false, 0, 1.0, 6, 0},
+		{ClassWarlock, 0.12, 1, false, 0, 1.0, 1, 0},
+		{ClassPaladin, 0, 0, false, 0, 1.0, 0, 0},
 	}
 	for _, tc := range cases {
 		stats := CombatStats{AttackBonus: 5}
-		mods := CombatModifiers{}
-		applyClassPassives(&stats, &mods, &DnDCharacter{Class: tc.class})
+		mods := CombatModifiers{DamageReduct: 1.0}
+		applyClassPassives(&stats, &mods, &DnDCharacter{Class: tc.class, Level: 1, CHA: 10})
 		if mods.DamageBonus != tc.wantDmgBonus {
 			t.Errorf("%s: DamageBonus=%v, want %v", tc.class, mods.DamageBonus, tc.wantDmgBonus)
 		}
@@ -241,6 +264,15 @@ func TestApplyClassPassives(t *testing.T) {
 		}
 		if mods.HealItem != tc.wantHealItem {
 			t.Errorf("%s: HealItem=%d, want %d", tc.class, mods.HealItem, tc.wantHealItem)
+		}
+		if mods.DamageReduct != tc.wantDmgReduct {
+			t.Errorf("%s: DamageReduct=%v, want %v", tc.class, mods.DamageReduct, tc.wantDmgReduct)
+		}
+		if mods.FlatDmgStart != tc.wantFlatStart {
+			t.Errorf("%s: FlatDmgStart=%d, want %d", tc.class, mods.FlatDmgStart, tc.wantFlatStart)
+		}
+		if mods.InitiativeBias != tc.wantInitBias {
+			t.Errorf("%s: InitiativeBias=%v, want %v", tc.class, mods.InitiativeBias, tc.wantInitBias)
 		}
 	}
 }

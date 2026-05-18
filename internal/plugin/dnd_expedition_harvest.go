@@ -354,13 +354,22 @@ func regionEventActive(e *Expedition, eventID string) bool {
 // ── room-state helpers ──────────────────────────────────────────────────────
 
 // currentRoomCleared reports whether the player's current room is safe
-// for harvest. Entry rooms auto-clear; otherwise the index must be in
-// run.RoomsCleared.
+// for harvest. Entry/Exploration/Trap rooms allow harvest unconditionally
+// — risk is modeled by the §4.2 Combat Interrupt roll inside the harvest
+// path, not by gating the command. Elite/Boss rooms stay gated: harvest
+// is only allowed once they're in run.RoomsCleared.
+//
+// Why this isn't "is the current room in RoomsCleared": the runtime
+// flow couples combat resolution with room transition inside !zone
+// advance, so the current room index is *never* in RoomsCleared until
+// the player has already moved past it. A strict cleared-only gate
+// makes harvest in any non-entry room impossible.
 func currentRoomCleared(run *DungeonRun) bool {
 	if run == nil {
 		return false
 	}
-	if run.CurrentRoomType() == RoomEntry {
+	switch run.CurrentRoomType() {
+	case RoomEntry, RoomExploration, RoomTrap:
 		return true
 	}
 	for _, idx := range run.RoomsCleared {
@@ -369,182 +378,6 @@ func currentRoomCleared(run *DungeonRun) bool {
 		}
 	}
 	return false
-}
-
-// ── command surface ────────────────────────────────────────────────────────
-
-// handleHarvestCmd is the shared dispatcher for !forage/!mine/!scavenge/
-// !essence/!commune. Resolves a single attempt and DMs the outcome.
-func (p *AdventurePlugin) handleHarvestCmd(ctx MessageContext, action HarvestAction) error {
-	char, err := LoadDnDCharacter(ctx.Sender)
-	if err != nil || char == nil {
-		return p.SendDM(ctx.Sender, "No D&D character found. Run `!setup` first.")
-	}
-	exp, err := getActiveExpedition(ctx.Sender)
-	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't load expedition state.")
-	}
-	if exp == nil {
-		// No expedition: fall through to single-session harvest if the
-		// player has an active !zone enter run. Single-session harvest
-		// lives in dnd_zone_harvest.go and stores nodes per-run rather
-		// than per-region.
-		run, _ := getActiveZoneRun(ctx.Sender)
-		if run == nil {
-			return p.SendDM(ctx.Sender, "You're not in a zone or expedition. Use `!zone enter <id>` or `!expedition start <zone>`.")
-		}
-		return p.handleStandaloneHarvest(ctx, char, action, run)
-	}
-	if action == HarvestFish && !isFishingZone(exp.ZoneID) {
-		return p.SendDM(ctx.Sender, "There's no water to fish in here. `!fish` works only in Forest of Shadows, Sunken Temple, Underdark, or Feywild Crossing.")
-	}
-	if exp.RunID == "" {
-		return p.SendDM(ctx.Sender, "No active region run. Try `!region` to refresh, or restart the expedition.")
-	}
-	run, err := getZoneRun(exp.RunID)
-	if err != nil || run == nil {
-		return p.SendDM(ctx.Sender, "Couldn't load region state.")
-	}
-	if !currentRoomCleared(run) {
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"You can't harvest here — the room (%s) isn't cleared. Resolve combat first.",
-			prettyRoomType(run.CurrentRoomType())))
-	}
-
-	if blockReason := zoneConditionHarvestBlock(exp, action); blockReason != "" {
-		return p.SendDM(ctx.Sender, blockReason)
-	}
-
-	nodeID := harvestNodeIDFor(run)
-	nodes := loadHarvestNodes(exp, nodeID)
-	idx := pickAvailableNode(nodes, exp, char, action)
-	if idx < 0 {
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"Nothing left to %s in this room. Try `!resources` to see what's still gatherable.", action))
-	}
-
-	res, _ := FindZoneResource(exp.ZoneID, nodes[idx].ResourceID)
-
-	// §4.2 Combat Interrupt roll — gates the harvest attempt.
-	zone, _ := getZone(exp.ZoneID)
-	interrupt, intTotal := resolveCombatInterrupt(
-		exp.ThreatLevel, int(zone.Tier), char.Class, exp.ZoneID, nil)
-	var interruptHeader string
-	switch interrupt {
-	case InterruptNoise:
-		_ = applyThreatDelta(exp.ID, 2, "harvest noise (§4.2)")
-		interruptHeader = fmt.Sprintf(
-			"_⚠ Noise drifts through the corridors (interrupt roll %d). Threat +2._\n\n",
-			intTotal)
-	case InterruptStandard, InterruptElite, InterruptPatrol:
-		var pre strings.Builder
-		pre.WriteString(fmt.Sprintf(
-			"**%s · %s** — interrupted before the roll (interrupt %d).\n\n",
-			strings.ToTitle(string(action)[:1])+string(action)[1:], res.Name, intTotal))
-		body, ended := p.runHarvestInterrupt(ctx.Sender, exp, run, zone, interrupt)
-		pre.WriteString(body)
-		if interrupt == InterruptElite && !ended {
-			pre.WriteString("\n\n_The node is still here — you dropped the harvest mid-strike._")
-		}
-		if interrupt == InterruptPatrol && !ended {
-			pre.WriteString("\n\n_The harvest is forfeit._")
-		}
-		// Persist node state untouched (no charge spent).
-		_ = saveHarvestNodes(exp, nodeID, nodes)
-		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
-			fmt.Sprintf("%s %s kind=%d total=%d", string(action), res.ID, int(interrupt), intTotal), "")
-		return p.SendDM(ctx.Sender, pre.String())
-	}
-
-	roll := rand.IntN(20) + 1
-	mod := harvestActionAbility(char, action) + classHarvestBonus(char.Class, action)
-	if action == HarvestFish {
-		if adv, _ := loadAdvCharacter(ctx.Sender); adv != nil {
-			mod += fishingSkillBonus(adv.FishingSkill)
-		}
-	}
-	total := roll + mod
-	dcDelta, dcReason := zoneConditionHarvestDCMod(exp, action)
-	effectiveDC := res.DC + dcDelta
-	outcome := resolveHarvestOutcome(total, effectiveDC)
-	outcome = rangerRareCatchUpgrade(char.Class, action, outcome, nil)
-
-	var b strings.Builder
-	if interruptHeader != "" {
-		b.WriteString(interruptHeader)
-	}
-	if dist := feywildFishDistortion(exp.ZoneID, action, nil); dist != "" {
-		b.WriteString(dist)
-	}
-	verb := strings.ToTitle(string(action)[:1]) + string(action)[1:]
-	if dcDelta != 0 {
-		sign := "+"
-		if dcDelta < 0 {
-			sign = ""
-		}
-		b.WriteString(fmt.Sprintf("**%s · %s** — d20=%d + %d = **%d** vs DC %d (%s%d %s)\n\n",
-			verb, res.Name, roll, mod, total, effectiveDC, sign, dcDelta, dcReason))
-	} else {
-		b.WriteString(fmt.Sprintf("**%s · %s** — d20=%d + %d = **%d** vs DC %d\n\n",
-			verb, res.Name, roll, mod, total, effectiveDC))
-	}
-
-	switch outcome {
-	case OutcomeNothing:
-		b.WriteString(flavor.Pick(flavor.HarvestFail))
-		b.WriteString("\n\n_No yield. The node is still here — try again._")
-	case OutcomeCommon:
-		_ = grantHarvestYield(ctx.Sender, res, 1)
-		b.WriteString(harvestSuccessLine(action, exp.ZoneID))
-		b.WriteString(fmt.Sprintf("\n\n_+1 %s._", res.Name))
-		nodes[idx].CurrentCharges--
-	case OutcomeStandard:
-		qty := rand.IntN(3) + 1
-		_ = grantHarvestYield(ctx.Sender, res, qty)
-		b.WriteString(harvestSuccessLine(action, exp.ZoneID))
-		b.WriteString(fmt.Sprintf("\n\n_+%d %s._", qty, res.Name))
-		nodes[idx].CurrentCharges--
-	case OutcomeRich:
-		qty := rand.IntN(3) + 1
-		_ = grantHarvestYield(ctx.Sender, res, qty)
-		bonus := pickRichBonus(exp.ZoneID, res.ID)
-		bonusLine := ""
-		if bonus != nil {
-			_ = grantHarvestYield(ctx.Sender, *bonus, 1)
-			bonusLine = fmt.Sprintf(" + 1 %s (bonus)", bonus.Name)
-		}
-		b.WriteString(flavor.Pick(flavor.RichYield))
-		b.WriteString(fmt.Sprintf("\n\n_+%d %s%s._", qty, res.Name, bonusLine))
-		nodes[idx].CurrentCharges--
-	}
-
-	if outcome != OutcomeNothing && nodes[idx].CurrentCharges <= 0 {
-		b.WriteString("\n\n")
-		b.WriteString(flavor.Pick(flavor.NodeDepleted))
-	}
-
-	// §3 Zone 05 — Manor secondary drop on !scavenge (10% per attempt).
-	if rollManorCursedTrinket(exp.ZoneID, action, nil) {
-		if trinket, ok := FindZoneResource(exp.ZoneID, "cursed_trinket"); ok {
-			_ = grantHarvestYield(ctx.Sender, trinket, 1)
-			b.WriteString("\n\n_Something cold turns up in your kit — a small trinket you didn't pocket. **+1 Cursed Trinket.**_")
-			if warned, _ := exp.RegionState["manor_cursed_warned"].(bool); !warned {
-				b.WriteString("\n\n_TwinBee, low: \"Cursed items in this house bind to anyone who equips them. Sell them. Don't wear them. I'll only say this once.\"_")
-				exp.RegionState["manor_cursed_warned"] = true
-				_ = persistRegionState(exp)
-			}
-		}
-	}
-
-	if err := saveHarvestNodes(exp, nodeID, nodes); err != nil {
-		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "harvest",
-			fmt.Sprintf("persistence error: %v", err), "")
-	}
-	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "harvest",
-		fmt.Sprintf("%s %s d20=%d total=%d dc=%d → %s",
-			string(action), res.ID, roll, total, res.DC, string(outcome)), "")
-
-	return p.SendDM(ctx.Sender, b.String())
 }
 
 // harvestSuccessLine picks the action's generic success pool and

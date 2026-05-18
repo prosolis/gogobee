@@ -23,13 +23,19 @@ type DnDMonsterTemplate struct {
 	Ability     *MonsterAbility
 	XPValue     int
 	Notes       string
+
+	// FireAttacker: signature damage is fire. Tieflings (FireResist) take half
+	// damage from the enemy's main attack and from any aoe_fire ability rider.
+	// Tuned-bestiary generator sets this from SRD attack DamageType; the
+	// hand-authored entries below tag it explicitly.
+	FireAttacker bool
 }
 
 // dndBestiary is the canonical lookup. Keyed by ID.
 var dndBestiary = map[string]DnDMonsterTemplate{
 	"goblin": {
 		ID: "goblin", Name: "Goblin",
-		CR: 0.25, HP: 7, AC: 13, Attack: 6, AttackBonus: 4, Speed: 14,
+		CR: 0.25, HP: 7, AC: 13, Attack: 1, AttackBonus: 4, Speed: 14,
 		BlockRate: 0.05,
 		Ability:   &MonsterAbility{Name: "Nimble Escape", Phase: "any", ProcChance: 0.20, Effect: "stun"},
 		XPValue:   30,
@@ -37,7 +43,7 @@ var dndBestiary = map[string]DnDMonsterTemplate{
 	},
 	"skeleton": {
 		ID: "skeleton", Name: "Skeleton",
-		CR: 0.25, HP: 13, AC: 13, Attack: 8, AttackBonus: 4, Speed: 10,
+		CR: 0.25, HP: 13, AC: 13, Attack: 1, AttackBonus: 4, Speed: 10,
 		BlockRate: 0.10,
 		// Skeletons are immune to poison; we'd model that with a future
 		// CombatModifiers.PoisonImmunity flag. For Phase 7, no ability.
@@ -46,7 +52,7 @@ var dndBestiary = map[string]DnDMonsterTemplate{
 	},
 	"orc_grunt": {
 		ID: "orc_grunt", Name: "Orc Grunt",
-		CR: 0.5, HP: 15, AC: 13, Attack: 10, AttackBonus: 5, Speed: 11,
+		CR: 0.5, HP: 15, AC: 13, Attack: 2, AttackBonus: 5, Speed: 11,
 		BlockRate: 0.05,
 		Ability:   &MonsterAbility{Name: "Aggressive", Phase: "opening", ProcChance: 0.30, Effect: "enrage"},
 		XPValue:   100,
@@ -54,7 +60,7 @@ var dndBestiary = map[string]DnDMonsterTemplate{
 	},
 	"troll": {
 		ID: "troll", Name: "Troll",
-		CR: 5, HP: 84, AC: 15, Attack: 22, AttackBonus: 7, Speed: 8,
+		CR: 5, HP: 84, AC: 15, Attack: 8, AttackBonus: 7, Speed: 8,
 		BlockRate: 0.10,
 		Ability:   &MonsterAbility{Name: "Regeneration", Phase: "any", ProcChance: 0.50, Effect: "lifesteal"},
 		XPValue:   1800,
@@ -62,7 +68,7 @@ var dndBestiary = map[string]DnDMonsterTemplate{
 	},
 	"wyvern": {
 		ID: "wyvern", Name: "Wyvern",
-		CR: 6, HP: 110, AC: 13, Attack: 28, AttackBonus: 7, Speed: 16,
+		CR: 6, HP: 110, AC: 13, Attack: 10, AttackBonus: 7, Speed: 16,
 		BlockRate: 0.05,
 		Ability:   &MonsterAbility{Name: "Poison Sting", Phase: "decisive", ProcChance: 0.60, Effect: "poison"},
 		XPValue:   2300,
@@ -70,7 +76,7 @@ var dndBestiary = map[string]DnDMonsterTemplate{
 	},
 	"ancient_dragon": {
 		ID: "ancient_dragon", Name: "Ancient Dragon",
-		CR: 20, HP: 367, AC: 22, Attack: 65, AttackBonus: 14, Speed: 18,
+		CR: 20, HP: 367, AC: 22, Attack: 33, AttackBonus: 11, Speed: 18,
 		BlockRate: 0.15,
 		Ability:   &MonsterAbility{Name: "Frightful Presence", Phase: "opening", ProcChance: 0.80, Effect: "stun"},
 		XPValue:   25000,
@@ -89,7 +95,7 @@ var _ = func() bool {
 	tier1 := map[string]DnDMonsterTemplate{
 		"goblin_sneak": {
 			ID: "goblin_sneak", Name: "Goblin Sneak",
-			CR: 0.25, HP: 7, AC: 13, Attack: 6, AttackBonus: 4, Speed: 14,
+			CR: 0.25, HP: 7, AC: 13, Attack: 1, AttackBonus: 4, Speed: 14,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Pack Tactics", Phase: "any", ProcChance: 0.25, Effect: "advantage"},
 			XPValue:   30,
@@ -97,7 +103,7 @@ var _ = func() bool {
 		},
 		"goblin_archer": {
 			ID: "goblin_archer", Name: "Goblin Archer",
-			CR: 0.25, HP: 7, AC: 13, Attack: 5, AttackBonus: 4, Speed: 14,
+			CR: 0.25, HP: 7, AC: 13, Attack: 1, AttackBonus: 4, Speed: 14,
 			BlockRate: 0.0,
 			Ability:   &MonsterAbility{Name: "Scurry", Phase: "any", ProcChance: 0.30, Effect: "evade"},
 			XPValue:   30,
@@ -105,7 +111,7 @@ var _ = func() bool {
 		},
 		"hobgoblin_grunt": {
 			ID: "hobgoblin_grunt", Name: "Hobgoblin Grunt",
-			CR: 0.5, HP: 11, AC: 18, Attack: 9, AttackBonus: 3, Speed: 11,
+			CR: 0.5, HP: 11, AC: 18, Attack: 2, AttackBonus: 3, Speed: 11,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Martial Advantage", Phase: "any", ProcChance: 0.30, Effect: "bonus_damage"},
 			XPValue:   100,
@@ -113,7 +119,7 @@ var _ = func() bool {
 		},
 		"worg": {
 			ID: "worg", Name: "Worg",
-			CR: 0.5, HP: 26, AC: 13, Attack: 10, AttackBonus: 5, Speed: 17,
+			CR: 0.5, HP: 26, AC: 13, Attack: 2, AttackBonus: 5, Speed: 17,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Knock Prone", Phase: "any", ProcChance: 0.25, Effect: "stun"},
 			XPValue:   100,
@@ -121,7 +127,7 @@ var _ = func() bool {
 		},
 		"goblin_shaman": {
 			ID: "goblin_shaman", Name: "Goblin Shaman",
-			CR: 1, HP: 22, AC: 11, Attack: 12, AttackBonus: 4, Speed: 12,
+			CR: 1, HP: 22, AC: 11, Attack: 2, AttackBonus: 4, Speed: 12,
 			BlockRate: 0.0,
 			Ability:   &MonsterAbility{Name: "Burning Hands", Phase: "opening", ProcChance: 0.50, Effect: "aoe_fire"},
 			XPValue:   200,
@@ -129,7 +135,7 @@ var _ = func() bool {
 		},
 		"hobgoblin_warchief": {
 			ID: "hobgoblin_warchief", Name: "Hobgoblin Warchief",
-			CR: 2, HP: 52, AC: 18, Attack: 18, AttackBonus: 5, Speed: 11,
+			CR: 2, HP: 52, AC: 18, Attack: 4, AttackBonus: 5, Speed: 11,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Leadership Aura", Phase: "any", ProcChance: 0.40, Effect: "ally_buff"},
 			XPValue:   450,
@@ -137,7 +143,7 @@ var _ = func() bool {
 		},
 		"zombie": {
 			ID: "zombie", Name: "Zombie",
-			CR: 0.25, HP: 22, AC: 10, Attack: 5, AttackBonus: 3, Speed: 6,
+			CR: 0.25, HP: 22, AC: 10, Attack: 1, AttackBonus: 3, Speed: 6,
 			BlockRate: 0.0,
 			Ability:   &MonsterAbility{Name: "Undead Fortitude", Phase: "decisive", ProcChance: 0.50, Effect: "survive_at_1"},
 			XPValue:   50,
@@ -145,7 +151,7 @@ var _ = func() bool {
 		},
 		"shadow": {
 			ID: "shadow", Name: "Shadow",
-			CR: 0.5, HP: 16, AC: 12, Attack: 9, AttackBonus: 4, Speed: 12,
+			CR: 0.5, HP: 16, AC: 12, Attack: 2, AttackBonus: 4, Speed: 12,
 			BlockRate: 0.0,
 			Ability:   &MonsterAbility{Name: "Strength Drain", Phase: "any", ProcChance: 0.35, Effect: "stat_drain"},
 			XPValue:   100,
@@ -153,7 +159,7 @@ var _ = func() bool {
 		},
 		"specter": {
 			ID: "specter", Name: "Specter",
-			CR: 1, HP: 22, AC: 12, Attack: 10, AttackBonus: 4, Speed: 14,
+			CR: 1, HP: 22, AC: 12, Attack: 2, AttackBonus: 4, Speed: 14,
 			BlockRate: 0.0,
 			Ability:   &MonsterAbility{Name: "Life Drain", Phase: "any", ProcChance: 0.40, Effect: "lifesteal"},
 			XPValue:   200,
@@ -161,7 +167,7 @@ var _ = func() bool {
 		},
 		"wight": {
 			ID: "wight", Name: "Wight",
-			CR: 3, HP: 45, AC: 14, Attack: 14, AttackBonus: 4, Speed: 12,
+			CR: 3, HP: 45, AC: 14, Attack: 6, AttackBonus: 4, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Life Drain", Phase: "any", ProcChance: 0.45, Effect: "lifesteal"},
 			XPValue:   700,
@@ -169,15 +175,16 @@ var _ = func() bool {
 		},
 		"flameskull": {
 			ID: "flameskull", Name: "Flameskull",
-			CR: 4, HP: 40, AC: 13, Attack: 18, AttackBonus: 5, Speed: 15,
+			CR: 4, HP: 40, AC: 13, Attack: 7, AttackBonus: 5, Speed: 15,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Fireball", Phase: "decisive", ProcChance: 0.55, Effect: "aoe_fire"},
 			XPValue:   1100,
 			Notes:     "Elite. Fireball 8d6 DEX DC 13. Rejuvenation in 1h unless holy water used.",
+			FireAttacker: true,
 		},
 		"boss_grol_unbroken": {
 			ID: "boss_grol_unbroken", Name: "Grol the Unbroken",
-			CR: 3, HP: 65, AC: 17, Attack: 22, AttackBonus: 5, Speed: 12,
+			CR: 3, HP: 65, AC: 17, Attack: 6, AttackBonus: 5, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Surprise Attack", Phase: "opening", ProcChance: 1.0, Effect: "bonus_damage"},
 			XPValue:   700,
@@ -185,7 +192,7 @@ var _ = func() bool {
 		},
 		"boss_valdris_unburied": {
 			ID: "boss_valdris_unburied", Name: "Valdris the Unburied",
-			CR: 5, HP: 97, AC: 17, Attack: 28, AttackBonus: 7, Speed: 12,
+			CR: 5, HP: 97, AC: 17, Attack: 8, AttackBonus: 7, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Corrupting Touch", Phase: "any", ProcChance: 0.50, Effect: "max_hp_drain"},
 			XPValue:   1800,
@@ -209,7 +216,7 @@ var _ = func() bool {
 	tier2 := map[string]DnDMonsterTemplate{
 		"dire_wolf": {
 			ID: "dire_wolf", Name: "Dire Wolf",
-			CR: 1, HP: 37, AC: 14, Attack: 10, AttackBonus: 5, Speed: 16,
+			CR: 1, HP: 37, AC: 14, Attack: 2, AttackBonus: 5, Speed: 16,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Pack Tactics", Phase: "any", ProcChance: 0.30, Effect: "advantage"},
 			XPValue:   200,
@@ -217,7 +224,7 @@ var _ = func() bool {
 		},
 		"bandit_captain": {
 			ID: "bandit_captain", Name: "Bandit Captain",
-			CR: 2, HP: 65, AC: 15, Attack: 14, AttackBonus: 5, Speed: 12,
+			CR: 2, HP: 65, AC: 15, Attack: 4, AttackBonus: 5, Speed: 12,
 			BlockRate: 0.20,
 			Ability:   &MonsterAbility{Name: "Parry", Phase: "any", ProcChance: 0.35, Effect: "block"},
 			XPValue:   450,
@@ -225,7 +232,7 @@ var _ = func() bool {
 		},
 		"owlbear": {
 			ID: "owlbear", Name: "Owlbear",
-			CR: 3, HP: 59, AC: 13, Attack: 16, AttackBonus: 7, Speed: 12,
+			CR: 3, HP: 59, AC: 13, Attack: 6, AttackBonus: 7, Speed: 12,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Grapple", Phase: "any", ProcChance: 0.40, Effect: "stun"},
 			XPValue:   700,
@@ -233,7 +240,7 @@ var _ = func() bool {
 		},
 		"dryad_corrupted": {
 			ID: "dryad_corrupted", Name: "Corrupted Dryad",
-			CR: 2, HP: 22, AC: 11, Attack: 11, AttackBonus: 4, Speed: 12,
+			CR: 2, HP: 22, AC: 11, Attack: 4, AttackBonus: 4, Speed: 12,
 			BlockRate: 0.0,
 			Ability:   &MonsterAbility{Name: "Fey Charm", Phase: "any", ProcChance: 0.40, Effect: "stun"},
 			XPValue:   450,
@@ -241,7 +248,7 @@ var _ = func() bool {
 		},
 		"displacer_beast": {
 			ID: "displacer_beast", Name: "Displacer Beast",
-			CR: 3, HP: 85, AC: 13, Attack: 14, AttackBonus: 6, Speed: 14,
+			CR: 3, HP: 85, AC: 13, Attack: 6, AttackBonus: 6, Speed: 14,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Displacement", Phase: "opening", ProcChance: 0.50, Effect: "evade"},
 			XPValue:   700,
@@ -249,7 +256,7 @@ var _ = func() bool {
 		},
 		"green_hag": {
 			ID: "green_hag", Name: "Green Hag",
-			CR: 3, HP: 82, AC: 17, Attack: 15, AttackBonus: 5, Speed: 12,
+			CR: 3, HP: 82, AC: 17, Attack: 6, AttackBonus: 5, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Invisible Passage", Phase: "any", ProcChance: 0.35, Effect: "evade"},
 			XPValue:   700,
@@ -257,7 +264,7 @@ var _ = func() bool {
 		},
 		"kuo_toa": {
 			ID: "kuo_toa", Name: "Kuo-toa",
-			CR: 0.25, HP: 18, AC: 13, Attack: 5, AttackBonus: 3, Speed: 10,
+			CR: 0.25, HP: 18, AC: 13, Attack: 1, AttackBonus: 3, Speed: 10,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Sticky Shield", Phase: "any", ProcChance: 0.25, Effect: "block"},
 			XPValue:   30,
@@ -265,7 +272,7 @@ var _ = func() bool {
 		},
 		"kuo_toa_whip": {
 			ID: "kuo_toa_whip", Name: "Kuo-toa Whip",
-			CR: 1, HP: 65, AC: 11, Attack: 11, AttackBonus: 3, Speed: 10,
+			CR: 1, HP: 65, AC: 11, Attack: 2, AttackBonus: 3, Speed: 10,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Divine Eminence", Phase: "decisive", ProcChance: 0.50, Effect: "bonus_damage"},
 			XPValue:   200,
@@ -273,7 +280,7 @@ var _ = func() bool {
 		},
 		"water_elemental": {
 			ID: "water_elemental", Name: "Water Elemental",
-			CR: 5, HP: 114, AC: 14, Attack: 26, AttackBonus: 7, Speed: 12,
+			CR: 5, HP: 114, AC: 14, Attack: 8, AttackBonus: 7, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Whelm", Phase: "any", ProcChance: 0.40, Effect: "stun"},
 			XPValue:   1800,
@@ -281,7 +288,7 @@ var _ = func() bool {
 		},
 		"merrow": {
 			ID: "merrow", Name: "Merrow",
-			CR: 2, HP: 45, AC: 13, Attack: 13, AttackBonus: 5, Speed: 12,
+			CR: 2, HP: 45, AC: 13, Attack: 4, AttackBonus: 5, Speed: 12,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Harpoon Pull", Phase: "opening", ProcChance: 0.40, Effect: "stun"},
 			XPValue:   450,
@@ -289,7 +296,7 @@ var _ = func() bool {
 		},
 		"aboleth_thrall": {
 			ID: "aboleth_thrall", Name: "Aboleth Thrall",
-			CR: 3, HP: 60, AC: 12, Attack: 14, AttackBonus: 5, Speed: 11,
+			CR: 3, HP: 60, AC: 12, Attack: 6, AttackBonus: 5, Speed: 11,
 			BlockRate: 0.0,
 			Ability:   &MonsterAbility{Name: "Psychic Bond", Phase: "any", ProcChance: 0.35, Effect: "reveal_action"},
 			XPValue:   700,
@@ -297,7 +304,7 @@ var _ = func() bool {
 		},
 		"boss_hollow_king": {
 			ID: "boss_hollow_king", Name: "The Hollow King",
-			CR: 6, HP: 142, AC: 15, Attack: 30, AttackBonus: 7, Speed: 13,
+			CR: 6, HP: 142, AC: 15, Attack: 10, AttackBonus: 7, Speed: 13,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Root Surge", Phase: "any", ProcChance: 0.45, Effect: "stun"},
 			XPValue:   2300,
@@ -305,7 +312,7 @@ var _ = func() bool {
 		},
 		"boss_dreaming_aboleth": {
 			ID: "boss_dreaming_aboleth", Name: "The Dreaming Aboleth",
-			CR: 10, HP: 135, AC: 17, Attack: 36, AttackBonus: 9, Speed: 10,
+			CR: 10, HP: 135, AC: 17, Attack: 16, AttackBonus: 9, Speed: 10,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Enslave", Phase: "any", ProcChance: 0.40, Effect: "stun"},
 			XPValue:   5900,
@@ -329,7 +336,7 @@ var _ = func() bool {
 	tier3 := map[string]DnDMonsterTemplate{
 		"poltergeist": {
 			ID: "poltergeist", Name: "Poltergeist",
-			CR: 2, HP: 22, AC: 12, Attack: 10, AttackBonus: 4, Speed: 12,
+			CR: 2, HP: 22, AC: 12, Attack: 4, AttackBonus: 4, Speed: 12,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Telekinetic Thrust", Phase: "any", ProcChance: 0.40, Effect: "stun"},
 			XPValue:   450,
@@ -337,7 +344,7 @@ var _ = func() bool {
 		},
 		"banshee": {
 			ID: "banshee", Name: "Banshee",
-			CR: 4, HP: 58, AC: 12, Attack: 14, AttackBonus: 4, Speed: 12,
+			CR: 4, HP: 58, AC: 12, Attack: 7, AttackBonus: 4, Speed: 12,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Wail", Phase: "decisive", ProcChance: 0.20, Effect: "execute"},
 			XPValue:   1100,
@@ -345,7 +352,7 @@ var _ = func() bool {
 		},
 		"wraith": {
 			ID: "wraith", Name: "Wraith",
-			CR: 5, HP: 67, AC: 13, Attack: 21, AttackBonus: 6, Speed: 16,
+			CR: 5, HP: 67, AC: 13, Attack: 8, AttackBonus: 6, Speed: 16,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Life Drain", Phase: "any", ProcChance: 0.40, Effect: "max_hp_drain"},
 			XPValue:   1800,
@@ -353,7 +360,7 @@ var _ = func() bool {
 		},
 		"vampire_spawn": {
 			ID: "vampire_spawn", Name: "Vampire Spawn",
-			CR: 5, HP: 82, AC: 15, Attack: 16, AttackBonus: 6, Speed: 12,
+			CR: 5, HP: 82, AC: 15, Attack: 8, AttackBonus: 6, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Bite (Life Drain)", Phase: "any", ProcChance: 0.40, Effect: "self_heal"},
 			XPValue:   1800,
@@ -361,7 +368,7 @@ var _ = func() bool {
 		},
 		"revenant": {
 			ID: "revenant", Name: "Revenant",
-			CR: 5, HP: 136, AC: 13, Attack: 25, AttackBonus: 7, Speed: 12,
+			CR: 5, HP: 136, AC: 13, Attack: 8, AttackBonus: 7, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Vengeful Regeneration", Phase: "any", ProcChance: 0.50, Effect: "regenerate"},
 			XPValue:   1800,
@@ -369,7 +376,7 @@ var _ = func() bool {
 		},
 		"boss_aldric_blackspire": {
 			ID: "boss_aldric_blackspire", Name: "Lord Aldric Blackspire",
-			CR: 13, HP: 144, AC: 16, Attack: 38, AttackBonus: 9, Speed: 14,
+			CR: 13, HP: 144, AC: 16, Attack: 21, AttackBonus: 9, Speed: 14,
 			BlockRate: 0.20,
 			Ability:   &MonsterAbility{Name: "Charm", Phase: "any", ProcChance: 0.40, Effect: "stun"},
 			XPValue:   10000,
@@ -377,39 +384,43 @@ var _ = func() bool {
 		},
 		"magmin": {
 			ID: "magmin", Name: "Magmin",
-			CR: 0.5, HP: 9, AC: 14, Attack: 7, AttackBonus: 3, Speed: 10,
+			CR: 0.5, HP: 9, AC: 14, Attack: 2, AttackBonus: 3, Speed: 10,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Death Burst", Phase: "decisive", ProcChance: 1.00, Effect: "death_aoe"},
 			XPValue:   100,
 			Notes:     "Death Burst: 2d6 fire in 10 ft on death. Ignite flammable objects on touch.",
+			FireAttacker: true,
 		},
 		"azer": {
 			ID: "azer", Name: "Azer",
-			CR: 2, HP: 39, AC: 17, Attack: 11, AttackBonus: 5, Speed: 12,
+			CR: 2, HP: 39, AC: 17, Attack: 4, AttackBonus: 5, Speed: 12,
 			BlockRate: 0.20,
 			Ability:   &MonsterAbility{Name: "Fire Aura", Phase: "any", ProcChance: 0.50, Effect: "retaliate"},
 			XPValue:   450,
 			Notes:     "1d10 fire to melee attackers; immune to fire; weapons deal heated bonus damage.",
+			FireAttacker: true,
 		},
 		"salamander": {
 			ID: "salamander", Name: "Salamander",
-			CR: 5, HP: 90, AC: 15, Attack: 22, AttackBonus: 7, Speed: 12,
+			CR: 5, HP: 90, AC: 15, Attack: 8, AttackBonus: 7, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Constrict", Phase: "any", ProcChance: 0.40, Effect: "stun"},
 			XPValue:   1800,
 			Notes:     "Constrict grapple + 2d6 fire/turn; spear multiattack; fire aura.",
+			FireAttacker: true,
 		},
 		"fire_elemental": {
 			ID: "fire_elemental", Name: "Fire Elemental",
-			CR: 5, HP: 102, AC: 13, Attack: 20, AttackBonus: 6, Speed: 14,
+			CR: 5, HP: 102, AC: 13, Attack: 8, AttackBonus: 6, Speed: 14,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Fire Form", Phase: "any", ProcChance: 0.50, Effect: "retaliate"},
 			XPValue:   1800,
 			Notes:     "1d10 contact fire damage; immune to fire; vulnerable to water/cold.",
+			FireAttacker: true,
 		},
 		"helmed_horror": {
 			ID: "helmed_horror", Name: "Helmed Horror",
-			CR: 4, HP: 60, AC: 20, Attack: 16, AttackBonus: 6, Speed: 12,
+			CR: 4, HP: 60, AC: 20, Attack: 7, AttackBonus: 6, Speed: 12,
 			BlockRate: 0.25,
 			Ability:   &MonsterAbility{Name: "Spell Immunity", Phase: "any", ProcChance: 1.00, Effect: "spell_resist"},
 			XPValue:   1100,
@@ -417,11 +428,12 @@ var _ = func() bool {
 		},
 		"boss_emberlord_thyrak": {
 			ID: "boss_emberlord_thyrak", Name: "Emberlord Thyrak",
-			CR: 9, HP: 178, AC: 18, Attack: 34, AttackBonus: 8, Speed: 11,
+			CR: 9, HP: 178, AC: 18, Attack: 14, AttackBonus: 8, Speed: 11,
 			BlockRate: 0.20,
 			Ability:   &MonsterAbility{Name: "Forge Breath", Phase: "any", ProcChance: 0.30, Effect: "aoe"},
 			XPValue:   5000,
 			Notes:     "Underforge boss. Phase 2 below 50% HP — spawns 2 Fire Elementals; breath recharge 4–6.",
+			FireAttacker: true,
 		},
 	}
 	for id, m := range tier3 {
@@ -443,7 +455,7 @@ var _ = func() bool {
 		// ── Underdark ────────────────────────────────────────────────────
 		"drow": {
 			ID: "drow", Name: "Drow",
-			CR: 0.25, HP: 13, AC: 15, Attack: 5, AttackBonus: 4, Speed: 12,
+			CR: 0.25, HP: 13, AC: 15, Attack: 1, AttackBonus: 4, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Drow Poison", Phase: "any", ProcChance: 0.30, Effect: "stun"},
 			XPValue:   50,
@@ -451,7 +463,7 @@ var _ = func() bool {
 		},
 		"drow_elite_warrior": {
 			ID: "drow_elite_warrior", Name: "Drow Elite Warrior",
-			CR: 5, HP: 71, AC: 18, Attack: 18, AttackBonus: 7, Speed: 12,
+			CR: 5, HP: 71, AC: 18, Attack: 8, AttackBonus: 7, Speed: 12,
 			BlockRate: 0.20,
 			Ability:   &MonsterAbility{Name: "Parry", Phase: "any", ProcChance: 0.35, Effect: "block"},
 			XPValue:   1800,
@@ -459,7 +471,7 @@ var _ = func() bool {
 		},
 		"drow_mage": {
 			ID: "drow_mage", Name: "Drow Mage",
-			CR: 7, HP: 45, AC: 12, Attack: 22, AttackBonus: 5, Speed: 12,
+			CR: 7, HP: 45, AC: 12, Attack: 12, AttackBonus: 5, Speed: 12,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Lightning Bolt", Phase: "decisive", ProcChance: 0.45, Effect: "aoe"},
 			XPValue:   2900,
@@ -467,7 +479,7 @@ var _ = func() bool {
 		},
 		"mind_flayer": {
 			ID: "mind_flayer", Name: "Mind Flayer",
-			CR: 7, HP: 71, AC: 15, Attack: 26, AttackBonus: 7, Speed: 12,
+			CR: 7, HP: 71, AC: 15, Attack: 12, AttackBonus: 7, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Mind Blast", Phase: "opening", ProcChance: 0.55, Effect: "stun"},
 			XPValue:   2900,
@@ -475,7 +487,7 @@ var _ = func() bool {
 		},
 		"hook_horror": {
 			ID: "hook_horror", Name: "Hook Horror",
-			CR: 3, HP: 75, AC: 15, Attack: 14, AttackBonus: 6, Speed: 10,
+			CR: 3, HP: 75, AC: 15, Attack: 6, AttackBonus: 6, Speed: 10,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Pack Tactics", Phase: "any", ProcChance: 0.30, Effect: "advantage"},
 			XPValue:   700,
@@ -483,7 +495,7 @@ var _ = func() bool {
 		},
 		"roper": {
 			ID: "roper", Name: "Roper",
-			CR: 5, HP: 93, AC: 20, Attack: 22, AttackBonus: 7, Speed: 4,
+			CR: 5, HP: 93, AC: 20, Attack: 8, AttackBonus: 7, Speed: 4,
 			BlockRate: 0.20,
 			Ability:   &MonsterAbility{Name: "Reel", Phase: "any", ProcChance: 0.50, Effect: "stun"},
 			XPValue:   1800,
@@ -491,7 +503,7 @@ var _ = func() bool {
 		},
 		"boss_ilvaras_xunyl": {
 			ID: "boss_ilvaras_xunyl", Name: "Ilvaras Xunyl, Drow High Priestess",
-			CR: 12, HP: 162, AC: 16, Attack: 38, AttackBonus: 9, Speed: 12,
+			CR: 12, HP: 162, AC: 16, Attack: 19, AttackBonus: 9, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Divine Word", Phase: "decisive", ProcChance: 0.40, Effect: "execute"},
 			XPValue:   8400,
@@ -500,7 +512,7 @@ var _ = func() bool {
 		// ── Feywild Crossing ─────────────────────────────────────────────
 		"redcap": {
 			ID: "redcap", Name: "Redcap",
-			CR: 3, HP: 45, AC: 13, Attack: 16, AttackBonus: 6, Speed: 14,
+			CR: 3, HP: 45, AC: 13, Attack: 6, AttackBonus: 6, Speed: 14,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Outsize Strength", Phase: "any", ProcChance: 0.40, Effect: "bonus_damage"},
 			XPValue:   700,
@@ -508,7 +520,7 @@ var _ = func() bool {
 		},
 		"will_o_wisp": {
 			ID: "will_o_wisp", Name: "Will-o'-Wisp",
-			CR: 2, HP: 22, AC: 19, Attack: 9, AttackBonus: 4, Speed: 14,
+			CR: 2, HP: 22, AC: 19, Attack: 4, AttackBonus: 4, Speed: 14,
 			BlockRate: 0.0,
 			Ability:   &MonsterAbility{Name: "Consume Life", Phase: "any", ProcChance: 0.40, Effect: "lifesteal"},
 			XPValue:   450,
@@ -516,7 +528,7 @@ var _ = func() bool {
 		},
 		"quickling": {
 			ID: "quickling", Name: "Quickling",
-			CR: 1, HP: 10, AC: 16, Attack: 8, AttackBonus: 5, Speed: 18,
+			CR: 1, HP: 10, AC: 16, Attack: 2, AttackBonus: 5, Speed: 18,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Blur", Phase: "any", ProcChance: 0.50, Effect: "evade"},
 			XPValue:   200,
@@ -524,7 +536,7 @@ var _ = func() bool {
 		},
 		"night_hag": {
 			ID: "night_hag", Name: "Night Hag",
-			CR: 5, HP: 112, AC: 17, Attack: 21, AttackBonus: 7, Speed: 12,
+			CR: 5, HP: 112, AC: 17, Attack: 8, AttackBonus: 7, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Etherealness", Phase: "any", ProcChance: 0.30, Effect: "evade"},
 			XPValue:   1800,
@@ -532,7 +544,7 @@ var _ = func() bool {
 		},
 		"fomorian": {
 			ID: "fomorian", Name: "Fomorian",
-			CR: 8, HP: 149, AC: 14, Attack: 30, AttackBonus: 9, Speed: 12,
+			CR: 8, HP: 149, AC: 14, Attack: 13, AttackBonus: 9, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Evil Eye", Phase: "any", ProcChance: 0.45, Effect: "stun"},
 			XPValue:   3900,
@@ -540,7 +552,7 @@ var _ = func() bool {
 		},
 		"boss_thornmother": {
 			ID: "boss_thornmother", Name: "The Thornmother",
-			CR: 11, HP: 187, AC: 17, Attack: 32, AttackBonus: 8, Speed: 12,
+			CR: 11, HP: 187, AC: 17, Attack: 18, AttackBonus: 8, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Beguiling Bargain", Phase: "opening", ProcChance: 0.50, Effect: "stun"},
 			XPValue:   7200,
@@ -549,7 +561,7 @@ var _ = func() bool {
 		// ── Dragon's Lair ────────────────────────────────────────────────
 		"kobold": {
 			ID: "kobold", Name: "Kobold",
-			CR: 0.125, HP: 5, AC: 12, Attack: 4, AttackBonus: 4, Speed: 12,
+			CR: 0.125, HP: 5, AC: 12, Attack: 1, AttackBonus: 4, Speed: 12,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Pack Tactics", Phase: "any", ProcChance: 0.40, Effect: "advantage"},
 			XPValue:   25,
@@ -557,7 +569,7 @@ var _ = func() bool {
 		},
 		"guard_drake": {
 			ID: "guard_drake", Name: "Guard Drake",
-			CR: 2, HP: 52, AC: 14, Attack: 12, AttackBonus: 5, Speed: 12,
+			CR: 2, HP: 52, AC: 14, Attack: 4, AttackBonus: 5, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Draconic Loyalty", Phase: "any", ProcChance: 1.00, Effect: "fear_immune"},
 			XPValue:   450,
@@ -565,7 +577,7 @@ var _ = func() bool {
 		},
 		"kobold_scale_sorcerer": {
 			ID: "kobold_scale_sorcerer", Name: "Kobold Scale Sorcerer",
-			CR: 1, HP: 27, AC: 15, Attack: 11, AttackBonus: 4, Speed: 12,
+			CR: 1, HP: 27, AC: 15, Attack: 2, AttackBonus: 4, Speed: 12,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Chromatic Orb", Phase: "decisive", ProcChance: 0.50, Effect: "bonus_damage"},
 			XPValue:   200,
@@ -573,7 +585,7 @@ var _ = func() bool {
 		},
 		"dragonborn_cultist": {
 			ID: "dragonborn_cultist", Name: "Dragonborn Cultist",
-			CR: 4, HP: 71, AC: 16, Attack: 17, AttackBonus: 6, Speed: 12,
+			CR: 4, HP: 71, AC: 16, Attack: 7, AttackBonus: 6, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Draconic Gift", Phase: "opening", ProcChance: 0.50, Effect: "aoe"},
 			XPValue:   1100,
@@ -581,24 +593,26 @@ var _ = func() bool {
 		},
 		"young_red_dragon": {
 			ID: "young_red_dragon", Name: "Young Red Dragon",
-			CR: 10, HP: 178, AC: 18, Attack: 36, AttackBonus: 10, Speed: 16,
+			CR: 10, HP: 178, AC: 18, Attack: 16, AttackBonus: 10, Speed: 16,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Fire Breath", Phase: "any", ProcChance: 0.30, Effect: "aoe_fire"},
 			XPValue:   5900,
 			Notes:     "Elite. Fire Breath 16d6 DEX DC 21; Multiattack; Frightful Presence WIS DC 16.",
+			FireAttacker: true,
 		},
 		"boss_infernax": {
 			ID: "boss_infernax", Name: "Infernax the Undying",
-			CR: 24, HP: 546, AC: 22, Attack: 65, AttackBonus: 14, Speed: 18,
+			CR: 24, HP: 546, AC: 22, Attack: 38, AttackBonus: 11, Speed: 18,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Frightful Presence", Phase: "opening", ProcChance: 0.80, Effect: "stun"},
 			XPValue:   62000,
 			Notes:     "Dragon's Lair boss. Ancient Red Dragon. Legendary Actions; Lair Actions; phase 2 below 50% HP — fire ignores resistance.",
+			FireAttacker: true,
 		},
 		// ── Abyss Portal ─────────────────────────────────────────────────
 		"quasit": {
 			ID: "quasit", Name: "Quasit",
-			CR: 1, HP: 7, AC: 13, Attack: 6, AttackBonus: 4, Speed: 14,
+			CR: 1, HP: 7, AC: 13, Attack: 2, AttackBonus: 4, Speed: 14,
 			BlockRate: 0.0,
 			Ability:   &MonsterAbility{Name: "Invisibility", Phase: "any", ProcChance: 0.40, Effect: "evade"},
 			XPValue:   200,
@@ -606,7 +620,7 @@ var _ = func() bool {
 		},
 		"vrock": {
 			ID: "vrock", Name: "Vrock",
-			CR: 6, HP: 104, AC: 15, Attack: 25, AttackBonus: 6, Speed: 12,
+			CR: 6, HP: 104, AC: 15, Attack: 10, AttackBonus: 6, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Stunning Screech", Phase: "opening", ProcChance: 0.50, Effect: "stun"},
 			XPValue:   2300,
@@ -614,7 +628,7 @@ var _ = func() bool {
 		},
 		"hezrou": {
 			ID: "hezrou", Name: "Hezrou",
-			CR: 8, HP: 136, AC: 16, Attack: 30, AttackBonus: 7, Speed: 13,
+			CR: 8, HP: 136, AC: 16, Attack: 13, AttackBonus: 7, Speed: 13,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Stench", Phase: "any", ProcChance: 0.50, Effect: "debuff"},
 			XPValue:   3900,
@@ -622,7 +636,7 @@ var _ = func() bool {
 		},
 		"nalfeshnee": {
 			ID: "nalfeshnee", Name: "Nalfeshnee",
-			CR: 13, HP: 184, AC: 18, Attack: 42, AttackBonus: 10, Speed: 12,
+			CR: 13, HP: 184, AC: 18, Attack: 21, AttackBonus: 10, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Horror Nimbus", Phase: "opening", ProcChance: 0.55, Effect: "stun"},
 			XPValue:   10000,
@@ -630,7 +644,7 @@ var _ = func() bool {
 		},
 		"marilith": {
 			ID: "marilith", Name: "Marilith",
-			CR: 16, HP: 189, AC: 18, Attack: 50, AttackBonus: 11, Speed: 12,
+			CR: 16, HP: 189, AC: 18, Attack: 26, AttackBonus: 11, Speed: 12,
 			BlockRate: 0.25,
 			Ability:   &MonsterAbility{Name: "Reactive Parry", Phase: "any", ProcChance: 0.50, Effect: "block"},
 			XPValue:   15000,
@@ -638,11 +652,12 @@ var _ = func() bool {
 		},
 		"boss_belaxath": {
 			ID: "boss_belaxath", Name: "Belaxath the Undivided",
-			CR: 19, HP: 262, AC: 19, Attack: 58, AttackBonus: 12, Speed: 14,
+			CR: 19, HP: 262, AC: 19, Attack: 31, AttackBonus: 11, Speed: 14,
 			BlockRate: 0.20,
 			Ability:   &MonsterAbility{Name: "Lightning Discharge", Phase: "decisive", ProcChance: 0.40, Effect: "aoe"},
 			XPValue:   22000,
 			Notes:     "Abyss Portal boss. Balor. Fire Aura; Death Throes on death; Demonic Resilience; Legendary Resistance 3/combat; phase 2 below 40% HP — Huge size, advantage on attacks.",
+			FireAttacker: true,
 		},
 	}
 	for id, m := range tier45 {
@@ -675,6 +690,7 @@ func (m DnDMonsterTemplate) toCombatStats() (CombatStats, CombatModifiers) {
 		BlockRate:   m.BlockRate,
 		AC:          m.AC,
 		AttackBonus: m.AttackBonus,
+		FireAttacker: m.FireAttacker,
 	}
 	mods := CombatModifiers{DamageReduct: 1.0}
 	return stats, mods

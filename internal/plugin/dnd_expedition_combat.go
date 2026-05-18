@@ -30,6 +30,23 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
+// retreatThreatBump is the threat penalty applied when the player times
+// out of a combat (PlayerEndHP > 0 but PlayerWon == false). Retreats
+// represent the player breaking off wounded — the run continues, but the
+// zone's awareness ratchets up. Tuned alongside the expedition-difficulty
+// pass (see gogobee_expedition_difficulty.md): low enough not to compound
+// brutally with chained retreats, high enough that 3–4 retreats walks the
+// threat clock toward Stirring.
+//
+// History: pre-Phase-2 the engine's timeout-loss path called
+// abandonZoneRun + retireAllRegionRuns, ending the expedition outright
+// despite the engine's contract ("Timeout = retreat, not lethal blow").
+// That made any single fight loss across a 14-day expedition an
+// auto-fail, which the sim harness exposed as uniform-0% completion
+// across every tier. Splitting the retreat path here was Phase 2's
+// first lever.
+const retreatThreatBump = 5
+
 // ── Combat Interrupt (§4.2) ─────────────────────────────────────────────────
 
 // CombatInterruptKind is the bucket the d20+tier roll lands in.
@@ -71,11 +88,23 @@ func resolveCombatInterrupt(
 		mod -= 3
 	}
 	total := r + mod
+	// Phase 5-B: elite bracket raised from 19 to 23 (Phase 3-A finding).
+	// At low threat, base d20 + tier+class mod can reach ~22 at most,
+	// so elite-from-interrupt is now effectively a *high-threat* event
+	// (the +1-per-20-threat-above-40 mod is what pushes totals into
+	// the 23+ band). Elite monsters still appear via the Patrol pool,
+	// just less often from the d20 interrupt roll itself. Combined
+	// with the player power floor + supply-burn cut + threat-drift
+	// cut, this lands the live completion curve in the "fairly breezy
+	// with some death" band. Elite case sits *above* Patrol in the
+	// switch so a 23+ total prefers Elite (single dangerous fight)
+	// over Patrol (multi-enemy harvest fail). See
+	// gogobee_expedition_difficulty.md Phase 5-B.
 	switch {
+	case total >= 23:
+		return InterruptElite, total
 	case total >= 22:
 		return InterruptPatrol, total
-	case total >= 19:
-		return InterruptElite, total
 	case total >= 15:
 		return InterruptStandard, total
 	case total >= 9:
@@ -104,22 +133,20 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 	}
 
 	// Surprise round (§4.1): a single free enemy swing nicks HP. We cap at
-	// HP-1 so the nick alone can't KO; real combat resolves below.
+	// HP-1 so the nick alone can't KO; real combat resolves below. The
+	// wounded-entrant clamp (clampSurpriseNick) softens the nick further
+	// when the fighter is already below full HP — see that helper for
+	// the death-spiral motivation.
 	preDmg := surpriseRoundNick(monster, int(zone.Tier))
 	dndChar, _ := LoadDnDCharacter(userID)
 	if dndChar != nil && preDmg > 0 {
-		if preDmg >= dndChar.HPCurrent {
-			preDmg = dndChar.HPCurrent - 1
-			if preDmg < 0 {
-				preDmg = 0
-			}
-		}
+		preDmg = clampSurpriseNick(preDmg, dndChar.HPCurrent, dndChar.HPMax)
 		dndChar.HPCurrent -= preDmg
 		_ = SaveDnDCharacter(dndChar)
 	}
 
 	preCombatHP, _ := dndHPSnapshot(userID)
-	result, err := p.runZoneCombat(userID, monster, int(zone.Tier))
+	result, err := p.runZoneCombat(userID, monster, int(zone.Tier), nil, run.DMMood)
 	if err != nil {
 		return fmt.Sprintf("_(Interrupt combat error: %v.)_", err), false
 	}
@@ -146,9 +173,22 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 	}
 
 	if !result.PlayerWon {
+		if result.TimedOut {
+			// Retreat: fighter broke off wounded but alive. The engine's
+			// contract (combat_engine.go: "Timeout = retreat, not lethal
+			// blow") means HP stays where the engine left it and we keep
+			// the run going. The harvest slot is forfeit (no kill, no
+			// loot) and threat ticks up.
+			_ = applyThreatDelta(exp.ID, retreatThreatBump, "combat retreat")
+			b.WriteString(fmt.Sprintf("⏳ **%s** outlasts you. You break off, wounded but alive. (Threat +%d.)",
+				monster.Name, retreatThreatBump))
+			return b.String(), false
+		}
+		// True death.
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		_ = retireAllRegionRuns(exp)
+		_, _, _ = forcedExtractExpedition(exp.ID, "interrupt death")
 		markAdventureDead(userID, "expedition", zone.Display)
 		if line := flavor.Pick(flavor.PlayerDeath); line != "" {
 			b.WriteString(line)
@@ -176,15 +216,87 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 // surpriseRoundNick computes a small HP nick representing the enemy's
 // free first swing. Roughly attack-bonus + 1d4, with a tier-based floor.
 func surpriseRoundNick(m DnDMonsterTemplate, tier int) int {
+	return surpriseRoundNickF(m, tier, -1)
+}
+
+// surpriseRoundNickF is the floor-parameterized form used by the Phase
+// 3-B sim harness lever sweep. floorOverride < 0 means "use live"
+// (floor = tier); floorOverride >= 0 substitutes that absolute value
+// as the floor (0 disables the floor entirely). Live callers always go
+// through surpriseRoundNick. See gogobee_expedition_difficulty.md
+// Phase 3-B.
+func surpriseRoundNickF(m DnDMonsterTemplate, tier, floorOverride int) int {
 	if tier < 1 {
 		tier = 1
 	}
 	dmg := 1 + rand.IntN(4) + m.AttackBonus/2
 	floor := tier
+	if floorOverride >= 0 {
+		floor = floorOverride
+	}
 	if dmg < floor {
 		dmg = floor
 	}
 	return dmg
+}
+
+// clampSurpriseNick scales the surprise-round nick down for fighters who
+// enter combat already wounded. The raw nick is fine on a fresh entry
+// (full HP), but chained interrupts create a death-spiral: an over-tier
+// elite drops the fighter to ~25% HP and a retreat, then the next
+// standard fight's surprise nick — landing on already-low HP — pre-empts
+// the combat engine entirely. The Phase 2 tier-lethality trace
+// (TestExpeditionBalance_Phase2_TierLethality) showed this cascade was
+// the cause of death in 4 of 5 tier traces post-2a, not the elites
+// themselves.
+//
+// Policy: at full HP, raw nick stands. When wounded (HPCurrent < HPMax),
+// cap the nick at max(1, HPCurrent/5) so a wounded fighter loses at most
+// ~20% of remaining HP to the free swing — they enter the fight bruised
+// but with margin to fight back. The existing KO-guard (nick < HP) is
+// preserved as a hard backstop.
+//
+// Tuning surface: the /5 divisor is the wounded-fighter lethality knob.
+// Tighter (e.g. /10) is gentler; looser (/3) re-opens the cascade. See
+// gogobee_expedition_difficulty.md Phase 2b. liveSurpriseNickDivisor
+// names the shipped value; the harness Phase 2 lever sweep
+// (TestExpeditionBalance_Phase2_LeverSweep) calls clampSurpriseNickD
+// directly with alternate divisors. Live callers always go through
+// clampSurpriseNick.
+const liveSurpriseNickDivisor = 5
+
+func clampSurpriseNick(rawNick, hpCurrent, hpMax int) int {
+	return clampSurpriseNickD(rawNick, hpCurrent, hpMax, liveSurpriseNickDivisor)
+}
+
+// clampSurpriseNickD is the divisor-parameterized form used by the
+// sim harness lever sweep. divisor <= 0 falls back to the shipped
+// value so a zero-valued harness override behaves as "use live."
+func clampSurpriseNickD(rawNick, hpCurrent, hpMax, divisor int) int {
+	if rawNick <= 0 || hpCurrent <= 0 {
+		return 0
+	}
+	if divisor <= 0 {
+		divisor = liveSurpriseNickDivisor
+	}
+	nick := rawNick
+	if hpCurrent < hpMax {
+		cap := hpCurrent / divisor
+		if cap < 1 {
+			cap = 1
+		}
+		if nick > cap {
+			nick = cap
+		}
+	}
+	// KO-guard: surprise alone never finishes the fighter.
+	if nick >= hpCurrent {
+		nick = hpCurrent - 1
+	}
+	if nick < 0 {
+		nick = 0
+	}
+	return nick
 }
 
 // ── Kill-log writer ─────────────────────────────────────────────────────────
@@ -359,8 +471,7 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 	if !ok {
 		return
 	}
-	preHP, _ := dndHPSnapshot(userID)
-	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier))
+	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier), nil, run.DMMood)
 	if rerr != nil {
 		err = rerr
 		return
@@ -385,9 +496,25 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 
 	var ob strings.Builder
 	if !result.PlayerWon {
+		if result.TimedOut {
+			// Retreat — see retreatThreatBump doc. Run continues; threat
+			// ticks; the patrol's awareness lingers as a soft penalty
+			// instead of an auto-fail.
+			_ = applyThreatDelta(exp.ID, retreatThreatBump, "patrol retreat")
+			ob.WriteString(fmt.Sprintf("⏳ The patrol drags on. You break off, wounded but alive. (Threat +%d.)",
+				retreatThreatBump))
+			if rollLine := dndRollSummaryLine(result); rollLine != "" {
+				ob.WriteString("\n")
+				ob.WriteString(rollLine)
+			}
+			outcome = ob.String()
+			ended = false
+			return
+		}
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		_ = retireAllRegionRuns(exp)
+		_, _, _ = forcedExtractExpedition(exp.ID, "patrol death")
 		markAdventureDead(userID, "patrol", zone.Display)
 		if line := flavor.Pick(flavor.PlayerDeath); line != "" {
 			ob.WriteString(line)
@@ -403,8 +530,8 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 		return
 	}
 	_ = recordZoneKill(exp, monster.ID)
-	ob.WriteString(fmt.Sprintf("✅ Patrol dispatched (HP %d→%d / %d).",
-		preHP, postHP, maxHP))
+	ob.WriteString(fmt.Sprintf("✅ Patrol dispatched. You finished at **%d/%d HP**.",
+		postHP, maxHP))
 	if rollLine := dndRollSummaryLine(result); rollLine != "" {
 		ob.WriteString("\n")
 		ob.WriteString(rollLine)

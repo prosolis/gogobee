@@ -82,9 +82,9 @@ func zoneHelpText() string {
 	b.WriteString("`!zone advance` — resolve the current room and move on\n")
 	b.WriteString("`!zone go <n>` — at a fork, take path #n\n")
 	b.WriteString("`!zone abandon` — end the active run (no rewards)\n")
-	b.WriteString("`!zone taunt` — poke TwinBee (mood −10)\n")
-	b.WriteString("`!zone compliment` — flatter TwinBee (mood +5)\n")
-	b.WriteString("`!zone lore` — TwinBee shares zone history")
+	b.WriteString("`!zone taunt` — poke TwinBee (they'll remember)\n")
+	b.WriteString("`!zone compliment` — flatter TwinBee (they'll like that)\n")
+	b.WriteString("`!zone lore` — I share zone history")
 	return b.String()
 }
 
@@ -171,9 +171,17 @@ func atoiSafe(s string) int {
 }
 
 func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest string) error {
+	if cs, _ := getActiveCombatSession(ctx.Sender); cs != nil {
+		return p.SendDM(ctx.Sender, "⚔️ Finish your fight first — `!attack` or `!flee`.")
+	}
 	if rest == "" {
 		return p.SendDM(ctx.Sender,
 			"`!zone enter <id|#>` — pick from `!zone list`. Example: `!zone enter goblin_warrens` or `!zone enter 1`.")
+	}
+	if remaining := restingLockoutRemaining(c); remaining > 0 {
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"🛌 You're still resting — %s remaining. The dungeon won't go anywhere.",
+			formatRespecDuration(remaining)))
 	}
 	available := zonesForLevel(c.Level)
 	id, ok := resolveZoneInput(rest, available)
@@ -202,6 +210,14 @@ func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest
 	zone := zoneOrFallback(run.ZoneID)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🗝 **Entering %s** _(T%d, %d rooms)_\n\n", zone.Display, int(zone.Tier), run.TotalRooms))
+	// Wounded-entry warning: if HP < 50% MaxHP at zone-enter time, flag it
+	// before the player advances into combat. Wounds carry across runs,
+	// monster damage tuning assumes near-full HP; entering at half or less
+	// is a death-spiral invitation.
+	if c.HPMax > 0 && c.HPCurrent*2 < c.HPMax {
+		b.WriteString(fmt.Sprintf("⚠️ _You're entering at **%d/%d HP**. Consider `!rest` first._\n\n",
+			c.HPCurrent, c.HPMax))
+	}
 	b.WriteString("_" + zone.Hook + "_\n\n")
 	if line := twinBeeLine(zone.ID, DMRoomEntry, run.RunID, narrationCadence(run)); line != "" {
 		b.WriteString(line)
@@ -353,23 +369,150 @@ func roomGlyph(rt RoomType) string {
 
 // ── advance ─────────────────────────────────────────────────────────────────
 
+// stopReason classifies why a single advanceOnce step stopped. StopOK means
+// the step walked into the next room cleanly and a loop caller may keep
+// going. Everything else is an interrupt — the autopilot loop in
+// expeditionCmdRun renders the result and stops; the one-shot
+// zoneCmdAdvance treats them all the same (single dispatch).
+type stopReason int
+
+const (
+	stopOK       stopReason = iota // walked to next room; loop may continue
+	stopFork                       // advanceTransitionGraph returned a forkMsg
+	stopElite                      // standing at an Elite doorway; needs !fight
+	stopBoss                       // standing at a Boss doorway; needs !fight
+	stopEnded                      // patrol or room resolution killed the player
+	stopComplete                   // run cleared (boss down, no outgoing edges)
+	stopBlocked                    // an active CombatSession blocks the advance
+	stopHarvestCombat              // auto-harvest pulled into combat that resolved short of death
+	stopPreflight                  // pre-iteration preflight tripped (low HP / low SU)
+)
+
+// advanceResult bundles the staged narration + dispatch shape of one
+// advanceOnce step. preStream/intro/phases/final mirror the streamOrSend
+// contract — phases nil means "no per-step pacing required". reason tells
+// loop callers whether they may iterate again.
+type advanceResult struct {
+	preStream []string
+	intro     string
+	phases    []string
+	final     string
+	reason    stopReason
+	// nextRoomType — when reason is stopOK, the type of the room the
+	// player just stepped into. The autopilot loop reads this to break
+	// before running a redundant iteration whose only job would be to
+	// re-emit the Boss/Elite doorway gate (and produce a duplicate
+	// "Room X/Y — Boss" line in the same DM).
+	nextRoomType RoomType
+	// harvest carries the auto-harvest pass result for the room the
+	// player just walked into (Josie H2 — auto-harvest parity between
+	// `!zone advance` and `!expedition run`). Zero value when no
+	// harvest ran (Entry/Trap/Elite/Boss rooms, forks, stops).
+	harvest       autoHarvestResult
+	harvestFooter string
+}
+
 // zoneCmdAdvance resolves the room the player is currently standing in,
-// then moves them to the next. Resolution branches on RoomType — combat
-// for Exploration/Elite/Boss, a trap nick for Trap, narration-only for
-// Entry. Player loss aborts the run with a mood penalty and player-death
-// flavor; boss win drops the zone Loot table.
+// then moves them to the next. Thin wrapper over advanceOnce + dispatch;
+// the expedition autopilot (expeditionCmdRun) reuses advanceOnce in a
+// loop. Resolution branches on RoomType — combat for Exploration/Elite/
+// Boss, a trap nick for Trap, narration-only for Entry. Player loss
+// aborts the run with a mood penalty and player-death flavor; boss win
+// drops the zone Loot table.
 func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
+	res, err := p.advanceOnce(ctx)
+	if err != nil {
+		return p.SendDM(ctx.Sender, err.Error())
+	}
+	return p.streamOrSend(ctx.Sender, res.preStream, res.intro, res.phases, res.final)
+}
+
+// advanceOnce runs the single-room advance pipeline and returns a
+// structured result the caller can stream as-is or aggregate. Errors
+// returned here are user-facing (already prefixed with the appropriate
+// "Couldn't ..." context); callers should SendDM them verbatim. State
+// mutations on run / character / combat sessions persist regardless of
+// how the caller dispatches the narration.
+// advanceOnce — single-room advance. compact==true switches to the
+// terse autopilot-friendly combat narration and auto-resolves elite
+// doorways (boss still stops; boss is the climax beat). Foreground
+// `!expedition run` / `!zone advance` always pass false.
+func (p *AdventurePlugin) advanceOnce(ctx MessageContext) (advanceResult, error) {
+	return p.advanceOnceWithOpts(ctx, false)
+}
+
+func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) (advanceResult, error) {
 	run, err := getActiveZoneRun(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read run state: "+err.Error())
+		return advanceResult{}, fmt.Errorf("Couldn't read run state: %s", err.Error())
 	}
 	if run == nil {
-		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
+		return advanceResult{}, fmt.Errorf("No active zone run. Use `!zone enter <id>`.")
+	}
+	if cs, _ := getActiveCombatSession(ctx.Sender); cs != nil {
+		return advanceResult{
+			final:  "⚔️ Finish your fight first — `!attack` or `!flee`.",
+			reason: stopBlocked,
+		}, nil
 	}
 	_ = applyMoodDecayIfStale(run)
 	zone := zoneOrFallback(run.ZoneID)
 	prev := run.CurrentRoomType()
 	prevIdx := run.CurrentRoom
+
+	// Elite/Boss rooms are manual: !zone advance stops at the doorway and the
+	// player engages with !fight. Patrols don't roll while standing at the
+	// door — only on the advance that walked the player here, which already
+	// fired below on the previous room. A won CombatSession for the encounter
+	// means the fight's done; fall through so the graph clears the room.
+	//
+	// compact==true (background autopilot) auto-resolves elite rooms via
+	// the same forward-sim engine used for exploration combat. Boss still
+	// pauses regardless — the boss is the run's climax beat and shouldn't
+	// be settled while the player isn't paying attention.
+	var eliteAutoIntro string
+	var eliteAutoPhases []string
+	var eliteAutoOutcome string
+	eliteAutoResolved := false
+	if prev == RoomElite || prev == RoomBoss {
+		encID := encounterIDForRoom(prevIdx)
+		sess, serr := getCombatSessionForEncounter(run.RunID, encID)
+		if serr != nil {
+			return advanceResult{}, fmt.Errorf("Couldn't read combat state: %s", serr.Error())
+		}
+		if sess == nil || sess.Status != CombatStatusWon {
+			if prev == RoomBoss || !compact {
+				kind := "Elite"
+				r := stopElite
+				if prev == RoomBoss {
+					kind = "Boss"
+					r = stopBoss
+				}
+				return advanceResult{
+					final: fmt.Sprintf("**Room %d/%d — %s.** Type `!fight` to engage.",
+						prevIdx+1, run.TotalRooms, kind),
+					reason: r,
+				}, nil
+			}
+			// Compact-mode elite auto-resolve.
+			ai, ap, ao, aended, aerr := p.resolveCombatRoom(ctx.Sender, run, zone, true, true)
+			if aerr != nil {
+				return advanceResult{}, fmt.Errorf("Couldn't auto-resolve elite: %s", aerr.Error())
+			}
+			if aended {
+				return advanceResult{
+					intro:  ai,
+					phases: ap,
+					final:  ao,
+					reason: stopEnded,
+				}, nil
+			}
+			eliteAutoIntro = ai
+			eliteAutoPhases = ap
+			eliteAutoOutcome = ao
+			eliteAutoResolved = true
+		}
+	}
 
 	// §4.1 Patrol Encounter: at Threat-Clock Alert+, patrols may move
 	// through cleared rooms. Roll on `!advance` *before* the next room's
@@ -380,7 +523,7 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	// room intro → room play-by-play → final, in one continuous beat.
 	patrolIntro, patrolPhases, patrolOutcome, patrolEnded, perr := p.tryPatrolEncounter(ctx.Sender, run, zone)
 	if perr != nil {
-		return p.SendDM(ctx.Sender, "Couldn't resolve patrol: "+perr.Error())
+		return advanceResult{}, fmt.Errorf("Couldn't resolve patrol: %s", perr.Error())
 	}
 	var preStream []string
 	if patrolPhases != nil {
@@ -391,7 +534,11 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	}
 	if patrolEnded {
 		// Patrol dropped the player; run is over.
-		return p.streamFlow(ctx.Sender, preStream, patrolOutcome)
+		return advanceResult{
+			preStream: preStream,
+			final:     patrolOutcome,
+			reason:    stopEnded,
+		}, nil
 	}
 	// Patrol survived (or didn't fire). If it fired, patrolOutcome becomes
 	// a streamed midpoint between the patrol fight and the room resolver.
@@ -404,14 +551,28 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	// rooms return a non-nil phases slice — those get streamed with
 	// 2–3s delays for suspense; non-combat rooms collapse into a single
 	// SendDM as before.
-	intro, phases, outcome, ended, err := p.resolveRoom(ctx.Sender, run, zone)
+	intro, phases, outcome, ended, err := p.resolveRoom(ctx.Sender, run, zone, compact)
+	if eliteAutoResolved {
+		// Fold the auto-resolved elite combat in. resolveRoom returned
+		// empty for the elite room type (turn-based system never ran),
+		// so we just use the forward-sim narration we captured above.
+		intro = eliteAutoIntro
+		phases = eliteAutoPhases
+		outcome = eliteAutoOutcome
+	}
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't resolve room: "+err.Error())
+		return advanceResult{}, fmt.Errorf("Couldn't resolve room: %s", err.Error())
 	}
 	if ended {
 		// Death (combat or otherwise). Stream phases if present, then the
 		// death narration as the final message.
-		return p.streamOrSend(ctx.Sender, preStream, intro, phases, outcome)
+		return advanceResult{
+			preStream: preStream,
+			intro:     intro,
+			phases:    phases,
+			final:     outcome,
+			reason:    stopEnded,
+		}, nil
 	}
 
 	// Graph-mode advance (G9a — only mode now): clear the current room,
@@ -419,11 +580,11 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	// for 2+ edges, or complete the run when there are 0 outgoing edges.
 	c, cerr := LoadDnDCharacter(ctx.Sender)
 	if cerr != nil {
-		return p.SendDM(ctx.Sender, "Couldn't load character: "+cerr.Error())
+		return advanceResult{}, fmt.Errorf("Couldn't load character: %s", cerr.Error())
 	}
 	next, forkMsg, complete, gerr := p.advanceTransitionGraph(run, zone, c)
 	if gerr != nil {
-		return p.SendDM(ctx.Sender, "Couldn't advance: "+gerr.Error())
+		return advanceResult{}, fmt.Errorf("Couldn't advance: %s", gerr.Error())
 	}
 	if complete {
 		_, _ = applyMoodEvent(run.RunID, MoodEventZoneComplete)
@@ -443,7 +604,13 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 				b.WriteString("• " + id + "\n")
 			}
 		}
-		return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
+		return advanceResult{
+			preStream: preStream,
+			intro:     intro,
+			phases:    phases,
+			final:     b.String(),
+			reason:    stopComplete,
+		}, nil
 	}
 	if forkMsg != "" {
 		var b strings.Builder
@@ -453,10 +620,73 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 		}
 		b.WriteString(fmt.Sprintf("✓ Cleared room %d (%s).\n\n", prevIdx+1, prettyRoomType(prev)))
 		b.WriteString(forkMsg)
-		return p.streamOrSend(ctx.Sender, preStream, intro, phases, b.String())
+		return advanceResult{
+			preStream: preStream,
+			intro:     intro,
+			phases:    phases,
+			final:     b.String(),
+			reason:    stopFork,
+		}, nil
 	}
-	return p.streamOrSend(ctx.Sender, preStream, intro, phases,
-		p.formatNextRoomMessage(run, zone, prev, prevIdx, outcome, next))
+	finalMsg := p.formatNextRoomMessage(run, zone, prev, prevIdx, outcome, next)
+
+	// H2 — auto-harvest the room the player just walked into. Only fires
+	// for Exploration rooms (Entry/Trap/Elite/Boss self-skip via
+	// currentRoomCleared / autoHarvestRoom's no-op when there's nothing
+	// to harvest). Uses standalone storage when there's no active
+	// expedition, expedition region_state when there is.
+	hr, hfooter := p.runHarvestForAdvance(ctx.Sender, run.RunID, c, next)
+	if hfooter != "" {
+		finalMsg += "\n\n" + hfooter
+	}
+	if hr.CombatNarr != "" {
+		// Harvest interrupt fired combat. Append the narration to the
+		// final block; reclassify reason for the autopilot loop so it
+		// can break with the right footer/tally treatment.
+		finalMsg += "\n\n" + hr.CombatNarr
+	}
+	res := advanceResult{
+		preStream:     preStream,
+		intro:         intro,
+		phases:        phases,
+		final:         finalMsg,
+		reason:        stopOK,
+		nextRoomType:  next,
+		harvest:       hr,
+		harvestFooter: hfooter,
+	}
+	if hr.CombatNarr != "" {
+		res.reason = stopHarvestCombat
+		if hr.PlayerEnded {
+			res.reason = stopEnded
+		}
+	}
+	return res, nil
+}
+
+// runHarvestForAdvance runs an auto-harvest pass on the room the player
+// just walked into and returns the result plus a rendered per-room
+// footer. Reloads the run so the harvest sees the post-graph-advance
+// current node; binds to the active expedition when one exists, falls
+// through to standalone (per-run) storage otherwise. nextRoomType is a
+// fast-path filter so we don't even touch the DB for Entry/Trap/Elite/
+// Boss rooms — autoHarvestRoom would no-op on them anyway.
+func (p *AdventurePlugin) runHarvestForAdvance(
+	userID id.UserID, runID string, c *DnDCharacter, nextRoomType RoomType,
+) (autoHarvestResult, string) {
+	if nextRoomType != RoomExploration {
+		return autoHarvestResult{}, ""
+	}
+	fresh, ferr := getZoneRun(runID)
+	if ferr != nil || fresh == nil {
+		return autoHarvestResult{}, ""
+	}
+	exp, _ := getActiveExpedition(userID)
+	hr, herr := p.autoHarvestRoom(userID, fresh, c, exp)
+	if herr != nil {
+		return autoHarvestResult{}, ""
+	}
+	return hr, renderAutoHarvestFooter(hr.Summary)
 }
 
 // formatNextRoomMessage builds the "✓ Cleared room X. ... Room Y/N —
@@ -494,7 +724,18 @@ func (p *AdventurePlugin) formatNextRoomMessage(run *DungeonRun, zone ZoneDefini
 		b.WriteString("\n\n")
 	}
 	b.WriteString(fmt.Sprintf("**Room %d/%d — %s.** ", nextIdx+1, run.TotalRooms, prettyRoomType(next)))
-	b.WriteString("`!zone advance` to continue.")
+	// Route the action hint by what's actually ahead. The next advance
+	// against an Elite/Boss room hits the doorway gate and demands
+	// `!fight` — telling the player to `!zone advance` here would
+	// directly contradict that gate's message.
+	switch next {
+	case RoomBoss:
+		b.WriteString("`!fight` when you're ready for the boss.")
+	case RoomElite:
+		b.WriteString("`!fight` when ready.")
+	default:
+		b.WriteString("`!zone advance` to continue.")
+	}
 	return b.String()
 }
 
@@ -530,7 +771,10 @@ func (p *AdventurePlugin) streamFlow(userID id.UserID, phaseMessages []string, f
 	if len(phaseMessages) == 0 {
 		return p.SendDM(userID, finalMessage)
 	}
-	p.sendZoneCombatMessages(userID, phaseMessages, finalMessage)
+	// Fire-and-forget: streamFlow's whole job is to hand off to the
+	// streamer and return — no post-flush chaining. Explicit discard
+	// honors the sendZoneCombatMessages contract.
+	_ = p.sendZoneCombatMessages(userID, phaseMessages, finalMessage)
 	return nil
 }
 
@@ -539,7 +783,7 @@ func (p *AdventurePlugin) streamFlow(userID id.UserID, phaseMessages []string, f
 // inter-phase delays — see resolveCombatRoom for the contract. For
 // non-combat rooms (entry, trap), phases is nil and outcome carries the
 // resolution narration.
-func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition) (intro string, phases []string, outcome string, ended bool, err error) {
+func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition, compact bool) (intro string, phases []string, outcome string, ended bool, err error) {
 	switch run.CurrentRoomType() {
 	case RoomEntry:
 		return
@@ -548,11 +792,13 @@ func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone Zo
 		outcome = narration
 		return
 	case RoomExploration:
-		return p.resolveCombatRoom(userID, run, zone, false)
-	case RoomElite:
-		return p.resolveCombatRoom(userID, run, zone, true)
-	case RoomBoss:
-		return p.resolveBossRoom(userID, run, zone)
+		return p.resolveCombatRoom(userID, run, zone, false, compact)
+	case RoomElite, RoomBoss:
+		// Manual turn-based combat (!fight / !attack). zoneCmdAdvance only
+		// reaches resolveRoom for an Elite/Boss room once a won CombatSession
+		// exists for it — so there's nothing to resolve here. Return empty
+		// and let the caller advance the graph past the now-cleared room.
+		return
 	}
 	return
 }
@@ -567,22 +813,44 @@ func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone Zo
 //
 // Phases will be nil only on a "no roster" skip — caller treats that as a
 // non-paced fallthrough.
-func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition, elite bool) (intro string, phases []string, outcome string, ended bool, err error) {
+func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition, elite, compact bool) (intro string, phases []string, outcome string, ended bool, err error) {
 	monster, ok := pickZoneEnemy(zone, run.RunID, run.CurrentRoom, elite)
 	if !ok {
 		outcome = fmt.Sprintf("_(No %s roster entry — skipping.)_", map[bool]string{true: "elite", false: "exploration"}[elite])
 		return
 	}
-	// Capture D&D-scale HP before combat so the outcome line can show
-	// sheet HP rather than the engine's legacy-scale numbers.
 	preHP, _ := dndHPSnapshot(userID)
-	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier))
+	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier), nil, run.DMMood)
 	if rerr != nil {
 		err = rerr
 		return
 	}
 	postHP, maxHP := dndHPSnapshot(userID)
 	nat20s, nat1s := scanMoodEventsFromCombat(run.RunID, result)
+
+	// Compact mode: skip TwinBee banter, skip the multi-beat play-by-play.
+	// Render a single outcome line. Still records kills, threat, and drops.
+	if compact && result.PlayerWon {
+		hpDelta := preHP - postHP
+		var ob strings.Builder
+		label := monster.Name
+		if elite {
+			label = "Elite " + monster.Name
+		}
+		ob.WriteString(fmt.Sprintf("⚔️ **%s** down — HP %d→%d", label, preHP, postHP))
+		if hpDelta > 0 {
+			ob.WriteString(fmt.Sprintf(" (−%d)", hpDelta))
+		}
+		ob.WriteString(".")
+		recordZoneKillForUser(userID, monster.ID)
+		applyRoomCombatThreatForUser(userID, elite)
+		if drop := p.dropZoneLoot(userID, zone.ID, monster, false); drop != "" {
+			ob.WriteString(" ")
+			ob.WriteString(drop)
+		}
+		outcome = ob.String()
+		return
+	}
 
 	// Intro: pre-combat narration + creature stat block. This lands first,
 	// before the 5–8s phase pacing kicks in.
@@ -602,15 +870,24 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	} else {
 		ib.WriteString(fmt.Sprintf("⚔️ **%s** (HP %d, AC %d)", monster.Name, monster.HP, monster.AC))
 	}
+	if curios := activeMagicItemsLine(userID); curios != "" {
+		ib.WriteString("\n")
+		ib.WriteString(curios)
+	}
 	intro = ib.String()
 
 	// Phases: forward-simulating engine play-by-play. Use the player's
 	// display name when available so narrative lines read naturally.
-	playerName := "You"
-	if name, _ := loadDisplayName(userID); name != "" {
-		playerName = name
+	// In compact mode we already returned early on a win; the remaining
+	// compact loss path still wants no multi-beat phases (the player
+	// needs the outcome, not 10 lines of attrition).
+	if !compact {
+		playerName := "You"
+		if name, _ := loadDisplayName(userID); name != "" {
+			playerName = name
+		}
+		phases = RenderCombatLog(result, playerName, monster.Name)
 	}
-	phases = RenderCombatLog(result, playerName, monster.Name)
 
 	// Outcome: post-combat block. Nat20/nat1 narration goes here so it
 	// lands *after* the play-by-play, where it has dramatic context.
@@ -627,14 +904,32 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		}
 	}
 	if !result.PlayerWon {
+		// resolveCombatRoom gates room progression — a retreat here has
+		// nowhere to go (the elite/room is still blocking the way), so
+		// any loss ends the run. The retreat-continues semantic only
+		// fits the non-gating expedition paths (runHarvestInterrupt,
+		// tryPatrolEncounter); see retreatThreatBump in
+		// dnd_expedition_combat.go.
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
-		markAdventureDead(userID, "zone", zone.Display)
+		// Timeout loss = retreat; player took wounds but isn't actually
+		// dead. Don't fire markAdventureDead — that would trigger the 6h
+		// respawn timer for what is mechanically "ran out the clock".
+		if !result.TimedOut {
+			markAdventureDead(userID, "zone", zone.Display)
+			forceExtractExpeditionForRunLoss(userID, "combat death")
+		} else {
+			forceExtractExpeditionForRunLoss(userID, "combat retreat")
+		}
 		if line := twinBeeLine(zone.ID, DMPlayerDeath, run.RunID, narrationCadence(run)); line != "" {
 			ob.WriteString(line)
 			ob.WriteString("\n")
 		}
-		ob.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
+		if result.TimedOut {
+			ob.WriteString(fmt.Sprintf("⏳ The fight drags on. **%s** outlasts you. You retreat, wounded but alive.", monster.Name))
+		} else {
+			ob.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
+		}
 		if rollLine := dndRollSummaryLine(result); rollLine != "" {
 			ob.WriteString("\n")
 			ob.WriteString(rollLine)
@@ -647,7 +942,7 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		ob.WriteString(line)
 		ob.WriteString("\n")
 	}
-	ob.WriteString(fmt.Sprintf("✅ **%s** down (HP %d→%d / %d).", monster.Name, preHP, postHP, maxHP))
+	ob.WriteString(fmt.Sprintf("✅ **%s** down. You finished at **%d/%d HP**.", monster.Name, postHP, maxHP))
 	if rollLine := dndRollSummaryLine(result); rollLine != "" {
 		ob.WriteString("\n")
 		ob.WriteString(rollLine)
@@ -659,67 +954,6 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		ob.WriteString(drop)
 	}
 	outcome = ob.String()
-	return
-}
-
-// resolveBossRoom runs the zone-boss bestiary entry through the same
-// combat path as room combat. Win → caller drops zone loot.
-//
-// Returns staged messages — see resolveCombatRoom for the contract.
-func (p *AdventurePlugin) resolveBossRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition) (intro string, phases []string, outcome string, ended bool, err error) {
-	monster, ok := dndBestiary[zone.Boss.BestiaryID]
-	if !ok {
-		outcome = fmt.Sprintf("_(Boss %s not in bestiary — skipping.)_", zone.Boss.Name)
-		return
-	}
-	preHP, _ := dndHPSnapshot(userID)
-	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier))
-	if rerr != nil {
-		err = rerr
-		return
-	}
-	postHP, maxHP := dndHPSnapshot(userID)
-	nat20s, nat1s := scanMoodEventsFromCombat(run.RunID, result)
-
-	intro = fmt.Sprintf("👑 **Boss — %s** (HP %d, AC %d)", monster.Name, monster.HP, monster.AC)
-
-	playerName := "You"
-	if name, _ := loadDisplayName(userID); name != "" {
-		playerName = name
-	}
-	phases = RenderCombatLog(result, playerName, monster.Name)
-
-	outcome = renderBossOutcome(BossOutcomeInputs{
-		ZoneID:          zone.ID,
-		RunID:           run.RunID,
-		RoomIdx:         run.CurrentRoom,
-		Monster:         monster,
-		Result:          result,
-		PreHP:           preHP,
-		PostHP:          postHP,
-		MaxHP:           maxHP,
-		PhaseTwoAt:      zone.Boss.PhaseTwoAt,
-		Nat20s:          nat20s,
-		Nat1s:           nat1s,
-		DefeatHeadline:  fmt.Sprintf("💀 **%s** stands over your body. Run ended.", monster.Name),
-		VictoryHeadline: fmt.Sprintf("🏆 **%s** falls (HP %d→%d / %d).", monster.Name, preHP, postHP, maxHP),
-	})
-	if !result.PlayerWon {
-		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
-		_ = abandonZoneRun(userID)
-		markAdventureDead(userID, "zone", zone.Display)
-		ended = true
-		return
-	}
-	recordZoneKillForUser(userID, monster.ID)
-	// §8.1: zone boss defeat drops expedition threat by 20. Silent
-	// no-op for standalone zone runs (no active expedition).
-	if exp, eerr := getActiveExpedition(userID); eerr == nil && exp != nil {
-		_ = applyBossDefeatThreat(exp.ID)
-	}
-	if drop := p.dropZoneLoot(userID, zone.ID, monster, true); drop != "" {
-		outcome = outcome + "\n" + drop
-	}
 	return
 }
 
@@ -861,7 +1095,7 @@ func (p *AdventurePlugin) zoneCmdLore(ctx MessageContext) error {
 	zone := zoneOrFallback(run.ZoneID)
 	line := twinBeeLine(zone.ID, DMLore, run.RunID, narrationCadence(run))
 	if line == "" {
-		return p.SendDM(ctx.Sender, "TwinBee has nothing to say about this place.")
+		return p.SendDM(ctx.Sender, "I have nothing to say about this place.")
 	}
 	return p.SendDM(ctx.Sender, fmt.Sprintf("📖 **%s — Lore**\n\n%s", zone.Display, line))
 }

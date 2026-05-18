@@ -290,6 +290,90 @@ func applySpellBuff(spell SpellDefinition, c *DnDCharacter, stats *CombatStats, 
 	}
 }
 
+// ── Phase 13 — per-round turn-based casting ──────────────────────────────────
+
+// turnSpellOutcome is the resolved effect of a spell cast as a player turn in a
+// turn-based fight. Damage, healing, and the one-round enemy skip all land
+// within the casting round, so no cross-round persistence is needed.
+type turnSpellOutcome struct {
+	EnemyDamage int
+	PlayerHeal  int
+	EnemySkip   bool
+	Desc        string
+}
+
+// resolveTurnSpell resolves a spell as a turn-based player action, reusing the
+// auto-resolve spell math against a throwaway modifier set. supported is false
+// for buff and utility spells: those mutate stats for the rest of the fight,
+// which the turn engine can't carry yet (it rebuilds combatants each round) —
+// the caller should refuse them without spending the slot. Reaction spells are
+// likewise out of scope here and should be filtered by the caller.
+func resolveTurnSpell(c *DnDCharacter, spell SpellDefinition, slotLevel int, enemy *CombatStats) (out turnSpellOutcome, supported bool) {
+	switch spell.Effect {
+	case EffectSpellHeal:
+		out.PlayerHeal = rollTurnSpellHeal(c, spell, slotLevel)
+		out.Desc = fmt.Sprintf("%s — +%d HP", spell.Name, out.PlayerHeal)
+		return out, true
+	case EffectDamageAttack, EffectDamageSave, EffectDamageAuto, EffectControl:
+		var mods CombatModifiers
+		dc := spellSaveDC(c)
+		atk := spellAttackBonus(c)
+		switch spell.Effect {
+		case EffectDamageAttack:
+			applySpellDamageAttack(spell, atk, &mods, enemy, slotLevel, c.Level)
+		case EffectDamageSave:
+			applySpellDamageSave(spell, dc, c, &mods, enemy, slotLevel)
+		case EffectDamageAuto:
+			applySpellDamageAuto(spell, &mods, slotLevel, c.Level)
+		case EffectControl:
+			applySpellControl(spell, dc, &mods, enemy, slotLevel)
+		}
+		if mods.SpellPreDamage > 0 {
+			applyMageSubclassSpellHooks(c, spell, slotLevel, &mods)
+		}
+		out.EnemyDamage = mods.SpellPreDamage
+		out.EnemySkip = mods.SpellEnemySkipFirst
+		out.Desc = mods.SpellPreDamageDesc
+		if out.Desc == "" {
+			out.Desc = spell.Name
+		}
+		return out, true
+	default:
+		// EffectBuffSelf / EffectBuffAlly / EffectUtility — deferred.
+		return out, false
+	}
+}
+
+// rollTurnSpellHeal rolls an in-combat healing cast. Mirrors
+// resolveHealOutOfCombat's formula but returns the amount instead of writing
+// to the character sheet — in a turn-based fight, HP lives on the session row.
+func rollTurnSpellHeal(c *DnDCharacter, spell SpellDefinition, slotLevel int) int {
+	dice, faces, _ := parseDamageDice(spell.DamageDice)
+	if dice == 0 {
+		dice, faces = 1, 8
+	}
+	extra := slotLevel - spell.Level
+	if extra < 0 {
+		extra = 0
+	}
+	totalDice := dice + extra
+	supreme := lifeDomainSupremeHealing(c)
+	heal := 0
+	for i := 0; i < totalDice; i++ {
+		if supreme {
+			heal += faces
+		} else {
+			heal += 1 + rand.IntN(faces)
+		}
+	}
+	heal += abilityModifier(c.WIS)
+	heal += lifeDomainHealBonus(c, spell, slotLevel)
+	if heal < 1 {
+		heal = 1
+	}
+	return heal
+}
+
 // rollSpellDamageDice rolls a spell's damage dice with cantrip and upcast
 // scaling. Returns at least 1 if the spell has any dice; 0 if no dice are
 // listed (utility/buff spells).
@@ -321,4 +405,66 @@ func rollSpellDamageDice(spell SpellDefinition, slot, charLevel int) int {
 		total = 1
 	}
 	return total
+}
+
+// ── Phase 13 — turn-based buff resolution ────────────────────────────────────
+
+// turnBuffDelta is the marginal effect of one buff spell or consumable applied
+// as a turn-based player action, diffed against the player's already-buffed
+// combatant. Stat components (dAC, dDmgBonus, …) accumulate as session deltas;
+// depleting resources (ward, spore, …) add to their running counters; heal and
+// enemySkip land within the casting round only.
+type turnBuffDelta struct {
+	dAC, dAtk, dSpeed, dPetDmg int
+	dCrit, dDmgBonus, dPetProc float64
+	dReductMul                 float64 // multiplicative; 1 = no change
+	ward, spore, arcaneWard    int
+	reflect                    float64
+	autoCrit, enemySkip        bool
+	heal                       int // a MaxHP-raise (Aid) collapses to an immediate heal
+}
+
+// statComponent reports whether the buff has a re-applicable persistent stat
+// effect — the part applySessionBuffs folds back onto the player every round.
+func (d turnBuffDelta) statComponent() bool {
+	return d.dAC != 0 || d.dAtk != 0 || d.dSpeed != 0 || d.dPetDmg != 0 ||
+		d.dCrit != 0 || d.dDmgBonus != 0 || d.dPetProc != 0 ||
+		(d.dReductMul > 0 && d.dReductMul != 1)
+}
+
+// any reports whether the buff produced any applicable effect at all. A buff
+// the turn engine can't represent yet (pure utility) diffs to nothing, and the
+// caller refuses it before a slot or item is spent.
+func (d turnBuffDelta) any() bool {
+	return d.statComponent() || d.ward != 0 || d.spore != 0 || d.reflect != 0 ||
+		d.autoCrit || d.arcaneWard != 0 || d.enemySkip || d.heal != 0
+}
+
+// diffTurnBuff computes the marginal effect of a buff: (bs,bm) is the player's
+// state before the buff, (as,am) the throwaway result of applying it. Reusing
+// applySpellBuff / ApplyConsumableMods against a copy keeps turn-based buffs
+// numerically identical to the auto-resolve engine.
+func diffTurnBuff(bs, as CombatStats, bm, am CombatModifiers) turnBuffDelta {
+	d := turnBuffDelta{
+		dAC:        as.AC - bs.AC,
+		dAtk:       as.AttackBonus - bs.AttackBonus,
+		dSpeed:     as.Speed - bs.Speed,
+		dPetDmg:    am.PetAttackDmg - bm.PetAttackDmg,
+		dCrit:      as.CritRate - bs.CritRate,
+		dDmgBonus:  am.DamageBonus - bm.DamageBonus,
+		dPetProc:   am.PetAttackProc - bm.PetAttackProc,
+		ward:       am.WardCharges - bm.WardCharges,
+		spore:      am.SporeCloud - bm.SporeCloud,
+		reflect:    am.ReflectNext - bm.ReflectNext,
+		arcaneWard: am.ArcaneWardHP - bm.ArcaneWardHP,
+		autoCrit:   am.AutoCritFirst && !bm.AutoCritFirst,
+		enemySkip:  am.SpellEnemySkipFirst && !bm.SpellEnemySkipFirst,
+		heal:       as.MaxHP - bs.MaxHP,
+	}
+	if bm.DamageReduct > 0 {
+		d.dReductMul = am.DamageReduct / bm.DamageReduct
+	} else {
+		d.dReductMul = 1
+	}
+	return d
 }

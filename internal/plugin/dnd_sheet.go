@@ -64,11 +64,12 @@ func (p *AdventurePlugin) handleDnDSheetCmd(ctx MessageContext) error {
 	treasures, _ := loadAdvTreasureBonuses(ctx.Sender)
 	meta, _ := loadPlayerMeta(ctx.Sender)
 	house, _ := loadHouseState(ctx.Sender)
+	magicEquip, _ := loadEquippedMagicItems(ctx.Sender)
 
-	return p.SendDM(ctx.Sender, renderDnDSheet(c, advChar, meta, house, equip, treasures))
+	return p.SendDM(ctx.Sender, renderDnDSheet(c, advChar, meta, house, equip, treasures, magicEquip))
 }
 
-func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, house HouseState, equip map[EquipmentSlot]*AdvEquipment, treasures []AdvTreasureBonus) string {
+func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, house HouseState, equip map[EquipmentSlot]*AdvEquipment, treasures []AdvTreasureBonus, magicEquip map[DnDSlot]EquippedMagicItem) string {
 	ri, _ := raceInfo(c.Race)
 	ci, _ := classInfo(c.Class)
 	mods := c.Modifiers()
@@ -137,9 +138,40 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, 
 		b.WriteString("  _(none equipped)_\n")
 	}
 
-	// Attunements (re-using adventure_treasures per v1.1 §7.4)
+	// Magic items — registry items worn in the D&D slots (separate from the
+	// legacy tier-gear above). Attunement items mark themselves "(inactive)"
+	// when worn but not bonded — they grant nothing until the player frees
+	// an attunement slot via `!adventure equip-magic`.
+	if len(magicEquip) > 0 {
+		attunedNow := countAttunedMagicItems(magicEquip)
+		b.WriteString("\n**Magic Items**\n")
+		for _, ds := range dndSlotOrder {
+			e, ok := magicEquip[ds]
+			if !ok || e.Item.ID == "" {
+				continue
+			}
+			status := ""
+			if e.Item.Attunement {
+				switch {
+				case e.Attuned:
+					status = fmt.Sprintf(" — bonded (%d/%d)", attunedNow, dndMagicItemAttuneLimit)
+				case attunedNow >= dndMagicItemAttuneLimit:
+					status = " — **(inactive)** _bond cap full_"
+				default:
+					status = " — **(inactive)** _unbonded_"
+				}
+			}
+			b.WriteString(fmt.Sprintf("  %s %-9s %s _(%s)_%s\n    %s\n",
+				rarityIcon(e.Item.Rarity), string(ds), e.Item.Name, e.Item.Rarity,
+				status, magicItemEffectSummary(e.Item)))
+		}
+	}
+
+	// Treasure bonuses (re-using adventure_treasures per v1.1 §7.4).
+	// Player-facing label kept distinct from the magic-item "bond" vocab
+	// so the sheet doesn't read as two competing attunement systems.
 	if len(treasures) > 0 {
-		b.WriteString("\n**Attunements** (treasures)\n")
+		b.WriteString("\n**Treasures**\n")
 		// Group by treasure_key — one treasure can have multiple bonuses.
 		byKey := map[string][]AdvTreasureBonus{}
 		var keys []string

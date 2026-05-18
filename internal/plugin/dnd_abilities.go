@@ -357,6 +357,59 @@ func displayAbility(id string) string {
 
 // ── Combat hook ──────────────────────────────────────────────────────────────
 
+// simAutoArmEnabled, when true, lets the combat builders pre-arm a
+// class-default ability for any character entering combat with an empty
+// ArmedAbility slot. The expedition-sim flips this on so synthetic
+// players model a competent real player (who would `!arm` Second Wind
+// before each fight) instead of a player who never touches the
+// !arm command. Untouched in production code paths.
+var simAutoArmEnabled = false
+
+// simAutoArmDefaultFor returns the class-default ability id the sim
+// should pre-arm. Defensive heals (Second Wind, Healing Word) only —
+// burning a Mage's spell slot every fight would mask J2, not help it.
+func simAutoArmDefaultFor(class DnDClass) string {
+	switch class {
+	case ClassFighter:
+		return "second_wind"
+	case ClassCleric:
+		return "healing_word"
+	}
+	return ""
+}
+
+// trySimAutoArm pre-arms the class-default ability if the global toggle
+// is on, no ability is currently armed, and the resource pool has at
+// least one charge. Mirrors handleDnDArmCmd's spend-and-save flow.
+// Returns the ability name (or "" when nothing was armed).
+func trySimAutoArm(c *DnDCharacter) string {
+	if !simAutoArmEnabled || c == nil || c.ArmedAbility != "" {
+		return ""
+	}
+	id := simAutoArmDefaultFor(c.Class)
+	if id == "" {
+		return ""
+	}
+	ab, ok := dndActiveAbilities[id]
+	if !ok {
+		return ""
+	}
+	cur, _, err := getResource(c.UserID, ab.Resource)
+	if err != nil || cur < 1 {
+		return ""
+	}
+	c.ArmedAbility = ab.ID
+	if err := SaveDnDCharacter(c); err != nil {
+		return ""
+	}
+	if ok, _ := spendResource(c.UserID, ab.Resource, 1); !ok {
+		c.ArmedAbility = ""
+		_ = SaveDnDCharacter(c)
+		return ""
+	}
+	return ab.Name
+}
+
 // applyArmedAbility checks for a pre-armed ability on the character and
 // applies its effect to the player's CombatModifiers, then clears the armed
 // flag. Called from combat_bridge.go before SimulateCombat.

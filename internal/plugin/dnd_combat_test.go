@@ -54,8 +54,10 @@ func TestDnDPlayerAttackBonus(t *testing.T) {
 }
 
 func TestApplyDnDPlayerLayer(t *testing.T) {
-	stats := CombatStats{MaxHP: 50, Attack: 10, Defense: 5}
-	c := &DnDCharacter{Class: ClassFighter, Level: 1, STR: 17, ArmorClass: 16}
+	// Combat MaxHP is now c.HPMax + stats.HPBonus. The HPBonus carries the
+	// equipment/arena/housing buffs DerivePlayerStats accumulated.
+	stats := CombatStats{MaxHP: 50, HPBonus: 8, Attack: 10, Defense: 5}
+	c := &DnDCharacter{Class: ClassFighter, Level: 1, STR: 17, HPMax: 12, ArmorClass: 16}
 	applyDnDPlayerLayer(&stats, c)
 	if stats.AC != 16 {
 		t.Errorf("AC = %d, want 16", stats.AC)
@@ -63,9 +65,11 @@ func TestApplyDnDPlayerLayer(t *testing.T) {
 	if stats.AttackBonus != 7 {
 		t.Errorf("AttackBonus = %d, want 7", stats.AttackBonus)
 	}
-	// HP/Attack scaling fields unchanged
-	if stats.MaxHP != 50 || stats.Attack != 10 {
-		t.Errorf("non-D&D fields mutated: %+v", stats)
+	if stats.MaxHP != 20 { // 12 + 8
+		t.Errorf("MaxHP = %d, want 20 (HPMax 12 + HPBonus 8)", stats.MaxHP)
+	}
+	if stats.Attack != 10 {
+		t.Errorf("Attack mutated: %d, want unchanged 10", stats.Attack)
 	}
 }
 

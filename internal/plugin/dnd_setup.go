@@ -207,11 +207,11 @@ func (p *AdventurePlugin) dndSetupClass(ctx MessageContext, classArg string) err
 		return p.SendDM(ctx.Sender,"Couldn't save: "+err.Error())
 	}
 	ci, _ := classInfo(cl)
-	return p.SendDM(ctx.Sender,fmt.Sprintf("Class set: **%s** (HP die d%d, primary %s/%s).\n\n"+
+	return p.SendDM(ctx.Sender,fmt.Sprintf("Class set: **%s** — leans on %s & %s.\n\n"+
 		"Next: assign your stats. The standard array is **15 14 13 12 10 8** — six numbers, each used once.\n"+
 		"Order: STR DEX CON INT WIS CHA.\n\n"+
 		"Example: `!setup stats 15 14 13 12 10 8` (all rolled into STR-first; rearrange to taste).",
-		ci.Display, ci.HPDie, ci.PrimaryA, ci.PrimaryB))
+		ci.Display, ci.PrimaryA, ci.PrimaryB))
 }
 
 func (p *AdventurePlugin) dndSetupStats(ctx MessageContext, statsArg string) error {
@@ -271,6 +271,7 @@ func (p *AdventurePlugin) dndSetupConfirm(ctx MessageContext) error {
 	c.HPCurrent = c.HPMax
 	c.TempHP = 0
 	c.ArmorClass = computeAC(c.Class, dexMod)
+	c.ShortRestCharges = c.Level
 	c.PendingSetup = false
 	c.AutoMigrated = false // manually confirmed — no longer an auto-migration
 	c.UpdatedAt = time.Now().UTC()
@@ -518,6 +519,11 @@ func parseClass(s string) (DnDClass, bool) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	for _, ci := range dndClasses {
 		if string(ci.Key) == s || strings.EqualFold(ci.Display, s) {
+			if !ci.Playable {
+				// Recognized class, but not yet selectable (Open5e
+				// caster scaffold — no spell list). Treat as no match.
+				return "", false
+			}
 			return ci.Key, true
 		}
 	}
@@ -557,6 +563,9 @@ func renderRaceMenu() string {
 	var b strings.Builder
 	for _, ri := range dndRaces {
 		b.WriteString(fmt.Sprintf("  • **%s** — %s\n", ri.Display, ri.Passive))
+		if ri.BestFit != "" {
+			b.WriteString(fmt.Sprintf("    _best with: %s_\n", ri.BestFit))
+		}
 	}
 	return b.String()
 }
@@ -564,7 +573,10 @@ func renderRaceMenu() string {
 func renderClassMenu() string {
 	var b strings.Builder
 	for _, ci := range dndClasses {
-		b.WriteString(fmt.Sprintf("  • **%s** (d%d, %s/%s)\n", ci.Display, ci.HPDie, ci.PrimaryA, ci.PrimaryB))
+		if !ci.Playable {
+			continue // Open5e caster scaffold — hidden until spell lists land.
+		}
+		b.WriteString(fmt.Sprintf("  • **%s** — %s & %s\n", ci.Display, ci.PrimaryA, ci.PrimaryB))
 	}
 	return b.String()
 }
@@ -598,16 +610,26 @@ func renderConfirmPreview(c *DnDCharacter) string {
 func renderSetupComplete(c *DnDCharacter) string {
 	ri, _ := raceInfo(c.Race)
 	ci, _ := classInfo(c.Class)
+	nextLine := "Use `!sheet` anytime to review. `!zone list` to head out, or `!expedition list` for a longer run."
+	if isSpellcaster(c) {
+		// Casters get auto-granted spells on character creation but no
+		// in-game discovery prompt for them. Surface !spells / !cast so
+		// they can actually find their kit. Long-rest refresh is the
+		// other piece they need to know, but that becomes obvious the
+		// moment they look at !spells.
+		nextLine = "Use `!sheet` anytime to review. `!spells` lists what you can cast and `!cast <spell>` does the deed. `!zone list` heads out; `!expedition list` is the longer run."
+	}
 	return fmt.Sprintf(
 		"⚔️ **Character Sheet Forged**\n\n"+
 			"You are a **Level %d %s %s**.\n"+
 			"  HP %d/%d   AC %d\n"+
 			"  STR %d  DEX %d  CON %d  INT %d  WIS %d  CHA %d\n\n"+
 			"_%s_\n\n"+
-			"Use `!sheet` anytime to review. `!zone list` to head out, or `!expedition list` for a longer run.",
+			"%s",
 		c.Level, ri.Display, ci.Display,
 		c.HPCurrent, c.HPMax, c.ArmorClass,
 		c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA,
 		ri.Passive,
+		nextLine,
 	)
 }

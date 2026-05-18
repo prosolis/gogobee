@@ -51,8 +51,8 @@ func TestBestiaryToCombatStats(t *testing.T) {
 	if stats.AC != 22 {
 		t.Errorf("dragon AC = %d, want 22", stats.AC)
 	}
-	if stats.AttackBonus != 14 {
-		t.Errorf("dragon AttackBonus = %d, want 14", stats.AttackBonus)
+	if stats.AttackBonus != 11 {
+		t.Errorf("dragon AttackBonus = %d, want 11 (capped at 11 by 2026-05-10 rebalance)", stats.AttackBonus)
 	}
 	if mods.DamageReduct != 1.0 {
 		t.Errorf("DamageReduct = %v, want 1.0", mods.DamageReduct)

@@ -21,9 +21,14 @@ func TestResolveCombatInterrupt_Brackets(t *testing.T) {
 		{"noise upper", 13, 0, 1, ClassFighter, ZoneGoblinWarrens, InterruptNoise}, // 13+1=14
 		{"standard", 14, 0, 1, ClassFighter, ZoneGoblinWarrens, InterruptStandard}, // 15
 		{"standard upper", 17, 0, 1, ClassFighter, ZoneGoblinWarrens, InterruptStandard}, // 18
-		{"elite", 18, 0, 1, ClassFighter, ZoneGoblinWarrens, InterruptElite},        // 19
-		{"elite upper", 18, 0, 3, ClassFighter, ZoneGoblinWarrens, InterruptElite},  // 21
-		{"patrol", 20, 0, 2, ClassFighter, ZoneGoblinWarrens, InterruptPatrol},      // 22
+		// Phase 5-B: elite bracket moved from 19+ to 23+. At totals
+		// 19-21 (formerly Elite) the roll now resolves to Standard;
+		// 22 still resolves to Patrol; 23+ to Elite (only reachable
+		// via threat-mod, since base d20+tier+ranger maxes at ~21).
+		{"standard top of band", 18, 0, 1, ClassFighter, ZoneGoblinWarrens, InterruptStandard}, // 19 → Standard now
+		{"standard band upper", 18, 0, 3, ClassFighter, ZoneGoblinWarrens, InterruptStandard},  // 21 → Standard now
+		{"patrol", 20, 0, 2, ClassFighter, ZoneGoblinWarrens, InterruptPatrol},                  // 22
+		{"elite high threat", 18, 80, 3, ClassFighter, ZoneGoblinWarrens, InterruptElite},       // 18+3+2=23 → Elite
 		{"threat bumps band", 13, 60, 1, ClassFighter, ZoneGoblinWarrens, InterruptStandard},
 		{"ranger wilderness drops band", 17, 0, 1, ClassRanger, ZoneForestShadows, InterruptStandard}, // 17+1-3=15
 		{"ranger non-wild no drop", 17, 0, 1, ClassRanger, ZoneGoblinWarrens, InterruptStandard},     // 17+1=18 (Standard)

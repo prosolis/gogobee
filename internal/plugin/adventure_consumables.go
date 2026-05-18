@@ -65,14 +65,17 @@ var consumableDefs = []ConsumableDef{
 	{Name: "Voidstone Shard", Effect: EffectReflect, Value: 0.50, Tier: 5, Buyable: false, Slot: "defensive"},
 }
 
-// consumableDefByName returns the definition for a consumable by name.
+// consumableDefByName returns the definition for a consumable by name. Falls
+// through to the magic-item registry so SRD potions/scrolls picked up as loot
+// or bought from Luigi's Curios shelf resolve in combat without being added
+// to the hardcoded consumableDefs table (see magic_items_gameplay.go).
 func consumableDefByName(name string) *ConsumableDef {
 	for i := range consumableDefs {
 		if consumableDefs[i].Name == name {
 			return &consumableDefs[i]
 		}
 	}
-	return nil
+	return magicItemConsumableDefByName(name)
 }
 
 // ── Threat Assessment ────────────────────────────────────────────────────────
@@ -122,29 +125,28 @@ func assessThreat(player, enemy CombatStats) threatLevel {
 // ── Selection Logic ──────────────────────────────────────────────────────────
 
 // SelectConsumables picks up to 2 items (1 offensive + 1 defensive) from inventory.
-// contentTier caps consumable tier to the content being fought (0 = no cap).
-func SelectConsumables(inventory []ConsumableItem, playerStats, enemyStats CombatStats, arenaRound int, contentTier int) []ConsumableItem {
+// contentTier is retained on the signature for callers but no longer caps
+// what gets considered — if it's in your bag, the picker can use it.
+// allowSkipTrivial=true lets the picker bail out of obvious wins to save
+// items — appropriate for dungeon dives full of chump rooms, but wrong for
+// arena/zone elite/boss encounters where the legacy threat assessor
+// underestimates d20-mode lethality (one bad nat-20 streak ends the run).
+//
+// Resource-saving still happens via betterOffensive/betterDefensive, which
+// prefer lower-tier items on non-Dangerous threats. Players with mixed
+// inventories don't burn a Voidstone Shard on a goblin; players with only
+// high-tier items now actually get to use them.
+func SelectConsumables(inventory []ConsumableItem, playerStats, enemyStats CombatStats, arenaRound int, contentTier int, allowSkipTrivial bool) []ConsumableItem {
+	_ = contentTier // retained for caller compatibility
 	threat := assessThreat(playerStats, enemyStats)
-	// Arena losses cost real money + equipment durability — never skip there,
-	// even if the threat looks trivial. Adventure-side fights still skip
-	// trivial threats to avoid wasting items on chump enemies.
-	if threat == threatTrivial && arenaRound == 0 {
+	if threat == threatTrivial && allowSkipTrivial && arenaRound == 0 {
 		return nil
-	}
-
-	maxTier := maxConsumableTier(threat, arenaRound)
-	if contentTier > 0 && contentTier < maxTier {
-		maxTier = contentTier
 	}
 
 	var bestOffensive, bestDefensive *ConsumableItem
 
 	for i := range inventory {
 		item := &inventory[i]
-		if item.Def.Tier > maxTier {
-			continue
-		}
-
 		switch item.Def.Slot {
 		case "offensive":
 			if bestOffensive == nil || betterOffensive(item, bestOffensive, threat) {
@@ -165,23 +167,6 @@ func SelectConsumables(inventory []ConsumableItem, playerStats, enemyStats Comba
 		selected = append(selected, *bestDefensive)
 	}
 	return selected
-}
-
-func maxConsumableTier(threat threatLevel, arenaRound int) int {
-	base := 1
-	switch threat {
-	case threatEasy:
-		base = 2
-	case threatCompetitive:
-		base = 3
-	case threatDangerous:
-		base = 5
-	}
-	// Arena: spend freely on later rounds
-	if arenaRound >= 3 {
-		base = min(5, base+1)
-	}
-	return base
 }
 
 // betterOffensive prefers lowest tier that's appropriate for the threat.

@@ -250,7 +250,7 @@ func craftingTeaserText(foragingSkill, craftsSucceeded int, userID id.UserID) st
 	// Post-unlock: nudge when no successful crafts yet (gentle), or once a
 	// week (loose periodicity via day-of-year %).
 	if craftsSucceeded == 0 {
-		return "🧪 **Crafting is unlocked.** Gather a couple of matching ingredients and TwinBee will auto-craft consumables — try `!adventure recipes` to see what your level supports."
+		return "🧪 **Crafting is unlocked.** Gather a couple of matching ingredients and I will auto-craft consumables — try `!adventure recipes` to see what your level supports."
 	}
 	if int(time.Now().UTC().Weekday()) == craftingReminderWeekday(userID, time.Now().UTC()) {
 		return "🧪 *Crafting reminder* — `!adventure recipes` shows what's available at Foraging Lv." + fmt.Sprintf("%d.", foragingSkill)
@@ -375,7 +375,7 @@ func renderAdvMorningDM(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment,
 	sb.WriteString("**🗺️ Adventure** — head into a zone:\n")
 	sb.WriteString("• `!expedition` — overview & open expeditions\n")
 	sb.WriteString("• `!expedition start <zone>` — begin a new run\n")
-	sb.WriteString("• `!forage` · `!mine` · `!scavenge` · `!fish` · `!essence` · `!commune` — harvest in cleared rooms\n")
+	sb.WriteString("• Harvest is automatic — yields land as you walk through cleared rooms.\n")
 	sb.WriteString("\n")
 
 	sb.WriteString("**🏘️ In town:**\n")
@@ -735,6 +735,15 @@ type AdvPlayerDaySummary struct {
 	LootValue      int64
 	IsDead         bool
 	DeadUntil      string
+	// DeadUntilHours is the integer hours-from-now until revival, used by
+	// the standout-death template's {hours} placeholder. Computed when
+	// the summary row is built; 0 if not dead or already past revival.
+	DeadUntilHours int
+	// DeadUntilDuration is the human-readable hours+minutes form of the
+	// remaining respawn time ("5h 27m", "47m", "2h"). Used by the
+	// {duration} placeholder for templates that want precision over the
+	// rounded {hours} count.
+	DeadUntilDuration string
 	IsResting      bool
 	SummaryLine    string
 	HolidayActions int // 0 = not holiday or no action; 1 = took one; 2 = took both
@@ -827,7 +836,7 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 				sb.WriteString(fmt.Sprintf("Rewards distributed to %d participating adventurers: jackshit.\n", tbRewards.Eligible))
 			}
 		}
-		sb.WriteString("\n(Players who rested today received nothing. Fallen adventurers still earn their share. TwinBee noticed.)\n\n")
+		sb.WriteString("\n(Players who rested today received nothing. Fallen adventurers still earn their share. I noticed.)\n\n")
 		sb.WriteString("───────────────────\n\n")
 	}
 
@@ -933,9 +942,19 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 			if lossLoc == "" {
 				lossLoc = worstPlayer.Location
 			}
+			hours := worstPlayer.DeadUntilHours
+			if hours <= 0 {
+				hours = 6 // canonical respawn duration when revival time isn't computable
+			}
+			duration := worstPlayer.DeadUntilDuration
+			if duration == "" {
+				duration = fmt.Sprintf("%dh", hours)
+			}
 			line = advSubstituteFlavor(line, map[string]string{
 				"{name}":     worstPlayer.DisplayName,
 				"{location}": lossLoc,
+				"{hours}":    fmt.Sprintf("%d", hours),
+				"{duration}": duration,
 			})
 			sb.WriteString(fmt.Sprintf("🏆 **Today's standout:** %s\n", line))
 		}

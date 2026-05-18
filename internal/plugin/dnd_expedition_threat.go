@@ -85,7 +85,12 @@ func threatBandInfo(b ThreatBand) ThreatBandInfo {
 // (Wrathful +5, Elated -3). Mood bands map: effusive (≥80) → Elated,
 // hostile (<20) → Wrathful, the middle three are neutral.
 func dailyThreatDrift(dmMood int) (int, string) {
-	base := 3
+	// Base drift was 3; lowered to 1 in Phase 5-B alongside the player
+	// power floor + supply-burn cut. Slower threat climb gives players
+	// the days they need to extract before threat tips zones into
+	// elite-bracket frequency. See gogobee_expedition_difficulty.md
+	// Phase 3-A (proved the harness lift) + Phase 5-B (shipped).
+	base := 1
 	mod := 0
 	tag := ""
 	switch {

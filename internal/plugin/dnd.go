@@ -35,16 +35,32 @@ const (
 	ClassMage    DnDClass = "mage"
 	ClassCleric  DnDClass = "cleric"
 	ClassRanger  DnDClass = "ranger"
+
+	// Caster classes — fully playable. Wired through the mechanical layer
+	// (HP/AC, slot tables, spellcasting ability) and shipped alongside the
+	// Open5e spell-data import: Playable=true and spell lists populated.
+	// Each chassis has a Phase-2/3 balance rider in applyClassPassives plus
+	// a subclass entry at L3/L5 (see dnd_subclass*.go).
+	ClassDruid    DnDClass = "druid"
+	ClassBard     DnDClass = "bard"
+	ClassSorcerer DnDClass = "sorcerer"
+	ClassWarlock  DnDClass = "warlock"
+	ClassPaladin  DnDClass = "paladin"
 )
 
 type DnDRaceInfo struct {
 	Key     DnDRace
 	Display string
 	// Stat modifiers applied at setup-confirm time. STR/DEX/CON/INT/WIS/CHA.
-	// Human's "+1 to any" is not yet implemented in Phase 1 — Human gets +0
-	// across the board and we'll add the floating bonus in a later phase.
+	// Human takes the Standard Human flavor: +1 to every stat, no setup-wizard
+	// choice (keeps !setup uniform across races).
 	Mods    [6]int
 	Passive string
+	// BestFit is the menu-time hint that frames a stat spread as a specialist
+	// build rather than a list of penalties (Orc with three -1s reads brutal
+	// out of context; "best with: Barbarian, Fighter" reframes it). Comma-
+	// separated class display names; rendered by renderRaceMenu.
+	BestFit string
 }
 
 type DnDClassInfo struct {
@@ -54,24 +70,43 @@ type DnDClassInfo struct {
 	HPAvg    int    // per-level average after L1 (roundup of die/2 + 1)
 	PrimaryA string // primary stat for narrative (not mechanical in Phase 1)
 	PrimaryB string
+	// Playable gates whether the class is offered at !setup. The Open5e
+	// caster classes are wired through the engine but stay false until
+	// their spell lists exist — see the ClassDruid… block above.
+	Playable bool
 }
 
+// Race mods are tuned for equal *effective* power, not equal net total.
+// The weighted balance pass (dnd_race_balance.go) scores each race's mods
+// against a blend of per-class combat priorities and class-independent
+// non-combat utility (zone locks, harvest, skills, haggling). These blocks
+// are tuned so every race's mean score across all playable classes lands
+// near the Standard Human baseline of 6.0. Net mod totals vary (Elf +7,
+// Orc +6) — a spiky race concentrated into high-value stats needs fewer
+// points to match a flat one.
 var dndRaces = []DnDRaceInfo{
-	{RaceHuman, "Human", [6]int{0, 0, 0, 0, 0, 0}, "Versatile (floating +1 bonus not yet implemented)"},
-	{RaceElf, "Elf", [6]int{0, 2, -1, 1, 1, 0}, "Darkvision; immune to sleep effects"},
-	{RaceDwarf, "Dwarf", [6]int{1, -1, 2, 0, 1, -1}, "Poison resistance; bonus vs. underground enemies"},
-	{RaceHalfling, "Halfling", [6]int{0, 2, 0, 0, 1, 0}, "Lucky: once per combat, reroll a natural 1"},
-	{RaceOrc, "Orc", [6]int{3, -1, 2, -1, -1, -1}, "Rage: once per combat, +50% damage for one turn"},
-	{RaceTiefling, "Tiefling", [6]int{0, 1, 0, 1, 0, 2}, "Fire resistance; bonus on CHA checks"},
-	{RaceHalfElf, "Half-Elf", [6]int{0, 1, 0, 1, 0, 2}, "Two bonus skill proficiencies"},
+	{RaceHuman, "Human", [6]int{1, 1, 1, 1, 1, 1}, "Versatile: +1 to every ability score", "any class"},
+	{RaceElf, "Elf", [6]int{0, 3, -1, 2, 3, 0}, "Keen senses; trance keeps you sharp through long marches", "Ranger, Mage, Druid"},
+	{RaceDwarf, "Dwarf", [6]int{2, -1, 3, 1, 1, -1}, "Poison resistance; sure-footed in the deep places", "Fighter, Cleric, Paladin"},
+	{RaceHalfling, "Halfling", [6]int{0, 3, 1, 0, 2, 0}, "Lucky: once per combat, reroll a natural 1", "Rogue, Bard, Ranger"},
+	{RaceOrc, "Orc", [6]int{6, -1, 3, -1, -1, 0}, "Rage: once per combat, +50% damage for one turn", "Fighter, Ranger"},
+	{RaceTiefling, "Tiefling", [6]int{0, 2, 0, 1, 0, 3}, "Fiendish heritage: incoming fire damage halved", "Sorcerer, Warlock, Bard"},
+	{RaceHalfElf, "Half-Elf", [6]int{0, 2, 0, 1, 1, 2}, "Adaptable: cross-cultural know-how, equally at ease in any company", "Bard, Paladin, Sorcerer"},
 }
 
 var dndClasses = []DnDClassInfo{
-	{ClassFighter, "Fighter", 10, 6, "STR", "CON"},
-	{ClassRogue, "Rogue", 8, 5, "DEX", "INT"},
-	{ClassMage, "Mage", 6, 4, "INT", "WIS"},
-	{ClassCleric, "Cleric", 8, 5, "WIS", "CHA"},
-	{ClassRanger, "Ranger", 8, 5, "DEX", "WIS"},
+	{ClassFighter, "Fighter", 10, 6, "STR", "CON", true},
+	{ClassRogue, "Rogue", 8, 5, "DEX", "INT", true},
+	{ClassMage, "Mage", 6, 4, "INT", "WIS", true},
+	{ClassCleric, "Cleric", 8, 5, "WIS", "CHA", true},
+	{ClassRanger, "Ranger", 8, 5, "DEX", "WIS", true},
+	// Open5e caster scaffold — Playable flipped on once the SRD spell import
+	// gave each of them a real spell list (see dnd_spells_srd_data.go).
+	{ClassDruid, "Druid", 8, 5, "WIS", "CON", true},
+	{ClassBard, "Bard", 8, 5, "CHA", "DEX", true},
+	{ClassSorcerer, "Sorcerer", 6, 4, "CHA", "CON", true},
+	{ClassWarlock, "Warlock", 8, 5, "CHA", "CON", true},
+	{ClassPaladin, "Paladin", 10, 6, "STR", "CHA", true},
 }
 
 func raceInfo(r DnDRace) (DnDRaceInfo, bool) {
@@ -110,8 +145,26 @@ func abilityModifier(score int) int {
 	return diff/2 - 1
 }
 
+// phase5BHPMult is the Phase 5-B HP-floor multiplier. Applied uniformly
+// in computeMaxHP so every class/level scales together — preserves the
+// class-balance harness's parity assertions (which test in-tier spread,
+// not absolute win rates) while lifting durability enough to land the
+// expedition harness in the "fairly breezy with some death" band the
+// user chose for Phase 5-B. See gogobee_expedition_difficulty.md for
+// the sweep that picked 1.5 (gear-bonus floor +3, HP ×1.5 → T1=85 T2=73
+// T3=60 T4=78 T5=81 mean completion at the tier-centerline cell).
+//
+// Bumping this changes the *persisted* HPMax for new characters and for
+// existing characters on their next computeMaxHP recall (level-up,
+// character reset, bootstrap refresh). The Phase 5-B bootstrap
+// (bootstrap_phase5b_hp.go) walks the dnd_character table once at
+// startup to refresh stale rows.
+const phase5BHPMult = 1.5
+
 // computeMaxHP — D&D5e style. L1: full HP die + CON mod (min 1).
 // Per level after: average HP die (roundup of die/2 + 1) + CON mod.
+// The result is scaled by phase5BHPMult — see that constant for the
+// difficulty-pass motivation.
 func computeMaxHP(class DnDClass, conMod, level int) int {
 	ci, ok := classInfo(class)
 	if !ok {
@@ -128,7 +181,12 @@ func computeMaxHP(class DnDClass, conMod, level int) int {
 		}
 		hp += gain
 	}
-	return hp
+	// Phase 5-B player power floor — round to nearest int.
+	scaled := int(float64(hp)*phase5BHPMult + 0.5)
+	if scaled < 1 {
+		scaled = 1
+	}
+	return scaled
 }
 
 // computeAC — Phase 1 baseline. Equipment-derived AC arrives in Phase 4
@@ -137,11 +195,11 @@ func computeMaxHP(class DnDClass, conMod, level int) int {
 func computeAC(class DnDClass, dexMod int) int {
 	floor := 0
 	switch class {
-	case ClassFighter:
-		floor = 6 // medium-armor baseline
-	case ClassCleric, ClassRanger:
+	case ClassFighter, ClassPaladin:
+		floor = 6 // heavy/medium-armor baseline
+	case ClassCleric, ClassRanger, ClassDruid:
 		floor = 3
-	case ClassRogue:
+	case ClassRogue, ClassBard, ClassWarlock:
 		floor = 1
 	}
 	return 10 + dexMod + floor
@@ -187,6 +245,11 @@ type DnDCharacter struct {
 	// long rest. 5e caps at 6 (death); we let it grow and let consumers
 	// clamp where needed.
 	Exhaustion               int
+	// 2026-05-10 immersion: short rest charges (1/level, restored on long
+	// rest). resting_until gates !zone enter / !expedition start while the
+	// character is "still resting" — short rest = 1h, long rest = 8h.
+	ShortRestCharges int
+	RestingUntil     *time.Time
 	LastRespecAt    *time.Time
 	LastShortRestAt *time.Time
 	LastLongRestAt  *time.Time
@@ -216,6 +279,7 @@ func LoadDnDCharacter(userID id.UserID) (*DnDCharacter, error) {
 		       pending_setup, auto_migrated, onboarding_sent, armed_ability,
 		       pending_cast, concentration_spell, concentration_expires_at,
 		       subclass, last_subclass_respec_at, exhaustion,
+		       short_rest_charges, resting_until,
 		       last_respec_at, last_short_rest_at, last_long_rest_at,
 		       created_at, updated_at
 		FROM dnd_character WHERE user_id = ?`, string(userID))
@@ -229,6 +293,7 @@ func LoadDnDCharacter(userID id.UserID) (*DnDCharacter, error) {
 		&pending, &autoMig, &onboard, &c.ArmedAbility,
 		&c.PendingCast, &c.ConcentrationSpell, &c.ConcentrationExpiresAt,
 		&subclassStr, &c.LastSubclassRespecAt, &c.Exhaustion,
+		&c.ShortRestCharges, &c.RestingUntil,
 		&c.LastRespecAt, &c.LastShortRestAt, &c.LastLongRestAt,
 		&c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -268,8 +333,9 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		    pending_setup, auto_migrated, onboarding_sent, armed_ability,
 		    pending_cast, concentration_spell, concentration_expires_at,
 		    subclass, last_subclass_respec_at, exhaustion,
+		    short_rest_charges, resting_until,
 		    last_respec_at, last_short_rest_at, last_long_rest_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(user_id) DO UPDATE SET
 		    race=excluded.race, class=excluded.class,
 		    dnd_level=excluded.dnd_level, dnd_xp=excluded.dnd_xp,
@@ -288,6 +354,8 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		    subclass=excluded.subclass,
 		    last_subclass_respec_at=excluded.last_subclass_respec_at,
 		    exhaustion=excluded.exhaustion,
+		    short_rest_charges=excluded.short_rest_charges,
+		    resting_until=excluded.resting_until,
 		    last_respec_at=excluded.last_respec_at,
 		    last_short_rest_at=excluded.last_short_rest_at,
 		    last_long_rest_at=excluded.last_long_rest_at,
@@ -298,6 +366,7 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 		pending, autoMig, onboard, c.ArmedAbility,
 		c.PendingCast, c.ConcentrationSpell, c.ConcentrationExpiresAt,
 		string(c.Subclass), c.LastSubclassRespecAt, c.Exhaustion,
+		c.ShortRestCharges, c.RestingUntil,
 		c.LastRespecAt, c.LastShortRestAt, c.LastLongRestAt)
 	if err != nil {
 		return fmt.Errorf("save dnd_character: %w", err)

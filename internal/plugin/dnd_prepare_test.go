@@ -72,7 +72,7 @@ func TestPrepareCap(t *testing.T) {
 
 	// Add 7 known leveled spells, all unprepared.
 	leveled := []string{
-		"cure_wounds", "healing_word_spell", "bless", "guiding_bolt",
+		"cure_wounds", "healing_word", "bless", "guiding_bolt",
 		"shield_of_faith", "spiritual_weapon", "aid",
 	}
 	for _, sid := range leveled {

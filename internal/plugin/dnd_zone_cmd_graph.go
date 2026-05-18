@@ -161,6 +161,9 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 	if run == nil {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
+	if cs, _ := getActiveCombatSession(ctx.Sender); cs != nil {
+		return p.SendDM(ctx.Sender, "⚔️ Finish your fight first — `!attack` or `!flee`.")
+	}
 	pf, derr := decodePendingFork(run.NodeChoices)
 	if derr != nil {
 		return p.SendDM(ctx.Sender, "Couldn't decode pending fork: "+derr.Error())

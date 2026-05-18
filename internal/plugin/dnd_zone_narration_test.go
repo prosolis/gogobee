@@ -348,9 +348,16 @@ func TestZoneCmd_AdvanceFinalRoomBumpsMood(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < run.TotalRooms; i++ {
-		if _, err := markRoomCleared(run.RunID); err != nil {
+	// Phase G: branching paths through a diamond may complete the run in
+	// fewer steps than TotalRooms. Drive markRoomCleared until it returns
+	// the empty room type (boss kill / dead-end) or we hit a safety cap.
+	for i := 0; i < run.TotalRooms+2; i++ {
+		next, err := markRoomCleared(run.RunID)
+		if err != nil {
 			t.Fatalf("markRoomCleared %d: %v", i, err)
+		}
+		if next == "" {
+			break
 		}
 	}
 	if _, err := applyMoodEvent(run.RunID, MoodEventZoneComplete); err != nil {
@@ -503,24 +510,25 @@ func TestPhaseTwoCrossedInEvents(t *testing.T) {
 
 // ── Phase 11 D8 — mood-banded TwinBee aside ─────────────────────────────────
 
-func TestMoodAsideLine_OnlyAtExtremes(t *testing.T) {
-	// Mid-bands return empty — flavor stays strictly extra.
-	for _, mood := range []int{20, 39, 40, 50, 59, 60, 79} {
+func TestMoodAsideLine_AllBandsExceptNeutral(t *testing.T) {
+	// Strict Neutral (40–59) stays silent — TwinBee has nothing
+	// notable to say. Every other band produces an aside.
+	for _, mood := range []int{40, 50, 59} {
 		if got := moodAsideLine(mood, "run-aside", 3); got != "" {
-			t.Errorf("mood=%d (mid-band) should produce no aside; got %q", mood, got)
+			t.Errorf("mood=%d (neutral) should produce no aside; got %q", mood, got)
 		}
 	}
-	// Extremes always produce a line (pools are non-empty).
-	for _, mood := range []int{0, 19} {
-		got := moodAsideLine(mood, "run-aside", 3)
-		if got == "" || !strings.HasPrefix(got, "🎭 **TwinBee:**") {
-			t.Errorf("hostile mood=%d should produce aside; got %q", mood, got)
-		}
-	}
-	for _, mood := range []int{80, 100} {
-		got := moodAsideLine(mood, "run-aside", 3)
-		if got == "" || !strings.HasPrefix(got, "🎭 **TwinBee:**") {
-			t.Errorf("effusive mood=%d should produce aside; got %q", mood, got)
+	for label, moods := range map[string][]int{
+		"hostile":  {0, 19},
+		"grumpy":   {20, 39},
+		"friendly": {60, 79},
+		"effusive": {80, 100},
+	} {
+		for _, mood := range moods {
+			got := moodAsideLine(mood, "run-aside", 3)
+			if got == "" || !strings.HasPrefix(got, "🎭 **TwinBee:**") {
+				t.Errorf("%s mood=%d should produce aside; got %q", label, mood, got)
+			}
 		}
 	}
 }

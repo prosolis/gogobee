@@ -429,7 +429,10 @@ func (p *AdventurePlugin) resolveArenaSurvival(ctx MessageContext, run *ArenaRun
 		finalMessage += "`!arena fight` — Face this opponent"
 	}
 
-	p.sendZoneCombatMessages(ctx.Sender, phaseMessages, finalMessage)
+	// Fire-and-forget: no post-flush work; blocking would stall the
+	// round-advance handler behind streamed pacing. Contract is honored
+	// by the explicit discard — see sendZoneCombatMessages comment.
+	_ = p.sendZoneCombatMessages(ctx.Sender, phaseMessages, finalMessage)
 	return nil
 }
 
@@ -1259,7 +1262,10 @@ func (p *AdventurePlugin) resolveArenaBoss(userID id.UserID, enc ArenaBossEncoun
 	}
 
 	preHP, _ := dndHPSnapshot(userID)
-	result, err = p.runZoneCombat(userID, monster, enc.Tier)
+	// Arena uses boss-shaped bestiary entries; give them the wider phase
+	// budget so the round resolver isn't decided by tiebreak.
+	// Arena has no run-state DMMood; pass neutral (50).
+	result, err = p.runZoneCombat(userID, monster, enc.Tier, bossCombatPhases, 50)
 	if err != nil {
 		return
 	}
@@ -1295,7 +1301,7 @@ func (p *AdventurePlugin) resolveArenaBoss(userID id.UserID, enc ArenaBossEncoun
 		Nat20s:          nat20s,
 		Nat1s:           nat1s,
 		DefeatHeadline:  fmt.Sprintf("💀 **%s** stands over your body. The arena collects its fee.", monster.Name),
-		VictoryHeadline: fmt.Sprintf("🏆 **%s** falls (HP %d→%d / %d).", monster.Name, preHP, postHP, maxHP),
+		VictoryHeadline: fmt.Sprintf("🏆 **%s** falls. You finished at **%d/%d HP**.", monster.Name, postHP, maxHP),
 	})
 	return
 }

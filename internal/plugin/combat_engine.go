@@ -5,16 +5,22 @@ import "math/rand/v2"
 // ── Core Types ───────────────────────────────────────────────────────────────
 
 type CombatStats struct {
-	MaxHP     int
+	MaxHP int
 	// StartHP is the HP the combatant *enters* this fight at. Zero means
 	// "use MaxHP" (full health). Wounded carry-over uses this so MaxHP
 	// stays stable across fights — display reads "100/123", not "100/100".
-	StartHP   int
+	StartHP int
+	// HPBonus is the absolute HP players gain from equipment / arena sets /
+	// housing on top of their D&D character sheet HP. DerivePlayerStats
+	// computes this; applyDnDPlayerLayer adds it to c.HPMax to form the
+	// final combat MaxHP. Kept separate so persistence to dnd_character can
+	// simply clamp endHP to c.HPMax — gear cushion doesn't carry over.
+	HPBonus   int
 	Attack    int
 	Defense   int
 	Speed     int
-	CritRate  float64 // legacy; superseded by nat-20 crits but still consumed by autoCrit logic & equipment scaling.
-	DodgeRate float64 // legacy; no longer queried by hit resolution but still computed for narrative scaling.
+	CritRate  float64 // superseded by nat-20 crits but still consumed by autoCrit logic & equipment scaling.
+	DodgeRate float64 // not queried by hit resolution but still computed for narrative scaling.
 	BlockRate float64 // still used to halve damage on a successful hit.
 
 	// D&D layer. AC and AttackBonus drive d20-vs-AC hit resolution.
@@ -30,23 +36,39 @@ type CombatStats struct {
 	AbilityModForDamage int
 	WeaponProficient    bool // false → -4 attack penalty (appendix §8 implementation note)
 	TwoHandedMode       bool // true + versatile weapon → use larger versatile die
+
+	// FireAttacker tags monsters whose signature damage is fire (red dragons,
+	// fire elementals, hell hounds, magmin, balor, …). The enemy-attack path
+	// halves incoming damage when this is set on the enemy and FireResist is
+	// set on the player. Carried via toCombatStats; tuned generator derives it
+	// from SRD attack DamageType; hand-authored entries set it explicitly.
+	FireAttacker bool
 }
 
 type CombatModifiers struct {
-	DamageBonus    float64 // additive: 0 = neutral, 0.25 = +25% damage. Applied as (1 + DamageBonus).
-	DamageReduct   float64 // multiplicative damage-taken reduction, 1.0 = neutral
-	DeathSave      bool    // Sovereign reprieve — survive one lethal hit
-	PetAttackProc  float64
-	PetAttackDmg   int
-	PetDeflectProc float64
-	PetWhiffProc   float64 // pet distracts enemy → guaranteed miss
-	SniperKillProc float64 // Arina instant-kill
-	MistyHealProc  float64
-	MistyHealAmt   int
+	DamageBonus      float64 // additive: 0 = neutral, 0.25 = +25% damage. Applied as (1 + DamageBonus).
+	DamageReduct     float64 // multiplicative damage-taken reduction, 1.0 = neutral
+	DeathSave        bool    // Sovereign reprieve — survive one lethal hit
+	PetAttackProc    float64
+	PetAttackDmg     int
+	PetDeflectProc   float64
+	PetWhiffProc     float64 // pet distracts enemy → guaranteed miss
+	SniperKillProc   float64 // Arina instant-kill
+	MistyHealProc    float64
+	MistyHealAmt     int
 	CrowdRevengeProc float64 // Misty debuff: chance per round of crowd damage
-	CrowdRevengeDmg  int    // Misty debuff: damage per proc
-	HealItem         int    // consumable: HP restored at <50% HP (one-shot)
-	WardCharges      int    // consumable: hits fully absorbed
+	CrowdRevengeDmg  int     // Misty debuff: damage per proc
+	HealItem         int     // consumable: HP restored per heal trigger
+	// HealItemCharges is the number of times the heal-at-<50%-HP trigger
+	// can fire. 1 = legacy one-shot. Boss fights set this from inventory
+	// healing-item count so a stocked-up player can sustain through long
+	// fights instead of the heal becoming a single weak trigger.
+	HealItemCharges int
+	// InitiativeBias adds to the player's initiative roll each round.
+	// Used by the DM mood system to tilt who-goes-first: positive favors
+	// the player (Effusive mood), negative favors the enemy (Hostile).
+	InitiativeBias float64
+	WardCharges    int     // consumable: hits fully absorbed
 	SporeCloud     int     // consumable: rounds of 15% enemy miss chance
 	ReflectNext    float64 // consumable: fraction of next hit reflected
 	AutoCritFirst  bool    // consumable: first player hit is auto-crit
@@ -56,6 +78,7 @@ type CombatModifiers struct {
 	LuckyReroll  bool // Halfling: reroll the first nat 1 of the fight
 	RageReady    bool // Orc: when HP first drops <50%, next attack deals +50% damage
 	PoisonResist bool // Dwarf: poison tick damage halved
+	FireResist   bool // Tiefling: incoming damage from fire-tagged sources halved
 
 	// Phase 10 SUB2a — subclass combat hooks.
 	// CritThreshold: lowest d20 roll that crits. 0 = use default (20).
@@ -92,6 +115,43 @@ type CombatModifiers struct {
 	// not tracked in our engine. Only fires on the weapon-dice damage path —
 	// no Weapon → no Divine Strike.
 	DivineStrikePerHit int
+
+	// Class-identity audit (2026-05-16) — Fighter Extra Attack as actual
+	// additional swings per round. 0 = legacy single swing. Each extra is
+	// a full resolvePlayerAttack call (own d20, own damage roll). 5e
+	// progression for Fighter: 1 at L5, 2 at L11, 3 at L20. Other martials
+	// (Paladin/Ranger/Barbarian/Bard-Valor) cap at 1 at L5 — wire as needed.
+	// Once-per-fight effects (AutoCritFirst, FirstAttackBonus, Assassinate
+	// reroll, SneakAttackDie applies every hit but Rogue has no extras) are
+	// guarded by st flags, so they correctly fire only on the first swing.
+	ExtraAttacks int
+
+	// Class-identity audit (2026-05-16) — Rogue Sneak Attack as actual
+	// per-hit Nd6 bonus damage. Number of d6 to roll on every player hit.
+	// 5e gates this on "once per turn given advantage/ally adjacent"; our
+	// 1v1 engine has no turn-boundary concept, so the same "lands every
+	// hit" convention as DivineStrikePerHit applies — and since Rogues
+	// only get one swing per round, this naturally caps at once/round.
+	// Set in applyClassPassives based on Rogue level (1d6 at L1-2 → 4d6
+	// at L7-8 → 10d6 at L19-20, per 5e progression).
+	SneakAttackDie int
+
+	// Class-identity audit (2026-05-16) — Ranger Hunter's Mark as actual
+	// Nd6 bonus damage per hit. 5e: bonus action to mark a target, then
+	// +1d6 to every weapon hit vs. that target until concentration drops.
+	// In 1v1 there's effectively always a marked target (the only foe),
+	// so we model the mark as "always-on" — applies to every player hit.
+	// Number of d6 to roll: scales with class level (1 at L1, +1 every
+	// 5 levels per the 5e upcast progression, capped at 4d6).
+	HuntersMarkDie int
+
+	// Class-identity audit (2026-05-16) — Druid thorn-lash. Flat damage
+	// returned to the enemy whenever the enemy lands a hit on the player.
+	// 5e analogue: Spike Growth / Thorn Whip / the various druidic
+	// retaliation cantrips collapsed into a passive aura. Fires after
+	// damage is applied (and after ward absorption), so a "blocked but
+	// touched" hit still pricks back. Independent of crit doubling.
+	ThornLashDmg int
 
 	// Phase 10 SUB2b — Mage subclasses.
 	// ArcaneWardHP: flat HP buffer absorbed before player HP. Refilled at the
@@ -149,10 +209,22 @@ type CombatEvent struct {
 }
 
 type CombatResult struct {
-	PlayerWon     bool
+	PlayerWon bool
+	// TimedOut is true when the fight ran out the phase clock without a
+	// kill on either side and was decided by the HP-percentage tiebreak.
+	// Callers should treat a timeout loss as a retreat / escape — the
+	// player didn't actually take a fatal blow, so character-death side
+	// effects (markAdventureDead, respawn timer) should NOT fire.
+	TimedOut      bool
 	Events        []CombatEvent
-	PlayerStartHP int
+	PlayerStartHP int // MaxHP — display denominator
+	// PlayerEntryHP is the actual HP the player entered combat with (== MaxHP
+	// at full health, less when wounded carry-over via applyDnDHPScaling).
+	// Used by injectConsumableEvents so pre-combat narration shows the
+	// wounded entry state instead of lying "47/47" on the consumable line.
+	PlayerEntryHP int
 	EnemyStartHP  int
+	EnemyEntryHP  int
 	PlayerEndHP   int
 	EnemyEndHP    int
 	TotalRounds   int
@@ -168,9 +240,16 @@ type CombatResult struct {
 
 type MonsterAbility struct {
 	Name       string
-	Phase      string  // "opening", "clash", "decisive", "any"
+	Phase      string // "opening", "clash", "decisive", "any"
 	ProcChance float64
-	Effect     string  // "poison", "enrage", "armor_break", "stun", "lifesteal", "cleave"
+	// Effect — the mechanic the ability applies. Implemented in applyAbility:
+	// stand-in attacks (cleave, lifesteal); riders on the normal attack (poison,
+	// enrage, armor_break, stun, bonus_damage, aoe, aoe_fire, death_aoe, execute,
+	// self_heal, max_hp_drain); stateful effects armed here and read by the
+	// shared resolution primitives (evade, block, advantage, retaliate,
+	// regenerate, survive_at_1, stat_drain, debuff, spell_resist, reveal_action,
+	// fear_immune, ally_buff). Anything else is a silent no-op.
+	Effect string
 }
 
 // ── Default Phase Definitions ────────────────────────────────────────────────
@@ -194,6 +273,18 @@ var dungeonCombatPhases = []CombatPhase{
 	{"Sudden Death", 4, 1.1, 0.6, 1.0, 0.05},
 }
 
+// bossCombatPhases extends the regular dungeon phases for boss encounters.
+// Boss HP pools (97–546) are too large for auto-resolve to close in the
+// 8-round dungeon budget — players hit a wall and time out. Doubling the
+// Sudden Death budget gives sustained pressure a chance to close the gap.
+// Real fix is the turn-based-bosses refactor; this is the bridge tuning.
+var bossCombatPhases = []CombatPhase{
+	{"Opening", 1, 0.8, 0.8, 1.2, 0.10},
+	{"Clash", 3, 1.0, 1.0, 0.8, 0.08},
+	{"Decisive", 2, 1.0, 0.7, 1.0, 0.05},
+	{"Sudden Death", 10, 1.1, 0.6, 1.0, 0.05},
+}
+
 // ── Simulation ───────────────────────────────────────────────────────────────
 
 // combatState tracks mutable state during the simulation.
@@ -202,18 +293,18 @@ type combatState struct {
 	enemyHP  int
 
 	// Consumable one-shots
-	healUsed    bool
-	wardCharges int
-	sporeRounds int
-	reflectFrac float64
-	autoCrit    bool
+	healChargesLeft int // remaining heal-at-<50% triggers
+	wardCharges     int
+	sporeRounds     int
+	reflectFrac     float64
+	autoCrit        bool
 
 	// Monster ability effects
-	poisonTicks  int
-	poisonDmg    int
-	stunPlayer   bool
-	enraged      bool
-	armorBroken  bool
+	poisonTicks   int
+	poisonDmg     int
+	stunPlayer    bool
+	enraged       bool
+	armorBroken   bool
 	armorBreakAmt float64
 
 	// Sovereign reprieve
@@ -228,6 +319,10 @@ type combatState struct {
 	// the enemy would otherwise attack).
 	enemySkipFirst bool
 
+	// Phase 13 turn-based — pet attack decided once at fight start; the pet
+	// strikes once on the player's first acting turn, which clears this.
+	petProcReady bool
+
 	// Phase 10 SUB2a-ii first-attack one-shots.
 	firstAttackBonusUsed  bool
 	assassinateRerollUsed bool
@@ -236,11 +331,56 @@ type combatState struct {
 	// Phase 10 SUB2b — Abjuration Arcane Ward HP buffer.
 	arcaneWardHP int
 
+	// Phase 13 bestiary slice 3 — stateful monster-ability effects. Each is
+	// armed by applyAbility and read by the shared resolution primitives, so
+	// both engines honour them; the turn-based engine additionally round-trips
+	// them through CombatStatuses so they survive a suspend/resume.
+	enemyEvadeNext     bool    // evade: next player weapon attack auto-misses
+	enemyBlockUp       bool    // block: enemy holds a parry stance (~50% block on player hits)
+	enemyAdvantage     bool    // advantage: enemy rolls its attacks with advantage
+	enemyRetaliateFrac float64 // retaliate: fraction of a player hit reflected back
+	enemyRegen         int     // regenerate: enemy heals this much each round end
+	enemySurviveArmed  bool    // survive_at_1: enemy cheats death once, dropping to 1 HP
+	playerAtkDrain     int     // stat_drain: flat reduction to the player's hit damage
+	playerACDebuff     int     // debuff: flat reduction to the player's effective AC
+	maxHPDrain         int     // max_hp_drain: reduction to the player's effective MaxHP
+
+	// Phase 13 bestiary slice 4 — the former flavor-only placeholders, now
+	// backed by real state.
+	enemySpellResist bool // spell_resist: player spell damage against this enemy is halved
+	enemyRevealNext  bool // reveal_action: the player's next weapon attack is rolled at disadvantage
+	enemyFearImmune  bool // fear_immune: player control spells (enemy-skip) fizzle against this enemy
+	enemyAtkBuff     int  // ally_buff: flat, accumulating bonus to the enemy's attack damage
+
 	round  int
 	events []CombatEvent
+
+	// rng, when non-nil, is the deterministic source the turn-based engine
+	// and the timeout reaper seed per session so a fight can be resumed and
+	// replayed reproducibly. Auto-resolve (SimulateCombat called without a
+	// session) leaves this nil and the engine falls back to the package
+	// global — behaviorally identical to the pre-injection code.
+	rng *rand.Rand
 }
 
+// roll / randFloat draw from the session's injected rng when present,
+// else the package global (see rngIntN / rngFloat in dnd_zone_loot.go).
+// Auto-resolve leaves st.rng nil — behaviorally identical to the
+// pre-injection code; the turn-based engine and the timeout reaper seed
+// it per session so a fight can be resumed and replayed reproducibly.
+func (st *combatState) roll(n int) int     { return rngIntN(st.rng, n) }
+func (st *combatState) randFloat() float64 { return rngFloat(st.rng) }
+
 func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult {
+	return simulateCombatWithRNG(player, enemy, phases, nil)
+}
+
+// simulateCombatWithRNG is the deterministic core of the auto-resolve engine.
+// SimulateCombat passes nil (package-global rand — production auto-resolve).
+// The characterization test and the turn-based engine pass a seeded *rand.Rand
+// so a fight is fully reproducible. Passing nil is behaviorally identical to
+// the pre-injection code.
+func simulateCombatWithRNG(player, enemy Combatant, phases []CombatPhase, rng *rand.Rand) CombatResult {
 	playerStart := player.Stats.MaxHP
 	if player.Stats.StartHP > 0 && player.Stats.StartHP < player.Stats.MaxHP {
 		playerStart = player.Stats.StartHP
@@ -250,23 +390,32 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 		enemyStart = enemy.Stats.StartHP
 	}
 	st := &combatState{
-		playerHP:    playerStart,
-		enemyHP:     enemyStart,
+		playerHP:       playerStart,
+		enemyHP:        enemyStart,
 		wardCharges:    player.Mods.WardCharges,
 		sporeRounds:    player.Mods.SporeCloud,
 		reflectFrac:    player.Mods.ReflectNext,
 		autoCrit:       player.Mods.AutoCritFirst,
 		enemySkipFirst: player.Mods.SpellEnemySkipFirst,
 		arcaneWardHP:   player.Mods.ArcaneWardHP,
+		rng:            rng,
+	}
+	// HealItemCharges: explicit count overrides legacy one-shot. Backfill
+	// to 1 charge if the caller set a HealItem amount but no count.
+	st.healChargesLeft = player.Mods.HealItemCharges
+	if st.healChargesLeft == 0 && player.Mods.HealItem > 0 {
+		st.healChargesLeft = 1
 	}
 
 	result := CombatResult{
 		PlayerStartHP: player.Stats.MaxHP,
+		PlayerEntryHP: playerStart,
 		EnemyStartHP:  enemy.Stats.MaxHP,
+		EnemyEntryHP:  enemyStart,
 	}
 
 	// Pre-combat: Arina sniper check
-	if player.Mods.SniperKillProc > 0 && rand.Float64() < player.Mods.SniperKillProc {
+	if player.Mods.SniperKillProc > 0 && st.randFloat() < player.Mods.SniperKillProc {
 		st.enemyHP = 0
 		st.events = append(st.events, CombatEvent{
 			Round: 0, Phase: "pre_combat", Actor: "npc", Action: "sniper_kill",
@@ -294,6 +443,10 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 	// runs — the modifiers carry the resolved damage and narrative hook.
 	if player.Mods.SpellPreDamageDesc != "" {
 		dmg := player.Mods.SpellPreDamage
+		resisted := dmg > 0 && enemyResistsSpells(&enemy, st)
+		if resisted {
+			dmg = max(1, dmg/2)
+		}
 		if dmg > 0 {
 			st.enemyHP = max(0, st.enemyHP-dmg)
 		}
@@ -302,6 +455,12 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 			Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 			Desc: player.Mods.SpellPreDamageDesc,
 		})
+		if resisted {
+			st.events = append(st.events, CombatEvent{
+				Round: 0, Phase: "pre_combat", Actor: "enemy", Action: "spell_fizzle",
+				Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
 		if st.enemyHP <= 0 {
 			return finalize(result, st, player, enemy)
 		}
@@ -314,7 +473,7 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 		roundsThisPhase := phase.Rounds
 		// Add slight variance: ±1 round for non-Decisive phases
 		if phase.Name != "Decisive" && roundsThisPhase > 1 {
-			roundsThisPhase += rand.IntN(2) // 0 or +1
+			roundsThisPhase += st.roll(2) // 0 or +1
 		}
 		for r := 0; r < roundsThisPhase; r++ {
 			st.round++
@@ -324,19 +483,27 @@ func SimulateCombat(player, enemy Combatant, phases []CombatPhase) CombatResult 
 		}
 	}
 
-	// If we exhaust all phases without a kill, tiebreak by absolute HP.
-	// Was %-based, which produced unintuitive outcomes (e.g. 88/123 player
-	// losing to 83/97 boss because the boss had a higher percentage).
-	if st.playerHP < st.enemyHP {
-		st.playerHP = 0
-	} else {
-		st.enemyHP = 0
-	}
+	// If we exhaust all phases without a kill, tiebreak by HP percentage
+	// to decide the *outcome* (PlayerWon flag) — but DO NOT zero out HP
+	// on the loser. Timeout = retreat, not lethal blow. Caller treats a
+	// timeout loss as "fight ended, no character death".
+	//
+	// Absolute-HP tiebreak (briefly used on the legacy ~120 HP scale) was
+	// wrong post HP-unification: monster pools (~30–175) are 2-3× player
+	// pools (~13–83), so absolute always favored the larger combatant
+	// even when the player took less proportional damage. Slight bias
+	// toward the player on exact ties (frac >=).
+	result.TimedOut = true
+	playerFrac := float64(st.playerHP) / float64(max(1, player.Stats.MaxHP))
+	enemyFrac := float64(st.enemyHP) / float64(max(1, enemy.Stats.MaxHP))
+	playerWonTiebreak := playerFrac >= enemyFrac
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: "exhaust", Actor: "system", Action: "timeout",
 		PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 	})
-	return finalize(result, st, player, enemy)
+	out := finalize(result, st, player, enemy)
+	out.PlayerWon = playerWonTiebreak
+	return out
 }
 
 // simulateRound runs one round. Returns true if combat is over.
@@ -349,11 +516,20 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	enemyHeldThisRound := false
 	if st.enemySkipFirst {
 		st.enemySkipFirst = false
-		enemyHeldThisRound = true
-		st.events = append(st.events, CombatEvent{
-			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "spell_held",
-			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
-		})
+		if enemyImmuneToControl(enemy, st) {
+			// fear_immune: the control spell can't take hold — the enemy acts
+			// as normal this round.
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "fear_resist",
+				PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		} else {
+			enemyHeldThisRound = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "spell_held",
+				PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
 	}
 
 	// Monster ability: check at round start
@@ -389,25 +565,27 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	}
 
 	// Pet whiff: if proc'd, enemy's attack this round is a guaranteed miss
-	petWhiff := player.Mods.PetWhiffProc > 0 && rand.Float64() < player.Mods.PetWhiffProc
+	petWhiff := player.Mods.PetWhiffProc > 0 && st.randFloat() < player.Mods.PetWhiffProc
 	// Pet deflect: halves incoming damage to player this round
-	petDeflect := player.Mods.PetDeflectProc > 0 && rand.Float64() < player.Mods.PetDeflectProc
+	petDeflect := player.Mods.PetDeflectProc > 0 && st.randFloat() < player.Mods.PetDeflectProc
 	if petDeflect {
 		result.PetDeflected = true
 	}
 
 	// Spore cloud: enemy has 15% miss chance (decremented when enemy actually attacks)
-	sporeMiss := st.sporeRounds > 0 && rand.Float64() < 0.15
+	sporeMiss := st.sporeRounds > 0 && st.randFloat() < 0.15
 
-	// Determine initiative
+	// Determine initiative. DM mood (Effusive/Hostile) biases the player's
+	// roll via player.Mods.InitiativeBias — +X means player goes first
+	// more often, -X means the enemy does.
 	playerSpeed := float64(player.Stats.Speed) * phase.SpeedWeight
 	enemySpeed := float64(enemy.Stats.Speed) * phase.SpeedWeight
-	playerInit := playerSpeed + rand.Float64()*10
-	enemyInit := enemySpeed + rand.Float64()*10
+	playerInit := playerSpeed + st.randFloat()*10 + player.Mods.InitiativeBias
+	enemyInit := enemySpeed + st.randFloat()*10
 	playerFirst := playerInit >= enemyInit
 
 	if playerFirst {
-		if resolvePlayerAttack(st, player, enemy, phase, result) {
+		if resolvePlayerSwings(st, player, enemy, phase, result) {
 			return true
 		}
 		if !abilityDealtDamage {
@@ -421,14 +599,14 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 				return true
 			}
 		}
-		if resolvePlayerAttack(st, player, enemy, phase, result) {
+		if resolvePlayerSwings(st, player, enemy, phase, result) {
 			return true
 		}
 	}
 
 	// Environmental hazard
-	if phase.EnvironmentProc > 0 && rand.Float64() < phase.EnvironmentProc {
-		envDmg := 2 + rand.IntN(5)
+	if phase.EnvironmentProc > 0 && st.randFloat() < phase.EnvironmentProc {
+		envDmg := 2 + st.roll(5)
 		st.playerHP = max(0, st.playerHP-envDmg)
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "environment", Action: "environmental",
@@ -442,7 +620,7 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	}
 
 	// Misty crowd revenge (debuff for declining Misty)
-	if player.Mods.CrowdRevengeProc > 0 && rand.Float64() < player.Mods.CrowdRevengeProc {
+	if player.Mods.CrowdRevengeProc > 0 && st.randFloat() < player.Mods.CrowdRevengeProc {
 		dmg := player.Mods.CrowdRevengeDmg
 		st.playerHP = max(0, st.playerHP-dmg)
 		st.events = append(st.events, CombatEvent{
@@ -458,23 +636,23 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 	}
 
 	// Pet attack
-	if player.Mods.PetAttackProc > 0 && rand.Float64() < player.Mods.PetAttackProc {
-		petDmg := player.Mods.PetAttackDmg + rand.IntN(5)
+	if player.Mods.PetAttackProc > 0 && st.randFloat() < player.Mods.PetAttackProc {
+		petDmg := player.Mods.PetAttackDmg + st.roll(5)
 		st.enemyHP = max(0, st.enemyHP-petDmg)
 		result.PetAttacked = true
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "pet", Action: "pet_attack",
 			Damage: petDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
-		if st.enemyHP <= 0 {
+		if enemyDown(st, phaseName) {
 			return true
 		}
 	}
 
 	// Misty heal
-	if player.Mods.MistyHealProc > 0 && rand.Float64() < player.Mods.MistyHealProc {
+	if player.Mods.MistyHealProc > 0 && st.randFloat() < player.Mods.MistyHealProc {
 		healAmt := player.Mods.MistyHealAmt
-		st.playerHP = min(player.Stats.MaxHP, st.playerHP+healAmt)
+		st.playerHP = min(effPlayerMaxHP(player, st), st.playerHP+healAmt)
 		result.MistyHealed = true
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "npc", Action: "misty_heal",
@@ -483,22 +661,85 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 		})
 	}
 
-	// Consumable heal: triggers once when player drops below 50%
-	if !st.healUsed && player.Mods.HealItem > 0 &&
-		st.playerHP > 0 && st.playerHP < player.Stats.MaxHP/2 {
-		st.healUsed = true
+	// Consumable heal: triggers when player drops below 60% HP. Fires up
+	// to HealItemCharges times per fight (1 = legacy one-shot; bosses can
+	// stack from inventory).
+	//
+	// Threshold is 60% rather than 50% to give low-HP classes (cleric,
+	// mage) more breathing room — at 50% a cleric was bleeding into the
+	// danger zone before the heal fired.
+	if st.healChargesLeft > 0 && player.Mods.HealItem > 0 &&
+		st.playerHP > 0 && st.playerHP*5 < player.Stats.MaxHP*3 {
+		st.healChargesLeft--
 		healAmt := player.Mods.HealItem
-		st.playerHP = min(player.Stats.MaxHP, st.playerHP+healAmt)
+		st.playerHP = min(effPlayerMaxHP(player, st), st.playerHP+healAmt)
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "consumable", Action: "heal_item",
 			Damage: healAmt, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
 	}
 
+	// Regenerate (monster ability): the enemy knits its wounds at the close of
+	// every round once the ability has armed st.enemyRegen.
+	if st.enemyRegen > 0 && st.enemyHP > 0 && st.enemyHP < enemy.Stats.MaxHP {
+		st.enemyHP = min(enemy.Stats.MaxHP, st.enemyHP+st.enemyRegen)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "regen_tick",
+			Damage: st.enemyRegen, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+	}
+
+	// End-of-round Orc Rage backstop. The primary trigger sits at the
+	// top of resolvePlayerAttack so rage fires same-round when the player
+	// swings after taking the threshold-crossing hit. But if the enemy
+	// goes first this round AND next, the player can be two-shot without
+	// ever getting back to that check. Re-checking here ensures the rage
+	// event always fires while HP > 0 and below 50%, even if the buff
+	// goes unused.
+	maybeTriggerOrcRage(st, player, phaseName)
+
 	return false
 }
 
+// maybeTriggerOrcRage emits the "rage" event and arms pendingRageAttack
+// the first time the player's HP crosses below 50% while alive. Idempotent
+// via st.raged. Shared by the player-attack and end-of-round trigger sites.
+func maybeTriggerOrcRage(st *combatState, player *Combatant, phaseName string) {
+	if !player.Mods.RageReady || st.raged || st.playerHP <= 0 {
+		return
+	}
+	if st.playerHP*2 >= player.Stats.MaxHP {
+		return
+	}
+	st.raged = true
+	st.pendingRageAttack = true
+	st.events = append(st.events, CombatEvent{
+		Round: st.round, Phase: phaseName, Actor: "player", Action: "rage",
+		PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Desc: "Orc Rage",
+	})
+}
+
 // ── Attack Resolution ────────────────────────────────────────────────────────
+
+// resolvePlayerSwings calls resolvePlayerAttack once, then up to
+// player.Mods.ExtraAttacks more times (5e Extra Attack). Each extra swing is
+// a full attack roll + damage roll. Stops early on enemy KO. The first swing
+// consumes once-per-fight openers (AutoCritFirst, FirstAttackBonus,
+// AssassinateAdvantage) via st flags — extras roll vanilla.
+func resolvePlayerSwings(st *combatState, player, enemy *Combatant, phase *CombatPhase, result *CombatResult) bool {
+	if resolvePlayerAttack(st, player, enemy, phase, result) {
+		return true
+	}
+	for i := 0; i < player.Mods.ExtraAttacks; i++ {
+		if st.enemyHP <= 0 || st.playerHP <= 0 {
+			return false
+		}
+		if resolvePlayerAttack(st, player, enemy, phase, result) {
+			return true
+		}
+	}
+	return false
+}
 
 // resolvePlayerAttack — d20 + AttackBonus vs enemy AC.
 // Nat 20 = auto-hit + crit. Nat 1 = auto-miss tagged "fumble".
@@ -516,24 +757,42 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		return false
 	}
 
-	// Orc Rage: trigger on the first attack after dropping below 50% HP.
-	// Use HP*2 < MaxHP rather than HP < MaxHP/2 so the threshold is exact
-	// regardless of MaxHP parity (avoids per-character drift on odd MaxHP).
-	if player.Mods.RageReady && !st.raged && st.playerHP > 0 &&
-		st.playerHP*2 < player.Stats.MaxHP {
-		st.raged = true
-		st.pendingRageAttack = true
+	// Evade (monster ability): the enemy slipped out of reach — this swing
+	// finds nothing. Consumed here, armed by applyAbility's "evade" case.
+	if st.enemyEvadeNext {
+		st.enemyEvadeNext = false
 		st.events = append(st.events, CombatEvent{
-			Round: st.round, Phase: phaseName, Actor: "player", Action: "rage",
-			PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Desc: "Orc Rage",
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "evade",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
+		return false
 	}
 
-	roll := 1 + rand.IntN(20)
+	// Orc Rage: trigger on the first attack after dropping below 50% HP.
+	// Threshold logic lives in maybeTriggerOrcRage; this site keeps the
+	// fire-on-next-swing UX so rage applies to the *same round* the player
+	// reacts to a threshold-crossing hit (when they swing after the enemy).
+	// An end-of-round backstop in runRound covers the "enemy two-shotted
+	// me across rounds" case so the event never silently vanishes.
+	maybeTriggerOrcRage(st, player, phaseName)
+
+	roll := 1 + st.roll(20)
+	// Reveal action (monster ability): the enemy read this swing coming — it's
+	// rolled at disadvantage (2d20, keep the lower). One-shot, consumed here.
+	if st.enemyRevealNext {
+		st.enemyRevealNext = false
+		if alt := 1 + st.roll(20); alt < roll {
+			roll = alt
+		}
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "revealed",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+	}
 	// Halfling Lucky: reroll the first nat 1 of the fight.
 	if roll == 1 && player.Mods.LuckyReroll && !st.luckyUsed {
 		st.luckyUsed = true
-		newRoll := 1 + rand.IntN(20)
+		newRoll := 1 + st.roll(20)
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "player", Action: "lucky_reroll",
 			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
@@ -546,7 +805,7 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	// creatures that haven't acted yet" applied to the opening strike only.
 	if player.Mods.AssassinateAdvantage && !st.assassinateRerollUsed {
 		st.assassinateRerollUsed = true
-		alt := 1 + rand.IntN(20)
+		alt := 1 + st.roll(20)
 		if alt > roll {
 			st.events = append(st.events, CombatEvent{
 				Round: st.round, Phase: phaseName, Actor: "player", Action: "assassinate_advantage",
@@ -557,18 +816,9 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		}
 	}
 	isFumble := roll == 1
-	// Phase 10 SUB2a — Champion Improved Critical lowers the crit floor.
-	// CritThreshold==0 means "use default" (nat 20). Champion sets 19.
-	critFloor := 20
-	if player.Mods.CritThreshold > 0 && player.Mods.CritThreshold < 20 {
-		critFloor = player.Mods.CritThreshold
-	}
+	critFloor := attackCritFloor(player.Mods)
 	isCritRoll := roll >= critFloor
-	// Class proficiency penalty (appendix §8): -4 attack with a non-proficient weapon.
-	attackBonus := player.Stats.AttackBonus
-	if player.Stats.Weapon != nil && !player.Stats.WeaponProficient {
-		attackBonus -= 4
-	}
+	attackBonus := effectiveAttackBonus(player.Stats)
 	// Phase 10 SUB2a-ii — Battle Master Precision Attack: +d8 (modeled as
 	// flat +4) to the first attack roll only. Consumed even on miss.
 	if player.Mods.FirstAttackBonus > 0 && !st.firstAttackBonusUsed {
@@ -577,7 +827,7 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 	}
 	total := roll + attackBonus
 
-	if isFumble || (!isCritRoll && total < enemy.Stats.AC) {
+	if !attackConnects(roll, total, enemy.Stats.AC, critFloor) {
 		desc := ""
 		if isFumble {
 			desc = "fumble"
@@ -598,7 +848,7 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		if !player.Stats.WeaponProficient {
 			mod = 0
 		}
-		total, _ := rollWeaponDamage(player.Stats.Weapon, mod, player.Stats.TwoHandedMode)
+		total, _ := rollWeaponDamage(st.rng, player.Stats.Weapon, mod, player.Stats.TwoHandedMode)
 		dmg = total
 		// Class damage bonus / streak bonus / etc. layered on top via DamageBonus.
 		if player.Mods.DamageBonus > 0 {
@@ -609,75 +859,28 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 			dmg = int(float64(dmg) * enemy.Mods.DamageReduct)
 		}
 	} else {
-		dmg = calcDamage(player.Stats.Attack, phase.AttackWeight, player.Mods.DamageBonus,
+		dmg = calcDamage(st.rng, player.Stats.Attack, phase.AttackWeight, player.Mods.DamageBonus,
 			enemy.Stats.Defense, phase.DefenseWeight, enemy.Mods.DamageReduct)
 	}
 
-	blocked := enemy.Stats.BlockRate > 0 && rand.Float64() < enemy.Stats.BlockRate
+	// Stat drain (monster ability): the player's strength has been sapped — a
+	// flat, accumulating reduction to the damage every hit deals.
+	if st.playerAtkDrain > 0 {
+		dmg = max(1, dmg-st.playerAtkDrain)
+	}
+
+	blocked := enemy.Stats.BlockRate > 0 && st.randFloat() < enemy.Stats.BlockRate
+	// Parry stance (monster ability): an enemy holding a block stance rolls a
+	// further ~50% chance to halve the hit. Guarded by enemyBlockUp so the
+	// extra randFloat is only drawn once the ability has actually fired.
+	if !blocked && st.enemyBlockUp && st.randFloat() < 0.5 {
+		blocked = true
+	}
 	if blocked {
 		dmg = max(1, dmg/2)
 	}
 
-	isCrit := isCritRoll
-	autoCritFired := false
-	if !isCritRoll && st.autoCrit {
-		isCrit = true
-		autoCritFired = true
-		st.autoCrit = false
-	} else if st.autoCrit && isCritRoll {
-		// Natural crit consumes the auto-crit charge but doesn't get the
-		// "passive fired" flavor — the dice already explain it.
-		st.autoCrit = false
-	}
-	if isCrit {
-		// Crit: double damage. (5e rolls extra dice; we double total to
-		// match the engine's pre-Phase-8 crit semantics.)
-		dmg *= 2
-	}
-	// Orc Rage: +50% damage on this attack, then consume.
-	if st.pendingRageAttack {
-		dmg = int(float64(dmg) * 1.5)
-		st.pendingRageAttack = false
-	}
-	// Phase 10 SUB2a — Berserker rage: +flat per hit, plus Frenzy
-	// multiplicative bump that approximates the bonus-attack-per-turn we
-	// can't model in one-shot combat.
-	if player.Mods.BerserkerRage {
-		if player.Mods.RageMeleeDmg > 0 {
-			dmg += player.Mods.RageMeleeDmg
-		}
-		if player.Mods.FrenzyDmgBonus > 0 {
-			dmg = int(float64(dmg) * (1 + player.Mods.FrenzyDmgBonus))
-		}
-	}
-	// Phase 10 SUB3c — Divine Strike. Flat per-hit bonus on weapon hits only
-	// (5e specs "weapon hit"; no Weapon means we're on the legacy/non-weapon
-	// damage path and Divine Strike doesn't apply). Lands every hit because
-	// our 1v1 model has no concept of "once per turn" turn boundaries.
-	if player.Mods.DivineStrikePerHit > 0 && player.Stats.Weapon != nil {
-		dmg += player.Mods.DivineStrikePerHit
-	}
-	// Phase 10 SUB2a-ii — Assassin Death Strike proxy: bonus damage on the
-	// first hit only. Stacks on top of the Rogue's Sneak Attack auto-crit
-	// (which already doubled the base damage above) — the bonus itself is
-	// applied AFTER the crit doubling so the math is "double base + flat
-	// surprise damage". Consumed on first hit regardless of crit status.
-	if player.Mods.AssassinateBonusDmg > 0 && !st.assassinateBonusUsed {
-		dmg += player.Mods.AssassinateBonusDmg
-		st.assassinateBonusUsed = true
-	}
-	dmg = max(1, dmg)
-
-	action := "hit"
-	desc := ""
-	if isCrit {
-		action = "crit"
-		if autoCritFired {
-			desc = "auto_crit"
-		}
-	} else if blocked {
-		action = "block"
-	}
+	dmg, action, desc := applyPlayerHitDamageMods(st, player, dmg, isCritRoll, blocked)
 
 	st.enemyHP = max(0, st.enemyHP-dmg)
 	st.events = append(st.events, CombatEvent{
@@ -685,7 +888,23 @@ func resolvePlayerAttack(st *combatState, player, enemy *Combatant, phase *Comba
 		Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		Roll: roll, RollAgainst: enemy.Stats.AC, Desc: desc,
 	})
-	return st.enemyHP <= 0
+
+	// Retaliate (monster ability): a damaging aura reflects a fraction of the
+	// hit straight back. Resolved per player hit; can drop the player, so this
+	// path can return true with the enemy still standing — callers disambiguate
+	// the outcome by inspecting HP (see stepPlayerTurn).
+	if st.enemyRetaliateFrac > 0 {
+		retal := max(1, int(float64(dmg)*st.enemyRetaliateFrac))
+		st.playerHP = max(0, st.playerHP-retal)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "retaliate",
+			Damage: retal, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.playerHP <= 0 && !trySave(st, player, phaseName) {
+			return true
+		}
+	}
+	return enemyDown(st, phaseName)
 }
 
 // resolveEnemyAttack — enemy rolls d20 + AttackBonus vs player AC.
@@ -714,12 +933,28 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 		return false
 	}
 
-	roll := 1 + rand.IntN(20)
+	roll := 1 + st.roll(20)
+	// Advantage (monster ability): the enemy rolls a second d20 and keeps the
+	// better. Guarded by enemyAdvantage so the extra roll is only drawn once the
+	// ability has fired.
+	if st.enemyAdvantage {
+		if alt := 1 + st.roll(20); alt > roll {
+			roll = alt
+		}
+	}
 	isFumble := roll == 1
 	isNat20 := roll == 20
-	total := roll + enemy.Stats.AttackBonus
+	total := roll + effectiveAttackBonus(enemy.Stats)
 
-	if isFumble || (!isNat20 && total < player.Stats.AC) {
+	// Debuff (monster ability): a flat, accumulating reduction to the player's
+	// effective AC, so the enemy's attacks land more often. Floored at 1.
+	// Guarded so an undebuffed player's AC passes through untouched.
+	targetAC := player.Stats.AC
+	if st.playerACDebuff > 0 {
+		targetAC = max(1, player.Stats.AC-st.playerACDebuff)
+	}
+
+	if !attackConnects(roll, total, targetAC, 20) {
 		desc := ""
 		if isFumble {
 			desc = "fumble"
@@ -727,7 +962,7 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "miss",
 			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
-			Roll: roll, RollAgainst: player.Stats.AC, Desc: desc,
+			Roll: roll, RollAgainst: targetAC, Desc: desc,
 		})
 		return false
 	}
@@ -745,10 +980,10 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	if st.enraged {
 		atkMult = 1.5
 	}
-	dmg := calcDamage(int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
+	dmg := calcDamage(st.rng, enemyAttackStat(enemy, st, atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
 		playerDefense(player, st), phase.DefenseWeight, player.Mods.DamageReduct)
 
-	blocked := player.Stats.BlockRate > 0 && rand.Float64() < player.Stats.BlockRate
+	blocked := player.Stats.BlockRate > 0 && st.randFloat() < player.Stats.BlockRate
 	if blocked {
 		dmg = max(1, dmg/2)
 	}
@@ -760,6 +995,13 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	// Phase 10 SUB2a — Berserker rage halves incoming weapon damage.
 	// Applied AFTER crit-doubling so the resistance survives crits.
 	if player.Mods.BerserkerRage && player.Mods.PhysicalResistRage {
+		dmg = max(1, dmg/2)
+	}
+	// Tiefling fire resistance — halve the enemy's primary attack when the
+	// monster's signature damage is fire (FireAttacker, set on the template).
+	// Aligned with the Berserker pattern: applied after crit-doubling so the
+	// resistance survives a nat 20.
+	if player.Mods.FireResist && enemy.Stats.FireAttacker {
 		dmg = max(1, dmg/2)
 	}
 	dmg = max(1, dmg)
@@ -802,7 +1044,7 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: phaseName, Actor: "enemy", Action: action,
 		Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
-		Roll: roll, RollAgainst: player.Stats.AC,
+		Roll: roll, RollAgainst: targetAC,
 	})
 
 	if st.reflectFrac > 0 {
@@ -813,7 +1055,23 @@ func resolveEnemyAttack(st *combatState, player, enemy *Combatant, phase *Combat
 			Round: st.round, Phase: phaseName, Actor: "consumable", Action: "reflect_damage",
 			Damage: reflected, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
-		if st.enemyHP <= 0 {
+		if enemyDown(st, phaseName) {
+			return true
+		}
+	}
+
+	// Class-identity audit (2026-05-16) — Druid thorn lash. Fires on any
+	// landed enemy hit (dmg>0 after ward/block); independent flat-damage
+	// counter, not a fraction. Can drop the enemy.
+	if player.Mods.ThornLashDmg > 0 && dmg > 0 {
+		lash := player.Mods.ThornLashDmg
+		st.enemyHP = max(0, st.enemyHP-lash)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "player", Action: "thorn_lash",
+			Damage: lash, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			Desc: "Wild Resilience",
+		})
+		if enemyDown(st, phaseName) {
 			return true
 		}
 	}
@@ -834,7 +1092,7 @@ func abilityFires(ability *MonsterAbility, phaseName string, st *combatState) bo
 	if !phaseMatch {
 		return false
 	}
-	return rand.Float64() < ability.ProcChance
+	return st.randFloat() < ability.ProcChance
 }
 
 func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase, result *CombatResult) bool {
@@ -844,7 +1102,7 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 	switch ab.Effect {
 	case "poison":
 		st.poisonTicks = 2
-		st.poisonDmg = 3 + rand.IntN(3)
+		st.poisonDmg = 3 + st.roll(3)
 		if player.Mods.PoisonResist {
 			st.poisonDmg = max(1, st.poisonDmg/2)
 		}
@@ -884,7 +1142,7 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 		if st.enraged {
 			atkMult = 1.5
 		}
-		dmg := calcDamage(int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
+		dmg := calcDamage(st.rng, enemyAttackStat(enemy, st, atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
 			playerDefense(player, st), phase.DefenseWeight, player.Mods.DamageReduct)
 		dmg = max(1, dmg)
 		st.playerHP = max(0, st.playerHP-dmg)
@@ -903,7 +1161,7 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 		if st.enraged {
 			atkMult = 1.5
 		}
-		dmg1 := calcDamage(int(float64(enemy.Stats.Attack)*atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
+		dmg1 := calcDamage(st.rng, enemyAttackStat(enemy, st, atkMult), phase.AttackWeight, enemy.Mods.DamageBonus,
 			playerDefense(player, st), phase.DefenseWeight, player.Mods.DamageReduct)
 		dmg1 = max(1, dmg1)
 		st.playerHP = max(0, st.playerHP-dmg1)
@@ -927,9 +1185,232 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 				return !trySave(st, player, phaseName)
 			}
 		}
+
+	case "bonus_damage":
+		// A single extra strike riding on top of the round's normal attack —
+		// the multiattack below is left intact (this is a rider, not a stand-in).
+		dmg := abilityHitDamage(st, player, enemy, phase, 0.6, 1.0)
+		st.playerHP = max(0, st.playerHP-dmg)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "bonus_damage",
+			Damage: dmg, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.playerHP <= 0 {
+			return !trySave(st, player, phaseName)
+		}
+
+	case "aoe", "aoe_fire", "death_aoe":
+		// An area burst that partly bypasses armor (defWeight cut to 0.4), so a
+		// high-defense build still feels it. Rider on top of the normal attack.
+		dmg := abilityHitDamage(st, player, enemy, phase, 0.7, 0.4)
+		// Tiefling fire resistance: the aoe_fire effect name encodes a fire
+		// burst (Burning Hands, Fireball, Fire Breath). Halve for FireResist.
+		// Generic "aoe" / "death_aoe" don't always carry fire damage, so we
+		// gate on the effect string — the FireAttacker flag on the monster
+		// covers fire-themed creatures whose death/aura uses a non-aoe_fire
+		// effect (e.g., magmin's death_aoe burst rides their FireAttacker tag
+		// via the primary-attack halving path).
+		if ab.Effect == "aoe_fire" && player.Mods.FireResist {
+			dmg = max(1, dmg/2)
+		}
+		st.playerHP = max(0, st.playerHP-dmg)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "aoe",
+			Damage: dmg, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.playerHP <= 0 {
+			return !trySave(st, player, phaseName)
+		}
+
+	case "execute":
+		// Finishing blow: lands hard once the player is under 30% HP, a glancing
+		// hit otherwise so the ability isn't dead weight at full health.
+		mult := 0.5
+		if st.playerHP*100 < player.Stats.MaxHP*30 {
+			mult = 1.3
+		}
+		dmg := abilityHitDamage(st, player, enemy, phase, mult, 0.7)
+		st.playerHP = max(0, st.playerHP-dmg)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "execute",
+			Damage: dmg, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.playerHP <= 0 {
+			return !trySave(st, player, phaseName)
+		}
+
+	case "self_heal":
+		heal := enemy.Stats.MaxHP/5 + st.roll(max(1, enemy.Stats.MaxHP/10))
+		st.enemyHP = min(enemy.Stats.MaxHP, st.enemyHP+heal)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "self_heal",
+			Damage: heal, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+
+	case "evade":
+		// The enemy slips out of reach — its next-attacked-against weapon swing
+		// finds nothing. The flag is consumed (and the event emitted) by
+		// resolvePlayerAttack, so a fight log between here and there reads as the
+		// enemy turning evasive and the strike whiffing on the following beat.
+		st.enemyEvadeNext = true
+
+	case "block":
+		// The enemy settles into a parry stance for the rest of the fight: every
+		// player hit from here on rolls a ~50% chance to be halved (on top of any
+		// innate BlockRate). resolvePlayerAttack reads st.enemyBlockUp.
+		if !st.enemyBlockUp {
+			st.enemyBlockUp = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "parry_stance",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "advantage":
+		// The enemy gains the upper hand — it rolls its attacks with advantage
+		// (best of two d20s) for the rest of the fight. resolveEnemyAttack reads
+		// st.enemyAdvantage.
+		if !st.enemyAdvantage {
+			st.enemyAdvantage = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "advantage",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "retaliate":
+		// A damaging aura: from now on a fraction of every player hit is reflected
+		// straight back. resolvePlayerAttack applies the reflected damage per hit.
+		if st.enemyRetaliateFrac < 0.5 {
+			st.enemyRetaliateFrac = 0.5
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "retaliate_aura",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "regenerate":
+		// The enemy starts knitting its wounds every round. The actual healing
+		// ticks in the round_end phase (turn-based) / round start (auto-resolve);
+		// here we just arm it.
+		if st.enemyRegen == 0 {
+			st.enemyRegen = max(1, enemy.Stats.MaxHP/12)
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "regenerate",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "survive_at_1":
+		// The enemy cheats death once: the next blow that would drop it to 0
+		// leaves it at 1 HP instead (see enemyDown). Arm it the first time the
+		// ability procs; it stays armed until spent.
+		if !st.enemySurviveArmed {
+			st.enemySurviveArmed = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "survive_armed",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "stat_drain":
+		// Saps the player's strength — a flat, accumulating reduction to the
+		// damage their hits deal. Capped so a long fight can't zero them out.
+		drain := 2 + st.roll(3)
+		st.playerAtkDrain = min(12, st.playerAtkDrain+drain)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "stat_drain",
+			Damage: drain, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+
+	case "debuff":
+		// Fouls the player's defence — a flat, accumulating reduction to their
+		// effective AC, so the enemy's attacks land more often. Capped.
+		drain := 1 + st.roll(2)
+		st.playerACDebuff = min(6, st.playerACDebuff+drain)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "debuff",
+			Damage: drain, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+
+	case "max_hp_drain":
+		// Drains life force: lowers the player's effective MaxHP and deals that
+		// much immediate damage (the drain hits current HP too). Effective MaxHP
+		// is floored at 1 via the accumulating cap.
+		headroom := max(0, player.Stats.MaxHP-1-st.maxHPDrain)
+		drain := min(headroom, player.Stats.MaxHP/10+st.roll(max(1, player.Stats.MaxHP/20)))
+		st.maxHPDrain += drain
+		st.playerHP = max(0, st.playerHP-drain)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "max_hp_drain",
+			Damage: drain, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.playerHP <= 0 {
+			return !trySave(st, player, phaseName)
+		}
+
+	case "spell_resist":
+		// Spell Immunity: the enemy is wrapped in anti-magic. Player spell damage
+		// (the pre-combat cast in auto-resolve, mid-fight !cast in the turn engine)
+		// is halved — read by enemyResistsSpells. Arm once; it's a passive, so a
+		// repeat proc is a silent no-op.
+		if !st.enemySpellResist {
+			st.enemySpellResist = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "spell_resist",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "reveal_action":
+		// The enemy reads the player's intent — their next weapon swing comes in
+		// at disadvantage (2d20 keep-lower). One-shot, consumed by the next
+		// resolvePlayerAttack. Re-armed (and re-announced) on every proc.
+		st.enemyRevealNext = true
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "reveal_armed",
+			Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+
+	case "fear_immune":
+		// The enemy's resolve can't be broken: player control spells (Hold Person,
+		// Sleep, Command — the enemy-skip mechanic) fizzle against it. Read by
+		// enemyImmuneToControl. Arm once; a passive, so a repeat proc is a no-op.
+		if !st.enemyFearImmune {
+			st.enemyFearImmune = true
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: phaseName, Actor: "enemy", Action: "fear_immune",
+				Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		}
+
+	case "ally_buff":
+		// The enemy rallies — a flat, accumulating bonus to the damage its attacks
+		// deal (read by enemyAttackStat). Capped so a long fight can't run away.
+		buff := 2 + st.roll(3)
+		st.enemyAtkBuff = min(15, st.enemyAtkBuff+buff)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "ally_buff",
+			Damage: buff, Desc: ab.Name, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
 	}
 
 	return false
+}
+
+// abilityHitDamage resolves a monster-ability damage rider through the shared
+// penetration formula (calcDamage), so a rider scales identically to a normal
+// hit. atkFrac scales the enemy's Attack stat; defFrac scales how much of the
+// player's Defense applies (1.0 = a normal hit, lower = an armor-piercing
+// burst). Enrage's 1.5x attack multiplier is honored, matching cleave/lifesteal.
+func abilityHitDamage(st *combatState, player, enemy *Combatant, phase *CombatPhase, atkFrac, defFrac float64) int {
+	mult := atkFrac
+	if st.enraged {
+		mult *= 1.5
+	}
+	dmg := calcDamage(st.rng, enemyAttackStat(enemy, st, mult), phase.AttackWeight, enemy.Mods.DamageBonus,
+		playerDefense(player, st), phase.DefenseWeight*defFrac, player.Mods.DamageReduct)
+	return max(1, dmg)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -941,13 +1422,13 @@ func applyAbility(st *combatState, player, enemy *Combatant, phase *CombatPhase,
 //
 // A ±15% per-hit jitter is applied so successive hits in the same phase don't
 // produce identical numbers — the previous flat-damage output read as scripted.
-func calcDamage(attack int, atkWeight, dmgBonus float64, defense int, defWeight, dmgReduct float64) int {
+func calcDamage(rng *rand.Rand, attack int, atkWeight, dmgBonus float64, defense int, defWeight, dmgReduct float64) int {
 	const K = 40.0
 	rawAtk := float64(attack) * atkWeight * (1 + dmgBonus)
 	effectiveDef := float64(defense) * defWeight * dmgReduct
 	reduction := K / (K + effectiveDef)
 	dmg := rawAtk * reduction
-	jitter := 0.85 + rand.Float64()*0.30 // 0.85 .. 1.15
+	jitter := 0.85 + rngFloat(rng)*0.30 // 0.85 .. 1.15
 	dmg *= jitter
 	if dmg < 1 {
 		return 1
@@ -961,6 +1442,59 @@ func playerDefense(player *Combatant, st *combatState) int {
 		def = int(float64(def) * (1 - st.armorBreakAmt))
 	}
 	return def
+}
+
+// enemyAttackStat is the enemy's effective Attack for a damage roll: the base
+// stat scaled by mult (1.0 = normal, 1.5 = enraged, <1 = a partial-power rider)
+// plus any accumulated ally_buff bonus. With no buff (every characterization
+// scenario) it collapses to the pre-slice-4 expression.
+func enemyAttackStat(enemy *Combatant, st *combatState, mult float64) int {
+	return max(1, int(float64(enemy.Stats.Attack)*mult)+st.enemyAtkBuff)
+}
+
+// enemyResistsSpells reports whether the enemy's spell_resist (Spell Immunity)
+// ability is in play. It's a passive — the per-round proc may not have armed
+// st.enemySpellResist yet, so the ability profile is checked too, letting the
+// pre-combat spell and a round-1 mid-fight cast be resisted all the same.
+func enemyResistsSpells(enemy *Combatant, st *combatState) bool {
+	return st.enemySpellResist || (enemy.Ability != nil && enemy.Ability.Effect == "spell_resist")
+}
+
+// enemyImmuneToControl reports whether the enemy's fear_immune ability is in
+// play. Like spell_resist it's a passive, so the ability profile is checked
+// alongside the armed flag.
+func enemyImmuneToControl(enemy *Combatant, st *combatState) bool {
+	return st.enemyFearImmune || (enemy.Ability != nil && enemy.Ability.Effect == "fear_immune")
+}
+
+// effPlayerMaxHP is the player's MaxHP after any max_hp_drain monster ability,
+// floored at 1. Heal clamps use this so a drained player can't be topped back
+// up past the lowered ceiling. With no drain (every characterization scenario)
+// it returns player.Stats.MaxHP unchanged.
+func effPlayerMaxHP(player *Combatant, st *combatState) int {
+	return max(1, player.Stats.MaxHP-st.maxHPDrain)
+}
+
+// enemyDown reports whether the enemy is actually dead. It is the single choke
+// point every "did this drop the enemy" check routes through, so the
+// survive_at_1 ability can cheat death exactly once: an armed enemy at/below 0
+// HP is restored to 1, the flag is spent, and the fight continues. With no
+// ability armed (every auto-resolve characterization scenario), this is a plain
+// st.enemyHP <= 0 with no side effects.
+func enemyDown(st *combatState, phaseName string) bool {
+	if st.enemyHP > 0 {
+		return false
+	}
+	if st.enemySurviveArmed {
+		st.enemySurviveArmed = false
+		st.enemyHP = 1
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "survive_at_1",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		return false
+	}
+	return true
 }
 
 func trySave(st *combatState, player *Combatant, phaseName string) bool {

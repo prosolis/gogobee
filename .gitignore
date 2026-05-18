@@ -1,7 +1,10 @@
-data/
+data/*
+!data/open5e/
 .env
 .env.*
 !.env.example
 gogobee
 gensolver
 holdem-train
+/open5e-import
+/expedition-sim

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -92,6 +93,23 @@ func forcedExtractExpedition(expID, reason string) (*Expedition, int, error) {
 	return e, tax, nil
 }
 
+// forceExtractExpeditionForRunLoss bridges run-loss call sites (turn-based
+// elite/boss death or flee, exploration combat death, patrol-interrupt
+// death) into the forced-extract flow. Those sites already abandon the
+// zone run, but without flipping the wrapping expedition the ambient
+// ticker keeps DMing about a dungeon the player walked away from. No-op
+// when there is no active expedition for this user.
+func forceExtractExpeditionForRunLoss(userID id.UserID, reason string) {
+	exp, err := getActiveExpedition(userID)
+	if err != nil || exp == nil {
+		return
+	}
+	if _, _, err := forcedExtractExpedition(exp.ID, reason); err != nil {
+		slog.Warn("expedition: force-extract on run loss",
+			"user", userID, "expedition", exp.ID, "reason", reason, "err", err)
+	}
+}
+
 // getResumableExpedition returns the most recent 'extracting' row for the
 // user, regardless of age (caller checks the 7-day window).
 func getResumableExpedition(userID id.UserID) (*Expedition, error) {
@@ -101,7 +119,8 @@ func getResumableExpedition(userID id.UserID) (*Expedition, error) {
 		       supplies_json, camp_json, threat_level, threat_siege,
 		       threat_events, temporal_stack, region_state,
 		       xp_earned, coins_earned, gm_mood,
-		       last_briefing_at, last_recap_at, last_activity, completed_at
+		       last_briefing_at, last_recap_at, last_ambient_kind,
+		       last_activity, completed_at
 		  FROM dnd_expedition
 		 WHERE user_id = ?
 		   AND status = 'extracting'

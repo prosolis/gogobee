@@ -70,7 +70,13 @@ func (p *AdventurePlugin) advUserLock(userID id.UserID) *sync.Mutex {
 	return val.(*sync.Mutex)
 }
 
+// advDMResponseWindow is the default window for active state-holding
+// prompts (shop/blacksmith/hospital/masterwork/treasure confirms).
+// Passive overnight-tolerant prompts (pet arrival, flavor DMs) use
+// advDMResponseWindowLow so a player who gets DM'd at 1am can still
+// reply when they wake up.
 const advDMResponseWindow = 3 * time.Hour
+const advDMResponseWindowLow = 12 * time.Hour
 const advTreasureUndoWindow = 10 * time.Minute
 
 // advTreasureUndoToken tracks a recent auto-swap so the player can undo it
@@ -143,30 +149,25 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "adventure", Description: "Town services menu (expeditions: see !expedition)", Usage: "!adventure", Category: "Games"},
 		{Name: "arena", Description: "Arena combat — fight through 5 tiers of increasingly deadly monsters", Usage: "!arena", Category: "Games"},
 		{Name: "thom", Description: "Visit Thom Krooke — housing and loans", Usage: "!thom", Category: "Games"},
-		{Name: "setup", Description: "Create or continue your Adv 2.0 character (race, class, stats)", Usage: "!setup", Category: "Games"},
-		{Name: "sheet", Description: "View your Adv 2.0 character sheet", Usage: "!sheet", Category: "Games"},
-		{Name: "abilities", Description: "List your Adv 2.0 class and race abilities", Usage: "!abilities", Category: "Games"},
-		{Name: "respec", Description: "Wipe and rebuild your Adv 2.0 character (5000 euros, 7-day cooldown)", Usage: "!respec", Category: "Games"},
-		{Name: "subclass", Description: "View or choose your Adv 2.0 subclass (unlocks at L5; change costs 500 euros, 30-day cooldown)", Usage: "!subclass [name|number]", Category: "Games"},
-		{Name: "check", Description: "Roll an Adv 2.0 skill check (d20 + ability modifier vs DC)", Usage: "!check <skill> [dc]", Category: "Games"},
-		{Name: "rest", Description: "Take an Adv 2.0 rest (`short`: 1h cooldown, partial heal — `long`: 24h, full heal, requires housing or inn)", Usage: "!rest short|long", Category: "Games"},
-		{Name: "arm", Description: "Pre-arm an active Adv 2.0 ability for next combat (consumes resource)", Usage: "!arm <ability>", Category: "Games"},
+		{Name: "setup", Description: "Create or continue your character (race, class, stats)", Usage: "!setup", Category: "Games"},
+		{Name: "sheet", Description: "View your character sheet", Usage: "!sheet", Category: "Games"},
+		{Name: "abilities", Description: "List your class and race abilities", Usage: "!abilities", Category: "Games"},
+		{Name: "respec", Description: "Wipe and rebuild your character (5000 euros, 7-day cooldown)", Usage: "!respec", Category: "Games"},
+		{Name: "subclass", Description: "View or choose your subclass (unlocks at level 5; change costs 500 euros, 30-day cooldown)", Usage: "!subclass [name|number]", Category: "Games"},
+		{Name: "check", Description: "Try a skill — see if you pull it off", Usage: "!check <skill> [difficulty]", Category: "Games"},
+		{Name: "rest", Description: "Rest up (`short`: quick breather, 1h cooldown — `long`: full night, 24h, needs housing or inn)", Usage: "!rest short|long", Category: "Games"},
+		{Name: "arm", Description: "Ready an ability so it fires the moment your next fight starts", Usage: "!arm <ability>", Category: "Games"},
 		{Name: "roll", Description: "Roll dice (NdN+M format, e.g. 2d6+3, d20, 4d6-1)", Usage: "!roll <dice>", Category: "Games"},
-		{Name: "stats", Description: "Show your Adv 2.0 ability scores and modifiers", Usage: "!stats", Category: "Games"},
-		{Name: "level", Description: "Show your Adv 2.0 level and XP progress", Usage: "!level", Category: "Games"},
-		{Name: "cast", Description: "Cast an Adv 2.0 spell (queues for next combat, or resolves out-of-combat)", Usage: "!cast <spell> [--upcast N] [--target @user]", Category: "Games"},
-		{Name: "spells", Description: "List your known spells, prepared spells, and spell slots", Usage: "!spells [learn <spell>]", Category: "Games"},
-		{Name: "prepare", Description: "Cleric: prepare a spell for the day (cap = WIS mod + level)", Usage: "!prepare <spell> | !prepare clear <spell>", Category: "Games"},
-		{Name: "forage", Description: "Forage in your current expedition region (WIS / Survival)", Usage: "!forage", Category: "Games"},
-		{Name: "mine", Description: "Mine or salvage in your current expedition region (STR / Athletics)", Usage: "!mine", Category: "Games"},
-		{Name: "scavenge", Description: "Scavenge in your current expedition region (INT / Investigation)", Usage: "!scavenge", Category: "Games"},
-		{Name: "essence", Description: "Harvest magical essence in your current expedition region (INT / Arcana)", Usage: "!essence", Category: "Games"},
-		{Name: "commune", Description: "Commune with spiritual energy in your current expedition region (Cleric primary)", Usage: "!commune", Category: "Games"},
-		{Name: "fish", Description: "Fish in your current expedition region (DEX / Sleight of Hand; water zones only)", Usage: "!fish", Category: "Games"},
-		{Name: "resources", Description: "List harvestable resources in your current expedition region", Usage: "!resources", Category: "Games"},
-		{Name: "sell", Description: "Sell harvested materials/fish/items to Thom Krooke (post-expedition; CHA Persuasion DC 17 = +15%)", Usage: "!sell [list|all|<item>]", Category: "Games"},
+		{Name: "stats", Description: "Show your ability scores", Usage: "!stats", Category: "Games"},
+		{Name: "level", Description: "Show your level and XP progress", Usage: "!level", Category: "Games"},
+		{Name: "cast", Description: "Cast a spell (queues for next combat, or resolves now if out of combat)", Usage: "!cast <spell> [--upcast N] [--target @user]", Category: "Games"},
+		{Name: "spells", Description: "List your known spells, prepared spells, and remaining casts", Usage: "!spells [learn <spell>]", Category: "Games"},
+		{Name: "prepare", Description: "Cleric: prepare a spell for the day", Usage: "!prepare <spell> | !prepare clear <spell>", Category: "Games"},
+		{Name: "resources", Description: "List what's harvestable in your current expedition region", Usage: "!resources", Category: "Games"},
+		{Name: "explore", Description: "Autopilot: walk through expedition rooms until something needs your attention (fork, elite/boss, low HP/supplies)", Usage: "!explore", Category: "Games"},
+		{Name: "sell", Description: "Sell your hauled materials, fish, and items to Thom Krooke after an expedition (a smooth pitch can land a better price)", Usage: "!sell [list|all|<item>]", Category: "Games"},
 		{Name: "craft", Description: "Craft a discovered recipe at Thom Krooke (consumes ingredients)", Usage: "!craft [list|<recipe>]", Category: "Games"},
-		{Name: "lore", Description: "Dig through Thom Krooke's lore stacks for an undiscovered recipe (INT/Arcana DC 15)", Usage: "!lore", Category: "Games"},
+		{Name: "lore", Description: "Dig through Thom Krooke's lore stacks for a new recipe (sharp minds turn up more)", Usage: "!lore", Category: "Games"},
 	}
 }
 
@@ -175,6 +176,7 @@ func (p *AdventurePlugin) Init() error {
 	// have a player_meta row. Idempotent. Required for DBs that didn't go
 	// through the L4-L5h dual-write soak (fresh deploys, restored backups).
 	bootstrapPlayerMetaFromLegacy()
+	bootstrapRestoreExpeditionStreakDecay()
 
 	// Rehydrate DM room mappings for existing characters
 	chars, err := loadAllAdvCharacters()
@@ -204,6 +206,20 @@ func (p *AdventurePlugin) Init() error {
 	// columns from dnd_zone_run when the operator sets
 	// GOGOBEE_BRANCHING_PURGE=1. Default off; idempotent.
 	purgeLegacyZoneRunColumns()
+	// 2026-05-10 fun-pump: floor existing characters' DEX at 14 and
+	// recompute armor_class so armor upgrades actually translate into
+	// AC. One-shot, idempotent (WHERE dex_score < 14).
+	bumpDexFloorForExistingCharacters()
+	// 2026-05-10 immersion: seed short rest charges = dnd_level for any
+	// character not yet on the new charge system. One-shot, idempotent.
+	seedShortRestChargesForExistingCharacters()
+	// 2026-05-15 Phase 5-B: refresh hp_max for existing characters
+	// after the Phase 5-B HP-floor multiplier (phase5BHPMult in dnd.go)
+	// shipped. Without this, existing characters keep their pre-Phase-5-B
+	// hp_max until the next computeMaxHP recall (level-up / reset). The
+	// migration walks dnd_character once at startup; idempotent via
+	// JobCompleted gate.
+	bootstrapPhase5BHPRefresh()
 	// Phase R1 orphan-archive used to run here on every Init, but it
 	// over-archived: it treats any active dnd_zone_run row not linked to
 	// an active expedition as a legacy `!adventure dungeon` orphan, which
@@ -230,6 +246,8 @@ func (p *AdventurePlugin) Init() error {
 	go p.mortgageTicker()
 	go p.expeditionBriefingTicker()
 	go p.expeditionRecapTicker()
+	go p.expeditionAmbientTicker()
+	go p.expeditionAutoRunTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()
@@ -307,6 +325,18 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "zone") {
 		return p.handleDnDZoneCmd(ctx, p.GetArgs(ctx.Body, "zone"))
 	}
+	if p.IsCommand(ctx.Body, "fight") {
+		return p.handleFightCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "attack") {
+		return p.handleAttackCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "flee") {
+		return p.handleFleeCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "consume") {
+		return p.handleConsumeCmd(ctx, p.GetArgs(ctx.Body, "consume"))
+	}
 	if p.IsCommand(ctx.Body, "expedition") {
 		return p.handleDnDExpeditionCmd(ctx, p.GetArgs(ctx.Body, "expedition"))
 	}
@@ -328,23 +358,16 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "map") {
 		return p.handleExpeditionMapCmd(ctx, p.GetArgs(ctx.Body, "map"))
 	}
-	if p.IsCommand(ctx.Body, "forage") {
-		return p.handleHarvestCmd(ctx, HarvestForage)
+	if p.IsCommand(ctx.Body, "explore") {
+		return p.expeditionCmdRun(ctx)
 	}
-	if p.IsCommand(ctx.Body, "mine") {
-		return p.handleHarvestCmd(ctx, HarvestMine)
-	}
-	if p.IsCommand(ctx.Body, "scavenge") {
-		return p.handleHarvestCmd(ctx, HarvestScavenge)
-	}
-	if p.IsCommand(ctx.Body, "essence") {
-		return p.handleHarvestCmd(ctx, HarvestEssence)
-	}
-	if p.IsCommand(ctx.Body, "commune") {
-		return p.handleHarvestCmd(ctx, HarvestCommune)
-	}
-	if p.IsCommand(ctx.Body, "fish") {
-		return p.handleHarvestCmd(ctx, HarvestFish)
+	if p.IsCommand(ctx.Body, "forage") ||
+		p.IsCommand(ctx.Body, "mine") ||
+		p.IsCommand(ctx.Body, "scavenge") ||
+		p.IsCommand(ctx.Body, "essence") ||
+		p.IsCommand(ctx.Body, "commune") ||
+		p.IsCommand(ctx.Body, "fish") {
+		return p.SendDM(ctx.Sender, "Harvest is automatic now — just walk. (`!expedition run` or `!zone advance`)")
 	}
 	if p.IsCommand(ctx.Body, "resources") {
 		return p.handleResourcesCmd(ctx)
@@ -421,6 +444,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleBuyCmd(ctx, strings.TrimSpace(args[4:]))
 	case lower == "equip":
 		return p.handleEquipCmd(ctx)
+	case lower == "equip-magic" || lower == "equipmagic" || lower == "equip magic":
+		return p.handleEquipMagicCmd(ctx)
 	case lower == "inventory" || lower == "inv":
 		return p.handleInventoryCmd(ctx)
 	case lower == "leaderboard" || lower == "lb":
@@ -462,9 +487,10 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure status`" + ` — View your character sheet
 ` + "`!expedition`" + ` — Adventure: pick a zone, advance through rooms, harvest as you go
 ` + "`!adventure shop`" + ` — Browse equipment categories
-` + "`!adventure shop <category>`" + ` — View a category (weapon, armor, helmet, boots, tool)
+` + "`!adventure shop <category>`" + ` — View a category (weapon, armor, helmet, boots, tool, supplies, curios)
 ` + "`!adventure buy <item>`" + ` — Buy equipment (e.g. ` + "`buy Enchanted Blade`" + ` or ` + "`buy 4 sword`" + `)
 ` + "`!adventure equip`" + ` — Equip Masterwork gear from inventory
+` + "`!adventure equip-magic`" + ` — Equip magic items (curios) into your D&D slots
 ` + "`!adventure sell <item>`" + ` — Sell an inventory item (or ` + "`sell all`" + `)
 ` + "`!adventure inventory`" + ` — View your inventory
 ` + "`!adventure leaderboard`" + ` — View the leaderboard
@@ -798,6 +824,8 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.handleTreasureDiscard(ctx, interaction)
 	case "masterwork_equip":
 		return p.handleMasterworkEquipReply(ctx, interaction)
+	case "magic_equip":
+		return p.resolveMagicEquipReply(ctx, interaction)
 	case "masterwork_equip_confirm":
 		return p.handleMasterworkEquipConfirm(ctx, interaction)
 	case "rival_rps":
@@ -812,6 +840,8 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.resolveShopItemChoice(ctx, interaction)
 	case "shop_supply":
 		return p.resolveShopSupplyChoice(ctx, interaction)
+	case "shop_curio":
+		return p.resolveShopCurioChoice(ctx, interaction)
 	case "shop_confirm":
 		return p.resolveShopConfirm(ctx, interaction)
 	case "hospital_pay":
@@ -969,7 +999,7 @@ func renderLegacyActivityDeprecation(char *AdventureCharacter) string {
 	sb.WriteString("Get started:\n")
 	sb.WriteString("• `!expedition` — overview & open expeditions\n")
 	sb.WriteString("• `!expedition start <zone>` — begin a new run\n")
-	sb.WriteString("• `!forage` · `!mine` · `!scavenge` · `!fish` · `!essence` · `!commune` — harvest in cleared rooms\n")
+	sb.WriteString("• Harvest is automatic — yields land as you walk through cleared rooms.\n")
 	sb.WriteString("• `!resources` — list nodes in your current room\n\n")
 	sb.WriteString("Shop, blacksmith, rest, and Thom Krooke are still here on `!adventure`.")
 	return sb.String()

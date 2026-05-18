@@ -98,6 +98,26 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			continue
 		}
 
+		// Mid-fight: a turn-based elite/boss session locks the run. The
+		// per-round combat DMs are the player's feed right now — don't talk
+		// over them with the overworld morning menu. (A combat session always
+		// sits inside an active expedition, so the expedition skip below would
+		// usually catch this too; the explicit guard is cheap insurance.)
+		if char.Alive && hasActiveCombatSession(char.UserID) {
+			continue
+		}
+
+		// Active expedition: the expedition cycle delivers its own morning
+		// briefing at 06:00 UTC (deliverBriefing). The legacy overworld
+		// morning DM is irrelevant — and confusing — while underground.
+		if char.Alive {
+			if exp, err := getActiveExpedition(char.UserID); err != nil {
+				slog.Warn("adventure: failed to check active expedition for morning DM", "user", char.UserID, "err", err)
+			} else if exp != nil {
+				continue
+			}
+		}
+
 		// If still dead, send death status
 		if !char.Alive {
 			text := renderAdvDeathStatusDM(char.UserID)
@@ -261,6 +281,22 @@ func (p *AdventurePlugin) postDailySummary() {
 			ps.DeathLocation = c.DeathLocation
 			if c.DeadUntil != nil {
 				ps.DeadUntil = c.DeadUntil.Format("15:04") + " UTC"
+				remaining := time.Until(*c.DeadUntil)
+				if remaining > 0 {
+					hrs := int(remaining.Hours())
+					mins := int(remaining.Minutes()) - hrs*60
+					// {hours}: round half-up integer hours.
+					ps.DeadUntilHours = int(remaining.Hours() + 0.5)
+					// {duration}: precise — "5h 27m", "47m", "2h".
+					switch {
+					case hrs > 0 && mins > 0:
+						ps.DeadUntilDuration = fmt.Sprintf("%dh %dm", hrs, mins)
+					case hrs > 0:
+						ps.DeadUntilDuration = fmt.Sprintf("%dh", hrs)
+					default:
+						ps.DeadUntilDuration = fmt.Sprintf("%dm", mins)
+					}
+				}
 			}
 			if len(acts) > 0 {
 				last := acts[len(acts)-1]
@@ -372,6 +408,35 @@ func (p *AdventurePlugin) midnightReset() error {
 			// who were just revived at midnight (Alive already flipped to true by
 			// the reminder loop before midnightReset runs).
 			if char.LastDeathDate == today || char.LastDeathDate == yesterday {
+				continue
+			}
+
+			// An active expedition — or a turn-based fight locked open across
+			// midnight — counts as activity. Both track their own action flow
+			// (zone/harvest/combat/transit/extract) and never touch the legacy
+			// CombatActionsUsed/HarvestActionsUsed counters, so HasActedToday()
+			// reports false. Treat them like the acted-today branch below:
+			// advance the streak and bail out (no idle-shame, no streak decay).
+			busy := false
+			if exp, err := getActiveExpedition(char.UserID); err != nil {
+				slog.Warn("adventure: failed to check active expedition for idle reaper", "user", char.UserID, "err", err)
+			} else if exp != nil {
+				busy = true
+			}
+			if !busy && hasActiveCombatSession(char.UserID) {
+				busy = true
+			}
+			if busy {
+				if char.LastActionDate == yesterday || char.LastActionDate == today {
+					char.CurrentStreak++
+				} else {
+					char.CurrentStreak = 1
+				}
+				if char.CurrentStreak > char.BestStreak {
+					char.BestStreak = char.CurrentStreak
+				}
+				char.LastActionDate = today
+				_ = saveAdvCharacter(&char)
 				continue
 			}
 

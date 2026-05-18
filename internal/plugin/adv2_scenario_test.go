@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -76,9 +75,17 @@ func TestAdv2Scenario_ZoneRunGoblinWarrens(t *testing.T) {
 	}
 
 	// Drive !zone advance until the run terminates (cleared, died, or
-	// abandoned). Cap iterations as a safety net in case advance becomes
-	// a no-op due to a regression.
-	maxSteps := run.TotalRooms + 4
+	// abandoned). Branches the test handles:
+	//   - Fork queued (Phase G branching graphs): commit with `!zone go 1`.
+	//   - Elite/Boss doorway (commit 886eb5a moved these off auto-resolve):
+	//     !advance now stops at the door and the player engages with
+	//     !fight, then resolves one round per !attack. The test mirrors
+	//     that: call !fight to open the session, !attack until the session
+	//     closes, then the next !advance clears the room and walks the
+	//     graph. Cap the per-fight !attack loop generously — a real fight
+	//     resolves in <20 rounds, but RNG can drag.
+	maxSteps := (run.TotalRooms + 4) * 4
+	const maxAttacksPerFight = 60
 	clearedRoomTypes := []RoomType{}
 	for step := 0; step < maxSteps; step++ {
 		before, _ := getActiveZoneRun(uid)
@@ -93,6 +100,38 @@ func TestAdv2Scenario_ZoneRunGoblinWarrens(t *testing.T) {
 		}
 		t.Logf("step %d: in room %d/%d (%s), mood=%d, HP=%d",
 			step, before.CurrentRoom+1, before.TotalRooms, prevType, before.DMMood, prevHP)
+		if len(before.NodeChoices) > 0 {
+			// A fork is queued from the previous advance — commit it first.
+			if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "go 1"); err != nil {
+				t.Fatalf("zone go step %d: %v", step, err)
+			}
+			continue
+		}
+		// Elite/Boss doorway: !advance won't progress past the door
+		// without a won CombatSession for the encounter. Open the fight
+		// if it isn't already open, then attack until the session
+		// terminates. After the loop, fall through to !advance — the
+		// won session lets advance clear the room and walk the graph;
+		// a lost/fled session terminates the run on the next pass.
+		if prevType == RoomElite || prevType == RoomBoss {
+			sess, _ := getCombatSessionForEncounter(before.RunID, encounterIDForRoom(before.CurrentRoom))
+			if sess == nil {
+				if err := p.handleFightCmd(MessageContext{Sender: uid}); err != nil {
+					t.Fatalf("zone fight step %d: %v", step, err)
+				}
+			}
+			// Drain the round loop. handleAttackCmd no-ops if there's no
+			// active session, so the inner loop self-terminates either way.
+			for atk := 0; atk < maxAttacksPerFight; atk++ {
+				active, _ := getActiveCombatSession(uid)
+				if active == nil {
+					break
+				}
+				if err := p.handleAttackCmd(MessageContext{Sender: uid}); err != nil {
+					t.Fatalf("attack step %d.%d: %v", step, atk, err)
+				}
+			}
+		}
 		if err := p.handleDnDZoneCmd(MessageContext{Sender: uid}, "advance"); err != nil {
 			t.Fatalf("zone advance step %d: %v", step, err)
 		}
@@ -291,22 +330,19 @@ func TestAdv2Scenario_HarvestForestShadows(t *testing.T) {
 		t.Error("expected at least one harvest node seeded")
 	}
 
-	// Try each harvest action a couple of times and watch for crashes.
-	// Outcomes are RNG-driven; we mainly want no panics + coherent state.
-	rng := rand.New(rand.NewPCG(7, 13))
-	_ = rng
-	for _, action := range []HarvestAction{HarvestForage, HarvestMine} {
-		for i := 0; i < 3; i++ {
-			if err := p.handleHarvestCmd(MessageContext{Sender: uid}, action); err != nil {
-				t.Fatalf("handleHarvestCmd(%s) attempt %d: %v", action, i, err)
-			}
-			fresh, _ := getExpedition(exp.ID)
-			if fresh == nil {
-				t.Logf("expedition ended during harvest %s #%d", action, i)
-				break
-			}
-			t.Logf("after %s #%d: supplies=%v threat=%d", action, i, fresh.Supplies.Current, fresh.ThreatLevel)
+	// Drive the auto-harvest pass (post-H3 there is no manual command
+	// surface). Outcomes are RNG-driven; we mainly want no panics +
+	// coherent state.
+	for i := 0; i < 3; i++ {
+		if _, err := p.autoHarvestRoom(uid, run, c, exp); err != nil {
+			t.Fatalf("autoHarvestRoom attempt %d: %v", i, err)
 		}
+		fresh, _ := getExpedition(exp.ID)
+		if fresh == nil {
+			t.Logf("expedition ended during auto-harvest #%d", i)
+			break
+		}
+		t.Logf("after auto-harvest #%d: supplies=%v threat=%d", i, fresh.Supplies.Current, fresh.ThreatLevel)
 	}
 
 	// !resources output path (no-op SendDM but should not error).

@@ -81,6 +81,16 @@ func (p *AdventurePlugin) fireExpeditionBriefings(now time.Time) {
 		return
 	}
 	for _, e := range exps {
+		// Don't roll the expedition day forward into a live turn-based fight:
+		// an active combat session locks the run, and the briefing burns
+		// supply / advances the day / processes overnight camp. last_briefing_at
+		// stays stale, so the rollover simply lands on the next 06:00 tick —
+		// the expedition holds on its current day for one extra real day, which
+		// is mild and player-favorable versus mutating a locked run.
+		if hasActiveCombatSession(id.UserID(e.UserID)) {
+			slog.Info("expedition: briefing deferred — player in combat session", "expedition", e.ID, "user", e.UserID)
+			continue
+		}
 		if err := p.deliverBriefing(e, now); err != nil {
 			slog.Error("expedition: briefing", "expedition", e.ID, "err", err)
 		}
@@ -98,6 +108,13 @@ func (p *AdventurePlugin) fireExpeditionRecaps(now time.Time) {
 		return
 	}
 	for _, e := range exps {
+		// Same guard as briefings: the recap runs the night wandering check,
+		// which can bump threat. Don't mutate a run locked by a live fight —
+		// last_recap_at stays stale and the recap lands on the next tick.
+		if hasActiveCombatSession(id.UserID(e.UserID)) {
+			slog.Info("expedition: recap deferred — player in combat session", "expedition", e.ID, "user", e.UserID)
+			continue
+		}
 		if err := p.deliverRecap(e, now); err != nil {
 			slog.Error("expedition: recap", "expedition", e.ID, "err", err)
 		}
@@ -113,7 +130,8 @@ func loadExpeditionsNeedingBriefing(threshold time.Time) ([]*Expedition, error) 
 		       supplies_json, camp_json, threat_level, threat_siege,
 		       threat_events, temporal_stack, region_state,
 		       xp_earned, coins_earned, gm_mood,
-		       last_briefing_at, last_recap_at, last_activity, completed_at
+		       last_briefing_at, last_recap_at, last_ambient_kind,
+		       last_activity, completed_at
 		  FROM dnd_expedition
 		 WHERE status = 'active'
 		   AND start_date < ?
@@ -134,7 +152,8 @@ func loadExpeditionsNeedingRecap(threshold time.Time) ([]*Expedition, error) {
 		       supplies_json, camp_json, threat_level, threat_siege,
 		       threat_events, temporal_stack, region_state,
 		       xp_earned, coins_earned, gm_mood,
-		       last_briefing_at, last_recap_at, last_activity, completed_at
+		       last_briefing_at, last_recap_at, last_ambient_kind,
+		       last_activity, completed_at
 		  FROM dnd_expedition
 		 WHERE status = 'active'
 		   AND (last_recap_at IS NULL OR last_recap_at < ?)`, threshold)
@@ -191,7 +210,12 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	var newSupplies ExpeditionSupplies
 	var burn float32
 	if burnOverride.Multiplier > 0 {
-		burn = e.Supplies.DailyBurn * burnOverride.Multiplier
+		// Phase 5-B: temporal overrides bypass applyDailyBurn, so apply
+		// the same global burn-rate multiplier explicitly here. Without
+		// this, tidal/unraveling days would burn at pre-Phase-5-B rates
+		// while normal days burn at half — an inconsistency the user
+		// would feel as "tidal days are now disproportionately harsh."
+		burn = e.Supplies.DailyBurn * burnOverride.Multiplier * float32(phase5BDailyBurnRatePct) / 100
 		newSupplies = e.Supplies
 		newSupplies.Current -= burn
 		if newSupplies.Current < 0 {

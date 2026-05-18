@@ -387,15 +387,15 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 	sb.WriteString("\n")
 
 	// ── Adventure ──
-	var combatLv, miningLv, fishingLv, forageLv, combatXP, miningXP, fishingXP, forageXP int
+	var miningLv, fishingLv, forageLv, miningXP, fishingXP, forageXP int
 	var alive bool
 	var streak, bestStreak int
 	err = d.QueryRow(
-		`SELECT combat_level, mining_skill, fishing_skill, foraging_skill,
-		        combat_xp, mining_xp, fishing_xp, foraging_xp,
+		`SELECT mining_skill, fishing_skill, foraging_skill,
+		        mining_xp, fishing_xp, foraging_xp,
 		        alive, current_streak, best_streak
 		 FROM player_meta WHERE user_id = ?`, uid,
-	).Scan(&combatLv, &miningLv, &fishingLv, &forageLv, &combatXP, &miningXP, &fishingXP, &forageXP,
+	).Scan(&miningLv, &fishingLv, &forageLv, &miningXP, &fishingXP, &forageXP,
 		&alive, &streak, &bestStreak)
 	if err == nil {
 		status := "Alive"
@@ -403,8 +403,8 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 			status = "💀 Dead"
 		}
 		sb.WriteString(fmt.Sprintf("⚔️ **Adventure:** %s\n", status))
-		sb.WriteString(fmt.Sprintf("   Combat Lv.%d (%d XP) · Mining Lv.%d (%d XP) · Fishing Lv.%d (%d XP) · Forage Lv.%d (%d XP)\n",
-			combatLv, combatXP, miningLv, miningXP, fishingLv, fishingXP, forageLv, forageXP))
+		sb.WriteString(fmt.Sprintf("   Mining Lv.%d (%d XP) · Fishing Lv.%d (%d XP) · Forage Lv.%d (%d XP)\n",
+			miningLv, miningXP, fishingLv, fishingXP, forageLv, forageXP))
 		if streak > 0 || bestStreak > 0 {
 			sb.WriteString(fmt.Sprintf("   🔥 Streak: %d days (best: %d)\n", streak, bestStreak))
 		}
@@ -529,14 +529,6 @@ func (p *StatsPlugin) handleSuperStats(ctx MessageContext) error {
 		}
 		sb.WriteString(fmt.Sprintf("   🎴 UNO: %d/%d W/L · %s€%.0f net\n",
 			unoWins, unoTotal-unoWins, sign, unoEarned))
-		hasGames = true
-	}
-
-	// Bot defeats
-	var botDefeats int
-	_ = d.QueryRow(`SELECT COALESCE(SUM(losses), 0) FROM bot_defeats WHERE user_id = ?`, uid).Scan(&botDefeats)
-	if botDefeats > 0 {
-		sb.WriteString(fmt.Sprintf("   🤖 Lost to TwinBee: %d times\n", botDefeats))
 		hasGames = true
 	}
 

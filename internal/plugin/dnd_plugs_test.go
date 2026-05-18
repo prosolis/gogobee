@@ -5,41 +5,55 @@ import (
 	"testing"
 )
 
-// ── Plug 1: HP scaling ──────────────────────────────────────────────────────
+// ── Plug 1: HP carry-over (post-unification) ────────────────────────────────
+//
+// Combat now runs on c.HPMax + stats.HPBonus (gear cushion). applyDnDHPScaling
+// only sets StartHP for wounded entry; MaxHP is the responsibility of
+// applyDnDPlayerLayer.
 
 func TestApplyDnDHPScaling_FullHP(t *testing.T) {
-	stats := CombatStats{MaxHP: 100}
+	stats := CombatStats{MaxHP: 90, HPBonus: 40}
 	c := &DnDCharacter{HPMax: 50, HPCurrent: 50}
 	applyDnDHPScaling(&stats, c)
-	if stats.MaxHP != 100 {
-		t.Errorf("full HP: MaxHP changed to %d, want unchanged 100", stats.MaxHP)
+	if stats.MaxHP != 90 {
+		t.Errorf("full HP: MaxHP changed to %d, want unchanged 90", stats.MaxHP)
 	}
 	if stats.StartHP != 0 {
-		t.Errorf("full HP: StartHP = %d, want 0 (unset)", stats.StartHP)
+		t.Errorf("full HP: StartHP = %d, want 0 (unset = full)", stats.StartHP)
 	}
 }
 
-func TestApplyDnDHPScaling_HalfHP(t *testing.T) {
-	stats := CombatStats{MaxHP: 100}
+func TestApplyDnDHPScaling_WoundedCarriesOverWithBonus(t *testing.T) {
+	stats := CombatStats{MaxHP: 90, HPBonus: 40}
 	c := &DnDCharacter{HPMax: 50, HPCurrent: 25}
 	applyDnDHPScaling(&stats, c)
-	if stats.MaxHP != 100 {
-		t.Errorf("50%% HP: MaxHP = %d, want unchanged 100", stats.MaxHP)
+	if stats.MaxHP != 90 {
+		t.Errorf("wounded: MaxHP = %d, want unchanged 90", stats.MaxHP)
 	}
-	if stats.StartHP != 50 {
-		t.Errorf("50%% HP: StartHP = %d, want 50", stats.StartHP)
+	want := 25 + 40 // dnd wound + gear cushion
+	if stats.StartHP != want {
+		t.Errorf("wounded: StartHP = %d, want %d", stats.StartHP, want)
 	}
 }
 
-func TestApplyDnDHPScaling_FloorAt25Pct(t *testing.T) {
-	stats := CombatStats{MaxHP: 100}
+func TestApplyDnDHPScaling_DownedStillEntersWithGearCushion(t *testing.T) {
+	stats := CombatStats{MaxHP: 90, HPBonus: 40}
 	c := &DnDCharacter{HPMax: 50, HPCurrent: 0}
 	applyDnDHPScaling(&stats, c)
-	if stats.MaxHP != 100 {
-		t.Errorf("0%% HP: MaxHP = %d, want unchanged 100", stats.MaxHP)
+	if stats.MaxHP != 90 {
+		t.Errorf("downed: MaxHP = %d, want unchanged 90", stats.MaxHP)
 	}
-	if stats.StartHP != 25 {
-		t.Errorf("0%% HP: StartHP = %d, want 25 (floor)", stats.StartHP)
+	if stats.StartHP != 40 {
+		t.Errorf("downed: StartHP = %d, want 40 (gear cushion only)", stats.StartHP)
+	}
+}
+
+func TestApplyDnDHPScaling_DownedNoGearFloorsAtOne(t *testing.T) {
+	stats := CombatStats{MaxHP: 50, HPBonus: 0}
+	c := &DnDCharacter{HPMax: 50, HPCurrent: 0}
+	applyDnDHPScaling(&stats, c)
+	if stats.StartHP != 1 {
+		t.Errorf("downed without gear: StartHP = %d, want 1 (floor)", stats.StartHP)
 	}
 }
 

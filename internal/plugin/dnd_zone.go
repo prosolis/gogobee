@@ -96,7 +96,7 @@ type ZoneDefinition struct {
 	LevelMax   int
 	Faction    string
 	Atmosphere string // one-line biome description
-	Hook       string // entry-room narration seed (TwinBee voice, italic)
+	Hook       string // entry-room narration seed (I voice, italic)
 	MinRooms   int
 	MaxRooms   int
 	Enemies    []ZoneEnemy
@@ -213,14 +213,14 @@ func zoneGoblinWarrens() ZoneDefinition {
 		LevelMax:   3,
 		Faction:    "Goblins, Hobgoblins",
 		Atmosphere: "Low ceilings, torchlight, crude traps, cackling in the dark.",
-		Hook:       "A network of fetid tunnels burrowed beneath the Merchant's Road. The smell arrives before the sounds — smoke, rot, and something worse. TwinBee advises keeping one hand on your blade.",
+		Hook:       "A network of fetid tunnels burrowed beneath the Merchant's Road. The smell arrives before the sounds — smoke, rot, and something worse. I advise keeping one hand on your blade.",
 		MinRooms:   6,
 		MaxRooms:   7,
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "goblin_sneak", SpawnWeight: 7},
 			{BestiaryID: "goblin_archer", SpawnWeight: 6},
 			{BestiaryID: "hobgoblin_grunt", SpawnWeight: 5},
-			{BestiaryID: "worg", SpawnWeight: 3},
+			{BestiaryID: "worg", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "goblin_shaman", SpawnWeight: 2},
 			{BestiaryID: "hobgoblin_warchief", SpawnWeight: 1, IsElite: true},
 		},
@@ -257,16 +257,25 @@ func zoneCryptValdris() ZoneDefinition {
 		LevelMax:   3,
 		Faction:    "Undead",
 		Atmosphere: "Stone corridors, dripping water, candles that shouldn't still be burning.",
-		Hook:       "The iron gate hangs open — someone left in a hurry. Carved into the stone above: \"HERE LIES VALDRIS. DO NOT.\" The rest has been chiseled away. TwinBee declines to speculate.",
+		Hook:       "The iron gate hangs open — someone left in a hurry. Carved into the stone above: \"HERE LIES VALDRIS. DO NOT.\" The rest has been chiseled away. I decline to speculate.",
 		MinRooms:   6,
 		MaxRooms:   7,
 		Enemies: []ZoneEnemy{
+			// Phase 4-B (outlier fix): the live roster was the only
+			// dual-killer-elite zone (wight + flameskull, both CR3+ on
+			// the T1 standards floor), so the InterruptElite bracket
+			// was effectively "pick your one-shot." Phase 2c skipped
+			// this zone because it was already dual-elite; Phase 4-A's
+			// per-monster trace caught the consequence (167/183
+			// deaths attributed to those two). Flameskull dropped here
+			// (still in underforge T3 where its CR fits); specter
+			// promoted from standard to the soft-elite dilutor slot
+			// at SW=3, matching Phase 2c's worg/owlbear shape.
 			{BestiaryID: "skeleton", SpawnWeight: 7},
 			{BestiaryID: "zombie", SpawnWeight: 6},
 			{BestiaryID: "shadow", SpawnWeight: 4},
-			{BestiaryID: "specter", SpawnWeight: 3},
+			{BestiaryID: "specter", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "wight", SpawnWeight: 1, IsElite: true},
-			{BestiaryID: "flameskull", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
 			BestiaryID:  "boss_valdris_unburied",
@@ -304,15 +313,33 @@ func zoneForestShadows() ZoneDefinition {
 		LevelMax:   5,
 		Faction:    "Beasts, Fey-corrupted creatures, Bandits",
 		Atmosphere: "Ancient forest, twisted paths, eerie silence, bioluminescent fungi, things in the canopy.",
-		Hook:       "The forest was beautiful once. Travelers still say so, usually right before they stop saying anything at all. The trees lean in when you're not looking. TwinBee has noted this is not a metaphor.",
+		Hook:       "The forest was beautiful once. Travelers still say so, usually right before they stop saying anything at all. The trees lean in when you're not looking. I have noted this is not a metaphor.",
 		MinRooms:   6,
 		MaxRooms:   8,
 		Enemies: []ZoneEnemy{
+			// Phase 4-B (outlier fix): standard pool was carrying two
+			// real killers — Displacer Beast (38% win as a standard
+			// pick) and Bandit Captain (57% win). Re-flag Displacer
+			// Beast as elite so it leaves the standard slot, joining
+			// Owlbear/Hag as a third elite for pool dilution; trim
+			// Bandit Captain SW so the soft Dire Wolf carries more of
+			// the standard roll mass. Boss + standards now match the
+			// sibling sunken_temple's lethality shape.
+			//
+			// Second pass: a first attempt (Displacer→elite alone)
+			// only moved comp 0% → 0.5%. Phase 4-A re-trace showed
+			// Bandit Captain still bleeding the standard pool (321
+			// appearances, 54.8% win, 53 kills) and Owlbear monopolising
+			// the elite roll at SW=4. Promoted Captain to elite as
+			// well; cut Owlbear SW 4→2 so the 4-elite pool dilutes
+			// instead of front-loading Owlbear (9% win). Standard
+			// becomes Dire Wolf + Dryad, matching sunken_temple's
+			// "all standards ≥90% win" floor.
 			{BestiaryID: "dire_wolf", SpawnWeight: 6},
-			{BestiaryID: "bandit_captain", SpawnWeight: 4},
-			{BestiaryID: "owlbear", SpawnWeight: 4},
 			{BestiaryID: "dryad_corrupted", SpawnWeight: 3},
-			{BestiaryID: "displacer_beast", SpawnWeight: 3},
+			{BestiaryID: "owlbear", SpawnWeight: 2, IsElite: true},
+			{BestiaryID: "bandit_captain", SpawnWeight: 3, IsElite: true},
+			{BestiaryID: "displacer_beast", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "green_hag", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
@@ -349,14 +376,14 @@ func zoneSunkenTemple() ZoneDefinition {
 		LevelMax:   5,
 		Faction:    "Kuo-toa, Water Elementals, Aboleth-touched",
 		Atmosphere: "Flooded stone chambers, barnacled pillars, salt smell, alien glyphs, things that swim in the dark water.",
-		Hook:       "The tide went out thirty years ago and never fully came back. The temple stayed wet anyway. Something down there keeps it that way. TwinBee suggests waterproofing your spellbook.",
+		Hook:       "The tide went out thirty years ago and never fully came back. The temple stayed wet anyway. Something down there keeps it that way. I suggest waterproofing your spellbook.",
 		MinRooms:   6,
 		MaxRooms:   8,
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "kuo_toa", SpawnWeight: 7},
 			{BestiaryID: "kuo_toa_whip", SpawnWeight: 4},
 			{BestiaryID: "merrow", SpawnWeight: 4},
-			{BestiaryID: "aboleth_thrall", SpawnWeight: 3},
+			{BestiaryID: "aboleth_thrall", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "water_elemental", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
@@ -395,15 +422,36 @@ func zoneManorBlackspire() ZoneDefinition {
 		LevelMax:   8,
 		Faction:    "Undead, Shadows, Vampiric",
 		Atmosphere: "Victorian decay, impossible architecture, portraits whose eyes follow movement, cold spots, locked rooms that weren't locked before.",
-		Hook:       "The manor has been for sale for eleven years. Every buyer has either left immediately or not left at all. The real estate listing describes it as 'full of character.' TwinBee finds this accurate.",
+		Hook:       "The manor has been for sale for eleven years. Every buyer has either left immediately or not left at all. The real estate listing describes it as 'full of character.' I find this accurate.",
 		MinRooms:   7,
 		MaxRooms:   9,
 		Enemies: []ZoneEnemy{
+			// Phase 4-B (outlier fix): Wraith was the dominant
+			// standard-pool killer (45 hp loss/win, 85 attributed
+			// kills in Phase 4-A) — too punishing for the standard
+			// slot at T3. Promoted to elite; Spawn+Wraith+Revenant
+			// becomes a 3-elite pool with balanced dilution, leaving
+			// Shadow/Poltergeist/Banshee as a clean standard floor
+			// (all ≥92% win in the trace).
+			//
+			// Phase 5-C: under shipped HP×1.5/+3 floor, manor still
+			// trailed at 53% (band 55-75). Trace named both Vampire
+			// Spawn (72% win, 42 kills) and Revenant (16% win, 31
+			// kills) as elite-pool killers — Revenant the worse per
+			// appearance, but at SW=1 already. A first attempt
+			// trimmed Vampire Spawn SW 3 → 2; that backfired by
+			// shifting elite share onto Revenant (kills jumped to
+			// 48). Final move: keep the killers' weights, dilute
+			// the elite pool by promoting Banshee (99.6% win as
+			// standard, 11hp loss) to elite at SW=2 — drops
+			// Revenant's elite share ~14% → 11% without removing
+			// it from rotation. Standard floor collapses to
+			// Shadow + Poltergeist (both ≥99% win, ≤5hp loss).
 			{BestiaryID: "shadow", SpawnWeight: 6},
 			{BestiaryID: "poltergeist", SpawnWeight: 5},
-			{BestiaryID: "banshee", SpawnWeight: 3},
-			{BestiaryID: "wraith", SpawnWeight: 3},
-			{BestiaryID: "vampire_spawn", SpawnWeight: 3},
+			{BestiaryID: "banshee", SpawnWeight: 2, IsElite: true},
+			{BestiaryID: "wraith", SpawnWeight: 3, IsElite: true},
+			{BestiaryID: "vampire_spawn", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "revenant", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
@@ -442,16 +490,25 @@ func zoneUnderforge() ZoneDefinition {
 		LevelMax:   8,
 		Faction:    "Fire Elementals, Constructs, Salamanders, Azers",
 		Atmosphere: "Volcanic caverns, rivers of cooling lava, ancient dwarven stonework, the constant bass note of something very large moving below.",
-		Hook:       "The dwarven forge-city of Kharak Dûn was not abandoned. It was sealed from the outside. TwinBee does not have information on what they were sealing in.",
+		Hook:       "The dwarven forge-city of Kharak Dûn was not abandoned. It was sealed from the outside. I do not have information on what they were sealing in.",
 		MinRooms:   7,
 		MaxRooms:   9,
 		Enemies: []ZoneEnemy{
+			// Phase 5-C: underforge trailed at 49.5% (band 55-75)
+			// under the shipped HP×1.5/+3 floor. Trace named Fire
+			// Elemental (57 kills, 61hp loss/win) as the dominant
+			// elite killer with Salamander (33 kills) second.
+			// Helmed Horror was the only 100%-win elite but sat at
+			// SW=1, contributing almost no dilution. Lifted Helmed
+			// Horror SW 1 → 3 so the elite pool runs three roughly-
+			// equal slots and Fire Elemental's share drops from
+			// ~44% to ~33% of elite picks.
 			{BestiaryID: "magmin", SpawnWeight: 6},
 			{BestiaryID: "azer", SpawnWeight: 5},
 			{BestiaryID: "flameskull", SpawnWeight: 4},
-			{BestiaryID: "salamander", SpawnWeight: 3},
-			{BestiaryID: "fire_elemental", SpawnWeight: 3},
-			{BestiaryID: "helmed_horror", SpawnWeight: 1, IsElite: true},
+			{BestiaryID: "salamander", SpawnWeight: 3, IsElite: true},
+			{BestiaryID: "fire_elemental", SpawnWeight: 3, IsElite: true},
+			{BestiaryID: "helmed_horror", SpawnWeight: 3, IsElite: true},
 		},
 		Boss: ZoneBoss{
 			BestiaryID:  "boss_emberlord_thyrak",
@@ -490,12 +547,22 @@ func zoneUnderdark() ZoneDefinition {
 		LevelMax:   12,
 		Faction:    "Drow, Mind Flayers, Beholders (far), Ropers, Hook Horrors",
 		Atmosphere: "Absolute darkness, phosphorescent mushroom groves, vast underground seas, carved drow cities in the distance, things older than the surface world.",
-		Hook:       "There is a world below the world. It has its own cities, its own wars, its own sky — which is stone, and has never once been kind. TwinBee speaks more quietly here. Something might be listening.",
+		Hook:       "There is a world below the world. It has its own cities, its own wars, its own sky — which is stone, and has never once been kind. I speak more quietly here. Something might be listening.",
 		MinRooms:   8,
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{
-			{BestiaryID: "drow", SpawnWeight: 7},
-			{BestiaryID: "drow_elite_warrior", SpawnWeight: 4},
+			// Phase 5-C: underdark ran 88% (band 45-65, way over)
+			// at the T4 centerline — its sibling feywild sat at
+			// 54%, a 30pp asymmetry. Per [[feedback_difficulty_target]]
+			// the bulk of Phase 5-C lifts feywild rather than nerfing
+			// the leader; this is the "light underdark trim" piece.
+			// Drow at SW=7 owned nearly half of all standard rolls
+			// (1801/4164) at 100% win / 1.1hp loss — a free-HP
+			// filler. Trimmed SW 7 → 5 so the standard pool shifts
+			// toward Hook Horror (17.8hp/win) and Drow Mage
+			// (16.4hp/win) — still safe but with real attrition.
+			{BestiaryID: "drow", SpawnWeight: 5},
+			{BestiaryID: "drow_elite_warrior", SpawnWeight: 4, IsElite: true},
 			{BestiaryID: "drow_mage", SpawnWeight: 3},
 			{BestiaryID: "mind_flayer", SpawnWeight: 2},
 			{BestiaryID: "hook_horror", SpawnWeight: 4},
@@ -537,15 +604,27 @@ func zoneFeywildCrossing() ZoneDefinition {
 		LevelMax:   12,
 		Faction:    "Hags, Redcaps, Will-o-Wisps, Fomorians, Unseelie Fey",
 		Atmosphere: "Impossible beauty, treacherous whimsy, time distortion, rules that change without notice, bargains with terrible fine print.",
-		Hook:       "The veil between worlds is thin here. Colors are too saturated. The mushrooms are too large. A small creature made of starlight just offered you a deal. TwinBee advises extreme caution regarding deals.",
+		Hook:       "The veil between worlds is thin here. Colors are too saturated. The mushrooms are too large. A small creature made of starlight just offered you a deal. I advise extreme caution regarding deals.",
 		MinRooms:   8,
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{
+			// Phase 5-C: feywild trailed at 54% (band 45-65, but
+			// the design goal was to close the 30pp gap with its
+			// underdark sibling at 88%). Trace named Fomorian as
+			// the dominant killer (65 kills, 50% win, SW=1) — a
+			// 2-elite pool with Night Hag at SW=3 meant Fomorian
+			// owned ~25% of elite picks despite its low weight,
+			// and that bracket is where the deaths came from.
+			// Promoted Green Hag to elite (SW=2): adds a softer
+			// 98%-win elite slot to dilute Fomorian's share, and
+			// pulls a 16hp/win standard out of the standard pool
+			// so the standard floor collapses to Redcap + Will-o-
+			// Wisp + Quickling — all ≥99% win, ≤11hp loss.
 			{BestiaryID: "redcap", SpawnWeight: 6},
 			{BestiaryID: "will_o_wisp", SpawnWeight: 5},
 			{BestiaryID: "quickling", SpawnWeight: 5},
-			{BestiaryID: "green_hag", SpawnWeight: 4},
-			{BestiaryID: "night_hag", SpawnWeight: 3},
+			{BestiaryID: "green_hag", SpawnWeight: 2, IsElite: true},
+			{BestiaryID: "night_hag", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "fomorian", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
@@ -583,14 +662,14 @@ func zoneDragonsLair() ZoneDefinition {
 		LevelMax:   20,
 		Faction:    "Kobolds, Drakes, Young Dragons, Wyrm",
 		Atmosphere: "Scorched stone, rivers of gold coins half-melted into the floor, kobold warrens as outer defenses, growing heat, the unmistakable smell of something ancient and enormous.",
-		Hook:       "The mountain has not erupted in forty years. The locals say it is dormant. The locals are wrong about what lives in mountains. TwinBee has prepared an unusually long entry description for this one.",
+		Hook:       "The mountain has not erupted in forty years. The locals say it is dormant. The locals are wrong about what lives in mountains. I have prepared an unusually long entry description for this one.",
 		MinRooms:   9,
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "kobold", SpawnWeight: 7},
 			{BestiaryID: "guard_drake", SpawnWeight: 5},
 			{BestiaryID: "kobold_scale_sorcerer", SpawnWeight: 4},
-			{BestiaryID: "dragonborn_cultist", SpawnWeight: 3},
+			{BestiaryID: "dragonborn_cultist", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "young_red_dragon", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{
@@ -631,14 +710,34 @@ func zoneAbyssPortal() ZoneDefinition {
 		LevelMax:   20,
 		Faction:    "Demons, Fiends, Corrupted Celestials",
 		Atmosphere: "Reality fractures, impossible geometry, constant low psychic pressure, the feeling of being watched by something that has no eyes.",
-		Hook:       "Someone opened a door they should not have opened. The door is still open. Things are still coming through. TwinBee is not making jokes about this one.",
+		Hook:       "Someone opened a door they should not have opened. The door is still open. Things are still coming through. I am not making jokes about this one.",
 		MinRooms:   9,
 		MaxRooms:   10,
 		Enemies: []ZoneEnemy{
+			// Phase 4-B (outlier fix): Nalfeshnee was mis-classified
+			// as a standard at T5 — Phase 4-A measured 2.8% win rate
+			// across 180 standard-pool picks, attributing 86 kills
+			// (43% of all deaths in the trace). Re-flagged as elite
+			// where its CR-13 stat block belongs; the new elite pool
+			// Hezrou+Nalfeshnee+Marilith mirrors the sibling
+			// dragons_lair's three-elite shape. Vrock SW shaved 5→4
+			// so the soft Quasit (≥99% win) takes a larger share of
+			// the standard mass, since Vrock was the secondary
+			// standard killer (53 kills, 44hp loss/win).
+			//
+			// Second pass: a first attempt (Nalf→elite, Vrock SW 5→4)
+			// only moved comp 0% → 9%. Re-trace showed Vrock still
+			// dominant in the standard pool (1013 appearances, 86.3%
+			// win, but 43.6 hp loss per win → 65 kills via attrition).
+			// The sibling dragons_lair posts zero standard-pool kills;
+			// promoting Vrock to elite brings abyss in line. Standard
+			// floor collapses to Quasit alone, which is fine — Quasit
+			// posts ≥99.9% win in trace and the elite bracket
+			// triggers ~7% of rolls anyway.
 			{BestiaryID: "quasit", SpawnWeight: 6},
-			{BestiaryID: "vrock", SpawnWeight: 5},
-			{BestiaryID: "hezrou", SpawnWeight: 4},
-			{BestiaryID: "nalfeshnee", SpawnWeight: 2},
+			{BestiaryID: "vrock", SpawnWeight: 4, IsElite: true},
+			{BestiaryID: "hezrou", SpawnWeight: 4, IsElite: true},
+			{BestiaryID: "nalfeshnee", SpawnWeight: 3, IsElite: true},
 			{BestiaryID: "marilith", SpawnWeight: 1, IsElite: true},
 		},
 		Boss: ZoneBoss{

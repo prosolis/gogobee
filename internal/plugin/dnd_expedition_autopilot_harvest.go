@@ -1,0 +1,299 @@
+package plugin
+
+import (
+	"fmt"
+	"math/rand/v2"
+	"sort"
+	"strings"
+
+	"maunium.net/go/mautrix/id"
+)
+
+// Phase 2 of expedition autopilot — auto-harvest on room entry.
+// H2 extends this so `!zone advance` calls the same path for standalone
+// (no-expedition) zone runs. When exp is nil the loop uses the per-run
+// storage in dnd_zone_run.harvest_nodes_json and skips the
+// expedition-only side effects (threat, log, region conditions,
+// combat-interrupt roll).
+//
+// Design (Josie semantics, settled 2026-05-17):
+//   - All applicable actions auto-run on every walked room. Class- and
+//     kill-gated nodes filter themselves out via the existing per-resource
+//     restrictions.
+//   - Every node — Common through Legendary — is auto-attempted. Rarity
+//     no longer pauses the walk; a whiff on a Rare node is a whiff.
+//   - A node spawns with N charges. Auto-harvest swings exactly once per
+//     remaining charge. Success or failure both consume a charge — no
+//     retry-to-success. This is the entire point of the redesign.
+//   - Noise interrupts apply threat++ and continue the per-charge loop
+//     (parity with manual). Standard/Elite/Patrol combat interrupts
+//     hard-stop the walk: stopEnded on death, stopHarvestCombat otherwise.
+//     Standalone (exp==nil) mode skips the interrupt roll entirely —
+//     zone runs already have a patrol mechanism baked into the advance
+//     pipeline.
+//   - No SU surcharge — manual !harvest is free; autopilot matches.
+//   - Per-room footer ("+2 Iron, +1 Sage; 3 fails") + a walk-end tally
+//     across all rooms.
+
+// autoHarvestSummary holds the aggregated outcome for one room's
+// auto-harvest pass. Per-room footer renders from this; expeditionCmdRun
+// also folds it into a walk-wide tally for the closing block.
+type autoHarvestSummary struct {
+	Yields    map[string]int    // resourceID -> total qty granted
+	Names     map[string]string // resourceID -> display name (capture once)
+	Fails     int
+	NoiseInts int
+}
+
+// autoHarvestResult is what autoHarvestRoom returns to the autopilot loop.
+type autoHarvestResult struct {
+	Summary     autoHarvestSummary
+	CombatNarr  string // non-empty = a combat interrupt fired during the pass
+	PlayerEnded bool   // true = combat killed the player
+}
+
+// allHarvestActions lists every action autopilot will try per room. Order
+// matters only for footer readability — class- and gate-restricted nodes
+// drop out via the existing filters.
+var allHarvestActions = []HarvestAction{
+	HarvestForage,
+	HarvestScavenge,
+	HarvestMine,
+	HarvestFish,
+	HarvestEssence,
+	HarvestCommune,
+}
+
+// autoHarvestRoom runs a single auto-harvest pass on the player's current
+// room. exp may be nil for standalone zone runs (no expedition); in that
+// mode the function uses per-run storage and skips threat/interrupts/log.
+// Does not advance the room; only resolves nodes already at the player's
+// feet.
+func (p *AdventurePlugin) autoHarvestRoom(
+	userID id.UserID, run *DungeonRun, char *DnDCharacter, exp *Expedition,
+) (autoHarvestResult, error) {
+	res := autoHarvestResult{
+		Summary: autoHarvestSummary{
+			Yields: map[string]int{},
+			Names:  map[string]string{},
+		},
+	}
+	if run == nil {
+		return res, nil
+	}
+	if !currentRoomCleared(run) {
+		return res, nil
+	}
+
+	zoneID := run.ZoneID
+	if exp != nil {
+		zoneID = exp.ZoneID
+	}
+
+	nodeID := harvestNodeIDFor(run)
+	var nodes []HarvestNode
+	if exp != nil {
+		nodes = loadHarvestNodes(exp, nodeID)
+	} else {
+		loaded, lerr := loadStandaloneHarvestNodes(run.RunID, zoneID, nodeID)
+		if lerr != nil {
+			return res, nil
+		}
+		nodes = loaded
+	}
+	if len(nodes) == 0 {
+		return res, nil
+	}
+
+	zone, _ := getZone(zoneID)
+	persistNodes := false
+
+	for _, action := range allHarvestActions {
+		if action == HarvestFish && !isFishingZone(zoneID) {
+			continue
+		}
+		if exp != nil {
+			if blockReason := zoneConditionHarvestBlock(exp, action); blockReason != "" {
+				continue
+			}
+		}
+
+		// One pass per action. Iterate every eligible node (not just the
+		// lowest-DC one) so a room with two foragables gets two attempts.
+		for i := range nodes {
+			n := &nodes[i]
+			if n.CurrentCharges <= 0 {
+				continue
+			}
+			rdef, ok := FindZoneResource(zoneID, n.ResourceID)
+			if !ok || rdef.Action != action {
+				continue
+			}
+			if rdef.ClassRestrict != "" && rdef.ClassRestrict != char.Class {
+				continue
+			}
+			if rdef.RequiresKill != "" {
+				if exp == nil || !regionKillsContains(exp, rdef.RequiresKill) {
+					continue
+				}
+			}
+			if rdef.ConditionalEvent != "" {
+				if exp == nil || !regionEventActive(exp, rdef.ConditionalEvent) {
+					continue
+				}
+			}
+
+			// Josie semantics: swing exactly once per remaining charge.
+			// Each swing consumes a charge regardless of outcome.
+			for n.CurrentCharges > 0 {
+				// Interrupt roll, expedition-only. Standalone zone runs
+				// already have a patrol mechanism in the advance pipeline.
+				if exp != nil {
+					interrupt, intTotal := resolveCombatInterrupt(
+						exp.ThreatLevel, int(zone.Tier), char.Class, zoneID, nil)
+					switch interrupt {
+					case InterruptNoise:
+						_ = applyThreatDelta(exp.ID, 2, "harvest noise (§4.2, autopilot)")
+						res.Summary.NoiseInts++
+						_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
+							fmt.Sprintf("autopilot noise %s total=%d", string(action), intTotal), "")
+						// fall through to the d20 roll, same as manual harvest.
+					case InterruptStandard, InterruptElite, InterruptPatrol:
+						body, ended := p.runHarvestInterrupt(userID, exp, run, zone, interrupt)
+						res.CombatNarr = body
+						res.PlayerEnded = ended
+						_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "interrupt",
+							fmt.Sprintf("autopilot %s kind=%d total=%d", string(action), int(interrupt), intTotal), "")
+						if persistNodes {
+							if exp != nil {
+								_ = saveHarvestNodes(exp, nodeID, nodes)
+							} else {
+								_ = saveStandaloneHarvestNodes(run.RunID, zoneID, nodeID, nodes)
+							}
+						}
+						return res, nil
+					}
+				}
+
+				// Resolve the harvest attempt.
+				roll := rand.IntN(20) + 1
+				mod := harvestActionAbility(char, action) + classHarvestBonus(char.Class, action)
+				if action == HarvestFish {
+					if adv, _ := loadAdvCharacter(userID); adv != nil {
+						mod += fishingSkillBonus(adv.FishingSkill)
+					}
+				}
+				total := roll + mod
+				dcDelta := 0
+				if exp != nil {
+					dcDelta, _ = zoneConditionHarvestDCMod(exp, action)
+				}
+				effectiveDC := rdef.DC + dcDelta
+				outcome := resolveHarvestOutcome(total, effectiveDC)
+				outcome = rangerRareCatchUpgrade(char.Class, action, outcome, nil)
+
+				var grantedQty int
+				switch outcome {
+				case OutcomeNothing:
+					res.Summary.Fails++
+				case OutcomeCommon:
+					grantedQty = 1
+				case OutcomeStandard:
+					grantedQty = rand.IntN(3) + 1
+				case OutcomeRich:
+					grantedQty = rand.IntN(3) + 1
+					if bonus := pickRichBonus(zoneID, rdef.ID); bonus != nil {
+						_ = grantHarvestYield(userID, *bonus, 1)
+						res.Summary.Yields[bonus.ID] += 1
+						res.Summary.Names[bonus.ID] = bonus.Name
+					}
+				}
+				if grantedQty > 0 {
+					_ = grantHarvestYield(userID, rdef, grantedQty)
+					res.Summary.Yields[rdef.ID] += grantedQty
+					res.Summary.Names[rdef.ID] = rdef.Name
+				}
+				// Charge is spent either way under Josie semantics.
+				n.CurrentCharges--
+				persistNodes = true
+
+				if exp != nil {
+					_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "harvest",
+						fmt.Sprintf("autopilot %s %s d20=%d total=%d dc=%d → %s",
+							string(action), rdef.ID, roll, total, rdef.DC, string(outcome)), "")
+				}
+			}
+		}
+	}
+
+	if persistNodes {
+		var perr error
+		if exp != nil {
+			perr = saveHarvestNodes(exp, nodeID, nodes)
+		} else {
+			perr = saveStandaloneHarvestNodes(run.RunID, zoneID, nodeID, nodes)
+		}
+		if perr != nil && exp != nil {
+			_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "harvest",
+				fmt.Sprintf("autopilot persistence error: %v", perr), "")
+		}
+	}
+	return res, nil
+}
+
+// renderAutoHarvestFooter formats one room's pass as a single compact
+// line: "_+2 Scrap Iron, +1 Shadow Herb · 1 fail · 1 close call._".
+// Empty string means there's nothing worth showing.
+func renderAutoHarvestFooter(s autoHarvestSummary) string {
+	if len(s.Yields) == 0 && s.Fails == 0 && s.NoiseInts == 0 {
+		return ""
+	}
+	parts := []string{}
+	// Stable ordering — sort yield keys so test output is deterministic
+	// and the footer reads consistently across rooms.
+	keys := make([]string, 0, len(s.Yields))
+	for k := range s.Yields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("+%d %s", s.Yields[k], s.Names[k]))
+	}
+	if s.Fails > 0 {
+		noun := "fail"
+		if s.Fails > 1 {
+			noun = "fails"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", s.Fails, noun))
+	}
+	if s.NoiseInts > 0 {
+		noun := "close call"
+		if s.NoiseInts > 1 {
+			noun = "close calls"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", s.NoiseInts, noun))
+	}
+	return "_🎒 " + strings.Join(parts, " · ") + "._"
+}
+
+// renderWalkTally formats the cross-room cumulative haul for the walk's
+// final block. Empty string when nothing was gathered.
+func renderWalkTally(yields map[string]int, names map[string]string) string {
+	if len(yields) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(yields))
+	for k := range yields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString("**Walk haul:** ")
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(fmt.Sprintf("%d %s", yields[k], names[k]))
+	}
+	return b.String()
+}

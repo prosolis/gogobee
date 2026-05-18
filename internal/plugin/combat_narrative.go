@@ -11,6 +11,7 @@ type actionPicker struct {
 	enemy       map[int]bool
 	player      map[int]bool
 	playerMiss  map[int]bool
+	enemyMiss   map[int]bool
 	block       map[int]bool
 	environment map[int]bool
 }
@@ -20,6 +21,7 @@ func newActionPicker() *actionPicker {
 		enemy:       make(map[int]bool),
 		player:      make(map[int]bool),
 		playerMiss:  make(map[int]bool),
+		enemyMiss:   make(map[int]bool),
 		block:       make(map[int]bool),
 		environment: make(map[int]bool),
 	}
@@ -95,7 +97,24 @@ func renderPhaseBlock(pg phaseGroup, playerName, enemyName string, result Combat
 	header := phaseHeader(pg.Name)
 	sb.WriteString(header + "\n")
 
-	for _, e := range pg.Events {
+	// Walk events with a 3+ consecutive-trivial collapse: long runs of
+	// "miss / miss / miss" get one TwinBee yadda-yadda line instead of N
+	// individual lines. Keeps boss fights (16 rounds) from drowning in
+	// repetition while still rendering every impactful beat.
+	i := 0
+	for i < len(pg.Events) {
+		e := pg.Events[i]
+		if isTrivialEvent(e) {
+			run := 1
+			for i+run < len(pg.Events) && isTrivialEvent(pg.Events[i+run]) {
+				run++
+			}
+			if run >= 3 {
+				sb.WriteString(pickRand(narrativeFillerSlog) + "\n")
+				i += run
+				continue
+			}
+		}
 		line := renderEvent(e, playerName, enemyName, result, picker)
 		if line != "" {
 			if roll := rollAnnotation(e); roll != "" {
@@ -103,6 +122,7 @@ func renderPhaseBlock(pg phaseGroup, playerName, enemyName string, result Combat
 			}
 			sb.WriteString(line + "\n")
 		}
+		i++
 	}
 
 	if len(pg.Events) == 0 {
@@ -114,6 +134,28 @@ func renderPhaseBlock(pg phaseGroup, playerName, enemyName string, result Combat
 		enemyName, clampHP(lastEvent.EnemyHP), result.EnemyStartHP))
 
 	return sb.String()
+}
+
+// isTrivialEvent — events that don't move HP or set up a tactical hook.
+// A run of 3+ of these collapses into a TwinBee filler line.
+func isTrivialEvent(e CombatEvent) bool {
+	switch e.Action {
+	case "miss", "spore_miss", "pet_whiff":
+		return true
+	}
+	return false
+}
+
+// narrativeFillerSlog covers a run of consecutive trivial events
+// (misses, whiffs) so long boss fights don't read as a wall of
+// "you swing wide / they swing wide" lines.
+var narrativeFillerSlog = []string{
+	"_The exchange settles into a rhythm. A few rounds of nothing meaningful — I skip to the next thing that matters._",
+	"_I narrate the next few seconds in a single sigh. Both sides keep swinging. Both sides keep missing._",
+	"_And the battle goes on. Yadda yadda yadda. I will narrate the next part where something actually lands._",
+	"_The grind continues. I use the time to mentally redesign the dungeon's lighting._",
+	"_A flurry of misses on both sides. Nobody is impressing anybody. I wait for the next hit._",
+	"_I politely decline to narrate this stretch. It was, in my professional opinion, a waste of everyone's time._",
 }
 
 func clampHP(hp int) int {
@@ -186,7 +228,10 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 		return fmt.Sprintf(pickRand(narrativePlayerBlock), e.Damage)
 
 	case "miss":
-		return pickFromNoFmt(narrativeMiss, picker.playerMiss)
+		if e.Actor == "player" {
+			return pickFromNoFmt(narrativePlayerMiss, picker.playerMiss)
+		}
+		return pickFromNoFmt(narrativeEnemyMiss, picker.enemyMiss)
 
 	case "pet_attack":
 		return fmt.Sprintf(pickRand(narrativePetAttack), e.Damage)
@@ -250,6 +295,58 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 		return fmt.Sprintf(pickRand(narrativeLifesteal), e.Damage)
 	case "cleave":
 		return fmt.Sprintf(pickRand(narrativeCleave), e.Damage)
+	case "bonus_damage":
+		return fmt.Sprintf(pickRand(narrativeBonusDamage), e.Damage)
+	case "aoe":
+		return fmt.Sprintf(pickRand(narrativeAoE), e.Damage)
+	case "execute":
+		return fmt.Sprintf(pickRand(narrativeExecute), e.Damage)
+	case "self_heal":
+		return fmt.Sprintf(pickRand(narrativeSelfHeal), e.Damage)
+	case "ability_flavor":
+		return pickRand(narrativeAbilityFlavor)
+
+	// Monster abilities — slice 3 stateful effects
+	case "evade":
+		return pickRand(narrativeEvade)
+	case "parry_stance":
+		return pickRand(narrativeParryStance)
+	case "advantage":
+		return pickRand(narrativeAdvantage)
+	case "retaliate_aura":
+		return pickRand(narrativeRetaliateAura)
+	case "retaliate":
+		return fmt.Sprintf(pickRand(narrativeRetaliate), e.Damage)
+	case "regenerate":
+		return pickRand(narrativeRegenerate)
+	case "regen_tick":
+		return fmt.Sprintf(pickRand(narrativeRegenTick), e.Damage)
+	case "survive_armed":
+		return pickRand(narrativeSurviveArmed)
+	case "survive_at_1":
+		return pickRand(narrativeSurvive)
+	case "stat_drain":
+		return pickRand(narrativeStatDrain)
+	case "debuff":
+		return pickRand(narrativeDebuff)
+	case "max_hp_drain":
+		return fmt.Sprintf(pickRand(narrativeMaxHPDrain), e.Damage)
+
+	// Monster abilities — slice 4 (former flavor-only placeholders)
+	case "spell_resist":
+		return pickRand(narrativeSpellResist)
+	case "spell_fizzle":
+		return fmt.Sprintf(pickRand(narrativeSpellFizzle), e.Damage)
+	case "reveal_armed":
+		return pickRand(narrativeRevealArmed)
+	case "revealed":
+		return pickRand(narrativeRevealed)
+	case "fear_immune":
+		return pickRand(narrativeFearImmune)
+	case "fear_resist":
+		return pickRand(narrativeFearResist)
+	case "ally_buff":
+		return pickRand(narrativeAllyBuff)
 
 	case "timeout":
 		return pickRand(narrativeTimeout)
@@ -403,13 +500,23 @@ var narrativeEnemyBlock = []string{
 	"The enemy's defense absorbs most of it. %d damage. The enemy's forearm speaks to the pathetic nature of your striking.",
 }
 
-var narrativeMiss = []string{
+var narrativePlayerMiss = []string{
 	"Your swing goes wide. Nothing connects. The air you hit had it coming.",
 	"The enemy anticipated that one. Complete miss. They're already bored.",
 	"You overcommit and hit nothing but air. The air files no complaint.",
 	"A whiff. It happens. It happens to you more than average.",
 	"You attempt a move you saw in a film once. It does not work like in the film.",
 	"You close your eyes for the strike because it feels more dramatic. You miss. Everything about this was predictable.",
+}
+
+var narrativeEnemyMiss = []string{
+	"The enemy lunges. Finds only air. The air takes the slight personally.",
+	"Their strike misses by inches. They curse in a language you don't recognize.",
+	"A wild swing, deflected by your stance. They expected better of themselves.",
+	"The blow comes in too predictable. You're already gone. They commit. They miss.",
+	"The enemy whiffs. The look on their face — what passes for one — is priceless.",
+	"Their weapon meets your guard, slides past harmless. They've used this combo before. It worked then.",
+	"The strike is fast. You are slightly faster. The math works out in your favor for once.",
 }
 
 var narrativePetAttack = []string{
@@ -550,6 +657,150 @@ var narrativeCleave = []string{
 	"⚔️⚔️ A devastating combo. %d damage from both hits. The second one was personal.",
 }
 
+var narrativeBonusDamage = []string{
+	"💢 The enemy finds an opening you didn't know you'd left. %d extra damage. Lesson noted.",
+	"💢 A second strike slips past your guard before the first one finished. %d damage on top.",
+	"💢 The enemy presses the advantage — %d more damage than the round had any right to deal.",
+}
+
+var narrativeAoE = []string{
+	"💥 The attack erupts outward. %d damage, and your armor barely slows it. Nowhere to dodge.",
+	"💥 A burst of force washes over you. %d damage — there was no good way to stand for that.",
+	"💥 The enemy unleashes something wide and indiscriminate. %d damage. Cover would have been nice.",
+}
+
+var narrativeExecute = []string{
+	"☠️ The enemy goes for the kill — %d damage aimed squarely at finishing you.",
+	"☠️ A finishing blow. %d damage. The enemy can smell the end of this fight.",
+	"☠️ The enemy commits everything to one last strike. %d damage. They want this over.",
+}
+
+var narrativeSelfHeal = []string{
+	"✨ The enemy knits its wounds closed. +%d HP. That's going to make this longer.",
+	"✨ The enemy mends itself before your eyes. +%d HP restored. Rude.",
+	"✨ Something restorative passes over the enemy. +%d HP. The progress bar moved the wrong way.",
+}
+
+var narrativeAbilityFlavor = []string{
+	"🌀 The enemy does *something* — you feel the shape of it more than the effect. Stay wary.",
+	"🌀 The air shifts around the enemy. Whatever that was, it wasn't nothing.",
+	"🌀 The enemy invokes a power you can't quite read. File it under 'concerning'.",
+}
+
+var narrativeEvade = []string{
+	"💨 Your strike lands on nothing — the enemy was never quite where it looked.",
+	"💨 The enemy slips the blow. Your weapon finds only the air it left behind.",
+	"💨 A clean swing, a clean miss. The enemy ghosts aside at the last instant.",
+}
+
+var narrativeParryStance = []string{
+	"🛡️ The enemy settles into a tight defensive guard. Hits are going to come harder now.",
+	"🛡️ The enemy raises its guard and *means* it — every blow from here will have to earn it.",
+	"🛡️ The enemy shifts its stance, weapon angled to turn your strikes aside.",
+}
+
+var narrativeAdvantage = []string{
+	"🎯 The enemy reads your rhythm. Its strikes start coming with unsettling certainty.",
+	"🎯 Something clicks for the enemy — it's anticipating you now, and it shows.",
+	"🎯 The enemy presses an advantage you can't quite see. Its aim has sharpened.",
+}
+
+var narrativeRetaliateAura = []string{
+	"🔥 The enemy flares with a punishing aura. Hitting it is about to cost you.",
+	"🔥 A searing field wraps the enemy — every blow you land will bite back.",
+	"🔥 The enemy wreathes itself in retaliation. Strike it and you share the pain.",
+}
+
+var narrativeRetaliate = []string{
+	"🔥 The enemy's aura lashes back — %d damage for the privilege of hitting it.",
+	"🔥 Your strike lands, and the recoil burns. %d damage bounces straight back into you.",
+	"🔥 %d damage reflected. The enemy made you pay for that hit in real time.",
+}
+
+var narrativeRegenerate = []string{
+	"♻️ The enemy's wounds begin to close on their own. This just got slower.",
+	"♻️ Torn flesh knits and seals. The enemy has started regenerating.",
+	"♻️ The enemy's body refuses to stay damaged — it's healing between blows now.",
+}
+
+var narrativeRegenTick = []string{
+	"♻️ The enemy mends another %d HP. The damage you're doing keeps un-doing itself.",
+	"♻️ +%d HP for the enemy as its wounds seal over. Frustrating.",
+	"♻️ The enemy claws back %d HP. You'll have to out-pace the regeneration.",
+}
+
+var narrativeSurviveArmed = []string{
+	"🕯️ The enemy refuses the idea of dying. Something keeps it on its feet past where it should fall.",
+	"🕯️ A grim resilience settles over the enemy — it will not go down easy.",
+	"🕯️ The enemy digs in. Whatever's holding it together, it isn't ready to let go.",
+}
+
+var narrativeSurvive = []string{
+	"🕯️ The killing blow lands clean — and the enemy *stays standing* at 1 HP. Unbelievable.",
+	"🕯️ That should have ended it. The enemy clings to a single point of HP through sheer spite.",
+	"🕯️ The enemy by all rights should be down. It is, instead, very barely up.",
+}
+
+var narrativeStatDrain = []string{
+	"🩸 The enemy saps your strength — your swings feel heavier, weaker. (-%d hit damage)",
+	"🩸 Something drains out of your limbs. Your hits won't bite as deep now. (-%d damage)",
+	"🩸 The enemy leeches your vigour. -%d damage on every strike from here.",
+}
+
+var narrativeDebuff = []string{
+	"😖 The enemy fouls your footing — your guard slips. (-%d AC)",
+	"😖 A wave of something sickly rolls over you. Harder to defend now. (-%d AC)",
+	"😖 The enemy's effect frays your defence. -%d AC, and their hits will notice.",
+}
+
+var narrativeMaxHPDrain = []string{
+	"☠️ The enemy drains your life force — %d HP gone, and your maximum drops with it.",
+	"☠️ Something cold pulls %d HP out of you and won't give it back. Your ceiling just fell.",
+	"☠️ %d HP siphoned away, max and all. There's less of you to work with now.",
+}
+
+var narrativeSpellResist = []string{
+	"🚫 The enemy's form shimmers with anti-magic. Spells are going to land soft from here.",
+	"🚫 A warding sheen wraps the enemy — magic slides off it like rain off glass.",
+	"🚫 The enemy shrugs the weave aside. Whatever you cast, it'll only half-stick.",
+}
+
+var narrativeSpellFizzle = []string{
+	"🚫 Your spell breaks against the enemy's anti-magic — only %d damage bleeds through.",
+	"🚫 The weave fizzles on contact. The enemy's resistance eats half of it; %d lands.",
+	"🚫 Half your magic just evaporates. %d damage is all the enemy lets through.",
+}
+
+var narrativeRevealArmed = []string{
+	"👁️ The enemy's eyes track your intent — it knows what you're about to do.",
+	"👁️ The enemy reads you. Your next swing is telegraphed before you've thrown it.",
+	"👁️ Something behind the enemy's gaze clicks. It's already seen your next move.",
+}
+
+var narrativeRevealed = []string{
+	"👁️ The enemy saw it coming — your strike is forced wide before it begins.",
+	"👁️ Telegraphed and countered. The enemy was already moving as you committed.",
+	"👁️ Your swing meets a defence that read it a beat early. No clean angle left.",
+}
+
+var narrativeFearImmune = []string{
+	"🐲 The enemy's resolve is iron — nothing you do is going to rattle it.",
+	"🐲 Whatever fear you were counting on, the enemy doesn't have the receptors for it.",
+	"🐲 The enemy stands utterly unshaken. Control magic is going to slide right off.",
+}
+
+var narrativeFearResist = []string{
+	"🐲 Your control spell washes over the enemy and finds no purchase. It acts anyway.",
+	"🐲 The enemy shrugs off the compulsion mid-cast and keeps coming.",
+	"🐲 The spell should have held it. The enemy's will simply refuses the idea.",
+}
+
+var narrativeAllyBuff = []string{
+	"📢 The enemy rallies itself with a roar — its blows are about to hit harder. (+%d attack)",
+	"📢 Something emboldens the enemy. Its strikes pick up weight. (+%d attack)",
+	"📢 The enemy steadies and surges. Expect heavier hits from here. (+%d attack)",
+}
+
 // Outcome flavor
 var narrativeNearDeathWin = []string{
 	"You survived by the skin of your teeth. Barely standing. The healers are on standby.",
@@ -585,4 +836,85 @@ var narrativeCloseLoss = []string{
 	"A good fight. Not good enough. The scoreboard is indifferent to effort.",
 	"You gave it everything. It wasn't quite sufficient. Sufficiency is the enemy's department today.",
 	"The enemy earned that one. So did you. Only one of you gets paid.",
+}
+
+// ── Turn-based per-round narration ───────────────────────────────────────────
+//
+// RenderTurnRound narrates one resolved round of a manual elite/boss fight.
+// Where RenderCombatLog (auto-resolve) groups a whole fight into phased,
+// multi-message blocks, a turn-based round is one message: the events from
+// player_turn → enemy_turn → round_end, in order. The shared hit/crit/miss/
+// ability events the turn engine emits through the same primitives as
+// auto-resolve fall through to renderEvent and reuse the full narrative pools,
+// so TwinBee's voice is identical across both engines. Only the four
+// turn-specific actions (flee, spell_cast, use_consumable, spell_held) get
+// their own pools here.
+//
+// A fresh actionPicker per round is intentional: a round emits at most a
+// handful of events, and across a long boss fight the picker resetting each
+// round reads as variety rather than staleness.
+func RenderTurnRound(events []CombatEvent, playerName, enemyName string) string {
+	picker := newActionPicker()
+	var lines []string
+	for _, e := range events {
+		line := renderTurnEvent(e, playerName, enemyName, picker)
+		if line == "" {
+			continue
+		}
+		if roll := rollAnnotation(e); roll != "" {
+			line += " " + roll
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return "_The round passes without a clean blow landed._"
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderTurnEvent(e CombatEvent, playerName, enemyName string, picker *actionPicker) string {
+	switch e.Action {
+	case "flee":
+		return pickRand(narrativeTurnFlee)
+	case "spell_held":
+		return pickRand(narrativeTurnSpellHeld)
+	case "spell_cast":
+		label := e.Desc
+		if label == "" {
+			label = "a spell"
+		}
+		return fmt.Sprintf(pickRand(narrativeTurnSpellCast), label)
+	case "use_consumable":
+		label := e.Desc
+		if label == "" {
+			label = "an item"
+		}
+		return fmt.Sprintf(pickRand(narrativeTurnConsumable), label)
+	}
+	return renderEvent(e, playerName, enemyName, CombatResult{}, picker)
+}
+
+var narrativeTurnFlee = []string{
+	"🏃 You break off and run. No shame in it — the dead don't get a sequel.",
+	"🏃 You decide this fight isn't yours to win and make for the exit. I respect the math.",
+	"🏃 You disengage and bolt. The enemy doesn't chase. The enemy didn't have to.",
+}
+
+var narrativeTurnSpellHeld = []string{
+	"🌀 The enemy strains against the spell and gets nowhere. No attack this round.",
+	"🌀 Held fast. The enemy's turn dissolves into furious, useless effort.",
+	"🌀 The control holds. The enemy spends the round being a statue with opinions.",
+}
+
+var narrativeTurnSpellCast = []string{
+	"✨ You loose the spell. **%s**.",
+	"✨ The weave answers. **%s**.",
+	"✨ Words, gesture, intent — **%s**.",
+	"✨ You spend the magic where it counts. **%s**.",
+}
+
+var narrativeTurnConsumable = []string{
+	"🧪 You crack it open mid-fight. **%s**.",
+	"🧪 No time to be precious about it. **%s**.",
+	"🧪 You burn a consumable on the spot. **%s**.",
 }

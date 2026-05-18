@@ -175,11 +175,14 @@ func TestMageSpellbookLineInRender(t *testing.T) {
 	}
 
 	out := renderSpellsList(c)
-	// L3 cap = 10, count = 2.
-	if !strings.Contains(out, "Spellbook:") || !strings.Contains(out, "2/10") {
+	// L3 cap = 10, count = 2. UX S7 jargon sweep (8bf7d35) reshaped
+	// the line to "**Spellbook:** N / M leveled spells learned" and
+	// dropped the redundant "(can learn N more)" trailer — the
+	// "N / M" already conveys remaining capacity. Assertion tracks
+	// the live format; if the line ever loses the count or the cap
+	// the substrings still pin the regression.
+	if !strings.Contains(out, "**Spellbook:**") ||
+		!strings.Contains(out, "2 / 10 leveled spells learned") {
 		t.Errorf("renderSpellsList missing/wrong Spellbook line; got\n%s", out)
-	}
-	if !strings.Contains(out, "can learn 8 more") {
-		t.Errorf("renderSpellsList missing headroom hint; got\n%s", out)
 	}
 }

@@ -6,12 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
 	"strconv"
-	"strings"
 
 	"gogobee/internal/db"
-	"gogobee/internal/flavor"
 
 	"maunium.net/go/mautrix/id"
 )
@@ -92,89 +89,6 @@ func loadStandaloneHarvestTable(runID string) (map[string][]HarvestNode, error) 
 		return map[string][]HarvestNode{}, nil
 	}
 	return table, nil
-}
-
-// handleStandaloneHarvest is the !forage/!mine/!fish/etc. fallback for
-// players in a single-session !zone enter run with no active expedition.
-// Mirrors the core of handleHarvestCmd minus the expedition-only side
-// effects (threat ticks, region kills, cursed-trinket drops, log entries).
-func (p *AdventurePlugin) handleStandaloneHarvest(ctx MessageContext, char *DnDCharacter, action HarvestAction, run *DungeonRun) error {
-	if action == HarvestFish && !isFishingZone(run.ZoneID) {
-		return p.SendDM(ctx.Sender, "There's no water to fish in here. `!fish` works only in Forest of Shadows, Sunken Temple, Underdark, or Feywild Crossing.")
-	}
-	if !currentRoomCleared(run) {
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"You can't harvest here — the room (%s) isn't cleared. Resolve combat first.",
-			prettyRoomType(run.CurrentRoomType())))
-	}
-
-	nodeID := harvestNodeIDFor(run)
-	nodes, err := loadStandaloneHarvestNodes(run.RunID, run.ZoneID, nodeID)
-	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't load harvest state.")
-	}
-
-	// Reuse the expedition picker by passing a stub Expedition with just
-	// ZoneID set. The kill-gated and event-conditional predicates inside
-	// pickAvailableNode bail early on nil/empty RegionState — exactly the
-	// behavior we want for standalone (no kill tracking, no events).
-	stubExp := &Expedition{ZoneID: run.ZoneID}
-	idx := pickAvailableNode(nodes, stubExp, char, action)
-	if idx < 0 {
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"Nothing left to %s in this room. Try `!resources` to see what's still gatherable.", action))
-	}
-	res, _ := FindZoneResource(run.ZoneID, nodes[idx].ResourceID)
-
-	roll := rand.IntN(20) + 1
-	mod := harvestActionAbility(char, action) + classHarvestBonus(char.Class, action)
-	if action == HarvestFish {
-		if adv, _ := loadAdvCharacter(ctx.Sender); adv != nil {
-			mod += fishingSkillBonus(adv.FishingSkill)
-		}
-	}
-	total := roll + mod
-	outcome := resolveHarvestOutcome(total, res.DC)
-	outcome = rangerRareCatchUpgrade(char.Class, action, outcome, nil)
-
-	var b strings.Builder
-	verb := strings.ToTitle(string(action)[:1]) + string(action)[1:]
-	b.WriteString(fmt.Sprintf("**%s · %s** — d20=%d + %d = **%d** vs DC %d\n\n",
-		verb, res.Name, roll, mod, total, res.DC))
-
-	switch outcome {
-	case OutcomeNothing:
-		b.WriteString(flavor.Pick(flavor.HarvestFail))
-		b.WriteString("\n\n_No yield. The node is still here — try again._")
-	case OutcomeCommon:
-		_ = grantHarvestYield(ctx.Sender, res, 1)
-		b.WriteString(harvestSuccessLine(action, run.ZoneID))
-		b.WriteString(fmt.Sprintf("\n\n_+1 %s._", res.Name))
-		nodes[idx].CurrentCharges--
-	case OutcomeStandard:
-		qty := rand.IntN(3) + 1
-		_ = grantHarvestYield(ctx.Sender, res, qty)
-		b.WriteString(harvestSuccessLine(action, run.ZoneID))
-		b.WriteString(fmt.Sprintf("\n\n_+%d %s._", qty, res.Name))
-		nodes[idx].CurrentCharges--
-	case OutcomeRich:
-		qty := rand.IntN(3) + 1
-		_ = grantHarvestYield(ctx.Sender, res, qty)
-		b.WriteString(flavor.Pick(flavor.RichYield))
-		b.WriteString(fmt.Sprintf("\n\n_+%d %s._", qty, res.Name))
-		nodes[idx].CurrentCharges--
-	}
-
-	if outcome != OutcomeNothing && nodes[idx].CurrentCharges <= 0 {
-		b.WriteString("\n\n")
-		b.WriteString(flavor.Pick(flavor.NodeDepleted))
-	}
-
-	if err := saveStandaloneHarvestNodes(run.RunID, run.ZoneID, nodeID, nodes); err != nil {
-		slog.Error("standalone harvest: save nodes", "user", ctx.Sender, "run", run.RunID, "err", err)
-	}
-
-	return p.SendDM(ctx.Sender, b.String())
 }
 
 // Compile-time check that loadAdvCharacter is reachable; silences "unused

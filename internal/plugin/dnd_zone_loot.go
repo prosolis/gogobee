@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"strings"
 
@@ -376,11 +377,25 @@ func rngIntN(rng *rand.Rand, n int) int {
 // it into adventure_inventory if one fired, and returns a narration block
 // (empty when no drop). Reuses §5 LootDropCommon/Uncommon/Rare/Legendary
 // flavor pools — no new flavor file (per feedback_reuse_existing_flavor).
+// magicItemDropChance — once a drop fires, the chance it is substituted with
+// an Open5e SRD registry magic item of the rolled tier's rarity instead of
+// the biome slate item. Keeps magic items a treat, not the norm.
+const magicItemDropChance = 0.15
+
 func (p *AdventurePlugin) dropZoneLoot(userID id.UserID, zoneID ZoneID, monster DnDMonsterTemplate, isBoss bool) string {
 	entry, tier, ok := rollZoneLoot(zoneID, monster.CR, isBoss, nil)
 	if !ok {
 		return ""
 	}
+
+	// Magic-item substitution: swap the biome slate item for a registry
+	// magic item of the same rarity tier (see magic_items_gameplay.go).
+	if rngFloat(nil) < magicItemDropChance {
+		if mi, miOK := pickMagicItemForRarity(tier.rarity(), nil); miOK {
+			return p.dropMagicItemLoot(userID, mi, tier)
+		}
+	}
+
 	tierVal := tier
 	zoneTier := zoneTierFromID(zoneID)
 	item := AdvItem{
@@ -406,6 +421,43 @@ func (p *AdventurePlugin) dropZoneLoot(userID id.UserID, zoneID ZoneID, monster 
 	} else {
 		b.WriteString(fmt.Sprintf("%s **%s** (%s) — %d coin baseline.",
 			icon, entry.Name, tierVal, entry.BaseValue))
+	}
+	return b.String()
+}
+
+// dropMagicItemLoot deposits a registry magic item as a combat-victory drop
+// and returns its narration block. Potions/scrolls land as "consumable" so
+// the combat pipeline auto-uses them; everything else is a "magic_item"
+// sellable/equippable via the Curios shelf and `!adventure equip-magic`.
+func (p *AdventurePlugin) dropMagicItemLoot(userID id.UserID, mi MagicItem, tier LootTier) string {
+	item := magicItemSell(mi)
+	item.SkillSource = "magic_item:" + mi.ID
+	if err := addAdvInventoryItem(userID, item); err != nil {
+		// Players see a tidy line; the raw err goes to the log so we can
+		// still chase the bug without leaking SQL into the chat.
+		slog.Error("magic-item: loot drop persist failed",
+			"user", userID, "item", mi.ID, "err", err)
+		return "_(The drop slips through your fingers — try again later.)_"
+	}
+	var b strings.Builder
+	if line := lootFlavorLine(tier); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	// Pretty-print the rarity (very_rare → Very Rare) and call attunement
+	// what it does, not what 5e named it. Potions/scrolls earn their own
+	// auto-use tag so players don't think they need to do something with it.
+	tag := magicItemRarityLabel(rarityLootTierNum(mi.Rarity))
+	if mi.Attunement {
+		tag += " · needs bonding"
+	}
+	if mi.Kind == MagicItemPotion || mi.Kind == MagicItemScroll {
+		tag += " · auto-uses in combat"
+	}
+	b.WriteString(fmt.Sprintf("✨ **%s** _(%s)_ — %d coin baseline.",
+		mi.Name, tag, mi.Value))
+	if mi.Desc != "" {
+		b.WriteString(fmt.Sprintf(" _%s_", mi.Desc))
 	}
 	return b.String()
 }
@@ -599,5 +651,5 @@ var potionOfHealingZoneFlavor = map[ZoneID]string{
 	ZoneUnderdark:       "Drow-made. The formula is different. The effect is the same. The ingredients are not discussed.",
 	ZoneFeywildCrossing: "It shifts color when you look at it sideways. The fey make medicine the way they make everything: beautifully and with caveats.",
 	ZoneDragonsLair:     "A kobold medic's field kit, looted from a belt pouch. The kobolds take care of their own.",
-	ZoneAbyssPortal:     "Glows faintly red. Still works. TwinBee recommends not asking what's in it.",
+	ZoneAbyssPortal:     "Glows faintly red. Still works. I recommend not asking what's in it.",
 }

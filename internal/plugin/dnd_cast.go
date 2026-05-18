@@ -61,6 +61,13 @@ func decodePendingCast(s string) (PendingCast, bool) {
 // ── !cast command ────────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) error {
+	// In a turn-based Elite/Boss fight, !cast resolves as the player's turn
+	// for the round rather than queuing for "next combat". handleCombatCastCmd
+	// takes the per-user lock itself and re-checks the session under it.
+	if sess, _ := getActiveCombatSession(ctx.Sender); sess != nil {
+		return p.handleCombatCastCmd(ctx, args)
+	}
+
 	userMu := p.advUserLock(ctx.Sender)
 	userMu.Lock()
 	defer userMu.Unlock()
@@ -73,8 +80,7 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 	}
 	if !isSpellcaster(c) {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"%s isn't a caster class. `!cast` is for Mage, Cleric, Ranger, and Arcane Trickster Rogues (L5+).",
-			titleClass(c.Class)))
+			"%s doesn't cast spells.", titleClass(c.Class)))
 	}
 
 	if args == "" {
@@ -141,7 +147,7 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 	if c.Class == ClassRogue && c.Subclass == SubclassArcaneTrickster {
 		if max := highestAvailableSlotForChar(c); spell.Level > max {
 			return p.SendDM(ctx.Sender, fmt.Sprintf(
-				"Arcane Trickster L%d only has up to L%d slots.", c.Level, max))
+				"At level %d, your Arcane Trickster magic only reaches level-%d spells.", c.Level, max))
 		}
 	}
 
@@ -201,7 +207,7 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 		}
 		if !ok {
 			return p.SendDM(ctx.Sender, fmt.Sprintf(
-				"No L%d slot available. %s", slotLevel, renderSlotsBrief(ctx.Sender)))
+				"You're out of level-%d energy. %s", slotLevel, renderSlotsBrief(ctx.Sender)))
 		}
 	}
 
@@ -336,7 +342,7 @@ func (p *AdventurePlugin) queuePendingCast(ctx MessageContext, c *DnDCharacter, 
 
 	msg := fmt.Sprintf("✨ **%s** queued for next combat.", spell.Name)
 	if slotLevel > spell.Level {
-		msg += fmt.Sprintf(" _(upcast to L%d)_", slotLevel)
+		msg += " _(empowered)_"
 	}
 	if supersedes != "" {
 		msg += fmt.Sprintf("\n_(Concentration shifts: %s ended.)_", displaySpellName(supersedes))
@@ -356,8 +362,10 @@ func (p *AdventurePlugin) dndCastDrop(ctx MessageContext, c *DnDCharacter) error
 
 	// Refund the queued slot (if any) — voluntary drop is the player's
 	// choice; restore the slot rather than forfeit it.
+	slotRefunded := false
 	if pc, ok := decodePendingCast(c.PendingCast); ok && pc.SlotLevel > 0 {
 		_ = refundSpellSlot(ctx.Sender, pc.SlotLevel)
+		slotRefunded = true
 	}
 
 	dropped := []string{}
@@ -374,7 +382,11 @@ func (p *AdventurePlugin) dndCastDrop(ctx MessageContext, c *DnDCharacter) error
 	if err := SaveDnDCharacter(c); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't drop: "+err.Error())
 	}
-	return p.SendDM(ctx.Sender, "Dropped: "+strings.Join(dropped, ", ")+".")
+	msg := "Dropped: " + strings.Join(dropped, ", ") + "."
+	if slotRefunded {
+		msg += " _(slot refunded)_"
+	}
+	return p.SendDM(ctx.Sender, msg)
 }
 
 // ── !spells command ─────────────────────────────────────────────────────────
@@ -426,9 +438,9 @@ func renderSpellsList(c *DnDCharacter) string {
 		}
 		sort.Ints(levels)
 		for _, lvl := range levels {
-			label := fmt.Sprintf("L%d", lvl)
+			label := fmt.Sprintf("Level %d", lvl)
 			if lvl == 0 {
-				label = "Cantrip"
+				label = "Cantrips"
 			}
 			b.WriteString(fmt.Sprintf("__%s__\n", label))
 			for _, k := range byLevel[lvl] {
@@ -448,23 +460,17 @@ func renderSpellsList(c *DnDCharacter) string {
 
 	slots, _ := getSpellSlots(c.UserID)
 	b.WriteString("\n**Slots:** " + renderSlotLine(slots) + "\n")
-	b.WriteString(fmt.Sprintf("**Spell DC:** %d   **Spell Atk:** +%d\n",
-		spellSaveDC(c), spellAttackBonus(c)))
 
 	if c.Class == ClassMage {
 		count, _ := mageLeveledKnownCount(c.UserID)
 		cap := mageKnownSpellsCap(c.Level)
-		b.WriteString(fmt.Sprintf("**Spellbook:** %d/%d leveled spells", count, cap))
-		if avail := cap - count; avail > 0 {
-			b.WriteString(fmt.Sprintf(" _(can learn %d more)_", avail))
-		}
-		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("**Spellbook:** %d / %d leveled spells learned\n", count, cap))
 	}
 
 	if pc, ok := decodePendingCast(c.PendingCast); ok {
 		b.WriteString(fmt.Sprintf("\n_Queued: **%s**", displaySpellName(pc.SpellID)))
-		if pc.SlotLevel > 0 {
-			b.WriteString(fmt.Sprintf(" (L%d slot)", pc.SlotLevel))
+		if s, ok := lookupSpell(pc.SpellID); ok && pc.SlotLevel > s.Level {
+			b.WriteString(" (empowered)")
 		}
 		b.WriteString(" — fires next combat._\n")
 	}
@@ -480,7 +486,8 @@ func renderSpellsList(c *DnDCharacter) string {
 
 func (p *AdventurePlugin) handleSpellsLearn(ctx MessageContext, c *DnDCharacter, raw string) error {
 	if c.Class != ClassMage {
-		return p.SendDM(ctx.Sender, "`!spells learn` is for Mage. Cleric uses `!prepare`; Ranger spells are auto-known.")
+		return p.SendDM(ctx.Sender, "`!spells learn` is for Mage. "+spellRouteHintFor(c)+
+			" Run `!spells` to see what you already know.")
 	}
 	if raw == "" {
 		return p.SendDM(ctx.Sender, "Usage: `!spells learn <spell name>`")
@@ -554,7 +561,8 @@ func (p *AdventurePlugin) handleDnDPrepareCmd(ctx MessageContext, args string) e
 		return p.SendDM(ctx.Sender, "Couldn't load your Adv 2.0 sheet.")
 	}
 	if c.Class != ClassCleric {
-		return p.SendDM(ctx.Sender, "`!prepare` is for Cleric. Mage uses `!spells learn`; Ranger spells are auto-known.")
+		return p.SendDM(ctx.Sender, "`!prepare` is for Cleric. "+spellRouteHintFor(c)+
+			" Run `!spells` to see what you already know.")
 	}
 	args = strings.TrimSpace(args)
 	if args == "" {
@@ -604,7 +612,8 @@ func (p *AdventurePlugin) handleDnDPrepareCmd(ctx MessageContext, args string) e
 	}
 	if prepCount+1 > cap {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"Prep cap is %d. Unprepare a spell first: `!prepare clear <name>`.", cap))
+			"Your prepared list is full (%d/%d). Unprepare one first: `!prepare clear <name>`.",
+			prepCount, cap))
 	}
 	if err := setSpellPrepared(ctx.Sender, spell.ID, true); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't prepare: "+err.Error())
@@ -631,6 +640,30 @@ func renderClericPrepStatus(c *DnDCharacter) string {
 	}
 	return fmt.Sprintf("**Prepared spells:** %d/%d. Run `!prepare <spell>` to add, `!prepare clear <spell>` to remove. Long rest re-opens choices.",
 		prepCount, cap)
+}
+
+// spellRouteHintFor returns a one-sentence pointer telling the player which
+// command actually advances their spellbook, scoped to their class. Used by
+// the !spells learn / !prepare wrong-class error messages so the player isn't
+// left guessing after we reject them.
+func spellRouteHintFor(c *DnDCharacter) string {
+	if c == nil {
+		return ""
+	}
+	switch c.Class {
+	case ClassMage:
+		return "Mage learns spells with `!spells learn <name>`."
+	case ClassCleric:
+		return "Cleric picks today's spells with `!prepare <name>`."
+	case ClassRogue:
+		if c.Subclass == SubclassArcaneTrickster {
+			return "Arcane Trickster learns spells with `!spells learn <name>` once it unlocks."
+		}
+		return ""
+	case ClassDruid, ClassBard, ClassSorcerer, ClassWarlock, ClassPaladin, ClassRanger:
+		return "Your class learns spells automatically as you level — nothing to prepare."
+	}
+	return ""
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

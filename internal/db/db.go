@@ -313,6 +313,26 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE dnd_zone_run ADD COLUMN current_node TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE dnd_zone_run ADD COLUMN visited_nodes TEXT NOT NULL DEFAULT '[]'`,
 		`ALTER TABLE dnd_zone_run ADD COLUMN node_choices TEXT NOT NULL DEFAULT '{}'`,
+		// 2026-05-10 immersion pass: short rest = hit-dice charges (1/level),
+		// long rest restores them. resting_until gates !zone enter and
+		// !expedition start so a freshly-rested character can't immediately
+		// jump back into combat — they're actually resting for the duration.
+		`ALTER TABLE dnd_character ADD COLUMN short_rest_charges INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE dnd_character ADD COLUMN resting_until DATETIME`,
+		// Phase 12 E7 (expedition autopilot Phase 3) — ambient ticker timestamp.
+		// Real-time between-day events fire at most once per ambientCooldown
+		// while an expedition is active; idempotent CAS on this column.
+		`ALTER TABLE dnd_expedition ADD COLUMN last_ambient_at DATETIME`,
+		// Kind-level anti-repeat for the ambient ticker: the previous
+		// pick's Kind biases the next pick away from itself so two
+		// back-to-back pack_rat / monologue / etc. DMs don't read as
+		// duplicates on small flavor pools.
+		`ALTER TABLE dnd_expedition ADD COLUMN last_ambient_kind TEXT NOT NULL DEFAULT ''`,
+		// Expedition autopilot Phase 4 — background auto-run ticker. Real-
+		// time room-walking between player commands so the player only
+		// engages when a fork / elite / boss / supply pinch actually
+		// needs a decision. CAS-claim on this column gates re-entry.
+		`ALTER TABLE dnd_expedition ADD COLUMN last_autorun_at DATETIME`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -453,8 +473,16 @@ func CacheSet(key, data string) {
 
 // Backup creates a consistent snapshot of the database using VACUUM INTO.
 // Keeps the last 7 daily backups, deleting older ones.
+//
+// Gated on the GOGOBEE_BACKUP_DIR env var: when unset, this is a no-op so
+// dev environments don't accumulate snapshots. When set, that directory is
+// used as the backup destination.
 func Backup() error {
-	backupDir := filepath.Join(dataPath, "backups")
+	backupDir := os.Getenv("GOGOBEE_BACKUP_DIR")
+	if backupDir == "" {
+		slog.Debug("backup skipped: GOGOBEE_BACKUP_DIR unset")
+		return nil
+	}
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
 		return fmt.Errorf("create backup dir: %w", err)
 	}
@@ -542,7 +570,23 @@ func RunMaintenance() {
 		{"market_daily_summary", `DELETE FROM market_daily_summary WHERE snapshot_date < ?`, []interface{}{now.AddDate(-1, 0, 0).Format("2006-01-02")}},
 	}
 
+	// Wrap the purge loop in a single BEGIN IMMEDIATE / COMMIT so a crash
+	// mid-maintenance can't leave half the tables purged. SetMaxOpenConns(1)
+	// in Init guarantees the BEGIN, the DELETEs, and the COMMIT all share
+	// the same connection.
 	totalDeleted := int64(0)
+	if _, err := d.Exec(`BEGIN IMMEDIATE`); err != nil {
+		slog.Error("maintenance: begin tx", "err", err)
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			if _, err := d.Exec(`ROLLBACK`); err != nil {
+				slog.Error("maintenance: rollback", "err", err)
+			}
+		}
+	}()
 	for _, q := range queries {
 		res, err := d.Exec(q.sql, q.args...)
 		if err != nil {
@@ -555,13 +599,71 @@ func RunMaintenance() {
 			totalDeleted += n
 		}
 	}
+	if _, err := d.Exec(`COMMIT`); err != nil {
+		slog.Error("maintenance: commit", "err", err)
+		return
+	}
+	committed = true
 
 	// SQLite optimization
 	if _, err := d.Exec(`PRAGMA optimize`); err != nil {
 		slog.Error("maintenance: pragma optimize", "err", err)
 	}
 
+	// Weekly integrity check, gated on a sentinel file's mtime under dataPath
+	// so it runs at most once every 7 days regardless of maintenance cadence.
+	runIntegrityCheckIfDue(d)
+
 	slog.Info("maintenance: complete", "total_purged", totalDeleted)
+}
+
+// runIntegrityCheckIfDue runs `PRAGMA integrity_check` at most once per week.
+// Cadence is tracked via the mtime of a sentinel file under dataPath; if the
+// sentinel is missing or older than 7 days, the check runs and the sentinel
+// is touched. Any result other than "ok" is logged via slog.Error.
+func runIntegrityCheckIfDue(d *sql.DB) {
+	if dataPath == "" {
+		return
+	}
+	sentinel := filepath.Join(dataPath, ".integrity_check_last")
+	if info, err := os.Stat(sentinel); err == nil {
+		if time.Since(info.ModTime()) < 7*24*time.Hour {
+			return
+		}
+	}
+
+	rows, err := d.Query(`PRAGMA integrity_check`)
+	if err != nil {
+		slog.Error("maintenance: integrity_check", "err", err)
+		return
+	}
+	var problems []string
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			slog.Error("maintenance: integrity_check scan", "err", err)
+			continue
+		}
+		if line != "ok" {
+			problems = append(problems, line)
+		}
+	}
+	rows.Close()
+
+	if len(problems) > 0 {
+		slog.Error("maintenance: integrity_check failed", "problems", problems)
+	} else {
+		slog.Info("maintenance: integrity_check ok")
+	}
+
+	// Touch the sentinel even on failure — otherwise a corrupted DB would
+	// re-run the (expensive) check every maintenance cycle and spam logs.
+	now := time.Now()
+	if err := os.WriteFile(sentinel, nil, 0o644); err != nil {
+		slog.Error("maintenance: write integrity sentinel", "err", err)
+		return
+	}
+	_ = os.Chtimes(sentinel, now, now)
 }
 
 // Exec runs a write query, logging any error with the given label.
@@ -1262,6 +1364,19 @@ CREATE TABLE IF NOT EXISTS adventure_treasures (
 );
 CREATE INDEX IF NOT EXISTS idx_adv_treasure_user ON adventure_treasures(user_id);
 
+-- Magic items equipped into the D&D 10-slot scheme (Open5e SRD registry).
+-- One row per (user, DnDSlot). item_id references magicItemRegistry. Effects
+-- are applied in combat from a codified Rarity+Kind formula; attunement gates
+-- whether the item's effect counts (see magic_items_gameplay.go).
+CREATE TABLE IF NOT EXISTS magic_item_equipped (
+	user_id  TEXT NOT NULL,
+	slot     TEXT NOT NULL,
+	item_id  TEXT NOT NULL,
+	attuned  INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (user_id, slot)
+);
+CREATE INDEX IF NOT EXISTS idx_magic_item_equipped_user ON magic_item_equipped(user_id);
+
 CREATE TABLE IF NOT EXISTS adventure_buffs (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,
 	user_id    TEXT NOT NULL,
@@ -1784,6 +1899,9 @@ CREATE TABLE IF NOT EXISTS dnd_expedition (
     gm_mood          INTEGER NOT NULL DEFAULT 50,
     last_briefing_at DATETIME,
     last_recap_at    DATETIME,
+    last_ambient_at  DATETIME,
+    last_ambient_kind TEXT NOT NULL DEFAULT '',
+    last_autorun_at  DATETIME,
     last_activity    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at     DATETIME
 );
@@ -1878,6 +1996,43 @@ CREATE TABLE IF NOT EXISTS space_inviter_prompts (
     PRIMARY KEY (user_id, prompt_sent_at)
 );
 CREATE INDEX IF NOT EXISTS idx_space_inviter_user ON space_inviter_prompts(user_id);
+
+-- ── Turn-based combat — persistent per-fight session ───────────────────────
+-- One row per manual elite/boss fight. Persists across bot restarts and
+-- player away-from-keyboard so a fight can resume (or be auto-finished by
+-- the timeout reaper) from exact mid-state. At most one row per user with
+-- status='active' (enforced in code, not by constraint).
+--
+-- encounter_id:    room/node id within the run this fight belongs to.
+-- enemy_id:        bestiary stat-block id for the elite/boss.
+-- phase:           intra-round state machine position.
+-- statuses_json:   serialized player + enemy status effects (poison, etc.).
+-- turn_log_json:   per-round event stream, consumed by live narration.
+-- expires_at:      started_at + 1h; reaper auto-plays the fight to a real
+--                  win/loss from persisted state once this passes.
+CREATE TABLE IF NOT EXISTS combat_session (
+    session_id      TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL,
+    run_id          TEXT NOT NULL,
+    encounter_id    TEXT NOT NULL,
+    enemy_id        TEXT NOT NULL,
+    round           INTEGER NOT NULL DEFAULT 1,
+    phase           TEXT NOT NULL DEFAULT 'player_turn', -- player_turn|enemy_turn|round_end|over
+    player_hp       INTEGER NOT NULL,
+    player_hp_max   INTEGER NOT NULL,
+    enemy_hp        INTEGER NOT NULL,
+    enemy_hp_max    INTEGER NOT NULL,
+    statuses_json   TEXT NOT NULL DEFAULT '{}',
+    turn_log_json   TEXT NOT NULL DEFAULT '[]',
+    status          TEXT NOT NULL DEFAULT 'active',      -- active|won|lost|fled|expired
+    started_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_action_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at      DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_combat_session_active
+    ON combat_session(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_combat_session_expiry
+    ON combat_session(status, expires_at);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

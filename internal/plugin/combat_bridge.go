@@ -55,11 +55,12 @@ func (p *AdventurePlugin) runDungeonCombat(
 
 	playerStats, playerMods := DerivePlayerStats(char, equip, bonuses, chatLvl, char.CurrentStreak, hasGrudge)
 
-	// Penalty zone: player is weakened (mirrors +5% death, -15% success from old system)
+	// Penalty zone Attack/Defense reduction (mirrors +5% death, -15% success
+	// from old system). The MaxHP penalty is applied below, after
+	// applyDnDPlayerLayer reseats MaxHP onto the dnd HP scale.
 	if inPenaltyZone {
 		playerStats.Attack = int(float64(playerStats.Attack) * 0.85)
 		playerStats.Defense = int(float64(playerStats.Defense) * 0.85)
-		playerStats.MaxHP = int(float64(playerStats.MaxHP) * 0.90)
 	}
 
 	// Load consumables from inventory and auto-select
@@ -75,17 +76,25 @@ func (p *AdventurePlugin) runDungeonCombat(
 	applyDnDPlayerLayer(&playerStats, dndChar)
 	applyDnDEquipmentLayer(&playerStats, dndChar, equip)
 	applyDnDHPScaling(&playerStats, dndChar)
+	if inPenaltyZone {
+		playerStats.MaxHP = int(float64(playerStats.MaxHP) * 0.90)
+		if playerStats.StartHP > 0 {
+			playerStats.StartHP = int(float64(playerStats.StartHP) * 0.90)
+		}
+	}
 	applyClassPassives(&playerStats, &playerMods, dndChar)
 	applyRacePassives(&playerStats, &playerMods, dndChar)
 	applySubclassPassives(&playerStats, &playerMods, dndChar)
+	applyMagicItemEffects(&playerStats, &playerMods, userID)
+	trySimAutoArm(dndChar)
 	if firedName, fired := applyArmedAbility(dndChar, &playerMods); fired {
 		slog.Info("dnd: armed ability fired", "user", userID, "ability", firedName)
 	}
 	applyDnDDungeonMonsterLayer(&enemyStats, loc.Tier)
 	applyPendingCast(userID, dndChar, &playerStats, &playerMods, &enemyStats)
 
-	selected := SelectConsumables(consumables, playerStats, enemyStats, 0, loc.Tier)
-	ApplyConsumableMods(&playerStats, &playerMods, selected)
+	// Auto-consumable: panic heal only (see dnd_boss_consumables.go).
+	setupAutoHealFromInventory(consumables, &playerMods)
 
 	// Dungeon monsters T3+ can have abilities
 	var ability *MonsterAbility
@@ -113,18 +122,16 @@ func (p *AdventurePlugin) runDungeonCombat(
 	}
 
 	result := SimulateCombat(player, enemy, dungeonCombatPhases)
-	result = injectConsumableEvents(result, selected, len(consumables))
+	dumpCombatEventsIfDebug(fmt.Sprintf("dungeon:%s vs %s", loc.Name, displayName), result)
 
-	// Consume used items from inventory
-	for _, c := range selected {
-		if err := removeAdvInventoryItem(c.InventoryID); err != nil {
-			slog.Error("combat: failed to consume item", "id", c.InventoryID, "name", c.Def.Name, "err", err)
-		}
-	}
+	// Remove the actual heal items consumed during combat. No more
+	// burning Coal Bombs / Ink Vials on chump fights — those stay put
+	// until a player-driven use command lands.
+	consumeFiredHealingItems(userID, countHealEventsFired(result))
 
 	p.grantCombatAchievements(userID, result)
 
-	persistDnDHPAfterCombat(userID, result.PlayerStartHP, result.PlayerEndHP)
+	persistDnDHPAfterCombat(userID, result.PlayerEndHP)
 	if err := persistDnDPostCombatSubclass(dndChar, playerMods.BerserkerRage, result, playerMods); err != nil {
 		slog.Error("dnd: post-combat subclass persist (dungeon)", "user", userID, "err", err)
 	}
@@ -238,6 +245,13 @@ func (p *AdventurePlugin) sendCombatMessages(userID id.UserID, phaseMessages []s
 
 // sendZoneCombatMessages is the zone/expedition variant — same staging as
 // arena, but tighter pacing (2–3s) so dungeon advances feel snappier.
+//
+// Contract: returns a done channel that closes after the final DM has
+// been sent. Callers that need to chain post-flush work (death follow-ups,
+// hospital ads, tier countdowns) MUST consume it. Callers in the middle
+// of a command-handler flow that have no post-flush work should explicitly
+// discard with `_ = ...` — blocking on flush would stall the handler
+// behind the 2–3s/message pacing, which is the whole point of streaming.
 func (p *AdventurePlugin) sendZoneCombatMessages(userID id.UserID, phaseMessages []string, finalMessage string) <-chan struct{} {
 	return p.sendCombatMessagesWithDelay(userID, phaseMessages, finalMessage, 2, 2) // 2–3s
 }
@@ -393,12 +407,25 @@ func checkDeathSaveEvent(events []CombatEvent) bool {
 
 // injectConsumableEvents prepends use_consumable events so the narrative shows which items were consumed.
 // If items were available but skipped (trivial threat), a skip event is injected instead.
+//
+// Uses PlayerEntryHP / EnemyEntryHP — the actual HP each side entered combat
+// with — so the pre-combat HP line reflects wounded carry-over honestly. Was
+// using PlayerStartHP (= MaxHP), which made wounded entries display "47/47"
+// and made any HP loss in opening look like the player took silent damage.
 func injectConsumableEvents(result CombatResult, selected []ConsumableItem, inventorySize int) CombatResult {
+	entryHP := result.PlayerEntryHP
+	if entryHP == 0 {
+		entryHP = result.PlayerStartHP
+	}
+	enemyEntryHP := result.EnemyEntryHP
+	if enemyEntryHP == 0 {
+		enemyEntryHP = result.EnemyStartHP
+	}
 	if len(selected) == 0 {
 		if inventorySize > 0 {
 			result.Events = append([]CombatEvent{{
 				Round: 0, Phase: "pre_combat", Actor: "consumable", Action: "consumable_skip",
-				PlayerHP: result.PlayerStartHP, EnemyHP: result.EnemyStartHP,
+				PlayerHP: entryHP, EnemyHP: enemyEntryHP,
 			}}, result.Events...)
 		}
 		return result
@@ -407,7 +434,7 @@ func injectConsumableEvents(result CombatResult, selected []ConsumableItem, inve
 	for _, c := range selected {
 		events = append(events, CombatEvent{
 			Round: 0, Phase: "pre_combat", Actor: "consumable", Action: "use_consumable",
-			PlayerHP: result.PlayerStartHP, EnemyHP: result.EnemyStartHP,
+			PlayerHP: entryHP, EnemyHP: enemyEntryHP,
 			Desc: c.Def.Name,
 		})
 	}
@@ -451,6 +478,8 @@ func combatDegradation(result CombatResult, equip map[EquipmentSlot]*AdvEquipmen
 			damage[SlotHelmet] += 1 + rand.IntN(2)
 		case ev.Actor == "enemy" && ev.Action == "cleave":
 			damage[SlotArmor] += 2 + rand.IntN(3)
+		case ev.Actor == "enemy" && (ev.Action == "bonus_damage" || ev.Action == "aoe" || ev.Action == "execute" || ev.Action == "retaliate" || ev.Action == "max_hp_drain"):
+			damage[SlotArmor] += 1 + rand.IntN(2)
 		case ev.Actor == "enemy" && ev.Action == "lifesteal":
 			damage[SlotArmor] += 1 + rand.IntN(2)
 		case ev.Actor == "player" && (ev.Action == "hit" || ev.Action == "crit"):
