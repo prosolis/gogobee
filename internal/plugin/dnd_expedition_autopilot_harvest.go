@@ -146,9 +146,8 @@ func (p *AdventurePlugin) autoHarvestRoom(
 			// Josie semantics: swing exactly once per remaining charge.
 			// Each swing consumes a charge regardless of outcome.
 			for n.CurrentCharges > 0 {
-				// Interrupt roll, same model as handleHarvestCmd —
-				// expedition-only. Standalone zone runs already have a
-				// patrol mechanism in the advance pipeline.
+				// Interrupt roll, expedition-only. Standalone zone runs
+				// already have a patrol mechanism in the advance pipeline.
 				if exp != nil {
 					interrupt, intTotal := resolveCombatInterrupt(
 						exp.ThreatLevel, int(zone.Tier), char.Class, zoneID, nil)

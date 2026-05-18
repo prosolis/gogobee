@@ -127,7 +127,7 @@ var zoneResources = map[ZoneID][]ZoneResource{
 		{ID: "hag_hair", Name: "Hag Hair", Action: HarvestCommune, DC: 18, Rarity: RarityRare, Type: "material", SellValue: 220, MaxCharges: 2, ClassRestrict: ClassCleric, RequiresKill: "hag"},
 		{ID: "timelock_amber", Name: "Timelock Amber", Action: HarvestForage, DC: 21, Rarity: RarityRare, Type: "material", SellValue: 290, MaxCharges: 2},
 		{ID: "thornmother_thorn", Name: "Thornmother's Thorn", Action: HarvestScavenge, DC: 25, Rarity: RarityVeryRare, Type: "material", SellValue: 1000, MaxCharges: 1, RequiresKill: "thornmother"},
-		// §6.1 fish — fey streams; time-distortion event hook fires in handleHarvestCmd.
+		// §6.1 fish — fey streams; time-distortion event hook fires in the autopilot harvest pass.
 		{ID: "moonlit_minnow", Name: "Moonlit Minnow", Action: HarvestFish, DC: 12, Rarity: RarityCommon, Type: "fish", SellValue: 12, MaxCharges: 2},
 		{ID: "dreaming_pike", Name: "Dreaming Pike", Action: HarvestFish, DC: 16, Rarity: RarityUncommon, Type: "fish", SellValue: 55, MaxCharges: 2},
 		{ID: "timeworn_koi", Name: "Timeworn Koi", Action: HarvestFish, DC: 21, Rarity: RarityRare, Type: "fish", SellValue: 280, MaxCharges: 2},

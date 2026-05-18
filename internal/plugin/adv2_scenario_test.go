@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -331,22 +330,19 @@ func TestAdv2Scenario_HarvestForestShadows(t *testing.T) {
 		t.Error("expected at least one harvest node seeded")
 	}
 
-	// Try each harvest action a couple of times and watch for crashes.
-	// Outcomes are RNG-driven; we mainly want no panics + coherent state.
-	rng := rand.New(rand.NewPCG(7, 13))
-	_ = rng
-	for _, action := range []HarvestAction{HarvestForage, HarvestMine} {
-		for i := 0; i < 3; i++ {
-			if err := p.handleHarvestCmd(MessageContext{Sender: uid}, action); err != nil {
-				t.Fatalf("handleHarvestCmd(%s) attempt %d: %v", action, i, err)
-			}
-			fresh, _ := getExpedition(exp.ID)
-			if fresh == nil {
-				t.Logf("expedition ended during harvest %s #%d", action, i)
-				break
-			}
-			t.Logf("after %s #%d: supplies=%v threat=%d", action, i, fresh.Supplies.Current, fresh.ThreatLevel)
+	// Drive the auto-harvest pass (post-H3 there is no manual command
+	// surface). Outcomes are RNG-driven; we mainly want no panics +
+	// coherent state.
+	for i := 0; i < 3; i++ {
+		if _, err := p.autoHarvestRoom(uid, run, c, exp); err != nil {
+			t.Fatalf("autoHarvestRoom attempt %d: %v", i, err)
 		}
+		fresh, _ := getExpedition(exp.ID)
+		if fresh == nil {
+			t.Logf("expedition ended during auto-harvest #%d", i)
+			break
+		}
+		t.Logf("after auto-harvest #%d: supplies=%v threat=%d", i, fresh.Supplies.Current, fresh.ThreatLevel)
 	}
 
 	// !resources output path (no-op SendDM but should not error).
