@@ -526,12 +526,14 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 	// value — swapping a curio shouldn't tax it. Evict from the local map
 	// too, so the attunement count below reflects the post-swap state and
 	// can re-open a slot the prior occupant was holding.
+	var swappedBackName string
 	if prev, exists := equipped[mi.Slot]; exists && prev.Item.ID != "" {
 		back := magicItemSell(prev.Item)
 		back.SkillSource = "magic_item:" + prev.Item.ID
 		if err := addAdvInventoryItem(ctx.Sender, back); err != nil {
 			return p.SendDM(ctx.Sender, "Failed to return your currently-equipped item to inventory.")
 		}
+		swappedBackName = prev.Item.Name
 		delete(equipped, mi.Slot)
 	}
 
@@ -571,6 +573,9 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("✨ **%s** equipped in your %s slot — %s.",
 		mi.Name, mi.Slot, magicItemEffectSummary(mi)))
+	if swappedBackName != "" {
+		sb.WriteString(fmt.Sprintf("\n📦 **%s** moved back to inventory.", swappedBackName))
+	}
 	switch {
 	case mi.Attunement && attune:
 		sb.WriteString(fmt.Sprintf("\nBonded (%d/%d bond slots used).",
