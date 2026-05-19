@@ -252,6 +252,7 @@ func (p *AdventurePlugin) handleExtractCmd(ctx MessageContext, _ string) error {
 	line := flavor.Pick(flavor.ExtractionVoluntary)
 	_ = appendExpeditionLog(updated.ID, updated.CurrentDay, "narrative",
 		"voluntary extraction", line)
+	markActedToday(ctx.Sender)
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🚪 **Extraction — %s, Day %d**\n\n",

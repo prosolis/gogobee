@@ -187,6 +187,7 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 	if aerr := advanceZoneRunNode(run.RunID, chosen.To); aerr != nil {
 		return p.SendDM(ctx.Sender, "Couldn't advance: "+aerr.Error())
 	}
+	markActedToday(ctx.Sender)
 	g, _ := loadZoneGraph(run.ZoneID)
 	zone := zoneOrFallback(run.ZoneID)
 	fromNode := g.Nodes[run.CurrentNode]

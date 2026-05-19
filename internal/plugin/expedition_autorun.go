@@ -34,12 +34,13 @@ const (
 	// autoRunTickInterval — how often the ticker wakes. The per-expedition
 	// cooldown is what actually paces; the tick just has to be frequent
 	// enough that the cooldown is enforced cleanly.
-	autoRunTickInterval = 5 * time.Minute
+	autoRunTickInterval = 15 * time.Minute
 
 	// autoRunCooldown — minimum gap between background walks for one
-	// expedition. 15 min keeps the dungeon moving while leaving room for
-	// the player to step in and steer if they want.
-	autoRunCooldown = 15 * time.Minute
+	// expedition. 2h is the slow cadence: the dungeon still moves on its
+	// own while the player is away, but the auto-walk DM stays a
+	// once-in-a-while ping instead of a steady drip.
+	autoRunCooldown = 2 * time.Hour
 
 	// autoRunMinExpeditionAge — don't auto-walk a brand-new expedition;
 	// let the player walk the first beat manually so the opening reads
@@ -92,6 +93,14 @@ func (p *AdventurePlugin) fireExpeditionAutoRuns(now time.Time) {
 		uid := id.UserID(e.UserID)
 		if hasActiveCombatSession(uid) {
 			continue
+		}
+		// Honor the rest lockout — short/long rest set RestingUntil and
+		// foreground !expedition run checks it; background must too, or
+		// the auto-walk ticker fires through a long rest.
+		if c, cerr := LoadDnDCharacter(uid); cerr == nil && c != nil {
+			if restingLockoutRemaining(c) > 0 {
+				continue
+			}
 		}
 		if err := p.tryAutoRun(e, now); err != nil {
 			slog.Warn("expedition: autorun step", "expedition", e.ID, "err", err)

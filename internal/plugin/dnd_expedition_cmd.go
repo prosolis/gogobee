@@ -261,6 +261,7 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	// Log the start with prewritten flavor.
 	startLine := flavor.Pick(flavor.ExpeditionStart)
 	_ = appendExpeditionLog(exp.ID, 1, "narrative", "expedition started", startLine)
+	markActedToday(ctx.Sender)
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🗺 **Expedition begins — %s** _(T%d)_\n\n", zone.Display, int(zone.Tier)))
@@ -484,6 +485,7 @@ func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
 	if err := abandonExpedition(ctx.Sender); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't abandon: "+err.Error())
 	}
+	markActedToday(ctx.Sender)
 	_ = retireAllRegionRuns(exp)
 	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative", "expedition abandoned", "")
 	if err := p.SendDM(ctx.Sender, fmt.Sprintf(
@@ -581,6 +583,21 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 	}
 	if exp.RunID == "" {
 		return autopilotWalkResult{initErr: "No active region run. Try `!region` to refresh."}
+	}
+
+	// Already standing at a pending fork: autopilot can't pick for the
+	// player. Re-emit the prompt with rooms=0 so the background DM
+	// suppression keeps quiet and we don't tick the rooms counter on a
+	// no-op walk.
+	if run, rerr := getActiveZoneRun(ctx.Sender); rerr == nil && run != nil {
+		if pf, derr := decodePendingFork(run.NodeChoices); derr == nil && pf != nil {
+			zone := zoneOrFallback(run.ZoneID)
+			return autopilotWalkResult{
+				finalMsg: renderForkPrompt(zone, *pf),
+				rooms:    0,
+				reason:   stopFork,
+			}
+		}
 	}
 
 	var stream []string

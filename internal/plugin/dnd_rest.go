@@ -114,6 +114,7 @@ func (p *AdventurePlugin) handleDnDShortRest(ctx MessageContext) error {
 	if err := SaveDnDCharacter(c); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't save rest state: "+err.Error())
 	}
+	markActedToday(ctx.Sender)
 
 	var msg string
 	if c.HPCurrent > before {
@@ -208,6 +209,7 @@ func (p *AdventurePlugin) handleDnDLongRest(ctx MessageContext) error {
 	if err := SaveDnDCharacter(c); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't save rest state: "+err.Error())
 	}
+	markActedToday(ctx.Sender)
 	_ = refreshAllResources(ctx.Sender)
 	// Phase 9: spell slots refresh on long rest.
 	_ = refreshSpellSlots(ctx.Sender)

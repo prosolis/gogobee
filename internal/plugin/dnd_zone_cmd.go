@@ -308,6 +308,9 @@ func (p *AdventurePlugin) zoneCmdMap(ctx MessageContext) error {
 		b.WriteString(renderZoneGraphMap(g, run))
 		b.WriteString("\n```\n")
 		b.WriteString("_E=Entry  ?=Exploration  T=Trap  ★=Elite  ☠=Boss  ⚿=Secret · ✓ cleared  ▶ here  · pending  ╳ locked_")
+		if path := renderVisitedPath(g, run); path != "" {
+			b.WriteString("\n**Path:** " + path)
+		}
 		return p.SendDM(ctx.Sender, b.String())
 	}
 	// No registered graph (defensive — every zone has one post-G8).
@@ -455,8 +458,23 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 			reason: stopBlocked,
 		}, nil
 	}
+	// compact==true is the background auto-walk path; only credit
+	// player-initiated advances toward the daily streak.
+	if !compact {
+		markActedToday(ctx.Sender)
+	}
 	_ = applyMoodDecayIfStale(run)
 	zone := zoneOrFallback(run.ZoneID)
+	// A pending fork means advanceTransitionGraph already cleared the
+	// current room and stopped — re-running resolveRoom would re-fire
+	// combat and re-drop loot on the same room. Re-emit the fork prompt
+	// and let the caller surface it; the player commits via !zone go <n>.
+	if pf, derr := decodePendingFork(run.NodeChoices); derr == nil && pf != nil {
+		return advanceResult{
+			final:  renderForkPrompt(zone, *pf),
+			reason: stopFork,
+		}, nil
+	}
 	prev := run.CurrentRoomType()
 	prevIdx := run.CurrentRoom
 
