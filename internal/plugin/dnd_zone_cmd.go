@@ -593,7 +593,16 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 			b.WriteString(outcome)
 			b.WriteString("\n\n")
 		}
-		b.WriteString(fmt.Sprintf("🏆 **Cleared %s.** Run complete.\n\n", zone.Display))
+		// A "complete" run is only a full zone clear when it isn't a mid-zone
+		// region clear of a multi-region zone. For the latter, name the region
+		// and point at the next one — "Cleared {zone}. Run complete." reads
+		// wrong right before the auto-advance transit block (and is shared with
+		// manual `!region travel`, which advances next).
+		if region, next, midZone := midZoneRegionClear(ctx.Sender, run.RunID); midZone {
+			b.WriteString(fmt.Sprintf("🏁 **Cleared %s.** The way to %s opens ahead.\n\n", region.Name, next.Name))
+		} else {
+			b.WriteString(fmt.Sprintf("🏆 **Cleared %s.** Run complete.\n\n", zone.Display))
+		}
 		if line := twinBeeLine(zone.ID, DMZoneComplete, run.RunID, prevIdx); line != "" {
 			b.WriteString(line)
 			b.WriteString("\n\n")

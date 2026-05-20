@@ -363,6 +363,29 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap int) (*S
 			res.Outcome = "tpk"
 			i = walkCap // exit
 		case stopComplete:
+			// A stopComplete that reaches the sim is normally a full zone
+			// clear (the walk auto-advances mid-zone region boundaries
+			// internally). But a mid-zone region clear can still surface
+			// here — e.g. the walk's auto-advance hit a transit error and
+			// returned stopComplete. Mirror runAutopilotWalk: if the
+			// expedition is still active in a multi-region zone with a
+			// next region, cross into it and keep simulating instead of
+			// scoring a premature "cleared".
+			if fresh, ferr := getActiveExpedition(uid); ferr == nil && fresh != nil &&
+				IsMultiRegionZone(fresh.ZoneID) {
+				if cur, ok := CurrentRegion(fresh); ok {
+					if next, ok := nextRegion(fresh.ZoneID, cur.ID); ok {
+						if _, terr := s.P.advanceToNextRegion(uid, fresh, cur, next); terr != nil {
+							res.Outcome = "halted"
+							res.StopCode = "region_transit:" + terr.Error()
+							i = walkCap
+							break
+						}
+						exp = fresh
+						break // continue the outer walk loop in the next region
+					}
+				}
+			}
 			res.Outcome = "cleared"
 			i = walkCap
 		case stopBoss, stopElite:

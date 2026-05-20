@@ -170,6 +170,29 @@ func (p *AdventurePlugin) finalizeExpeditionOnZoneClear(userID id.UserID, runID 
 	return p.AwardCompletionMilestones(exp, false)
 }
 
+// midZoneRegionClear reports whether the just-completed run (runID) is the
+// active expedition's current run AND finishes a non-boss region of a
+// multi-region zone — i.e. a region clear that leaves the expedition active
+// with a next region to cross into. Returns the cleared region, the next
+// region, and true in that case; zero-values + false for a full zone clear,
+// a standalone run, or any read error. Used to word the run-complete message
+// (region-cleared vs zone-cleared) without re-deriving region state inline.
+func midZoneRegionClear(userID id.UserID, runID string) (cur, next ExpeditionRegion, ok bool) {
+	exp, err := getActiveExpedition(userID)
+	if err != nil || exp == nil || exp.RunID != runID || !IsMultiRegionZone(exp.ZoneID) {
+		return ExpeditionRegion{}, ExpeditionRegion{}, false
+	}
+	region, found := CurrentRegion(exp)
+	if !found || region.IsZoneBoss {
+		return ExpeditionRegion{}, ExpeditionRegion{}, false
+	}
+	nxt, found := nextRegion(exp.ZoneID, region.ID)
+	if !found {
+		return ExpeditionRegion{}, ExpeditionRegion{}, false
+	}
+	return region, nxt, true
+}
+
 // getResumableExpedition returns the most recent 'extracting' row for the
 // user, regardless of age (caller checks the 7-day window).
 func getResumableExpedition(userID id.UserID) (*Expedition, error) {
