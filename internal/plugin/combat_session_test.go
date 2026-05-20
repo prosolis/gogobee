@@ -425,69 +425,117 @@ func TestTurnEngine_OneShotsRoundTrip(t *testing.T) {
 	}
 }
 
-// ── Pet proc (per-fight) ───────────────────────────────────────────────────
+// ── Pet proc (per-round) ───────────────────────────────────────────────────
 
-func TestRollCombatSessionPetProc(t *testing.T) {
-	// No pet proc on the player → never rolls true, never touches statuses.
-	none := &CombatSession{SessionID: "no-pet"}
-	if rollCombatSessionPetProc(none, CombatModifiers{}) || none.Statuses.PetProcReady {
-		t.Error("zero PetAttackProc should not arm a pet strike")
-	}
-	// A guaranteed proc arms the flag; the draw is deterministic per session id.
-	sure := &CombatSession{SessionID: "pet-fight"}
-	if !rollCombatSessionPetProc(sure, CombatModifiers{PetAttackProc: 1.0}) || !sure.Statuses.PetProcReady {
-		t.Error("PetAttackProc 1.0 should always arm a pet strike")
-	}
-	again := &CombatSession{SessionID: "pet-fight"}
-	rollCombatSessionPetProc(again, CombatModifiers{PetAttackProc: 1.0})
-	if again.Statuses.PetProcReady != sure.Statuses.PetProcReady {
-		t.Error("same session id should roll the pet proc deterministically")
-	}
-}
-
-// TestTurnEngine_PetStrike confirms an armed pet lands exactly one hit on the
-// player's first acting turn, then never again — the per-fight roll model.
+// TestTurnEngine_PetStrike confirms a pet with a guaranteed proc strikes on
+// every player-acting turn — the per-round roll model, matching auto-resolve.
 func TestTurnEngine_PetStrike(t *testing.T) {
 	// Pools huge so no phase can end the fight; isolate the pet behaviour.
 	sess := turnSession(CombatPhasePlayerTurn, 100000, 100000)
-	sess.Statuses.PetProcReady = true
 	player, enemy := basePlayer(), baseEnemy()
+	player.Mods.PetAttackProc = 1.0
 	player.Mods.PetAttackDmg = 8
 
-	events, err := stepEngine(sess, &player, &enemy, PlayerAction{Kind: ActionAttack})
-	if err != nil {
-		t.Fatal(err)
-	}
-	petHits := 0
-	for _, e := range events {
-		if e.Action == "pet_attack" {
-			petHits++
-			if e.Damage <= 0 {
-				t.Errorf("pet_attack damage = %d, want > 0", e.Damage)
+	petHitsOnPlayerTurn := func() int {
+		events, err := stepEngine(sess, &player, &enemy, PlayerAction{Kind: ActionAttack})
+		if err != nil {
+			t.Fatal(err)
+		}
+		hits := 0
+		for _, e := range events {
+			if e.Action == "pet_attack" {
+				hits++
+				if e.Damage <= 0 {
+					t.Errorf("pet_attack damage = %d, want > 0", e.Damage)
+				}
 			}
 		}
-	}
-	if petHits != 1 {
-		t.Fatalf("pet_attack events = %d on first player turn, want 1", petHits)
-	}
-	if sess.Statuses.PetProcReady {
-		t.Error("PetProcReady should clear after the pet strikes")
+		return hits
 	}
 
-	// Cycle back to the next player turn — the pet must not strike again.
+	if got := petHitsOnPlayerTurn(); got != 1 {
+		t.Fatalf("pet_attack events = %d on first player turn, want 1", got)
+	}
+
+	// Cycle back to the next player turn — the pet must strike again.
 	for sess.Phase != CombatPhasePlayerTurn {
 		if _, err := stepEngine(sess, &player, &enemy, PlayerAction{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	events, err = stepEngine(sess, &player, &enemy, PlayerAction{Kind: ActionAttack})
+	if got := petHitsOnPlayerTurn(); got != 1 {
+		t.Errorf("pet_attack events = %d on second player turn, want 1 (per-round)", got)
+	}
+}
+
+// TestTurnEngine_PetNoProc confirms a player without the pet proc never sees a
+// pet strike.
+func TestTurnEngine_PetNoProc(t *testing.T) {
+	sess := turnSession(CombatPhasePlayerTurn, 100000, 100000)
+	player, enemy := basePlayer(), baseEnemy()
+	player.Mods.PetAttackProc = 0
+
+	events, err := stepEngine(sess, &player, &enemy, PlayerAction{Kind: ActionAttack})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range events {
 		if e.Action == "pet_attack" {
-			t.Error("pet struck twice — the roll is per fight, not per round")
+			t.Error("pet struck with zero PetAttackProc")
 		}
+	}
+}
+
+// TestTurnEngine_PetWhiff confirms a guaranteed whiff makes the enemy's turn a
+// total miss — a pet_whiff event fires and the player takes no damage.
+func TestTurnEngine_PetWhiff(t *testing.T) {
+	sess := turnSession(CombatPhaseEnemyTurn, 100000, 100000)
+	player, enemy := basePlayer(), baseEnemy()
+	player.Mods.PetWhiffProc = 1.0
+	enemy.Stats.AttackBonus = 50 // would connect easily if not whiffed
+	startHP := sess.PlayerHP
+
+	events, err := stepEngine(sess, &player, &enemy, PlayerAction{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	whiffs := 0
+	for _, e := range events {
+		if e.Action == "pet_whiff" {
+			whiffs++
+		}
+		if e.Actor == "enemy" && e.Action == "hit" {
+			t.Error("enemy landed a hit despite a guaranteed pet whiff")
+		}
+	}
+	if whiffs == 0 {
+		t.Error("expected a pet_whiff event with PetWhiffProc 1.0")
+	}
+	if sess.PlayerHP != startHP {
+		t.Errorf("player took %d damage on a whiffed turn, want 0", startHP-sess.PlayerHP)
+	}
+}
+
+// TestTurnEngine_PetDeflect confirms a guaranteed deflect emits a pet_deflect
+// event on a connecting enemy attack.
+func TestTurnEngine_PetDeflect(t *testing.T) {
+	sess := turnSession(CombatPhaseEnemyTurn, 100000, 100000)
+	player, enemy := basePlayer(), baseEnemy()
+	player.Mods.PetDeflectProc = 1.0
+	enemy.Stats.AttackBonus = 50 // guarantee the swing connects
+
+	events, err := stepEngine(sess, &player, &enemy, PlayerAction{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deflects := 0
+	for _, e := range events {
+		if e.Action == "pet_deflect" {
+			deflects++
+		}
+	}
+	if deflects == 0 {
+		t.Error("expected a pet_deflect event with PetDeflectProc 1.0 on a connecting hit")
 	}
 }
 

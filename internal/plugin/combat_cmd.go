@@ -91,11 +91,9 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 	}
 
 	// Carry fight-start one-shot resources (Abjuration Arcane Ward, etc.) onto
-	// the session so they survive the turn engine's resume/commit cycle, and
-	// make the one-and-only per-fight pet-attack roll.
-	seeded := seedCombatSessionOneShots(sess, player.Mods)
-	pet := rollCombatSessionPetProc(sess, player.Mods)
-	if seeded || pet {
+	// the session so they survive the turn engine's resume/commit cycle. The
+	// pet now rolls per-turn inside the engine, so there's no fight-start roll.
+	if seedCombatSessionOneShots(sess, player.Mods) {
 		if err := saveCombatSession(sess); err != nil {
 			slog.Error("combat: seed session one-shots", "user", ctx.Sender, "err", err)
 		}

@@ -116,7 +116,6 @@ func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.R
 		armorBroken:    sess.Statuses.ArmorBroken,
 		armorBreakAmt:  sess.Statuses.ArmorBreakAmt,
 		enemySkipFirst: sess.Statuses.EnemySkipNext,
-		petProcReady:   sess.Statuses.PetProcReady,
 		// Fight-scoped depleting resources + once-per-fight one-shots: restored
 		// from the persisted statuses so a charge or "already used" flag can't
 		// reset across a suspend/resume. commit writes the updated values back.
@@ -223,19 +222,19 @@ func (te *turnEngine) stepPlayerTurn(action PlayerAction) {
 	te.sess.Phase = CombatPhaseEnemyTurn
 }
 
-// petStrike resolves the player's pet attack for a turn-based fight. Whether
-// the pet lands a hit was decided once at fight start (rollCombatSessionPetProc)
-// and parked on the session; the pet then strikes a single time on the player's
-// first acting turn — this clears the flag so it never repeats. Damage reuses
-// the auto-resolve formula (PetAttackDmg + d5), and PetAttackDmg already carries
-// any mid-fight buff delta via applySessionBuffs. Returns true if the strike
-// dropped the enemy.
+// petStrike resolves the player's pet attack for a turn-based fight. The pet
+// rolls fresh on every player-acting turn (PetAttackProc), mirroring the
+// auto-resolve engine's per-round chance rather than a once-per-fight strike.
+// The roll rides the per-(round,phase) step RNG, so a suspend/resume or reaper
+// auto-play of the same turn reproduces the same outcome. Damage reuses the
+// auto-resolve formula (PetAttackDmg + d5), and PetAttackDmg already carries any
+// mid-fight buff delta via applySessionBuffs. Returns true if the strike dropped
+// the enemy.
 func (te *turnEngine) petStrike() bool {
 	st := te.st
-	if !st.petProcReady {
+	if te.player.Mods.PetAttackProc <= 0 || st.randFloat() >= te.player.Mods.PetAttackProc {
 		return false
 	}
-	st.petProcReady = false
 	petDmg := te.player.Mods.PetAttackDmg + st.roll(5)
 	st.enemyHP = max(0, st.enemyHP-petDmg)
 	st.events = append(st.events, CombatEvent{
@@ -243,32 +242,6 @@ func (te *turnEngine) petStrike() bool {
 		Damage: petDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 	})
 	return enemyDown(st, turnCombatPhase.Name)
-}
-
-// rollCombatSessionPetProc makes the one-and-only per-fight pet-attack roll and
-// parks the result on the session. Called once at fight start. The draw is
-// deterministic — seeded off the session id on a stream distinct from the
-// per-(round,phase) combat streams — so a reaper auto-play of an abandoned
-// fight reproduces the same outcome. Returns true if the pet will attack (so
-// the caller can decide whether the session needs persisting).
-//
-// Note: only the base PetAttackProc (class/race/subclass passives) is rolled
-// here — a pet-proc buff cast mid-fight gets no fresh roll, consistent with the
-// per-fight rule. Such a buff still raises PetAttackDmg if the pet does strike.
-func rollCombatSessionPetProc(sess *CombatSession, playerMods CombatModifiers) bool {
-	if playerMods.PetAttackProc <= 0 {
-		return false
-	}
-	var seed uint64 = 1469598103934665603
-	for _, c := range sess.SessionID {
-		seed = (seed ^ uint64(c)) * 1099511628211
-	}
-	rng := rand.New(rand.NewPCG(seed, 0x9E3779B97F4A7C15))
-	if rngFloat(rng) < playerMods.PetAttackProc {
-		sess.Statuses.PetProcReady = true
-		return true
-	}
-	return false
 }
 
 // stepPlayerActionEffect resolves a !cast / !consume turn: the command handler
@@ -375,6 +348,17 @@ func (te *turnEngine) stepEnemyTurn() {
 	}
 
 	if !abilityDealtDamage {
+		// Pet defensive procs are a per-round concept (mirrors the auto-resolve
+		// engine): roll once for the whole enemy turn, then apply to every swing
+		// in a multiattack profile. Whiff makes the enemy's attack this round a
+		// guaranteed miss; deflect halves the incoming damage. The shared
+		// resolveEnemyAttack primitive consumes both flags.
+		petWhiff := te.player.Mods.PetWhiffProc > 0 && te.st.randFloat() < te.player.Mods.PetWhiffProc
+		petDeflect := te.player.Mods.PetDeflectProc > 0 && te.st.randFloat() < te.player.Mods.PetDeflectProc
+		if petDeflect {
+			te.result.PetDeflected = true
+		}
+
 		// SRD multiattack: each profile entry is one attack roll resolved
 		// through the shared primitive. A registered elite/boss swings its full
 		// profile; everyone else gets a single attack from the template stats.
@@ -385,7 +369,7 @@ func (te *turnEngine) stepEnemyTurn() {
 			swing := *te.enemy
 			swing.Stats.Attack = atk.Damage
 			swing.Stats.AttackBonus = atk.AttackBonus
-			decided := resolveEnemyAttack(te.st, te.player, &swing, &turnCombatPhase, te.result, false, false, false)
+			decided := resolveEnemyAttack(te.st, te.player, &swing, &turnCombatPhase, te.result, petWhiff, petDeflect, false)
 			if te.st.playerHP <= 0 {
 				te.finish(CombatStatusLost)
 				return
@@ -479,7 +463,6 @@ func (te *turnEngine) commit() {
 	s.ArmorBroken = st.armorBroken
 	s.ArmorBreakAmt = st.armorBreakAmt
 	s.EnemySkipNext = st.enemySkipFirst
-	s.PetProcReady = st.petProcReady
 	s.WardCharges = st.wardCharges
 	s.SporeRounds = st.sporeRounds
 	s.ReflectFrac = st.reflectFrac

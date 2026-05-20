@@ -319,10 +319,6 @@ type combatState struct {
 	// the enemy would otherwise attack).
 	enemySkipFirst bool
 
-	// Phase 13 turn-based — pet attack decided once at fight start; the pet
-	// strikes once on the player's first acting turn, which clears this.
-	petProcReady bool
-
 	// Phase 10 SUB2a-ii first-attack one-shots.
 	firstAttackBonusUsed  bool
 	assassinateRerollUsed bool
