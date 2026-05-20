@@ -172,6 +172,28 @@ func nodeGlyph(n ZoneNode) string {
 	return "·"
 }
 
+// renderVisitedPath renders a one-line numbered breadcrumb of the
+// player's path so they can reference rooms by index (e.g. !revisit 2).
+// Numbers are 1-indexed to match every other surface ("Room 2/7", etc.).
+func renderVisitedPath(g ZoneGraph, run *DungeonRun) string {
+	if run == nil || len(run.VisitedNodes) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(run.VisitedNodes))
+	for i, nodeID := range run.VisitedNodes {
+		glyph := "·"
+		if n, ok := g.Nodes[nodeID]; ok {
+			glyph = nodeGlyph(n)
+		}
+		mark := "✓"
+		if nodeID == run.CurrentNode {
+			mark = "▶"
+		}
+		parts = append(parts, fmt.Sprintf("[%d]%s%s", i+1, glyph, mark))
+	}
+	return strings.Join(parts, " → ")
+}
+
 // debugDump (test-only crutch) prints the raw column layout. Currently
 // unused outside potential debugging — kept off the unused-warning list
 // by routing fmt through it.

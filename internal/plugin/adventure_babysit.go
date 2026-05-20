@@ -98,7 +98,7 @@ func (p *AdventurePlugin) handleBabysitCmd(ctx MessageContext, args string) erro
 		return p.SendDM(ctx.Sender, "🍼 **Adventurer Babysitting Service**\n\n"+
 			"Hire a babysitter to look after your camp and tend the pet while you sleep:\n"+
 			"  • Daily pet XP trickle (your pet still grows while you focus elsewhere)\n"+
-			"  • Standard camps act like fortified ones — rest deeply, no need for boss-cleared rooms\n"+
+			"  • Standard camps act like fortified ones — rest deeply, no need to have downed the zone boss\n"+
 			"  • Rival duels declined on your behalf\n\n"+
 			"`!adventure babysit week` — 7 days of service\n"+
 			"`!adventure babysit month` — 30 days of service\n"+

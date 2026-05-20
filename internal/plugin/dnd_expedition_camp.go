@@ -79,12 +79,9 @@ func (p *AdventurePlugin) handleCampCmd(ctx MessageContext, args string) error {
 	case "rough", "standard":
 		// allowed in E1e
 	case "fortified":
-		// E2d: §5.1 — boss-cleared room or cache site. Cache sites
-		// are zone-specific waypoints (E3+), so for now we require the
-		// expedition's boss to have been defeated.
 		if !exp.BossDefeated {
 			return p.SendDM(ctx.Sender,
-				"Fortified camps require a boss-cleared room or cache site. Defeat the zone boss (or find a cache) first.")
+				"Fortified camps require a defeated zone boss. Clear the zone first.")
 		}
 	case "base":
 		// E4d: §11.1 — base camps unlock per region after the region
@@ -122,7 +119,7 @@ func campHelpText(exp *Expedition) string {
 	b.WriteString("**!camp <type>** — establish camp during an expedition.\n\n")
 	b.WriteString("`!camp rough` — partial rest (any location, +0.5 SU, high night risk)\n")
 	b.WriteString("`!camp standard` — full long rest (cleared room, +1 SU, medium risk)\n")
-	b.WriteString("`!camp fortified` — long rest + bonus (boss-cleared room, +2 SU, low risk)\n")
+	b.WriteString("`!camp fortified` — long rest + bonus (zone boss defeated, +2 SU, low risk)\n")
 	b.WriteString("`!camp base` — persistent waypoint (region-boss-cleared base-camp site, +3 SU, very low risk)\n")
 	b.WriteString("`!camp break` — break camp\n\n")
 	if exp.Camp != nil && exp.Camp.Active {
@@ -146,10 +143,10 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 		return p.SendDM(ctx.Sender, problem)
 	}
 	if !cleared && kind == CampTypeStandard {
-		// §5.2: non-cleared room forces rough.
-		kind = CampTypeRough
-		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative",
-			"intended standard camp; downgraded to rough (room not cleared)", "")
+		// §5.2: standard camp requires a cleared room. Reject explicitly
+		// rather than silently downgrading — the player should make the call.
+		return p.SendDM(ctx.Sender,
+			"Standard camp needs a cleared room. This room isn't cleared yet — clear it first, or `!camp rough` for a partial rest here.")
 	}
 
 	cost, ok := campSupplyCost[kind]
@@ -359,15 +356,24 @@ func campLocationCheck(exp *Expedition) (cleared bool, problem string) {
 	case RoomTrap:
 		return false, "You can't camp in a trap room — even a disarmed one."
 	}
-	// Active-enemy detection requires combat-state lookup; defer to E2.
-	cleared = false
 	for _, idx := range run.RoomsCleared {
 		if idx == run.CurrentRoom {
-			cleared = true
-			break
+			return true, ""
 		}
 	}
-	return cleared, ""
+	// Not yet advanced-past, but if there's no live combat encounter in
+	// this room, it's still safe to rest in. Forward-only navigation means
+	// players naturally pause right after a kill before advancing — the
+	// "cleared" flag would otherwise force-downgrade their camp to rough.
+	encID := encounterIDForRoom(run.CurrentRoom)
+	sess, err := getCombatSessionForEncounter(run.RunID, encID)
+	if err != nil {
+		return false, ""
+	}
+	if sess != nil && sess.Status != CombatStatusActive {
+		return true, ""
+	}
+	return false, ""
 }
 
 // campCurrentRoomIndex returns 0 (entry) when no room context exists.
