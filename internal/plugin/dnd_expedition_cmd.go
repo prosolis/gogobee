@@ -625,6 +625,34 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 			rooms++
 		}
 
+		// Multi-region auto-advance: a mid-zone region clear completes the
+		// region's run (stopComplete) but leaves the wrapping expedition
+		// active. Rather than dead-stopping the walk at every region
+		// boundary, cross into the next region — burning the transit day +
+		// supplies exactly like manual `!region travel` — and keep walking
+		// within the remaining room budget. A full zone clear instead flips
+		// the expedition to 'complete' (getActiveExpedition → nil) and falls
+		// through to the normal stop below.
+		if res.reason == stopComplete {
+			if fresh, ferr := getActiveExpedition(ctx.Sender); ferr == nil && fresh != nil &&
+				IsMultiRegionZone(fresh.ZoneID) {
+				if cur, ok := CurrentRegion(fresh); ok {
+					if next, ok := nextRegion(fresh.ZoneID, cur.ID); ok {
+						stream = append(stream, res.final)
+						transit, terr := p.advanceToNextRegion(ctx.Sender, fresh, cur, next)
+						if terr != nil {
+							finalMsg = res.final + "\n\n⏸ **Autopilot paused — region transit failed.** `!region travel` to cross over manually."
+							reason = stopComplete
+							break
+						}
+						stream = append(stream, transit)
+						exp = fresh
+						continue
+					}
+				}
+			}
+		}
+
 		if res.reason != stopOK {
 			footer := autopilotFooter(res.reason, rooms)
 			if footer != "" {
