@@ -52,7 +52,7 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 		case CombatStatusActive:
 			return p.SendDM(ctx.Sender, "You're already in this fight — `!attack` or `!flee`.")
 		case CombatStatusWon:
-			return p.SendDM(ctx.Sender, "You've already cleared this room. `!zone advance` to move on.")
+			return p.SendDM(ctx.Sender, "You've already cleared this room. "+continueHint(ctx.Sender))
 		default:
 			return p.SendDM(ctx.Sender, "This fight is already over. `!zone status` for where you stand.")
 		}
@@ -204,6 +204,18 @@ func combatTurnPrompt(sess *CombatSession) string {
 
 // ── close-out ───────────────────────────────────────────────────────────────
 
+// continueHint returns the verb the player uses to keep moving after a
+// manual Elite/Boss fight, phrased for their current mode. On an
+// expedition the autopilot drives the walk, so `!zone advance` is the
+// wrong surface — point them at `!expedition run` instead. Standalone
+// zone runs still advance with `!zone advance`.
+func continueHint(userID id.UserID) string {
+	if exp, err := getActiveExpedition(userID); err == nil && exp != nil {
+		return "`!expedition run` to keep going."
+	}
+	return "`!zone advance` to move on."
+}
+
 // finishCombatSession runs the post-fight side effects once a CombatSession
 // has reached a terminal status, and returns the player-facing outcome block.
 // The graph is NOT advanced here: the terminal session row is the record that
@@ -241,11 +253,13 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 				slog.Error("combat: grantDnDXP turn-based", "user", userID, "err", err)
 			}
 		}
+		bossOnExpedition := false
 		if !elite {
 			// §8.1 — zone boss defeat drops expedition threat. Silent no-op
 			// for standalone zone runs (no active expedition).
 			if exp, eerr := getActiveExpedition(userID); eerr == nil && exp != nil {
 				_ = applyBossDefeatThreat(exp.ID)
+				bossOnExpedition = true
 			}
 		}
 		if line := twinBeeLine(zone.ID, DMCombatEnd, sess.RunID, cadence); line != "" {
@@ -260,7 +274,15 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 		if drop := p.dropZoneLoot(userID, zone.ID, monster, !elite); drop != "" {
 			b.WriteString(drop + "\n")
 		}
-		b.WriteString("`!zone advance` to move on.")
+		if bossOnExpedition {
+			// The boss is the expedition's climax. Frame the close-out as
+			// the win rather than a "keep walking" nudge. One more
+			// `!expedition run` walks out the cleared room and triggers
+			// finalizeExpeditionOnZoneClear (rewards + status flip).
+			b.WriteString("🎉 **Zone cleared — the expedition is won.** `!expedition run` to march out and claim your spoils.")
+		} else {
+			b.WriteString(continueHint(userID))
+		}
 
 	case CombatStatusLost:
 		if run != nil {

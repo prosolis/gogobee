@@ -169,7 +169,7 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 		return p.SendDM(ctx.Sender, "Couldn't decode pending fork: "+derr.Error())
 	}
 	if pf == nil {
-		return p.SendDM(ctx.Sender, "No fork pending. Use `!zone advance` to continue.")
+		return p.SendDM(ctx.Sender, "No fork pending. Use "+continueHint(ctx.Sender))
 	}
 	rest = strings.TrimSpace(rest)
 	if rest == "" {
@@ -207,7 +207,14 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 			b.WriteString("\n\n")
 		}
 	}
-	b.WriteString(fmt.Sprintf("**Room %d/%d — %s.** `!zone advance` to continue.",
-		nextIdx+1, run.TotalRooms, prettyRoomType(nextRoom)))
+	b.WriteString(fmt.Sprintf("**Room %d/%d — %s.** ", nextIdx+1, run.TotalRooms, prettyRoomType(nextRoom)))
+	switch nextRoom {
+	case RoomBoss:
+		b.WriteString("`!fight` when you're ready for the boss.")
+	case RoomElite:
+		b.WriteString("`!fight` when ready.")
+	default:
+		b.WriteString(continueHint(ctx.Sender))
+	}
 	return p.SendDM(ctx.Sender, b.String())
 }

@@ -753,7 +753,7 @@ func (p *AdventurePlugin) formatNextRoomMessage(run *DungeonRun, zone ZoneDefini
 	case RoomElite:
 		b.WriteString("`!fight` when ready.")
 	default:
-		b.WriteString("`!zone advance` to continue.")
+		b.WriteString(continueHint(id.UserID(run.UserID)))
 	}
 	return b.String()
 }
