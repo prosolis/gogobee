@@ -407,7 +407,16 @@ func (p *AdventurePlugin) midnightReset() error {
 
 	dmsSent := 0
 	for _, char := range chars {
-		if !char.HasActedToday() {
+		// This runs at 00:00 of the new UTC day, closing out the day that just
+		// ended (= yesterday). HasActedToday() compares LastActionDate against
+		// time.Now()'s date (the *new* day), so DnD-side players who credited
+		// the closing day via LastActionDate=yesterday would read as idle and
+		// get their streak halved. Credit activity on the closing day directly:
+		// legacy counters are still non-zero here (reset happens further below),
+		// and LastActionDate==yesterday means they played the day we're closing.
+		acted := char.CombatActionsUsed > 0 || char.HarvestActionsUsed > 0 ||
+			char.LastActionDate == today || char.LastActionDate == yesterday
+		if !acted {
 			// If the player died today or yesterday, they couldn't act — no shame,
 			// no streak reset. This covers both currently-dead players and players
 			// who were just revived at midnight (Alive already flipped to true by
