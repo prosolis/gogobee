@@ -34,8 +34,12 @@ func fxIsTracked(cur string) bool {
 	return false
 }
 
-// fxFormatRate formats a rate: JPY uses 2 decimal places, others use 4.
+// fxFormatRate formats a rate: crypto uses up to 8 decimals (trailing zeros
+// trimmed) for tiny per-USD figures, JPY uses 2, others use 4.
 func fxFormatRate(currency string, rate float64) string {
+	if fxIsCrypto(currency) {
+		return fxTrimZeros(fmt.Sprintf("%.8f", rate))
+	}
 	if currency == "JPY" {
 		return fmt.Sprintf("%.2f", rate)
 	}
