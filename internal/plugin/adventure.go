@@ -853,7 +853,7 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 	case "pet_type":
 		return p.resolvePetType(ctx)
 	case "pet_name":
-		return p.resolvePetName(ctx)
+		return p.resolvePetName(ctx, interaction)
 	}
 	return nil
 }

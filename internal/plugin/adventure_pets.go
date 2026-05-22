@@ -329,8 +329,11 @@ func (p *AdventurePlugin) resolvePetType(ctx MessageContext) error {
 		article, titleCase(petType)))
 }
 
-// resolvePetName handles naming the pet.
-func (p *AdventurePlugin) resolvePetName(ctx MessageContext) error {
+// resolvePetName handles naming the pet. The dispatcher (handlePendingReply)
+// has already deleted the pending interaction and passes it in, so this must
+// NOT re-load from p.pending — doing so previously made every adoption fail
+// silently (the carried PetType was lost and the save never ran).
+func (p *AdventurePlugin) resolvePetName(ctx MessageContext, interaction *advPendingInteraction) error {
 	userMu := p.advUserLock(ctx.Sender)
 	userMu.Lock()
 	defer userMu.Unlock()
@@ -340,20 +343,15 @@ func (p *AdventurePlugin) resolvePetName(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Failed to load your character.")
 	}
 
-	val, ok := p.pending.LoadAndDelete(string(ctx.Sender))
-	if !ok {
-		return nil
-	}
-	pi := val.(*advPendingInteraction)
-	data := pi.Data.(*advPendingPetName)
+	data := interaction.Data.(*advPendingPetName)
 
 	name := strings.TrimSpace(ctx.Body)
 	if len(name) == 0 || len(name) > 30 {
-		p.pending.Store(string(ctx.Sender), pi)
+		p.pending.Store(string(ctx.Sender), interaction)
 		return p.SendDM(ctx.Sender, "Name must be 1-30 characters. Try again.")
 	}
 	if !petNameValid.MatchString(name) {
-		p.pending.Store(string(ctx.Sender), pi)
+		p.pending.Store(string(ctx.Sender), interaction)
 		return p.SendDM(ctx.Sender, "Name can only contain letters, numbers, spaces, hyphens, and apostrophes. Try again.")
 	}
 
