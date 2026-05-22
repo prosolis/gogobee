@@ -361,19 +361,20 @@ func campLocationCheck(exp *Expedition) (cleared bool, problem string) {
 			return true, ""
 		}
 	}
-	// Not yet advanced-past, but if there's no live combat encounter in
-	// this room, it's still safe to rest in. Forward-only navigation means
-	// players naturally pause right after a kill before advancing — the
-	// "cleared" flag would otherwise force-downgrade their camp to rough.
+	// Not yet advanced-past, but the only thing that bars a rest is a live
+	// fight. Forward-only navigation means players pause right after a kill
+	// before advancing, and peaceful/exploration/loot rooms never spawn an
+	// encounter at all — both are safe to rest in. The "cleared" flag would
+	// otherwise reject standard camp here with a misleading "clear it first".
 	encID := encounterIDForRoom(run.CurrentRoom)
 	sess, err := getCombatSessionForEncounter(run.RunID, encID)
 	if err != nil {
 		return false, ""
 	}
-	if sess != nil && sess.Status != CombatStatusActive {
-		return true, ""
+	if sess != nil && sess.Status == CombatStatusActive {
+		return false, "You can't camp mid-fight — finish the encounter first."
 	}
-	return false, ""
+	return true, ""
 }
 
 // campCurrentRoomIndex returns 0 (entry) when no room context exists.

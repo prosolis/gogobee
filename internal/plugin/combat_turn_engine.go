@@ -348,11 +348,12 @@ func (te *turnEngine) stepEnemyTurn() {
 	}
 
 	if !abilityDealtDamage {
-		// Pet defensive procs are a per-round concept (mirrors the auto-resolve
-		// engine): roll once for the whole enemy turn, then apply to every swing
-		// in a multiattack profile. Whiff makes the enemy's attack this round a
-		// guaranteed miss; deflect halves the incoming damage. The shared
-		// resolveEnemyAttack primitive consumes both flags.
+		// Pet defensive procs are a single proc per enemy turn: roll once, then
+		// spend it on the first swing only. Whiff makes that one swing a
+		// guaranteed miss; deflect halves its damage. Against a multiattack the
+		// remaining swings resolve normally — a single proc shouldn't nullify a
+		// boss's whole multiattack round. (This deliberately diverges from the
+		// auto-resolve engine's apply-to-all model.)
 		petWhiff := te.player.Mods.PetWhiffProc > 0 && te.st.randFloat() < te.player.Mods.PetWhiffProc
 		petDeflect := te.player.Mods.PetDeflectProc > 0 && te.st.randFloat() < te.player.Mods.PetDeflectProc
 		if petDeflect {
@@ -365,11 +366,14 @@ func (te *turnEngine) stepEnemyTurn() {
 		// resolveEnemyAttack returns true when the fight is decided — either the
 		// player went down without a death save, or a reflect consumable killed
 		// the enemy. Disambiguate by inspecting HP.
-		for _, atk := range enemyAttackProfile(te.sess.EnemyID, te.enemy.Stats) {
+		for i, atk := range enemyAttackProfile(te.sess.EnemyID, te.enemy.Stats) {
 			swing := *te.enemy
 			swing.Stats.Attack = atk.Damage
 			swing.Stats.AttackBonus = atk.AttackBonus
-			decided := resolveEnemyAttack(te.st, te.player, &swing, &turnCombatPhase, te.result, petWhiff, petDeflect, false)
+			// Spend the proc on the first swing only; later swings see false.
+			swingWhiff := petWhiff && i == 0
+			swingDeflect := petDeflect && i == 0
+			decided := resolveEnemyAttack(te.st, te.player, &swing, &turnCombatPhase, te.result, swingWhiff, swingDeflect, false)
 			if te.st.playerHP <= 0 {
 				te.finish(CombatStatusLost)
 				return

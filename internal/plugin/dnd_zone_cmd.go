@@ -458,22 +458,24 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 			reason: stopBlocked,
 		}, nil
 	}
-	// compact==true is the background auto-walk path; only credit
-	// player-initiated advances toward the daily streak.
-	if !compact {
-		markActedToday(ctx.Sender)
-	}
 	_ = applyMoodDecayIfStale(run)
 	zone := zoneOrFallback(run.ZoneID)
 	// A pending fork means advanceTransitionGraph already cleared the
 	// current room and stopped — re-running resolveRoom would re-fire
 	// combat and re-drop loot on the same room. Re-emit the fork prompt
 	// and let the caller surface it; the player commits via !zone go <n>.
+	// This returns *before* crediting the daily streak: spamming `!zone
+	// advance` at a fork resolves no room, so it must not keep the streak alive.
 	if pf, derr := decodePendingFork(run.NodeChoices); derr == nil && pf != nil {
 		return advanceResult{
 			final:  renderForkPrompt(zone, *pf),
 			reason: stopFork,
 		}, nil
+	}
+	// compact==true is the background auto-walk path; only credit
+	// player-initiated advances toward the daily streak.
+	if !compact {
+		markActedToday(ctx.Sender)
 	}
 	prev := run.CurrentRoomType()
 	prevIdx := run.CurrentRoom

@@ -655,6 +655,18 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 				IsMultiRegionZone(fresh.ZoneID) {
 				if cur, ok := CurrentRegion(fresh); ok {
 					if next, ok := nextRegion(fresh.ZoneID, cur.ID); ok {
+						// A region crossing burns a transit day + supplies and
+						// draws unprotected wandering damage. On the background
+						// walk, don't cross while the player is weak — preflight
+						// HP/SU and hand the crossing back to a foreground
+						// `!region travel` / `!expedition run` if either is low.
+						if compact {
+							if msg, stop := autopilotPreflight(ctx.Sender, fresh); stop {
+								finalMsg = res.final + "\n\n" + msg
+								reason = stopPreflight
+								break
+							}
+						}
 						stream = append(stream, res.final)
 						transit, terr := p.advanceToNextRegion(ctx.Sender, fresh, cur, next)
 						if terr != nil {

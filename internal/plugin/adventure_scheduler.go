@@ -486,6 +486,11 @@ func (p *AdventurePlugin) midnightReset() error {
 			if char.CurrentStreak > char.BestStreak {
 				char.BestStreak = char.CurrentStreak
 			}
+			// Restamp to today (mirrors the busy branch above). A purely-legacy
+			// actor whose action path bumps CombatActionsUsed/HarvestActionsUsed
+			// but never stamps LastActionDate lands here with a stale date; without
+			// this its streak would reset to 1 every night even with continuous play.
+			char.LastActionDate = today
 			_ = saveAdvCharacter(&char)
 		}
 	}
