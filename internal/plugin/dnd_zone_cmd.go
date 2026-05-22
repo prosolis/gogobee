@@ -817,6 +817,30 @@ func (p *AdventurePlugin) streamFlow(userID id.UserID, phaseMessages []string, f
 	return nil
 }
 
+// streamFlowThen behaves like streamFlow but runs after() once the final
+// message has actually been delivered. Emergence follow-ups (e.g. the pet
+// arrival DM) must land strictly *after* the paced run narration — rolling
+// them before streamFlow returns races the streamer's goroutine and surfaces
+// "there's an animal in your house" ahead of the "Run complete" beat the
+// player is still waiting on. after may be nil.
+func (p *AdventurePlugin) streamFlowThen(userID id.UserID, phaseMessages []string, finalMessage string, after func()) error {
+	if len(phaseMessages) == 0 {
+		err := p.SendDM(userID, finalMessage)
+		if after != nil {
+			after()
+		}
+		return err
+	}
+	done := p.sendZoneCombatMessages(userID, phaseMessages, finalMessage)
+	if after != nil {
+		go func() {
+			<-done
+			after()
+		}()
+	}
+	return nil
+}
+
 // resolveRoom dispatches to the per-room-type resolver. Returns staged
 // messages (intro, phases, outcome) so combat rooms can be paced with
 // inter-phase delays — see resolveCombatRoom for the contract. For

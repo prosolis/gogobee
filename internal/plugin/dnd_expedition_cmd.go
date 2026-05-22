@@ -560,11 +560,15 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 	// surfaces the player alive just like an extract or abandon — roll pet
 	// arrival here too. The roll lives in the real callers, not in
 	// runAutopilotWalk, so the sim path (which calls the walk directly)
-	// never fires arrival DMs. See maybeRollPetArrivalOnEmerge.
+	// never fires arrival DMs. See maybeRollPetArrivalOnEmerge. Defer it
+	// behind the paced stream so the "animal in your house" DM lands after
+	// the "Run complete" beat, not before it.
+	var after func()
 	if r.reason == stopComplete {
-		p.maybeRollPetArrivalOnEmerge(ctx.Sender)
+		uid := ctx.Sender
+		after = func() { p.maybeRollPetArrivalOnEmerge(uid) }
 	}
-	return p.streamFlow(ctx.Sender, r.stream, r.finalMsg)
+	return p.streamFlowThen(ctx.Sender, r.stream, r.finalMsg, after)
 }
 
 // runAutopilotWalk runs the autopilot loop up to maxRooms times and

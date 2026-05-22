@@ -165,16 +165,16 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 	}
 	// Emergence seam: a run-complete reached by the background ticker is
 	// still a live emergence — roll pet arrival. See maybeRollPetArrivalOnEmerge.
+	// Deferred until after the run-summary DM below so the "animal in your
+	// house" prompt lands after the summary, not ahead of it.
+	if shouldDMAutoRun(r) {
+		body := renderAutoRunDM(r)
+		if err := p.SendDM(uid, body); err != nil {
+			slog.Warn("expedition: autorun DM", "user", uid, "err", err)
+		}
+	}
 	if r.reason == stopComplete {
 		p.maybeRollPetArrivalOnEmerge(uid)
-	}
-	if !shouldDMAutoRun(r) {
-		return nil
-	}
-
-	body := renderAutoRunDM(r)
-	if err := p.SendDM(uid, body); err != nil {
-		slog.Warn("expedition: autorun DM", "user", uid, "err", err)
 	}
 	return nil
 }
