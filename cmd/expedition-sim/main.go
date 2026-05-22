@@ -43,10 +43,17 @@ func main() {
 		runs    = flag.Int("runs", 1, "replicates per (class,level,zone) cell (matrix mode)")
 
 		trace = flag.Bool("trace", false, "include raw per-round CombatEvent stream on the LAST combat of each expedition (boss room) — for J2 diagnostic sweeps")
+
+		petLevel = flag.Int("pet-level", 0, "attach a base housing pet at this level (1-10) to every sim character; 0 = no pet (default, matches prod char-creation)")
 	)
 	flag.Parse()
 
+	if *petLevel < 0 || *petLevel > 10 {
+		fail("pet-level must be 0-10, got", *petLevel)
+	}
+
 	plugin.SetSimIncludeTrace(*trace)
+	plugin.SetSimPetLevel(*petLevel)
 
 	if *matrix {
 		// Matrix default: drop log to keep stdout manageable; explicit

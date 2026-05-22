@@ -60,6 +60,11 @@ func (s *SimRunner) BuildCharacter(uid id.UserID, class DnDClass, level int) (*D
 	if err := createAdvCharacter(uid, "sim_"+string(class)); err != nil {
 		return nil, fmt.Errorf("createAdvCharacter: %w", err)
 	}
+	if simPetLevel > 0 {
+		if err := attachSimPet(uid, simPetLevel); err != nil {
+			return nil, fmt.Errorf("attachSimPet: %w", err)
+		}
+	}
 	c := &DnDCharacter{
 		UserID: uid,
 		Race:   RaceHuman,
@@ -170,6 +175,26 @@ func simConsumableBundle(tier int) map[string]int {
 // L7-9 → T3, L10-12 → T4, L13+ → T5). It's a "kitted-out at expected
 // difficulty" baseline, not a min-max — players past the appropriate
 // shop visit should be at or above this band.
+// attachSimPet stamps a base housing pet (Massive Dog, no armor) at the
+// given level onto the synthetic character via the normal adv-char save
+// path, so combat's DerivePlayerStats sees HasPet()==true. Dog vs cat is
+// numerically identical today, so type is arbitrary; armor tier stays 0 to
+// model the plain "base pet" rather than a kitted one.
+func attachSimPet(uid id.UserID, level int) error {
+	char, err := loadAdvCharacter(uid)
+	if err != nil {
+		return err
+	}
+	char.PetType = "dog"
+	char.PetName = "SimDog"
+	char.PetLevel = level
+	char.PetArmorTier = 0
+	char.PetArrived = true
+	char.PetChasedAway = false
+	char.PetXP = 0
+	return saveAdvCharacter(char)
+}
+
 func outfitSimCharacter(uid id.UserID, level int) error {
 	tier := simGearTierForLevel(level)
 	equip, err := loadAdvEquipment(uid)
@@ -299,6 +324,20 @@ var simIncludeTrace = false
 // stream on the LAST SimCombatSummary of each expedition (the boss
 // room). Callers should flip this on before BuildCharacter / RunExpedition.
 func SetSimIncludeTrace(on bool) { simIncludeTrace = on }
+
+// simPetLevel, when > 0, attaches a base housing pet (Massive Dog, no
+// armor) at that level to every synthetic character. 0 (the default) leaves
+// the character petless, matching prod char-creation. Pets are otherwise
+// unreachable in the sim — synthetic chars never trigger the arrival flow —
+// so this is the only way to exercise the per-round pet attack / deflect /
+// whiff path for balance measurement. Combat reads pet stats off the
+// AdventureCharacter (see DerivePlayerStats), so BuildCharacter stamps the
+// fields there, not on the DnDCharacter.
+var simPetLevel = 0
+
+// SetSimPetLevel attaches a base pet at the given level (1-10) to sim
+// characters. 0 disables. Flip before BuildCharacter.
+func SetSimPetLevel(level int) { simPetLevel = level }
 
 // SimLogEntry is a JSONL-friendly projection of one dnd_expedition_log
 // row. We expose just the fields a post-hoc analyzer needs without
