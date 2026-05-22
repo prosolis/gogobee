@@ -604,6 +604,16 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 				b.WriteString("• " + id + "\n")
 			}
 		}
+		// Success-path expedition close-out: flip the wrapping expedition to
+		// 'complete' (when this clear finishes the whole zone) and surface any
+		// completion milestones. No-op for standalone runs / mid-zone region
+		// clears.
+		if lines := p.finalizeExpeditionOnZoneClear(ctx.Sender, run.RunID); len(lines) > 0 {
+			b.WriteString("\n")
+			for _, line := range lines {
+				b.WriteString(line)
+			}
+		}
 		return advanceResult{
 			preStream: preStream,
 			intro:     intro,

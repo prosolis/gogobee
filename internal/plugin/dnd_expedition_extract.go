@@ -110,6 +110,66 @@ func forceExtractExpeditionForRunLoss(userID id.UserID, reason string) {
 	}
 }
 
+// finalizeExpeditionOnZoneClear bridges the run-complete seam (boss down,
+// no outgoing edges) into expedition completion — the success-path twin of
+// forceExtractExpeditionForRunLoss. When the cleared run is the active
+// expedition's current run AND the clear finishes the whole zone (a
+// single-region zone, or the zone-boss region of a multi-region zone), it
+// flips the expedition to 'complete', records boss_defeated, and awards
+// completion milestones. Returns the rendered milestone lines for the caller
+// to append to the run-complete message.
+//
+// No-op (nil) for standalone runs and for mid-zone region clears, which
+// leave the expedition active so inter-region travel can continue. Without
+// this, a cleared zone leaves the expedition 'active' forever and the
+// ambient ticker keeps DMing about a dungeon the player already finished.
+func (p *AdventurePlugin) finalizeExpeditionOnZoneClear(userID id.UserID, runID string) []string {
+	exp, err := getActiveExpedition(userID)
+	if err != nil || exp == nil {
+		return nil
+	}
+	if exp.RunID != runID {
+		return nil // the completed run isn't this expedition's current run
+	}
+
+	if IsMultiRegionZone(exp.ZoneID) {
+		region, ok := CurrentRegion(exp)
+		if !ok {
+			return nil
+		}
+		if _, err := MarkRegionBossDefeated(exp, region.ID); err != nil {
+			slog.Warn("expedition: mark region boss defeated",
+				"user", userID, "expedition", exp.ID, "region", region.ID, "err", err)
+		}
+		if !region.IsZoneBoss {
+			return nil // region cleared; expedition continues to the next region
+		}
+	} else {
+		// Single-region zone: there's no region registry to flip through
+		// MarkRegionBossDefeated, so set the zone-level flag directly.
+		exp.BossDefeated = true
+		if _, err := db.Get().Exec(`
+			UPDATE dnd_expedition
+			   SET boss_defeated = 1,
+			       last_activity = CURRENT_TIMESTAMP
+			 WHERE expedition_id = ?`, exp.ID); err != nil {
+			slog.Warn("expedition: set boss defeated on zone clear",
+				"user", userID, "expedition", exp.ID, "err", err)
+		}
+	}
+
+	// completeExpedition must run before AwardCompletionMilestones — the
+	// latter gates on status == 'complete'.
+	if err := completeExpedition(exp.ID, ExpeditionStatusComplete); err != nil {
+		slog.Warn("expedition: complete on zone clear",
+			"user", userID, "expedition", exp.ID, "err", err)
+		return nil
+	}
+	exp.Status = ExpeditionStatusComplete
+	_ = retireAllRegionRuns(exp)
+	return p.AwardCompletionMilestones(exp, false)
+}
+
 // getResumableExpedition returns the most recent 'extracting' row for the
 // user, regardless of age (caller checks the 7-day window).
 func getResumableExpedition(userID id.UserID) (*Expedition, error) {
