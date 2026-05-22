@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"strings"
 	"time"
@@ -369,7 +370,13 @@ func campLocationCheck(exp *Expedition) (cleared bool, problem string) {
 	encID := encounterIDForRoom(run.CurrentRoom)
 	sess, err := getCombatSessionForEncounter(run.RunID, encID)
 	if err != nil {
-		return false, ""
+		// Can't read the encounter's combat state. Fail open like the
+		// run-lookup path above rather than blocking standard camp with an
+		// empty (misleading "not cleared") rejection — a DB hiccup shouldn't
+		// strand a player who only wants to rest.
+		slog.Warn("camp: combat session lookup failed; allowing camp",
+			"run", run.RunID, "encounter", encID, "err", err)
+		return true, ""
 	}
 	if sess != nil && sess.Status == CombatStatusActive {
 		return false, "You can't camp mid-fight — finish the encounter first."
