@@ -326,9 +326,9 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 	case "survive_at_1":
 		return pickRand(narrativeSurvive)
 	case "stat_drain":
-		return pickRand(narrativeStatDrain)
+		return fmt.Sprintf(pickRand(narrativeStatDrain), e.Damage)
 	case "debuff":
-		return pickRand(narrativeDebuff)
+		return fmt.Sprintf(pickRand(narrativeDebuff), e.Damage)
 	case "max_hp_drain":
 		return fmt.Sprintf(pickRand(narrativeMaxHPDrain), e.Damage)
 
@@ -346,7 +346,7 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 	case "fear_resist":
 		return pickRand(narrativeFearResist)
 	case "ally_buff":
-		return pickRand(narrativeAllyBuff)
+		return fmt.Sprintf(pickRand(narrativeAllyBuff), e.Damage)
 
 	case "timeout":
 		return pickRand(narrativeTimeout)
