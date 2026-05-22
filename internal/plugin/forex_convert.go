@@ -58,7 +58,7 @@ func fxParseConvert(args []string) (amount float64, base, quote string, err erro
 	for _, tok := range tokens {
 		// Pair form: USD/EUR
 		if strings.ContainsAny(tok, "/|-") {
-			pair := fxParsePair([]string{tok})
+			pair := fxParsePair([]string{tok}, true)
 			if pair != nil {
 				if base != "" {
 					return 0, "", "", fmt.Errorf("multiple currency pairs")
@@ -76,9 +76,9 @@ func fxParseConvert(args []string) (amount float64, base, quote string, err erro
 			amountSet = true
 			continue
 		}
-		// Currency code?
+		// Currency or crypto code?
 		up := strings.ToUpper(tok)
-		if fxIsSupported(up) {
+		if fxIsConvertible(up) {
 			currencies = append(currencies, up)
 			continue
 		}
@@ -127,11 +127,14 @@ func (p *ForexPlugin) cmdConvert(ctx MessageContext, args []string) error {
 	return p.SendReply(ctx.RoomID, ctx.EventID, msg)
 }
 
-// fxEmoji returns the flag emoji for a supported currency, falling back
-// to USD's flag.
+// fxEmoji returns the flag/symbol emoji for a supported currency or crypto
+// asset, falling back to USD's flag.
 func fxEmoji(cur string) string {
 	if m, ok := fxMeta[cur]; ok && m.Emoji != "" {
 		return m.Emoji
+	}
+	if c, ok := fxCryptoMeta[strings.ToUpper(cur)]; ok && c.Emoji != "" {
+		return c.Emoji
 	}
 	if cur == "USD" {
 		return "🇺🇸"
@@ -140,14 +143,28 @@ func fxEmoji(cur string) string {
 }
 
 // fxFormatAmount formats a converted amount with thousands separators.
-// JPY uses 0 decimal places (yen are not subdivided in practice for display),
-// other currencies use 2.
+// Crypto uses up to 8 decimals (trailing zeros trimmed) since amounts are
+// often fractional; JPY uses 0 (yen are not subdivided in practice for
+// display); other currencies use 2.
 func fxFormatAmount(currency string, amount float64) string {
+	if fxIsCrypto(currency) {
+		return fxTrimZeros(fxAddCommas(amount, 8))
+	}
 	decimals := 2
 	if currency == "JPY" {
 		decimals = 0
 	}
 	return fxAddCommas(amount, decimals)
+}
+
+// fxTrimZeros drops trailing fractional zeros (and a bare trailing dot) from a
+// formatted decimal string, leaving integers untouched.
+func fxTrimZeros(s string) string {
+	if !strings.Contains(s, ".") {
+		return s
+	}
+	s = strings.TrimRight(s, "0")
+	return strings.TrimRight(s, ".")
 }
 
 // fxAddCommas formats a float with N decimal places and thousands separators.

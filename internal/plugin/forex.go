@@ -113,6 +113,7 @@ const fxHelpText = "**Forex Commands**\n\n" +
 	"`!fx rate EUR/USD` — cross-pair rate from first currency's perspective\n" +
 	"`!fx report [EUR|JPY|CAD]` — full analysis (averages, 52w range, buy score)\n" +
 	"`!fx 1500 USD to EUR` — convert an amount (also: `!fx convert 1500 USD EUR`)\n" +
+	"`!fx 100 USD to BTC` — convert to/from crypto (BTC, ETH, SOL, XRP, DOGE, ADA, LTC)\n" +
 	"`!fx setalert <currency> <rate>` — alert when USD/currency reaches threshold\n" +
 	"`!fx alerts` — list active alerts in this room\n" +
 	"`!fx delalert <currency> <rate>` — remove an alert\n" +
@@ -122,7 +123,7 @@ const fxHelpText = "**Forex Commands**\n\n" +
 
 func (p *ForexPlugin) cmdRate(ctx MessageContext, args []string) error {
 	// Check for cross-pair syntax like EUR/USD or USD/JPY
-	if pair := fxParsePair(args); pair != nil {
+	if pair := fxParsePair(args, false); pair != nil {
 		return p.cmdPairRateOrReport(ctx, pair, false)
 	}
 
@@ -156,8 +157,10 @@ type fxPair struct {
 }
 
 // fxParsePair detects "XXX/YYY" syntax in args. Both sides must be USD or a
-// tracked currency. Returns nil if no pair is found.
-func fxParsePair(args []string) *fxPair {
+// tracked currency; when allowCrypto is set, supported crypto assets are
+// accepted too (used by the conversion path, not by analysis). Returns nil if
+// no pair is found.
+func fxParsePair(args []string, allowCrypto bool) *fxPair {
 	if len(args) == 0 {
 		return nil
 	}
@@ -174,7 +177,11 @@ func fxParsePair(args []string) *fxPair {
 		return nil
 	}
 	base, quote := parts[0], parts[1]
-	if !fxIsSupported(base) || !fxIsSupported(quote) {
+	ok := fxIsSupported
+	if allowCrypto {
+		ok = fxIsConvertible
+	}
+	if !ok(base) || !ok(quote) {
 		return nil
 	}
 	if base == quote {
@@ -215,46 +222,62 @@ func (p *ForexPlugin) cmdPairRateOrReport(ctx MessageContext, pair *fxPair, full
 	return p.SendReply(ctx.RoomID, ctx.EventID, sig.FormatQuick())
 }
 
-// fxLivePairRate computes the live cross-pair rate from USD-base rates.
+// fxLivePairRate computes the live cross-pair rate (how many Quote per 1 Base).
+// Each side is resolved to a "units per USD" figure, then crossed; this handles
+// USD, fiat (Frankfurter), and crypto (CoinGecko) sides uniformly.
 func (p *ForexPlugin) fxLivePairRate(pair *fxPair) (float64, error) {
-	var currencies []string
-	if pair.Base != "USD" {
-		currencies = append(currencies, pair.Base)
+	// Batch the fiat sides into a single Frankfurter call.
+	var fiat []string
+	for _, c := range []string{pair.Base, pair.Quote} {
+		if c != "USD" && !fxIsCrypto(c) {
+			fiat = append(fiat, c)
+		}
 	}
-	if pair.Quote != "USD" {
-		currencies = append(currencies, pair.Quote)
+	var fiatRates map[string]float64
+	if len(fiat) > 0 {
+		var err error
+		if fiatRates, err = p.fxLiveRates(fiat); err != nil {
+			return 0, err
+		}
 	}
 
-	rates, err := p.fxLiveRates(currencies)
+	basePer, err := p.fxPerUSD(pair.Base, fiatRates)
 	if err != nil {
 		return 0, err
 	}
+	quotePer, err := p.fxPerUSD(pair.Quote, fiatRates)
+	if err != nil {
+		return 0, err
+	}
+	if basePer == 0 {
+		return 0, fmt.Errorf("missing rate data for cross-pair")
+	}
+	return quotePer / basePer, nil
+}
 
+// fxPerUSD returns how many units of cur equal 1 USD. Fiat rates are taken from
+// the pre-fetched fiatRates map; crypto is fetched live from CoinGecko.
+func (p *ForexPlugin) fxPerUSD(cur string, fiatRates map[string]float64) (float64, error) {
 	switch {
-	case pair.Base == "USD":
-		r, ok := rates[pair.Quote]
-		if !ok {
-			return 0, fmt.Errorf("no rate data for %s", pair.Quote)
+	case cur == "USD":
+		return 1.0, nil
+	case fxIsCrypto(cur):
+		price, err := p.cgSpotUSD(cur)
+		if err != nil {
+			return 0, err
+		}
+		return 1.0 / price, nil
+	default:
+		r, ok := fiatRates[cur]
+		if !ok || r == 0 {
+			return 0, fmt.Errorf("no rate data for %s", cur)
 		}
 		return r, nil
-	case pair.Quote == "USD":
-		r, ok := rates[pair.Base]
-		if !ok || r == 0 {
-			return 0, fmt.Errorf("no rate data for %s", pair.Base)
-		}
-		return 1.0 / r, nil
-	default:
-		br, ok1 := rates[pair.Base]
-		qr, ok2 := rates[pair.Quote]
-		if !ok1 || !ok2 || br == 0 {
-			return 0, fmt.Errorf("missing rate data for cross-pair")
-		}
-		return qr / br, nil
 	}
 }
 
 func (p *ForexPlugin) cmdReport(ctx MessageContext, args []string) error {
-	if pair := fxParsePair(args); pair != nil {
+	if pair := fxParsePair(args, false); pair != nil {
 		return p.cmdPairRateOrReport(ctx, pair, true)
 	}
 	currencies := fxParseCurrencies(args)
