@@ -300,6 +300,22 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	}
 
 	if uid := id.UserID(e.UserID); uid != "" {
+		// The legacy overworld morning DM is skipped while underground, so
+		// its 25% morning pet event fires here instead, granting the one-day
+		// defense buff (reset at midnight via resetAllPetMorningDefense).
+		// Pet *arrival* is handled separately on the emergence seam below —
+		// not queued here — so we only roll the morning event.
+		if pet, perr := loadPetState(uid); perr == nil {
+			if petEvent := petMorningEvent(pet); petEvent != "" {
+				if char, cerr := loadAdvCharacter(uid); cerr == nil {
+					char.PetMorningDefense = true
+					if serr := saveAdvCharacter(char); serr != nil {
+						slog.Warn("expedition: save pet morning defense", "user", uid, "err", serr)
+					}
+				}
+				body = fmt.Sprintf("🐾 *%s*\n\n%s", petEvent, body)
+			}
+		}
 		if err := p.SendDM(uid, body); err != nil {
 			slog.Warn("expedition: send briefing DM", "user", uid, "err", err)
 		}

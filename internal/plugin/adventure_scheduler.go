@@ -495,6 +495,12 @@ func (p *AdventurePlugin) midnightReset() error {
 		return fmt.Errorf("reset daily actions after 3 attempts: %w", resetErr)
 	}
 
+	// Clear the one-day pet morning-defense buff so it re-rolls fresh each
+	// morning (briefing or overworld DM) instead of leaking permanently.
+	if err := resetAllPetMorningDefense(); err != nil {
+		slog.Error("adventure: failed to reset pet morning defense", "err", err)
+	}
+
 	// Prune expired buffs
 	if err := pruneAdvExpiredBuffs(); err != nil {
 		slog.Error("adventure: failed to prune expired buffs", "err", err)

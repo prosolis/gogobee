@@ -909,6 +909,19 @@ func resetAllPlayerMetaDailyActions() error {
 	return err
 }
 
+// resetAllPetMorningDefense clears the one-day pet morning-defense buff for
+// every player. The buff is a fresh morning grant (25% roll in the briefing /
+// overworld DM), so it must not survive past the midnight rollover. The flag
+// lives inside pet_flags_json (see petFlagsJSON), so patch that key in place;
+// only rows where it's currently set are touched.
+func resetAllPetMorningDefense() error {
+	_, err := db.Get().Exec(`
+		UPDATE player_meta
+		   SET pet_flags_json = json_set(pet_flags_json, '$.morning_defense', json('false'))
+		 WHERE json_extract(pet_flags_json, '$.morning_defense') = 1`)
+	return err
+}
+
 // DeathState mirrors player_meta's death-state columns. Phase L5e ports
 // these fields off AdvCharacter (gogobee_legacy_migration.md §7.3 L5e).
 // Mutation surface is large (~50 saveAdvCharacter sites touch death
