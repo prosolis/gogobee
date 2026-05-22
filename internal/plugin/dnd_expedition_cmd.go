@@ -486,9 +486,14 @@ func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
 	}
 	_ = retireAllRegionRuns(exp)
 	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative", "expedition abandoned", "")
-	return p.SendDM(ctx.Sender, fmt.Sprintf(
+	if err := p.SendDM(ctx.Sender, fmt.Sprintf(
 		"Expedition in **%s** abandoned on Day %d. Supplies are forfeit. The dungeon remembers.",
-		zone.Display, exp.CurrentDay))
+		zone.Display, exp.CurrentDay)); err != nil {
+		return err
+	}
+	// Emergence seam: see maybeRollPetArrivalOnEmerge.
+	p.maybeRollPetArrivalOnEmerge(ctx.Sender)
+	return nil
 }
 
 // helper: ensure we don't shadow id.UserID import in test harness.

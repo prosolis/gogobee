@@ -303,6 +303,14 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 		if err := p.SendDM(uid, body); err != nil {
 			slog.Warn("expedition: send briefing DM", "user", uid, "err", err)
 		}
+		// Emergence seam: a briefing-time forced extraction (starvation /
+		// abyss collapse) surfaces the player alive — roll pet arrival.
+		// Combat/patrol deaths never reach deliverBriefing (the row is
+		// already abandoned), so an abandoned status here means a survived
+		// emergence; those death paths roll on respawn instead.
+		if e.Status == ExpeditionStatusAbandoned {
+			p.maybeRollPetArrivalOnEmerge(uid)
+		}
 	}
 	if err := appendExpeditionLog(e.ID, e.CurrentDay, "briefing",
 		fmt.Sprintf("morning briefing — %.1f SU consumed overnight", burn), line); err != nil {

@@ -179,7 +179,13 @@ func (p *AdventurePlugin) handleExtractCmd(ctx MessageContext, _ string) error {
 	}
 	b.WriteString(fmt.Sprintf("Loot, XP, and coins are kept. The dungeon stays where you left it — `!resume` within 7 days to come back. After %s the expedition expires.",
 		(time.Now().UTC().Add(extractResumeWindow)).Format("2006-01-02 15:04 MST")))
-	return p.SendDM(ctx.Sender, b.String())
+	if err := p.SendDM(ctx.Sender, b.String()); err != nil {
+		return err
+	}
+	// Emergence seam: surfacing from a run is when an animal may have moved
+	// into the empty house.
+	p.maybeRollPetArrivalOnEmerge(ctx.Sender)
+	return nil
 }
 
 // ── !resume command ─────────────────────────────────────────────────────────

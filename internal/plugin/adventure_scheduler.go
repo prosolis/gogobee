@@ -82,6 +82,12 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			if err := p.SendDM(char.UserID, text); err != nil {
 				slog.Error("adventure: failed to send respawn DM", "user", char.UserID, "err", err)
 			}
+
+			// Emergence seam (death case): a player who died underground
+			// "comes home" on respawn. This is the deferred half of the
+			// emergence roll — survived extractions roll at their exit
+			// site; deaths roll here. See maybeRollPetArrivalOnEmerge.
+			p.maybeRollPetArrivalOnEmerge(char.UserID)
 		}
 
 		// Babysitting: pet-care trickle (no harvest actions; safe-rest perk
@@ -133,13 +139,12 @@ func (p *AdventurePlugin) sendMorningDMs() {
 			continue
 		}
 
-		// Pet arrival check (fires before normal morning DM)
-		house, _ := loadHouseState(char.UserID)
+		// Pet arrival no longer rolls here. The 08:00 overworld morning DM
+		// is skipped for anyone underground (expedition gate above), so it
+		// never reached expedition players. Arrival now fires on the
+		// emergence seam — see maybeRollPetArrivalOnEmerge, called from the
+		// extract/abandon/forced-extract and respawn paths.
 		pet, _ := loadPetState(char.UserID)
-		if petShouldArrive(pet, house) {
-			p.petArrivalDM(char.UserID)
-			continue
-		}
 
 		// Morning pet event
 		petEvent := petMorningEvent(pet)

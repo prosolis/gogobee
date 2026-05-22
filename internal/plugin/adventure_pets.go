@@ -206,6 +206,25 @@ func petShouldArrive(pet PetState, house HouseState) bool {
 	return rand.Float64() < 0.30
 }
 
+// maybeRollPetArrivalOnEmerge rolls the pet-arrival check when a player
+// surfaces from an expedition (voluntary extract, abandon, or a survived
+// forced extraction) or revives after death. The arrival roll lives on the
+// emergence seam — not the legacy 08:00 overworld morning DM — because
+// expedition players are almost never in the overworld at the scheduled hour,
+// so the morning roll never reached them. Story beat: while the player was
+// underground, an animal wandered into the empty house looking for food.
+//
+// Safe to call unconditionally on any emergence: petShouldArrive gates on
+// house tier / not-yet-arrived, and petArrivalDM won't clobber an existing
+// pending interaction.
+func (p *AdventurePlugin) maybeRollPetArrivalOnEmerge(userID id.UserID) {
+	pet, _ := loadPetState(userID)
+	house, _ := loadHouseState(userID)
+	if petShouldArrive(pet, house) {
+		p.petArrivalDM(userID)
+	}
+}
+
 // petArrivalDM sends the initial "there's an animal in your house" DM.
 func (p *AdventurePlugin) petArrivalDM(userID id.UserID) {
 	// Don't overwrite an existing pending interaction
