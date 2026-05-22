@@ -154,6 +154,11 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 		// "no expedition" / "no run" — race with abandon/extract. Silent.
 		return nil
 	}
+	// Emergence seam: a run-complete reached by the background ticker is
+	// still a live emergence — roll pet arrival. See maybeRollPetArrivalOnEmerge.
+	if r.reason == stopComplete {
+		p.maybeRollPetArrivalOnEmerge(uid)
+	}
 	if !shouldDMAutoRun(r) {
 		return nil
 	}

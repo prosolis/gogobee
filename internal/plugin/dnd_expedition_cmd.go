@@ -554,6 +554,14 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 	if r.initErr != "" {
 		return p.SendDM(ctx.Sender, r.initErr)
 	}
+	// Emergence seam: a natural run-complete (boss down / dead-end node)
+	// surfaces the player alive just like an extract or abandon — roll pet
+	// arrival here too. The roll lives in the real callers, not in
+	// runAutopilotWalk, so the sim path (which calls the walk directly)
+	// never fires arrival DMs. See maybeRollPetArrivalOnEmerge.
+	if r.reason == stopComplete {
+		p.maybeRollPetArrivalOnEmerge(ctx.Sender)
+	}
 	return p.streamFlow(ctx.Sender, r.stream, r.finalMsg)
 }
 
