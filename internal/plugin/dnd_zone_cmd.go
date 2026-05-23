@@ -606,12 +606,19 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 	if gerr != nil {
 		return advanceResult{}, fmt.Errorf("Couldn't advance: %s", gerr.Error())
 	}
+	var campStruck string
+	if kind := autoBreakCampOnMove(ctx.Sender); kind != "" {
+		campStruck = fmt.Sprintf("⛺ Camp struck (**%s**) — the party moved on.\n\n", kind)
+	}
 	if complete {
 		_, _ = applyMoodEvent(run.RunID, MoodEventZoneComplete)
 		var b strings.Builder
 		if outcome != "" {
 			b.WriteString(outcome)
 			b.WriteString("\n\n")
+		}
+		if campStruck != "" {
+			b.WriteString(campStruck)
 		}
 		// A "complete" run is only a full zone clear when it isn't a mid-zone
 		// region clear of a multi-region zone. For the latter, name the region
@@ -658,6 +665,9 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 			b.WriteString("\n\n")
 		}
 		b.WriteString(fmt.Sprintf("✓ Cleared room %d (%s).\n\n", prevIdx+1, prettyRoomType(prev)))
+		if campStruck != "" {
+			b.WriteString(campStruck)
+		}
 		b.WriteString(forkMsg)
 		return advanceResult{
 			preStream: preStream,
@@ -668,6 +678,9 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 		}, nil
 	}
 	finalMsg := p.formatNextRoomMessage(run, zone, prev, prevIdx, outcome, next)
+	if campStruck != "" {
+		finalMsg = campStruck + finalMsg
+	}
 
 	// H2 — auto-harvest the room the player just walked into. Only fires
 	// for Exploration rooms (Entry/Trap/Elite/Boss self-skip via

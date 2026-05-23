@@ -196,6 +196,9 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 	nextRoom := nodeKindToRoomType(nextNode.Kind)
 	nextIdx := run.CurrentRoom + 1
 	var b strings.Builder
+	if kind := autoBreakCampOnMove(ctx.Sender); kind != "" {
+		b.WriteString(fmt.Sprintf("⛺ Camp struck (**%s**) — the party moved on.\n\n", kind))
+	}
 	b.WriteString(fmt.Sprintf("➡ You take the path: **%s**.\n\n", chosen.Label))
 	if nextRoom == RoomBoss {
 		if line := composeBossEntry(zone.ID, run.RunID, nextIdx); line != "" {

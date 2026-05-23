@@ -384,6 +384,41 @@ func campLocationCheck(exp *Expedition) (cleared bool, problem string) {
 	return true, ""
 }
 
+// autoBreakCampOnMove strikes an active camp when the player has moved
+// to a different room than the one camp was pitched in. Camp is a
+// stationary intent (long-rest at this spot until the next briefing);
+// once the party walks on — whether by autopilot, manual !advance, or
+// fork pick — the tent stops mattering. Overnight rest effects are not
+// applied here (those only land at briefing time via
+// processOvernightCamp). Returns the camp type that was struck, or ""
+// if no break happened. Safe to call when there's no expedition.
+func autoBreakCampOnMove(userID id.UserID) string {
+	exp, err := getActiveExpedition(userID)
+	if err != nil || exp == nil {
+		return ""
+	}
+	if exp.Camp == nil || !exp.Camp.Active {
+		return ""
+	}
+	if exp.RunID == "" {
+		return ""
+	}
+	run, err := getZoneRun(exp.RunID)
+	if err != nil || run == nil {
+		return ""
+	}
+	if run.CurrentRoom == exp.Camp.RoomIndex {
+		return ""
+	}
+	kind := exp.Camp.Type
+	if err := updateCamp(exp.ID, nil); err != nil {
+		slog.Warn("camp: auto-break on move failed", "expedition", exp.ID, "err", err)
+		return ""
+	}
+	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative", "camp struck (party moved on)", "")
+	return kind
+}
+
 // campCurrentRoomIndex returns 0 (entry) when no room context exists.
 func campCurrentRoomIndex(exp *Expedition) int {
 	if exp.RunID == "" {
