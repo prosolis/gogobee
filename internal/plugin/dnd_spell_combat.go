@@ -268,12 +268,22 @@ func applySpellBuff(spell SpellDefinition, c *DnDCharacter, stats *CombatStats, 
 		stats.AttackBonus += 1
 		mods.DamageBonus += 0.05
 	case "spiritual_weapon":
-		// Spectral bonus-action attack each round. Reuse pet-attack channel.
-		if mods.PetAttackProc < 0.5 {
-			mods.PetAttackProc = 0.5
+		// Spectral bonus-action attack each round on its own channel so the
+		// narration doesn't borrow pet flavor (the cleric may have no pet).
+		// 1d8 + spell mod base, +1d8 per 2 slot levels above 2nd; the engine
+		// rolls the d5 variance, so Dmg carries the average + upcast bump.
+		base := 4 + spellAttackBonus(c)
+		if slot > 2 {
+			base += 4 * ((slot - 2) / 2)
 		}
-		if mods.PetAttackDmg < 6 {
-			mods.PetAttackDmg = 6
+		if base < 4 {
+			base = 4
+		}
+		if mods.SpiritWeaponProc < 0.5 {
+			mods.SpiritWeaponProc = 0.5
+		}
+		if mods.SpiritWeaponDmg < base {
+			mods.SpiritWeaponDmg = base
 		}
 	case "mirror_image":
 		mods.WardCharges += 2
@@ -422,6 +432,8 @@ type turnBuffDelta struct {
 	reflect                    float64
 	autoCrit, enemySkip        bool
 	heal                       int // a MaxHP-raise (Aid) collapses to an immediate heal
+	dSpiritProc                float64
+	dSpiritDmg                 int
 }
 
 // statComponent reports whether the buff has a re-applicable persistent stat
@@ -429,6 +441,7 @@ type turnBuffDelta struct {
 func (d turnBuffDelta) statComponent() bool {
 	return d.dAC != 0 || d.dAtk != 0 || d.dSpeed != 0 || d.dPetDmg != 0 ||
 		d.dCrit != 0 || d.dDmgBonus != 0 || d.dPetProc != 0 ||
+		d.dSpiritProc != 0 || d.dSpiritDmg != 0 ||
 		(d.dReductMul > 0 && d.dReductMul != 1)
 }
 
@@ -460,6 +473,8 @@ func diffTurnBuff(bs, as CombatStats, bm, am CombatModifiers) turnBuffDelta {
 		autoCrit:   am.AutoCritFirst && !bm.AutoCritFirst,
 		enemySkip:  am.SpellEnemySkipFirst && !bm.SpellEnemySkipFirst,
 		heal:       as.MaxHP - bs.MaxHP,
+		dSpiritProc: am.SpiritWeaponProc - bm.SpiritWeaponProc,
+		dSpiritDmg:  am.SpiritWeaponDmg - bm.SpiritWeaponDmg,
 	}
 	if bm.DamageReduct > 0 {
 		d.dReductMul = am.DamageReduct / bm.DamageReduct

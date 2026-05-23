@@ -236,6 +236,9 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 	case "pet_attack":
 		return fmt.Sprintf(pickRand(narrativePetAttack), e.Damage)
 
+	case "spirit_weapon_strike":
+		return fmt.Sprintf(pickRand(narrativeSpiritWeapon), e.Damage)
+
 	case "pet_deflect":
 		return pickRand(narrativePetDeflect)
 
@@ -524,6 +527,13 @@ var narrativePetAttack = []string{
 	"🐾 Your pet strikes from the side with zero hesitation. %d additional damage. The enemy was not monitoring the pet. Mistake.",
 	"🐾 Your pet joins the fray with a well-timed attack. %d damage. The timing was suspicious. Your pet may be smarter than you.",
 	"🐾 Your faithful companion lands a hit for %d damage. More faithful than accurate, but today both applied.",
+}
+
+var narrativeSpiritWeapon = []string{
+	"✨ The spectral mace swings on its own and lands for %d damage. Floating menace, well-balanced.",
+	"✨ Your spiritual weapon hovers, picks an angle, strikes — %d damage. No grip, all conviction.",
+	"✨ A glowing weapon arcs in from beside you. %d damage. The enemy keeps trying to track it. Cannot.",
+	"✨ The spectral blade flickers, then bites. %d damage. It does not tire. It does not blink.",
 }
 
 var narrativePetDeflect = []string{

@@ -149,6 +149,8 @@ func applySessionBuffs(player *Combatant, s CombatStatuses) {
 	player.Mods.DamageBonus += s.BuffDamageBonus
 	player.Mods.PetAttackProc += s.BuffPetProc
 	player.Mods.PetAttackDmg += s.BuffPetDmg
+	player.Mods.SpiritWeaponProc += s.BuffSpiritProc
+	player.Mods.SpiritWeaponDmg += s.BuffSpiritDmg
 	if s.BuffDamageReductMul > 0 {
 		player.Mods.DamageReduct *= s.BuffDamageReductMul
 	}

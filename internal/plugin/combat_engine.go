@@ -53,6 +53,11 @@ type CombatModifiers struct {
 	PetAttackDmg     int
 	PetDeflectProc   float64
 	PetWhiffProc     float64 // pet distracts enemy → guaranteed miss
+	// Spiritual Weapon — separate channel from the pet so the spectral mace
+	// gets its own narration when a cleric without a companion casts it.
+	// Damage formula mirrors PetAttack (Dmg + d5), proc rolls per round.
+	SpiritWeaponProc float64
+	SpiritWeaponDmg  int
 	SniperKillProc   float64 // Arina instant-kill
 	MistyHealProc    float64
 	MistyHealAmt     int
@@ -639,6 +644,19 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "pet", Action: "pet_attack",
 			Damage: petDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if enemyDown(st, phaseName) {
+			return true
+		}
+	}
+
+	// Spiritual Weapon strike
+	if player.Mods.SpiritWeaponProc > 0 && st.randFloat() < player.Mods.SpiritWeaponProc {
+		swDmg := player.Mods.SpiritWeaponDmg + st.roll(5)
+		st.enemyHP = max(0, st.enemyHP-swDmg)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "spirit_weapon", Action: "spirit_weapon_strike",
+			Damage: swDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
 		if enemyDown(st, phaseName) {
 			return true

@@ -121,6 +121,8 @@ type CombatStatuses struct {
 	BuffDamageBonus     float64 `json:"buff_damage_bonus,omitempty"`
 	BuffPetProc         float64 `json:"buff_pet_proc,omitempty"`
 	BuffDamageReductMul float64 `json:"buff_damage_reduct_mul,omitempty"`
+	BuffSpiritProc      float64 `json:"buff_spirit_proc,omitempty"`
+	BuffSpiritDmg       int     `json:"buff_spirit_dmg,omitempty"`
 }
 
 // applyBuffDelta folds one resolved buff (the result of a !cast / !consume
@@ -134,6 +136,8 @@ func (s *CombatStatuses) applyBuffDelta(d turnBuffDelta) {
 	s.BuffCritRate += d.dCrit
 	s.BuffDamageBonus += d.dDmgBonus
 	s.BuffPetProc += d.dPetProc
+	s.BuffSpiritProc += d.dSpiritProc
+	s.BuffSpiritDmg += d.dSpiritDmg
 	if d.dReductMul > 0 && d.dReductMul != 1 {
 		if s.BuffDamageReductMul == 0 {
 			s.BuffDamageReductMul = d.dReductMul

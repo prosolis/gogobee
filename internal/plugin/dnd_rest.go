@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"maunium.net/go/mautrix/id"
 )
 
 // !rest short / !rest long.
@@ -45,6 +47,20 @@ func restingLockoutRemaining(c *DnDCharacter) time.Duration {
 	return remaining
 }
 
+// restBlockedReason returns a player-facing message when the character
+// cannot rest right now because they're mid-fight or mid-expedition. An
+// empty string means rest is allowed. Both !rest short and !rest long
+// honor this — the dungeon shouldn't be a campfire.
+func restBlockedReason(uid id.UserID) string {
+	if hasActiveCombatSession(uid) {
+		return "You're mid-fight. Finish it (or `!flee`) before resting."
+	}
+	if exp, _ := getActiveExpedition(uid); exp != nil {
+		return "You can't rest while on an expedition. Use `!expedition extract` first."
+	}
+	return ""
+}
+
 func (p *AdventurePlugin) handleDnDRestCmd(ctx MessageContext, args string) error {
 	args = strings.TrimSpace(strings.ToLower(args))
 	switch args {
@@ -77,6 +93,9 @@ func (p *AdventurePlugin) handleDnDShortRest(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Couldn't load your character.")
 	}
 
+	if msg := restBlockedReason(ctx.Sender); msg != "" {
+		return p.SendDM(ctx.Sender, msg)
+	}
 	if c.ShortRestCharges <= 0 {
 		return p.SendDM(ctx.Sender,
 			"You're out of short rest charges. Take a `!rest long` to restore them.")
@@ -170,6 +189,9 @@ func (p *AdventurePlugin) handleDnDLongRest(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Couldn't load your Adv 2.0 sheet.")
 	}
 
+	if msg := restBlockedReason(ctx.Sender); msg != "" {
+		return p.SendDM(ctx.Sender, msg)
+	}
 	if c.LastLongRestAt != nil {
 		elapsed := time.Since(*c.LastLongRestAt)
 		if elapsed < dndLongRestCooldown {

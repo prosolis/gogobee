@@ -219,6 +219,10 @@ func (te *turnEngine) stepPlayerTurn(action PlayerAction) {
 		te.finish(CombatStatusWon)
 		return
 	}
+	if te.spiritWeaponStrike() {
+		te.finish(CombatStatusWon)
+		return
+	}
 	te.sess.Phase = CombatPhaseEnemyTurn
 }
 
@@ -240,6 +244,24 @@ func (te *turnEngine) petStrike() bool {
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: turnCombatPhase.Name, Actor: "pet", Action: "pet_attack",
 		Damage: petDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+	})
+	return enemyDown(st, turnCombatPhase.Name)
+}
+
+// spiritWeaponStrike resolves the spell's bonus-action attack each round when
+// the spiritual_weapon buff is active. Same per-turn cadence as petStrike, but
+// rolls and narrates on its own channel so the spectral mace doesn't borrow
+// pet flavor on a petless caster. Returns true if the strike dropped the enemy.
+func (te *turnEngine) spiritWeaponStrike() bool {
+	st := te.st
+	if te.player.Mods.SpiritWeaponProc <= 0 || st.randFloat() >= te.player.Mods.SpiritWeaponProc {
+		return false
+	}
+	dmg := te.player.Mods.SpiritWeaponDmg + st.roll(5)
+	st.enemyHP = max(0, st.enemyHP-dmg)
+	st.events = append(st.events, CombatEvent{
+		Round: st.round, Phase: turnCombatPhase.Name, Actor: "spirit_weapon", Action: "spirit_weapon_strike",
+		Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 	})
 	return enemyDown(st, turnCombatPhase.Name)
 }
@@ -292,6 +314,10 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 		return
 	}
 	if te.petStrike() {
+		te.finish(CombatStatusWon)
+		return
+	}
+	if te.spiritWeaponStrike() {
 		te.finish(CombatStatusWon)
 		return
 	}
