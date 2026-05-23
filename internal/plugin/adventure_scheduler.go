@@ -396,7 +396,6 @@ func (p *AdventurePlugin) midnightTicker() {
 }
 
 func (p *AdventurePlugin) midnightReset() error {
-	// Send idle shame DMs to players who didn't act
 	chars, err := loadAllAdvCharacters()
 	if err != nil {
 		return fmt.Errorf("load chars: %w", err)
@@ -405,93 +404,89 @@ func (p *AdventurePlugin) midnightReset() error {
 	today := time.Now().UTC().Format("2006-01-02")
 	yesterday := time.Now().UTC().Add(-24 * time.Hour).Format("2006-01-02")
 
+	// Unified activity oracle — same source the daily report uses. Unions
+	// adventure_activity_log + dnd_zone_run + dnd_expedition_log, so
+	// background-autopilot walks, expedition extracts/completions, and any
+	// subsystem that logged a beat all count as "something happened on this
+	// player's behalf." LastActionDate alone misses the autopilot path
+	// (dnd_zone_cmd.go gates markActedToday on !compact to keep autopilot
+	// out of streak credit) — without this oracle, a player who let the
+	// autopilot run a full expedition gets shamed at midnight.
+	todayActs, _ := loadAdvDailyActivity(today)
+	yesterdayActs, _ := loadAdvDailyActivity(yesterday)
+
 	dmsSent := 0
 	for _, char := range chars {
-		// This runs at 00:00 of the new UTC day, closing out the day that just
-		// ended (= yesterday). HasActedToday() compares LastActionDate against
-		// time.Now()'s date (the *new* day), so DnD-side players who credited
-		// the closing day via LastActionDate=yesterday would read as idle and
-		// get their streak halved. Credit activity on the closing day directly:
-		// legacy counters are still non-zero here (reset happens further below),
-		// and LastActionDate==yesterday means they played the day we're closing.
-		acted := char.CombatActionsUsed > 0 || char.HarvestActionsUsed > 0 ||
-			char.LastActionDate == today || char.LastActionDate == yesterday
-		if !acted {
-			// If the player died today or yesterday, they couldn't act — no shame,
-			// no streak reset. This covers both currently-dead players and players
-			// who were just revived at midnight (Alive already flipped to true by
-			// the reminder loop before midnightReset runs).
-			if char.LastDeathDate == today || char.LastDeathDate == yesterday {
-				continue
-			}
+		// Died inside the window — no shame, no streak change. Covers both
+		// currently-dead players and players revived at midnight (Alive
+		// already flipped to true by the reminder loop before this runs).
+		if char.LastDeathDate == today || char.LastDeathDate == yesterday {
+			continue
+		}
 
-			// An active expedition — or a turn-based fight locked open across
-			// midnight — counts as activity. Both track their own action flow
-			// (zone/harvest/combat/transit/extract) and never touch the legacy
-			// CombatActionsUsed/HarvestActionsUsed counters, so HasActedToday()
-			// reports false. Treat them like the acted-today branch below:
-			// advance the streak and bail out (no idle-shame, no streak decay).
-			busy := false
-			if exp, err := getActiveExpedition(char.UserID); err != nil {
-				slog.Warn("adventure: failed to check active expedition for idle reaper", "user", char.UserID, "err", err)
-			} else if exp != nil {
-				busy = true
-			}
-			if !busy && hasActiveCombatSession(char.UserID) {
-				busy = true
-			}
-			if busy {
-				if char.LastActionDate == yesterday || char.LastActionDate == today {
-					char.CurrentStreak++
-				} else {
-					char.CurrentStreak = 1
-				}
-				if char.CurrentStreak > char.BestStreak {
-					char.BestStreak = char.CurrentStreak
-				}
-				char.LastActionDate = today
-				_ = saveAdvCharacter(&char)
-				continue
-			}
+		// Player-initiated engagement — only this credits the streak.
+		// LastActionDate is stamped at action time by markActedToday + !rest;
+		// the legacy counters get bumped by the legacy CanDo... paths.
+		engaged := char.LastActionDate == today || char.LastActionDate == yesterday ||
+			char.CombatActionsUsed > 0 || char.HarvestActionsUsed > 0
 
-			// Jitter between DMs to avoid Matrix rate limits
-			if dmsSent > 0 {
-				time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
-			}
-			dmsSent++
-
-			// Idle shame DM
-			text := renderAdvIdleShameDM(char.UserID)
-			if char.CurrentStreak > 0 {
-				oldStreak := char.CurrentStreak
-				char.CurrentStreak /= 2
-				char.StreakDecayed = true
-				text += fmt.Sprintf("\n\n🔥 Streak: %d → %d days", oldStreak, char.CurrentStreak)
-				if char.CurrentStreak > 0 {
-					text += " — not all is lost."
-				}
-				_ = saveAdvCharacter(&char)
-			}
-			if err := p.SendDM(char.UserID, text); err != nil {
-				slog.Error("adventure: failed to send idle shame DM", "user", char.UserID, "err", err)
-			}
-		} else {
-			// Update streak — LastActionDate was set at action time
+		if engaged {
 			if char.LastActionDate == yesterday || char.LastActionDate == today {
 				char.CurrentStreak++
 			} else {
-				// Gap in activity — start fresh
+				// Legacy-only path: counters bumped but LastActionDate stale.
+				// Without this fall-through the streak would reset to 1 every
+				// night even with continuous play.
 				char.CurrentStreak = 1
 			}
 			if char.CurrentStreak > char.BestStreak {
 				char.BestStreak = char.CurrentStreak
 			}
-			// Restamp to today (mirrors the busy branch above). A purely-legacy
-			// actor whose action path bumps CombatActionsUsed/HarvestActionsUsed
-			// but never stamps LastActionDate lands here with a stale date; without
-			// this its streak would reset to 1 every night even with continuous play.
 			char.LastActionDate = today
 			_ = saveAdvCharacter(&char)
+			continue
+		}
+
+		// Activity happened on the player's behalf without an explicit tap —
+		// autopilot walked rooms, expedition log gained beats, a fight session
+		// is still locked open. Hold the streak: no bump, no shame, no decay.
+		// The player engaged earlier to kick this off; autopilot is a feature,
+		// not a way to game streaks, and absence of taps shouldn't strip
+		// progress they earned through real play.
+		if len(todayActs[char.UserID]) > 0 || len(yesterdayActs[char.UserID]) > 0 {
+			continue
+		}
+		// Safety net for live state the activity logs don't reflect yet
+		// (e.g. an active expedition that's been quiet today, or a combat
+		// session locked open across midnight without a log append).
+		if exp, err := getActiveExpedition(char.UserID); err != nil {
+			slog.Warn("adventure: failed to check active expedition for idle reaper", "user", char.UserID, "err", err)
+		} else if exp != nil {
+			continue
+		}
+		if hasActiveCombatSession(char.UserID) {
+			continue
+		}
+
+		// Truly idle — shame DM + streak halve.
+		if dmsSent > 0 {
+			time.Sleep(time.Duration(1000+rand.IntN(2000)) * time.Millisecond)
+		}
+		dmsSent++
+
+		text := renderAdvIdleShameDM(char.UserID)
+		if char.CurrentStreak > 0 {
+			oldStreak := char.CurrentStreak
+			char.CurrentStreak /= 2
+			char.StreakDecayed = true
+			text += fmt.Sprintf("\n\n🔥 Streak: %d → %d days", oldStreak, char.CurrentStreak)
+			if char.CurrentStreak > 0 {
+				text += " — not all is lost."
+			}
+			_ = saveAdvCharacter(&char)
+		}
+		if err := p.SendDM(char.UserID, text); err != nil {
+			slog.Error("adventure: failed to send idle shame DM", "user", char.UserID, "err", err)
 		}
 	}
 
