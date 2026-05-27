@@ -12,7 +12,7 @@ require (
 	github.com/olebedev/when v1.1.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	golang.org/x/image v0.40.0
+	golang.org/x/image v0.41.0
 	maunium.net/go/mautrix v0.28.0
 	modernc.org/sqlite v1.50.1
 )
