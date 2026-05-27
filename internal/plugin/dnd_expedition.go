@@ -53,6 +53,10 @@ type CampState struct {
 	RoomIndex     int       `json:"room_index"`
 	EstablishedAt time.Time `json:"established_at"`
 	NightEvents   []string  `json:"night_events"`
+	// RestApplied is set when the long-rest effects (HP refill, spell slots,
+	// threat -5 etc.) have already been applied at pitch time. processOvernightCamp
+	// uses it to skip re-applying so the night cycle just breaks the camp.
+	RestApplied bool `json:"rest_applied,omitempty"`
 }
 
 // ThreatEvent — §8.4.

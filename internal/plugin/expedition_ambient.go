@@ -35,9 +35,9 @@ import (
 
 const (
 	// ambientCooldown — minimum time between ambient events for one
-	// expedition. Tuned so a player offline for a workday sees ~3 hits,
-	// not a flood, but a multi-day expedition feels alive.
-	ambientCooldown = 3 * time.Hour
+	// expedition. Tuned so a player offline for a workday sees ~1–2 hits,
+	// not a flood, but a multi-day expedition still feels alive.
+	ambientCooldown = 6 * time.Hour
 
 	// ambientNearScheduleWindow — skip if we're within this many minutes
 	// of a scheduled briefing (06:00 UTC) or recap (21:00 UTC).

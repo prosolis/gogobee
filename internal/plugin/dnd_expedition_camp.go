@@ -174,6 +174,16 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 	if err := updateCamp(exp.ID, camp); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't pitch camp: "+err.Error())
 	}
+	exp.Camp = camp
+
+	// Apply the long-rest effects immediately so the player isn't waiting
+	// until the next 06:00 UTC briefing for HP and spell slots to come
+	// back. The flag tells processOvernightCamp not to re-apply at briefing.
+	restSummary := applyCampRest(exp, kind)
+	camp.RestApplied = true
+	if err := updateCamp(exp.ID, camp); err != nil {
+		slog.Warn("camp: mark rest applied", "expedition", exp.ID, "err", err)
+	}
 
 	// E4d: pick the BaseCampEstablished pool for base camps; otherwise
 	// the generic camp pool. Both already handle [N] day interpolation
@@ -204,40 +214,24 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 	if line != "" {
 		b.WriteString("\n" + line + "\n")
 	}
+	if restSummary != "" {
+		b.WriteString("\n" + restSummary + "\n")
+	}
 	switch kind {
-	case CampTypeRough:
-		b.WriteString("\n_Rough camp — partial rest. HP recovers to 50%, no spell slots restored._")
-	case CampTypeFortified:
-		b.WriteString("\n_Fortified camp — long rest + 1d6 HP bonus on wake; threat clock −5; wandering rolls −4._")
 	case CampTypeBase:
-		b.WriteString("\n_Base camp — long rest + 1d6 HP bonus; threat clock −5; wandering rolls −6. **Waypoint persisted** — camp here again at no eligibility cost on later returns._")
-	default:
-		b.WriteString("\n_Standard camp — full long rest at the next morning briefing._")
+		b.WriteString("\n_Base camp — **waypoint persisted**. Camp here again at no eligibility cost on later returns._")
 	}
 	return p.SendDM(ctx.Sender, b.String())
 }
 
-// processOvernightCamp applies the overnight long-rest effects of an
-// active camp at briefing time (§3, §5.1, §8.1). Auto-breaks the camp
-// after the rest. Returns a one-line summary for the briefing body.
-//
-// Effects:
-//   - rough: HP recovered to at least 50% of max.
-//   - standard: HP fully restored, spell slots refreshed, exhaustion -1.
-//   - fortified: standard + 1d6 HP bonus on top, threat -5.
-//   - base: same as fortified for the rest itself; persistent waypoint
-//     mechanics land in E4.
-//
-// Returns "" if the expedition wasn't camped overnight.
-func processOvernightCamp(e *Expedition) string {
-	if e.Camp == nil || !e.Camp.Active {
-		return ""
-	}
+// applyCampRest runs the long-rest effects (HP/spells/threat/heat) for the
+// given camp kind and returns a player-facing summary. Shared by camp pitch
+// (immediate rest) and overnight rollover (legacy deferred path). Does NOT
+// break the camp — callers decide that.
+func applyCampRest(e *Expedition, kind string) string {
 	uid := id.UserID(e.UserID)
 	c, _ := LoadDnDCharacter(uid)
 	if c == nil {
-		// No character to apply HP/spells to; just break the camp.
-		_ = updateCamp(e.ID, nil)
 		return ""
 	}
 	// Babysit safe-rest: an active subscription promotes a Standard camp
@@ -245,7 +239,6 @@ func processOvernightCamp(e *Expedition) string {
 	// Rough/Base are unchanged — Rough still implies no shelter, and Base
 	// already exceeds Fortified.
 	babysitUpgraded := false
-	kind := e.Camp.Type
 	if kind == CampTypeStandard && BabysitSafeRest(uid) {
 		kind = CampTypeFortified
 		babysitUpgraded = true
@@ -297,11 +290,6 @@ func processOvernightCamp(e *Expedition) string {
 		heatReduced = before - after
 	}
 
-	// Auto-break the camp now that the rest has been applied.
-	_ = updateCamp(e.ID, nil)
-	e.Camp = nil
-
-	// Pretty summary for the briefing body.
 	switch kind {
 	case CampTypeRough:
 		if c.HPCurrent > prevHP {
@@ -323,6 +311,24 @@ func processOvernightCamp(e *Expedition) string {
 		return summary
 	}
 	return ""
+}
+
+// processOvernightCamp handles the briefing-time half of the camp lifecycle:
+// auto-breaks the camp, and applies the long rest only if it wasn't already
+// applied at pitch time. Returns a one-line summary for the briefing body, or
+// "" if there was nothing to do.
+func processOvernightCamp(e *Expedition) string {
+	if e.Camp == nil || !e.Camp.Active {
+		return ""
+	}
+	kind := e.Camp.Type
+	alreadyApplied := e.Camp.RestApplied
+	_ = updateCamp(e.ID, nil)
+	e.Camp = nil
+	if alreadyApplied {
+		return ""
+	}
+	return applyCampRest(e, kind)
 }
 
 func (p *AdventurePlugin) campBreak(ctx MessageContext, exp *Expedition) error {
