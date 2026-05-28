@@ -36,6 +36,15 @@ const (
 	// this fraction of max. Set above autopilotLowHPPct (0.30) so the
 	// scheduler camps *before* the walk-preflight gives up.
 	autoCampHPPct = 0.55
+
+	// nightCampWindow — D2-b. Event-anchored expeditions roll the day on
+	// autopilot night-camp pitch. After this many hours since the last
+	// rollover, the next eligible camp is treated as the night camp
+	// (Night=true) and triggers processNightCamp. 16h gives the player
+	// most of an active day before the engine starts wanting to bed
+	// down; a healthy party with no HP pressure still camps at the end
+	// of the day rather than walking forever.
+	nightCampWindow = 16 * time.Hour
 )
 
 // autoCampInputs is the minimal snapshot decideAutopilotCamp needs.
@@ -49,13 +58,21 @@ type autoCampInputs struct {
 	BaseAlready   bool
 	HPCur, HPMax  int
 	Supplies      ExpeditionSupplies
+	// D2-b: event-anchored rollover inputs.
+	Now            time.Time
+	EventAnchored  bool
+	LastBriefingAt *time.Time
+	StartDate      time.Time
 }
 
 // autoCampDecision — what to pitch and why. Reason is a short log-line
-// fragment ("region boss cleared", "HP low").
+// fragment ("region boss cleared", "HP low"). Night=true means the
+// caller should run processNightCamp as part of the pitch so the day++/
+// supply burn / threat drift happen alongside the rest.
 type autoCampDecision struct {
 	Kind   string
 	Reason string
+	Night  bool
 }
 
 // decideAutopilotCamp returns the camp to pitch (or ok=false). Pure;
@@ -79,21 +96,38 @@ func decideAutopilotCamp(in autoCampInputs) (autoCampDecision, bool) {
 		}
 	}
 
+	// D2-b: night-camp window — for event-anchored expeditions, the
+	// autopilot pitches the day's rollover camp when enough real time
+	// has elapsed since the last rollover. A flag, not a separate
+	// branch, so each pitch below can become a night camp.
+	night := false
+	if in.EventAnchored {
+		var since time.Duration
+		if in.LastBriefingAt != nil {
+			since = in.Now.Sub(*in.LastBriefingAt)
+		} else {
+			since = in.Now.Sub(in.StartDate)
+		}
+		night = since >= nightCampWindow
+	}
+
 	// Heuristic — region base-camp waypoint. Eager: pitch once per
 	// eligible region after its boss is down. BaseAlready stops the
 	// next tick from re-pitching the same waypoint.
 	if in.Multi && in.RegionCleared && in.BaseSite && !in.BaseAlready && cleared {
 		if in.Supplies.Current >= campSupplyCost[CampTypeBase] {
-			return autoCampDecision{Kind: CampTypeBase, Reason: "region boss cleared — pitching base camp waypoint"}, true
+			return autoCampDecision{
+				Kind: CampTypeBase, Night: night,
+				Reason: "region boss cleared — pitching base camp waypoint",
+			}, true
 		}
 	}
 
-	// Heuristic — HP-low rest. Standard if cleared, rough otherwise.
-	// LowSU as a *trigger* would just dig the hole deeper (camps burn
-	// SU); the walk's preflight already pauses on low-SU so the
-	// player can extract or buy more time.
+	// Heuristic — HP-low rest OR end-of-day night camp. Standard if
+	// cleared, rough otherwise. LowSU as a *trigger* would just dig
+	// the hole deeper; the walk's preflight pauses on low-SU instead.
 	lowHP := in.HPMax > 0 && float64(in.HPCur) <= float64(in.HPMax)*autoCampHPPct
-	if !lowHP {
+	if !lowHP && !night {
 		return autoCampDecision{}, false
 	}
 	kind := CampTypeRough
@@ -102,14 +136,20 @@ func decideAutopilotCamp(in autoCampInputs) (autoCampDecision, bool) {
 	}
 	cost := campSupplyCost[kind]
 	if in.Supplies.Current < cost {
-		// Try the cheaper rough tier if standard doesn't fit.
 		if kind == CampTypeStandard && in.Supplies.Current >= campSupplyCost[CampTypeRough] {
 			kind = CampTypeRough
 		} else {
 			return autoCampDecision{}, false
 		}
 	}
-	return autoCampDecision{Kind: kind, Reason: "HP low — pitching rest camp"}, true
+	reason := "HP low — pitching rest camp"
+	switch {
+	case night && lowHP:
+		reason = "HP low + end of day — pitching night camp"
+	case night:
+		reason = "end of day — pitching night camp"
+	}
+	return autoCampDecision{Kind: kind, Reason: reason, Night: night}, true
 }
 
 // maybeAutoCamp gathers DB state, calls decideAutopilotCamp, and pitches
@@ -139,15 +179,19 @@ func (p *AdventurePlugin) maybeAutoCamp(exp *Expedition) string {
 
 	hpCur, hpMax := dndHPSnapshot(uid)
 	in := autoCampInputs{
-		Camp:          exp.Camp,
-		Run:           run,
-		Multi:         multi,
-		RegionCleared: regionCleared,
-		BaseSite:      baseSite,
-		BaseAlready:   baseAlready,
-		HPCur:         hpCur,
-		HPMax:         hpMax,
-		Supplies:      exp.Supplies,
+		Camp:           exp.Camp,
+		Run:            run,
+		Multi:          multi,
+		RegionCleared:  regionCleared,
+		BaseSite:       baseSite,
+		BaseAlready:    baseAlready,
+		HPCur:          hpCur,
+		HPMax:          hpMax,
+		Supplies:       exp.Supplies,
+		Now:            time.Now().UTC(),
+		EventAnchored:  isEventAnchored(exp),
+		LastBriefingAt: exp.LastBriefingAt,
+		StartDate:      exp.StartDate,
 	}
 	d, ok := decideAutopilotCamp(in)
 	if !ok {
@@ -164,8 +208,37 @@ func (p *AdventurePlugin) maybeAutoCamp(exp *Expedition) string {
 // pitchAutopilotCamp performs the same state mutations as the player
 // !camp path (supply debit, camp row, applyCampRest, log entry, base-
 // camp waypoint persist) without DMing — the autorun ticker bundles
-// the returned block into the single auto-walk DM.
+// the returned block into the single auto-walk DM. When d.Night is true
+// (D2-b event-anchored rollover), the day++/burn/threat-drift fire here
+// too: nightRolloverBurn before the camp cost (so the burn lands on
+// pre-pitch supplies, matching the legacy morning-burn ordering), then
+// applyCampRest, then nightRolloverDrift.
 func (p *AdventurePlugin) pitchAutopilotCamp(exp *Expedition, d autoCampDecision) (string, error) {
+	var (
+		nightBurn  float32
+		nightTemp  []string
+		nightMile  []string
+		nightDid   bool
+		nightForce bool
+	)
+	if d.Night {
+		burn, err := p.nightRolloverBurn(exp)
+		if err != nil {
+			return "", err
+		}
+		nightBurn = burn
+		nightDid = true
+		if exp.Status != ExpeditionStatusActive {
+			// Starvation during burn is rare (burn alone doesn't trigger
+			// starvation — that needs supplies <= 0 *after* burn), but
+			// guard anyway so we don't pitch a camp on an abandoned exp.
+			drift := p.nightRolloverDrift(exp, time.Now().UTC())
+			nightTemp = drift.TemporalLines
+			nightMile = drift.MilestoneLines
+			nightForce = true
+			return renderAutoCampBlock(exp, d, 0, "", "", nightBurn, nightTemp, nightMile, nightDid, nightForce), nil
+		}
+	}
 	cost := campSupplyCost[d.Kind]
 	if exp.Supplies.Current < cost {
 		return "", fmt.Errorf("insufficient supplies (have %.1f, need %.1f)", exp.Supplies.Current, cost)
@@ -211,13 +284,32 @@ func (p *AdventurePlugin) pitchAutopilotCamp(exp *Expedition, d autoCampDecision
 		}
 	}
 
-	return renderAutoCampBlock(exp, d, cost, line, restSummary), nil
+	if d.Night {
+		drift := p.nightRolloverDrift(exp, time.Now().UTC())
+		nightTemp = drift.TemporalLines
+		nightMile = drift.MilestoneLines
+	}
+
+	return renderAutoCampBlock(exp, d, cost, line, restSummary,
+		nightBurn, nightTemp, nightMile, nightDid, nightForce), nil
 }
 
 // renderAutoCampBlock formats the autopilot-camp section appended to
 // the auto-walk DM. Kept short — the autorun DM already opens with the
-// walk narration.
-func renderAutoCampBlock(exp *Expedition, d autoCampDecision, cost float32, flavorLine, restSummary string) string {
+// walk narration. nightBurn/nightTemp/nightMile carry the D2-b rollover
+// side effects when the pitch was a night camp.
+func renderAutoCampBlock(exp *Expedition, d autoCampDecision, cost float32, flavorLine, restSummary string,
+	nightBurn float32, nightTemp []string, nightMile []string, nightDid bool, nightForce bool) string {
+	if nightForce {
+		out := fmt.Sprintf("\n\n🌙 **Day %d.** _Supplies burned (−%.1f SU); the rollover fired but the camp couldn't pitch._\n", exp.CurrentDay, nightBurn)
+		for _, tl := range nightTemp {
+			out += "\n🌀 " + tl + "\n"
+		}
+		for _, ml := range nightMile {
+			out += "\n" + ml
+		}
+		return out
+	}
 	out := fmt.Sprintf("\n\n⛺ **Autopilot camp — %s.** _%s_\n", d.Kind, d.Reason)
 	out += fmt.Sprintf("Supplies: %.1f / %.1f SU (−%.1f).\n",
 		exp.Supplies.Current, exp.Supplies.Max, cost)
@@ -229,6 +321,15 @@ func renderAutoCampBlock(exp *Expedition, d autoCampDecision, cost float32, flav
 	}
 	if d.Kind == CampTypeBase {
 		out += "\n_Base camp — **waypoint persisted**._"
+	}
+	if nightDid {
+		out += fmt.Sprintf("\n\n🌙 **Day %d.** _Overnight burn: %.1f SU._\n", exp.CurrentDay, nightBurn)
+		for _, tl := range nightTemp {
+			out += "\n🌀 " + tl + "\n"
+		}
+		for _, ml := range nightMile {
+			out += "\n" + ml
+		}
 	}
 	return out
 }

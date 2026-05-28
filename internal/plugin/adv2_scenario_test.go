@@ -221,10 +221,9 @@ func TestAdv2Scenario_ExpeditionCryptValdris(t *testing.T) {
 		t.Errorf("expected outfitting to debit coins (%.2f → %.2f)", balBefore, balAfter)
 	}
 
-	// Backdate start so deliverBriefing's same-day guard passes.
-	if _, err := dbExecExpeditionBackdate(exp.ID, 24*time.Hour); err != nil {
-		t.Fatalf("backdate: %v", err)
-	}
+	// Backdate start so deliverBriefing's same-day guard passes, and to
+	// before eventAnchoredCutoff so the legacy mutator path still fires.
+	rewindToLegacyAnchor(t, exp)
 
 	// Drive 3 daily briefings — verify supply burn + day advance.
 	now := time.Date(2026, 5, 8, 6, 0, 0, 0, time.UTC)

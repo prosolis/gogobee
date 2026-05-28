@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chehsunliu/poker"
 )
@@ -30,6 +31,11 @@ func loadSolverFixture() {
 
 func TestMain(m *testing.M) {
 	loadSolverFixture()
+	// D2-b: shove eventAnchoredCutoff far into the future so existing tests
+	// keep exercising the legacy UTC-anchored briefing mutator path by
+	// default. New event-anchored tests opt in by overriding the cutoff
+	// (see useEventAnchored helpers).
+	eventAnchoredCutoff = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 	os.Exit(m.Run())
 }
 

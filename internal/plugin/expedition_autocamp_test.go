@@ -223,6 +223,101 @@ func TestBreakAutoCampIfDue_RespectsDwellWindow(t *testing.T) {
 	}
 }
 
+func TestDecideAutopilotCamp_NightTriggerOnEventAnchored(t *testing.T) {
+	now := time.Now().UTC()
+	stale := now.Add(-(nightCampWindow + time.Hour))
+	in := autoCampInputs{
+		Run:            &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
+		HPCur:          20, HPMax: 20, // healthy — only the night window should pitch
+		Supplies:       ExpeditionSupplies{Current: 5, Max: 5, DailyBurn: 1},
+		Now:            now,
+		EventAnchored:  true,
+		LastBriefingAt: &stale,
+	}
+	d, ok := decideAutopilotCamp(in)
+	if !ok {
+		t.Fatal("expected night camp pitch")
+	}
+	if !d.Night {
+		t.Errorf("Night = false, want true (end of day)")
+	}
+	if d.Kind != CampTypeStandard {
+		t.Errorf("Kind = %s, want standard (cleared room)", d.Kind)
+	}
+}
+
+func TestDecideAutopilotCamp_NightSkippedOnLegacy(t *testing.T) {
+	now := time.Now().UTC()
+	stale := now.Add(-24 * time.Hour)
+	in := autoCampInputs{
+		Run:            &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
+		HPCur:          20, HPMax: 20,
+		Supplies:       ExpeditionSupplies{Current: 5, Max: 5, DailyBurn: 1},
+		Now:            now,
+		EventAnchored:  false, // legacy — only HP-low triggers
+		LastBriefingAt: &stale,
+	}
+	if _, ok := decideAutopilotCamp(in); ok {
+		t.Error("legacy expedition should not pitch a night camp on time alone")
+	}
+}
+
+func TestDecideAutopilotCamp_NightFlagSetEvenOnHPLow(t *testing.T) {
+	now := time.Now().UTC()
+	stale := now.Add(-(nightCampWindow + time.Hour))
+	in := autoCampInputs{
+		Run:            &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
+		HPCur:          5, HPMax: 20, // also low
+		Supplies:       ExpeditionSupplies{Current: 5, Max: 5, DailyBurn: 1},
+		Now:            now,
+		EventAnchored:  true,
+		LastBriefingAt: &stale,
+	}
+	d, ok := decideAutopilotCamp(in)
+	if !ok || !d.Night {
+		t.Errorf("expected Night pitch even when HP also low, got %+v ok=%v", d, ok)
+	}
+}
+
+func TestPitchAutopilotCamp_NightRunsProcessNightCamp(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@autocamp-night:example")
+	campTestCharacter(t, uid, 1)
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, "",
+		ExpeditionSupplies{Current: 5, Max: 5, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Force event-anchored for this test.
+	saved := eventAnchoredCutoff
+	eventAnchoredCutoff = exp.StartDate.Add(-time.Minute)
+	defer func() { eventAnchoredCutoff = saved }()
+
+	startDay := exp.CurrentDay
+	startSU := exp.Supplies.Current
+	p := &AdventurePlugin{}
+	_, err = p.pitchAutopilotCamp(exp, autoCampDecision{
+		Kind: CampTypeStandard, Reason: "night-camp test", Night: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getActiveExpedition(uid)
+	if got.CurrentDay != startDay+1 {
+		t.Errorf("day = %d, want %d (night camp advances day)", got.CurrentDay, startDay+1)
+	}
+	// Night burn (0.5 SU) + camp cost (1.0 SU) = 1.5 SU; 5 - 1.5 = 3.5.
+	wantSU := startSU - 0.5 - campSupplyCost[CampTypeStandard]
+	if got.Supplies.Current != wantSU {
+		t.Errorf("supplies = %v, want %v (night burn + camp cost)", got.Supplies.Current, wantSU)
+	}
+	if got.LastBriefingAt == nil {
+		t.Error("LastBriefingAt should be stamped by night rollover")
+	}
+}
+
 func TestBreakAutoCampIfDue_LeavesPlayerCampAlone(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@autocamp-playercamp:example")

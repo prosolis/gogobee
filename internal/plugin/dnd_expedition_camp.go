@@ -160,6 +160,30 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 			cost, exp.Supplies.Current))
 	}
 
+	// D2-b: event-anchored manual !camp counts as the night camp if it's
+	// the first camp since the last rollover. Burn supplies *before* the
+	// camp cost so the burn lands against pre-pitch supplies (matches the
+	// legacy morning-burn ordering), then pitch, then drift.
+	nightCamp := false
+	var nightBurn float32
+	var nightRoll nightRolloverResult
+	if isEventAnchored(exp) {
+		var since time.Duration
+		if exp.LastBriefingAt != nil {
+			since = time.Now().UTC().Sub(*exp.LastBriefingAt)
+		} else {
+			since = time.Now().UTC().Sub(exp.StartDate)
+		}
+		if since >= nightCampWindow {
+			nightCamp = true
+			burn, err := p.nightRolloverBurn(exp)
+			if err != nil {
+				return p.SendDM(ctx.Sender, "Couldn't burn night supplies: "+err.Error())
+			}
+			nightBurn = burn
+		}
+	}
+
 	exp.Supplies.Current -= cost
 	if err := updateSupplies(exp.ID, exp.Supplies); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't deduct supplies: "+err.Error())
@@ -180,6 +204,10 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 	// until the next 06:00 UTC briefing for HP and spell slots to come
 	// back. The flag tells processOvernightCamp not to re-apply at briefing.
 	restSummary := applyCampRest(exp, kind)
+	if nightCamp {
+		nightRoll = p.nightRolloverDrift(exp, time.Now().UTC())
+		nightRoll.Burn = nightBurn
+	}
 	camp.RestApplied = true
 	if err := updateCamp(exp.ID, camp); err != nil {
 		slog.Warn("camp: mark rest applied", "expedition", exp.ID, "err", err)
@@ -220,6 +248,15 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 	switch kind {
 	case CampTypeBase:
 		b.WriteString("\n_Base camp — **waypoint persisted**. Camp here again at no eligibility cost on later returns._")
+	}
+	if nightCamp {
+		b.WriteString(fmt.Sprintf("\n\n🌙 **Day %d.** _Overnight burn: %.1f SU._\n", exp.CurrentDay, nightRoll.Burn))
+		for _, tl := range nightRoll.TemporalLines {
+			b.WriteString("\n🌀 " + tl + "\n")
+		}
+		for _, ml := range nightRoll.MilestoneLines {
+			b.WriteString("\n" + ml)
+		}
 	}
 	return p.SendDM(ctx.Sender, b.String())
 }

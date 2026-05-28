@@ -168,9 +168,7 @@ func TestDeliverBriefing_StarvationForcesExtraction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dbExecExpeditionBackdate(exp.ID, 24*time.Hour); err != nil {
-		t.Fatalf("backdate: %v", err)
-	}
+	rewindToLegacyAnchor(t, exp)
 
 	p := &AdventurePlugin{}
 	now := time.Date(2026, 5, 8, 6, 0, 0, 0, time.UTC)
