@@ -894,13 +894,18 @@ func simMartialFirstClass(class DnDClass) bool {
 	return false
 }
 
-// simPickSpiritualWeapon returns "spiritual_weapon" when a cleric should
-// open the fight with it: the buff is not already active on the session,
-// the spell is prepared, and an L2 slot is available. Returns "" otherwise.
-// The buff path in combat_cmd.go folds into BuffSpiritProc/Dmg via
-// applyBuffDelta, which the turn engine fires each round via
-// spiritWeaponStrike — so one cast is worth more than a single L2 damage
-// spell across a multi-round fight.
+// simPickSpiritualWeapon returns a !cast argument for Spiritual Weapon
+// when a cleric should open the fight with it: the buff is not already
+// active on the session, the spell is prepared, and some slot ≥ L2 is
+// available. Returns "" otherwise. The buff path in combat_cmd.go folds
+// into BuffSpiritProc/Dmg via applyBuffDelta, which the turn engine fires
+// each round via spiritWeaponStrike — so one cast is worth more than a
+// single L2 damage spell across a multi-round fight.
+//
+// Slot pick: lowest available slot ≥ 2. Upcasting is +1d8 per 2 slots
+// above 2nd, so spending a precious L5 to add a single d8 to the proc is
+// not worth burning the bigger slot's damage potential elsewhere; sim
+// behaves like a competent player and saves the high slot.
 func simPickSpiritualWeapon(c *DnDCharacter, uid id.UserID, sess *CombatSession) string {
 	if c == nil || c.Class != ClassCleric || sess == nil {
 		return ""
@@ -923,11 +928,18 @@ func simPickSpiritualWeapon(c *DnDCharacter, uid id.UserID, sess *CombatSession)
 		return ""
 	}
 	slots, _ := getSpellSlots(uid)
-	pair, ok := slots[2]
-	if !ok || pair[0]-pair[1] <= 0 {
-		return ""
+	const simMaxSlot = 5
+	for sl := 2; sl <= simMaxSlot; sl++ {
+		pair, ok := slots[sl]
+		if !ok || pair[0]-pair[1] <= 0 {
+			continue
+		}
+		if sl == 2 {
+			return "spiritual_weapon"
+		}
+		return fmt.Sprintf("spiritual_weapon --upcast %d", sl)
 	}
-	return "spiritual_weapon"
+	return ""
 }
 
 // simPickSpell returns the spell argument a competent player would pass

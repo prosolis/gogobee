@@ -572,11 +572,17 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact, inlin
 				// autoResolveCombat / simPickCombatAction). Surface the
 				// doorway like the foreground path does, after the safety
 				// gate has had a chance to defer the engagement.
+				kind := "Elite"
 				r := stopElite
 				if prev == RoomBoss {
+					kind = "Boss"
 					r = stopBoss
 				}
-				return advanceResult{reason: r}, nil
+				return advanceResult{
+					final: fmt.Sprintf("**Room %d/%d — %s.** Type `!fight` to engage.",
+						prevIdx+1, run.TotalRooms, kind),
+					reason: r,
+				}, nil
 			}
 			// Compact-mode elite/boss auto-resolve. resolveCombatRoom
 			// selects monster + label by run.CurrentRoomType().

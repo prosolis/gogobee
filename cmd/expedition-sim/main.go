@@ -13,6 +13,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -191,13 +192,32 @@ func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult,
 			args = append(args, "-trace")
 		}
 		cmd := exec.Command(exe, args...)
+		var stderrBuf bytes.Buffer
+		cmd.Stderr = &stderrBuf
 		stdout, runErr := cmd.Output()
 		var res plugin.SimResult
-		if jerr := json.Unmarshal(stdout, &res); jerr != nil {
+		jerr := json.Unmarshal(stdout, &res)
+		if jerr != nil {
 			res = plugin.SimResult{UserID: uid, Class: j.class, Level: j.level, Zone: j.zone, Outcome: "halted"}
 		}
 		if runErr != nil && res.Outcome == "" {
 			res.Outcome = "halted"
+		}
+		// Surface subprocess failures: parse error with non-empty stdout
+		// (corrupted JSON) and non-zero exits both get a stderr dump so the
+		// user sees the underlying cause instead of just a halted row.
+		if jerr != nil || runErr != nil {
+			fmt.Fprintf(os.Stderr, "sim cell %s halted: runErr=%v jerr=%v\n", uid, runErr, jerr)
+			if stderrBuf.Len() > 0 {
+				fmt.Fprintf(os.Stderr, "  child stderr:\n%s\n", stderrBuf.String())
+			}
+			if jerr != nil && len(stdout) > 0 {
+				snip := stdout
+				if len(snip) > 200 {
+					snip = snip[:200]
+				}
+				fmt.Fprintf(os.Stderr, "  child stdout (first 200B): %q\n", snip)
+			}
 		}
 		if !includeLog {
 			res.Log = nil
