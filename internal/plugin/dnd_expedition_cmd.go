@@ -93,8 +93,8 @@ func expeditionHelpText() string {
 	b.WriteString("**!expedition** — multi-day dungeon expeditions.\n\n")
 	b.WriteString("`!expedition list` — show zones available at your level\n")
 	b.WriteString("`!expedition start <zone> [Ns] [Md]` — outfit & begin\n")
-	b.WriteString("    `Ns` = N standard packs (10 SU, 50 coins, max 3)\n")
-	b.WriteString("    `Md` = M deluxe packs (20 SU, 90 coins, max 1)\n")
+	b.WriteString("    `Ns` = N standard packs (10 SU, 50 coins; cap scales by zone tier)\n")
+	b.WriteString("    `Md` = M deluxe packs (20 SU, 90 coins; cap scales by zone tier)\n")
 	b.WriteString("    default: `1s`\n")
 	b.WriteString("`!expedition run` — autopilot: walk rooms until something needs you (alias `!explore`)\n")
 	b.WriteString("`!expedition status` — current expedition snapshot\n")
@@ -199,7 +199,8 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't parse supply packs: "+err.Error())
 	}
-	if err := purchase.Validate(); err != nil {
+	zoneForCaps, _ := getZone(zoneID)
+	if err := purchase.Validate(zoneForCaps.Tier); err != nil {
 		return p.SendDM(ctx.Sender, "Invalid pack selection: "+err.Error())
 	}
 	cost := float64(purchase.Cost())
@@ -226,9 +227,10 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 			zone.Display))
 	}
 
-	zone, _ := getZone(zoneID)
+	zone := zoneForCaps
 	// Holiday perk: a complimentary standard pack is added to the supplies
-	// snapshot without inflating the coin cost.
+	// snapshot without inflating the coin cost. Bypasses the per-tier cap
+	// on purpose — it's a freebie on top of whatever the player bought.
 	suppliesPurchase := purchase
 	if isHol, _ := isHolidayToday(); isHol {
 		suppliesPurchase.StandardPacks++

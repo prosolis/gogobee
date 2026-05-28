@@ -92,19 +92,52 @@ func TestSupplyAllowsLongRest(t *testing.T) {
 func TestSupplyPurchase_Validate(t *testing.T) {
 	cases := []struct {
 		p       SupplyPurchase
+		tier    ZoneTier
 		wantErr bool
 	}{
-		{SupplyPurchase{StandardPacks: 1}, false},
-		{SupplyPurchase{StandardPacks: 3, DeluxePacks: 1}, false}, // max
-		{SupplyPurchase{StandardPacks: 4}, true},                  // over standard cap
-		{SupplyPurchase{DeluxePacks: 2}, true},                    // over deluxe cap
-		{SupplyPurchase{StandardPacks: -1}, true},
-		{SupplyPurchase{}, true}, // none purchased
+		// T3 is the only tier whose caps are unchanged from the pre-D5
+		// shape (3 standard / 1 deluxe); use it to anchor the
+		// happy-path / over-cap parity assertions.
+		{SupplyPurchase{StandardPacks: 1}, ZoneTierJourneyman, false},
+		{SupplyPurchase{StandardPacks: 3, DeluxePacks: 1}, ZoneTierJourneyman, false},
+		{SupplyPurchase{StandardPacks: 4}, ZoneTierJourneyman, true},
+		{SupplyPurchase{DeluxePacks: 2}, ZoneTierJourneyman, true},
+		{SupplyPurchase{StandardPacks: -1}, ZoneTierJourneyman, true},
+		{SupplyPurchase{}, ZoneTierJourneyman, true}, // none purchased
+
+		// D5-a per-tier caps. T1/T2 tighten to (2,1); T4 widens to (5,1);
+		// T5 widens to (7,2). A T3-legal 3-standard loadout fails on T1.
+		{SupplyPurchase{StandardPacks: 2, DeluxePacks: 1}, ZoneTierBeginner, false},
+		{SupplyPurchase{StandardPacks: 3}, ZoneTierBeginner, true},
+		{SupplyPurchase{StandardPacks: 5, DeluxePacks: 1}, ZoneTierVeteran, false},
+		{SupplyPurchase{StandardPacks: 6}, ZoneTierVeteran, true},
+		{SupplyPurchase{StandardPacks: 7, DeluxePacks: 2}, ZoneTierLegendary, false},
+		{SupplyPurchase{StandardPacks: 7, DeluxePacks: 3}, ZoneTierLegendary, true},
 	}
 	for _, c := range cases {
-		err := c.p.Validate()
+		err := c.p.Validate(c.tier)
 		if (err != nil) != c.wantErr {
-			t.Errorf("%+v: err = %v, wantErr=%v", c.p, err, c.wantErr)
+			t.Errorf("%+v T%d: err = %v, wantErr=%v", c.p, int(c.tier), err, c.wantErr)
+		}
+	}
+}
+
+func TestSupplyPackCaps_PerTier(t *testing.T) {
+	cases := []struct {
+		tier    ZoneTier
+		wantStd int
+		wantDlx int
+	}{
+		{ZoneTierBeginner, 2, 1},
+		{ZoneTierApprentice, 2, 1},
+		{ZoneTierJourneyman, 3, 1},
+		{ZoneTierVeteran, 5, 1},
+		{ZoneTierLegendary, 7, 2},
+	}
+	for _, c := range cases {
+		s, d := supplyPackCaps(c.tier)
+		if s != c.wantStd || d != c.wantDlx {
+			t.Errorf("T%d caps: got (%d,%d), want (%d,%d)", int(c.tier), s, d, c.wantStd, c.wantDlx)
 		}
 	}
 }

@@ -113,12 +113,15 @@ Each successful background walk now logs a `walk` entry (`appendExpeditionLog(..
 **Exit criteria:** a 7-day T5 produces ≤ 10 DMs across the whole expedition (1 launch + 6 end-of-day + 1 boss + 1 run-complete + 1 emergency).
 
 ### D5 — Supplies economics retune
-**Files:** `dnd_expedition.go:38-47` (ExpeditionSupplies), pack-purchase surface (E1b), `applyDailyBurn`.
-**Work:**
-- New pack tiers sized for 2-day → 7-day. Max packs scale with intended duration. Today's caps (PacksStandard ≤ 3, PacksDeluxe ≤ 1) are a 2-day shape.
-- DailyBurn: keep zone-tier scaling, but the autopilot's camp choices now consume meaningful SU per day — so `Max` headroom needs to roughly equal `DailyBurn × intendedDays × 1.3` (slop).
-- Surface supply purchase at launch as a single "Pick your loadout" prompt with 3–4 presets ("Lean: 2-day shape", "Balanced", "Heavy: full T5"), with raw pack counts as an advanced override.
-- Forage and Ranger forage tuning re-baseline.
+
+**D5-a (shipped 2026-05-27):** per-tier pack caps. `dnd_expedition_supplies.go` retires the global `SupplyPackStandardMax`/`SupplyPackDeluxeMax` constants in favor of `supplyPackCaps(tier) (std, dlx int)` — T1/T2: (2,1); T3: (3,1) unchanged; T4: (5,1); T5: (7,2). `SupplyPurchase.Validate` is now `Validate(tier ZoneTier)`; both call sites (`!expedition start`, `!resume`) pass the resolved zone's tier. The cap clears `DailyBurn(raw) × intendedDays × 1.3` for every tier under the §2 target durations even with harsh×3 layered on top, so a player who wants to buy for the long shape can. DailyBurn / harsh-multiplier / `phase5BDailyBurnRatePct` are unchanged here — they're a D7 lever, alongside the sim work that should unblock empirical baselining. The help text now describes the cap as "scales by zone tier"; the holiday +1 standard pack still bypasses the cap on purpose (it's a freebie on top).
+
+> **Note:** the original "Empirical (sim-driven)" path was blocked: under D2-b event-anchored expeditions, `SimRunner.TickDay` calls `deliverBriefing` → `deliverBriefingEventAnchored`, which reads `time.Now().UTC()` for its safety-net check, so synthetic ticks never advance `CurrentDay` and `DaysAtEnd` stays at 0. Re-baselining off real day-counts requires teaching the sim to drive the event-anchored rollover (D7).
+
+**Remaining work (D5-b+):**
+- "Pick your loadout" preset prompt at launch (Lean / Balanced / Heavy) — raw `Ns Md` syntax becomes the advanced override.
+- Forage and Ranger forage re-baseline against the new caps.
+- DailyBurn / `phase5BDailyBurnRatePct` revisit once D7 sim measures real elapsed-day counts.
 
 **Exit criteria:** balanced loadout completes intended-duration expedition in ≥ 85% of sim runs without starvation extraction.
 

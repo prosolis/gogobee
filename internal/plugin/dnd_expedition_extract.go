@@ -312,7 +312,8 @@ func (p *AdventurePlugin) handleResumeCmd(ctx MessageContext, args string) error
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't parse supply packs: "+err.Error())
 	}
-	if err := purchase.Validate(); err != nil {
+	resumeZone, _ := getZone(exp.ZoneID)
+	if err := purchase.Validate(resumeZone.Tier); err != nil {
 		return p.SendDM(ctx.Sender, "Invalid pack selection: "+err.Error())
 	}
 	cost := float64(purchase.Cost())

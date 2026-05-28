@@ -11,14 +11,33 @@ import (
 const (
 	SupplyPackStandardSU    = 10
 	SupplyPackStandardCoins = 50
-	SupplyPackStandardMax   = 3 // per expedition
 
 	SupplyPackDeluxeSU    = 20
 	SupplyPackDeluxeCoins = 90
-	SupplyPackDeluxeMax   = 1 // per expedition
 
 	SupplyForageMaxSU = 4 // 1d4 cap (Ranger, WIS DC 12) — §4.2
 )
+
+// supplyPackCaps returns the per-tier maximum standard and deluxe pack
+// counts a player can buy for an expedition. D5-a: caps now scale by
+// zone tier so a T5 loadout actually clears DailyBurn(raw) × intended
+// days × harsh-multiplier — see gogobee_long_expedition_plan.md §D5.
+// Intended-day anchors come from the §2 target table (T1=2 → T5=7).
+func supplyPackCaps(tier ZoneTier) (standard, deluxe int) {
+	switch tier {
+	case ZoneTierBeginner:
+		return 2, 1
+	case ZoneTierApprentice:
+		return 2, 1
+	case ZoneTierJourneyman:
+		return 3, 1
+	case ZoneTierVeteran:
+		return 5, 1
+	case ZoneTierLegendary:
+		return 7, 2
+	}
+	return 3, 1
+}
 
 // supplyDailyBurn returns the base SU/day for a zone tier (§4.1).
 // Tier 1: 1, Tier 2: 1.5, Tier 3: 2, Tier 4: 3, Tier 5: 4.
@@ -122,18 +141,19 @@ func (p SupplyPurchase) Cost() int {
 	return p.StandardPacks*SupplyPackStandardCoins + p.DeluxePacks*SupplyPackDeluxeCoins
 }
 
-// Validate enforces §4.2 caps (max 3 standard, max 1 deluxe, no negatives,
-// at least one pack purchased — an expedition without supplies is not a
-// legal start).
-func (p SupplyPurchase) Validate() error {
+// Validate enforces §4.2 caps (no negatives, at least one pack
+// purchased — an expedition without supplies is not a legal start) and
+// the per-tier maximums from supplyPackCaps.
+func (p SupplyPurchase) Validate(tier ZoneTier) error {
 	if p.StandardPacks < 0 || p.DeluxePacks < 0 {
 		return fmt.Errorf("supply pack counts must be non-negative")
 	}
-	if p.StandardPacks > SupplyPackStandardMax {
-		return fmt.Errorf("standard packs capped at %d (got %d)", SupplyPackStandardMax, p.StandardPacks)
+	stdCap, dlxCap := supplyPackCaps(tier)
+	if p.StandardPacks > stdCap {
+		return fmt.Errorf("standard packs capped at %d for T%d (got %d)", stdCap, int(tier), p.StandardPacks)
 	}
-	if p.DeluxePacks > SupplyPackDeluxeMax {
-		return fmt.Errorf("deluxe packs capped at %d (got %d)", SupplyPackDeluxeMax, p.DeluxePacks)
+	if p.DeluxePacks > dlxCap {
+		return fmt.Errorf("deluxe packs capped at %d for T%d (got %d)", dlxCap, int(tier), p.DeluxePacks)
 	}
 	if p.StandardPacks == 0 && p.DeluxePacks == 0 {
 		return fmt.Errorf("expedition requires at least one supply pack")
