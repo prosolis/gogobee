@@ -123,7 +123,7 @@ func (s *SimRunner) BuildCharacter(uid id.UserID, class DnDClass, level int) (*D
 // stockSimConsumables drops a small tier-appropriate bundle of potions
 // + a couple offensive items into the synthetic player's inventory so
 // SelectConsumables / setupAutoHealFromInventory have something to fire
-// during autoResolveCombat. Counts are deliberately modest — a real
+// during autoDriveCombat. Counts are deliberately modest — a real
 // L7+ player typically carries 3-6 heals plus a couple of buffs; we
 // mirror that band rather than max-stocking, which would mask class
 // power gaps.
@@ -281,8 +281,8 @@ type SimResult struct {
 	// resource). YieldsByName breaks that total down by resource name
 	// for tier/per-resource calibration. Both are read from
 	// adventure_inventory at end-of-run.
-	YieldCount    int
-	YieldsByName  map[string]int
+	YieldCount   int
+	YieldsByName map[string]int
 	// Combats holds a per-combat trace for every fight the synthetic
 	// player entered during the expedition (boss + elites + patrols).
 	// Used by post-hoc analysis to dig into class-survival walls
@@ -480,7 +480,7 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays
 		case stopBoss, stopElite:
 			// Auto-resolve the encounter: !fight to open, then !attack
 			// per round until the session resolves (won / lost / fled).
-			killed, err := s.autoResolveCombat(ctx)
+			killed, err := s.P.autoDriveCombat(ctx)
 			if err != nil {
 				res.Outcome = "halted"
 				res.StopCode = "combat:" + err.Error()
@@ -742,16 +742,24 @@ func simMaterialYields(uid id.UserID) (int, map[string]int) {
 	return total, out
 }
 
-// autoResolveCombat dispatches !fight at the current elite/boss gate,
-// then loops !attack until the combat session resolves. Returns true
-// when the player won (enemy dead, room cleared), false when the
-// player lost or fled. autoCombatRoundCap is a safety cap against
+// autoDriveCombat dispatches !fight at the current elite/boss gate,
+// then loops !attack/!cast/!consume until the combat session resolves.
+// Returns true when the player won (enemy dead, room cleared), false when
+// the player lost or fled. autoCombatRoundCap is a safety cap against
 // pathological stalemates (shouldn't trigger in practice — combat is
 // strictly monotone in HP).
+//
+// Shared by the headless sim and the production background autopilot
+// (long-expedition D8-f): a silent ctx (ctx.Silent) suppresses the
+// per-round DM narration so the autorun digest can summarize the fight
+// without spamming the player a message per round. Driving the real
+// !fight/!attack engine here is what gives autopilot bosses true parity
+// with manual `!fight` — including enemy multiattack, which the old
+// inline SimulateCombat path ignored.
 const autoCombatRoundCap = 200
 
-func (s *SimRunner) autoResolveCombat(ctx MessageContext) (bool, error) {
-	if err := s.P.handleFightCmd(ctx); err != nil {
+func (p *AdventurePlugin) autoDriveCombat(ctx MessageContext) (bool, error) {
+	if err := p.handleFightCmd(ctx); err != nil {
 		return false, fmt.Errorf("fight: %w", err)
 	}
 	sess, err := getActiveCombatSession(ctx.Sender)
@@ -779,15 +787,15 @@ func (s *SimRunner) autoResolveCombat(ctx MessageContext) (bool, error) {
 		case CombatStatusLost, CombatStatusFled:
 			return false, nil
 		}
-		kind, arg := s.simPickCombatAction(ctx.Sender, cur)
+		kind, arg := p.pickAutoCombatAction(ctx.Sender, cur)
 		var dispatchErr error
 		switch kind {
 		case "consume":
-			dispatchErr = s.P.handleConsumeCmd(ctx, arg)
+			dispatchErr = p.handleConsumeCmd(ctx, arg)
 		case "cast":
-			dispatchErr = s.P.handleCombatCastCmd(ctx, arg)
+			dispatchErr = p.handleCombatCastCmd(ctx, arg)
 		default:
-			dispatchErr = s.P.handleAttackCmd(ctx)
+			dispatchErr = p.handleAttackCmd(ctx)
 		}
 		if dispatchErr != nil {
 			return false, fmt.Errorf("%s iter %d: %w", kind, i, dispatchErr)
@@ -835,7 +843,7 @@ func (s *SimRunner) maybeShortRest(ctx MessageContext, uid id.UserID) {
 // one more big hit, not so early that a 1-HP scratch burns a potion.
 const simHealHPThresholdPct = 40
 
-// simPickCombatAction is the sim's per-turn decision tree, mirroring
+// pickAutoCombatAction is the per-turn decision tree, mirroring
 // what a competent prod player would type:
 //
 //  1. If HP is below simHealHPThresholdPct and the inventory has a heal
@@ -854,14 +862,14 @@ const simHealHPThresholdPct = 40
 //
 // Pre-J2a the sim looped !attack only, which underweighted every caster
 // class — see sim_results/j2_findings.md for the trace evidence.
-func (s *SimRunner) simPickCombatAction(uid id.UserID, sess *CombatSession) (kind, arg string) {
+func (p *AdventurePlugin) pickAutoCombatAction(uid id.UserID, sess *CombatSession) (kind, arg string) {
 	c, _ := LoadDnDCharacter(uid)
 	if c == nil || sess == nil {
 		return "attack", ""
 	}
 	lowHP := sess.PlayerHPMax > 0 && sess.PlayerHP*100 < sess.PlayerHPMax*simHealHPThresholdPct
 	if lowHP {
-		inv := s.P.loadConsumableInventory(uid)
+		inv := p.loadConsumableInventory(uid)
 		for _, it := range inv {
 			if it.Def.Effect == EffectHeal {
 				return "consume", it.Def.Name

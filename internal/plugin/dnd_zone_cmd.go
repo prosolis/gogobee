@@ -380,16 +380,16 @@ func roomGlyph(rt RoomType) string {
 type stopReason int
 
 const (
-	stopOK       stopReason = iota // walked to next room; loop may continue
-	stopFork                       // advanceTransitionGraph returned a forkMsg
-	stopElite                      // standing at an Elite doorway; needs !fight
-	stopBoss                       // standing at a Boss doorway; needs !fight
-	stopEnded                      // patrol or room resolution killed the player
-	stopComplete                   // run cleared (boss down, no outgoing edges)
-	stopBlocked                    // an active CombatSession blocks the advance
-	stopHarvestCombat              // auto-harvest pulled into combat that resolved short of death
-	stopPreflight                  // pre-iteration preflight tripped (low HP / low SU)
-	stopBossSafety                 // compact autopilot bailed before boss (HP/SU/exhaustion gate) — caller pitches a rest camp
+	stopOK            stopReason = iota // walked to next room; loop may continue
+	stopFork                            // advanceTransitionGraph returned a forkMsg
+	stopElite                           // standing at an Elite doorway; needs !fight
+	stopBoss                            // standing at a Boss doorway; needs !fight
+	stopEnded                           // patrol or room resolution killed the player
+	stopComplete                        // run cleared (boss down, no outgoing edges)
+	stopBlocked                         // an active CombatSession blocks the advance
+	stopHarvestCombat                   // auto-harvest pulled into combat that resolved short of death
+	stopPreflight                       // pre-iteration preflight tripped (low HP / low SU)
+	stopBossSafety                      // compact autopilot bailed before boss (HP/SU/exhaustion gate) — caller pitches a rest camp
 )
 
 // bossSafetyHPPct — compact-autopilot won't engage a boss while current HP
@@ -477,11 +477,13 @@ func (p *AdventurePlugin) advanceOnce(ctx MessageContext) (advanceResult, error)
 
 // inlineBossCombat (only consulted when compact==true) selects between the
 // two background combat paths at a boss/elite doorway. true keeps the
-// long-expedition D3 inline auto-resolve (production autorun). false
-// returns stopBoss/stopElite after the safety gate so a turn-based driver
-// — currently only the headless sim's autoResolveCombat / simPickCombatAction
-// — handles the fight via the regular !fight / !attack engine. The sim
-// uses false so simPickSpell actually fires; D8-prereq re-wired this seam.
+// legacy inline auto-resolve (SimulateCombat — fast, but ignores enemy
+// multiattack). false returns stopBoss/stopElite after the safety gate so
+// a turn-based driver — autoDriveCombat / pickAutoCombatAction — handles
+// the fight via the regular !fight / !attack engine. Both the headless sim
+// and the production autorun (long-expedition D8-f) now pass false so the
+// real engine (with multiattack) resolves the encounter and simPickSpell
+// actually fires; D8-prereq re-wired this seam, D8-f flipped prod onto it.
 func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact, inlineBossCombat bool) (advanceResult, error) {
 	run, err := getActiveZoneRun(ctx.Sender)
 	if err != nil {
@@ -568,10 +570,10 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact, inlin
 				}
 			}
 			if !inlineBossCombat {
-				// Background caller wants to drive the fight itself (sim's
-				// autoResolveCombat / simPickCombatAction). Surface the
-				// doorway like the foreground path does, after the safety
-				// gate has had a chance to defer the engagement.
+				// Background caller wants to drive the fight itself via the
+				// turn engine (autoDriveCombat / pickAutoCombatAction).
+				// Surface the doorway like the foreground path does, after
+				// the safety gate has had a chance to defer the engagement.
 				kind := "Elite"
 				r := stopElite
 				if prev == RoomBoss {
@@ -953,6 +955,7 @@ func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone Zo
 // resolveCombatRoom spawns one roster enemy (elite filter optional),
 // runs combat, persists side effects, fires nat-1/nat-20 mood deltas,
 // and renders the staged narration. Returns:
+//
 //   intro   — pre-combat block (TwinBee combat-start + monster stat block)
 //   phases  — RenderCombatLog output, streamed with delays by the caller
 //   outcome — post-combat block: nat20/nat1 flavor, kill line, loot, d20 summary
@@ -1139,7 +1142,7 @@ type BossOutcomeInputs struct {
 	Result               CombatResult
 	PreHP, PostHP, MaxHP int
 	PhaseTwoAt           float64 // fraction of MaxHP; 0 disables phase-two narration
-	Nat20s, Nat1s        int // pre-counted by scanMoodEventsFromCombat
+	Nat20s, Nat1s        int     // pre-counted by scanMoodEventsFromCombat
 
 	// Caller-supplied headlines so arena and zone read in their own voice.
 	// DefeatHeadline is the full sentence shown after the PlayerDeath
@@ -1287,4 +1290,3 @@ func (p *AdventurePlugin) zoneCmdAbandon(ctx MessageContext) error {
 		"🚪 Abandoned **%s** at room %d/%d. No rewards.",
 		zone.Display, run.CurrentRoom+1, run.TotalRooms))
 }
-

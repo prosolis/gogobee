@@ -138,6 +138,84 @@ func loadExpeditionsForAutoRun(runCutoff, ageCutoff time.Time) ([]string, error)
 	return ids, rows.Err()
 }
 
+// autoRunCombatSegmentCap bounds the walk→fight→walk ping-pong inside a
+// single background tick. With autoRunRoomCap == 3 rooms/tick the loop
+// can realistically only hit a couple doorways; the cap is a backstop
+// against a pathological state where a fight wins but the next walk
+// re-presents the same doorway.
+const autoRunCombatSegmentCap = 8
+
+// runAutopilotWalkDriven runs the compact background walk and, when it
+// halts at a boss/elite doorway, drives that fight through the real turn
+// engine (manual `!fight` parity — long-expedition D8-f) before resuming
+// the walk. It loops walk→fight→walk so one tick still covers up to
+// maxRooms rooms, exactly as the old inline-boss path did, but bosses now
+// face the player's full kit against the enemy's full multiattack profile
+// instead of the rosier inline SimulateCombat path.
+//
+// Combat narration is suppressed via a silent ctx — the day digest
+// summarizes the outcome, matching the rest of the compact autopilot
+// surface. The returned result carries the cumulative room count and the
+// reason of whichever non-combat stop ended the loop.
+func (p *AdventurePlugin) runAutopilotWalkDriven(ctx MessageContext, maxRooms int) autopilotWalkResult {
+	silent := ctx
+	silent.Silent = true
+	total := 0
+	for seg := 0; seg < autoRunCombatSegmentCap; seg++ {
+		budget := maxRooms - total
+		if budget <= 0 {
+			return autopilotWalkResult{rooms: total, reason: stopOK, finalMsg: autopilotFooter(stopOK, total)}
+		}
+		r := p.runAutopilotWalk(ctx, budget, true, false)
+		if r.initErr != "" {
+			return r
+		}
+		total += r.rooms
+		r.rooms = total
+		if r.reason != stopBoss && r.reason != stopElite {
+			return r
+		}
+		// Standing at an elite/boss doorway — drive the fight on the turn
+		// engine. handleFightCmd opens the session at the current doorway;
+		// autoDriveCombat loops until it resolves.
+		won, err := p.autoDriveCombat(silent)
+		if err != nil {
+			slog.Warn("expedition: autopilot turn-engine combat", "user", ctx.Sender, "err", err)
+			// Leave the doorway stop in place; the next tick retries the
+			// engagement after the cooldown.
+			return r
+		}
+		if won {
+			// The won session is recorded; the next walk advances the now-
+			// cleared room (a boss win surfaces as stopComplete, an elite as
+			// a normal continue). Loop.
+			continue
+		}
+		// Lost: the turn engine never voluntarily flees, so a non-win means
+		// the party fell. finishCombatSession (CombatStatusLost) already
+		// abandoned the run and force-extracted the expedition; surface it
+		// as a death so the digest + pet-emergence seam fire.
+		if c, _ := LoadDnDCharacter(ctx.Sender); c == nil || c.HPCurrent <= 0 {
+			r.reason = stopEnded
+			r.finalMsg = fmt.Sprintf("💀 The party fell in battle after %s. The expedition is over.", roomsWalkedPhrase(total))
+			return r
+		}
+		// Alive but the session didn't open / resolve to a win (rare —
+		// bestiary miss or stall). Leave the doorway stop; retry next tick.
+		return r
+	}
+	// Segment cap hit — stop cleanly rather than spin.
+	return autopilotWalkResult{rooms: total, reason: stopOK, finalMsg: autopilotFooter(stopOK, total)}
+}
+
+// roomsWalkedPhrase renders "N room(s)" for autopilot footers.
+func roomsWalkedPhrase(rooms int) string {
+	if rooms == 1 {
+		return "1 room"
+	}
+	return fmt.Sprintf("%d rooms", rooms)
+}
+
 // tryAutoRun claims the slot for this expedition, runs one background
 // walk, and DMs the result if the suppression rules say to. The CAS-
 // update is the only persistent side effect on the autorun column —
@@ -170,7 +248,10 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 	}
 
 	uid := id.UserID(e.UserID)
-	r := p.runAutopilotWalk(MessageContext{Sender: uid}, autoRunRoomCap, true, true)
+	// D8-f — boss/elite encounters route through the real turn engine for
+	// manual `!fight` parity (enemy multiattack included). Trash mobs still
+	// auto-resolve on the fast inline path inside the walk.
+	r := p.runAutopilotWalkDriven(MessageContext{Sender: uid}, autoRunRoomCap)
 	if r.initErr != "" {
 		// "no expedition" / "no run" — race with abandon/extract. Silent.
 		return nil

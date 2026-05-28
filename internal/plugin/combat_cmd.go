@@ -27,6 +27,19 @@ func encounterIDForRoom(roomIdx int) string {
 	return fmt.Sprintf("room%d", roomIdx)
 }
 
+// replyDM sends a player-facing combat reply unless ctx.Silent is set. The
+// turn-engine combat commands route all their DMs through here so the
+// background autopilot can drive a boss/elite fight on the real engine
+// (long-expedition D8-f) without spamming the player a DM per round — the
+// state mutations (HP, XP, threat, run-clear) still happen; only the
+// narration is dropped. Non-silent callers (manual !fight) are unchanged.
+func (p *AdventurePlugin) replyDM(ctx MessageContext, text string) error {
+	if ctx.Silent {
+		return nil
+	}
+	return p.SendDM(ctx.Sender, text)
+}
+
 // ── !fight ──────────────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
@@ -36,25 +49,25 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 
 	run, err := getActiveZoneRun(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read run state: "+err.Error())
+		return p.replyDM(ctx, "Couldn't read run state: "+err.Error())
 	}
 	if run == nil {
-		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>` first.")
+		return p.replyDM(ctx, "No active zone run. Use `!zone enter <id>` first.")
 	}
 	roomType := run.CurrentRoomType()
 	if roomType != RoomElite && roomType != RoomBoss {
-		return p.SendDM(ctx.Sender, "Nothing to fight here — `!fight` is for Elite and Boss rooms. Use `!zone advance`.")
+		return p.replyDM(ctx, "Nothing to fight here — `!fight` is for Elite and Boss rooms. Use `!zone advance`.")
 	}
 
 	encID := encounterIDForRoom(run.CurrentRoom)
 	if existing, _ := getCombatSessionForEncounter(run.RunID, encID); existing != nil {
 		switch existing.Status {
 		case CombatStatusActive:
-			return p.SendDM(ctx.Sender, "You're already in this fight — `!attack` or `!flee`.")
+			return p.replyDM(ctx, "You're already in this fight — `!attack` or `!flee`.")
 		case CombatStatusWon:
-			return p.SendDM(ctx.Sender, "You've already cleared this room. "+continueHint(ctx.Sender))
+			return p.replyDM(ctx, "You've already cleared this room. "+continueHint(ctx.Sender))
 		default:
-			return p.SendDM(ctx.Sender, "This fight is already over. `!zone status` for where you stand.")
+			return p.replyDM(ctx, "This fight is already over. `!zone status` for where you stand.")
 		}
 	}
 
@@ -68,26 +81,26 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 		monster, ok = pickZoneEnemy(zone, run.RunID, run.CurrentRoom, true)
 	}
 	if !ok {
-		return p.SendDM(ctx.Sender, "_(No bestiary entry for this encounter — file a bug. `!zone abandon` to bail.)_")
+		return p.replyDM(ctx, "_(No bestiary entry for this encounter — file a bug. `!zone abandon` to bail.)_")
 	}
 
 	player, enemy, _, err := p.buildZoneCombatants(ctx.Sender, monster, int(zone.Tier), run.DMMood)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't set up the fight: "+err.Error())
+		return p.replyDM(ctx, "Couldn't set up the fight: "+err.Error())
 	}
 
 	playerHP, playerMax := dndHPSnapshot(ctx.Sender)
 	if playerHP <= 0 {
-		return p.SendDM(ctx.Sender, "You're in no shape to fight. `!rest` first.")
+		return p.replyDM(ctx, "You're in no shape to fight. `!rest` first.")
 	}
 	enemyHP := enemy.Stats.MaxHP
 
 	sess, err := startCombatSession(ctx.Sender, run.RunID, encID, monster.ID, playerHP, playerMax, enemyHP, enemyHP)
 	if err != nil {
 		if err == ErrCombatSessionAlreadyActive {
-			return p.SendDM(ctx.Sender, "You're already in a fight. Finish it with `!attack` / `!flee`.")
+			return p.replyDM(ctx, "You're already in a fight. Finish it with `!attack` / `!flee`.")
 		}
-		return p.SendDM(ctx.Sender, "Couldn't start the fight: "+err.Error())
+		return p.replyDM(ctx, "Couldn't start the fight: "+err.Error())
 	}
 
 	// Carry fight-start one-shot resources (Abjuration Arcane Ward, etc.) onto
@@ -118,7 +131,7 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 	}
 	b.WriteString("\n")
 	b.WriteString(combatTurnPrompt(sess))
-	return p.SendDM(ctx.Sender, b.String())
+	return p.replyDM(ctx, b.String())
 }
 
 // ── !attack / !flee ─────────────────────────────────────────────────────────
@@ -138,22 +151,22 @@ func (p *AdventurePlugin) handleCombatActionCmd(ctx MessageContext, action Playe
 
 	sess, err := getActiveCombatSession(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read combat state: "+err.Error())
+		return p.replyDM(ctx, "Couldn't read combat state: "+err.Error())
 	}
 	if sess == nil {
-		return p.SendDM(ctx.Sender, "You're not in a fight. `!fight` at an Elite or Boss room to start one.")
+		return p.replyDM(ctx, "You're not in a fight. `!fight` at an Elite or Boss room to start one.")
 	}
 
 	player, enemy, err := p.combatantsForSession(sess)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
+		return p.replyDM(ctx, "Couldn't rebuild the fight: "+err.Error())
 	}
 
 	events, err := runCombatRound(sess, &player, &enemy, action)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't resolve the round: "+err.Error())
+		return p.replyDM(ctx, "Couldn't resolve the round: "+err.Error())
 	}
-	return p.SendDM(ctx.Sender, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
+	return p.replyDM(ctx, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
 }
 
 // renderRoundResult turns a resolved round into the player-facing block: the
@@ -393,35 +406,35 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 
 	sess, err := getActiveCombatSession(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read combat state: "+err.Error())
+		return p.replyDM(ctx, "Couldn't read combat state: "+err.Error())
 	}
 	if sess == nil {
 		// Race: the fight closed between the route check and the lock.
-		return p.SendDM(ctx.Sender, "You're not in a fight anymore.")
+		return p.replyDM(ctx, "You're not in a fight anymore.")
 	}
 
 	advChar, _ := loadAdvCharacter(ctx.Sender)
 	c, err := p.ensureCharForDnDCmd(ctx.Sender, advChar)
 	if err != nil || c == nil {
-		return p.SendDM(ctx.Sender, "Couldn't load your Adv 2.0 sheet.")
+		return p.replyDM(ctx, "Couldn't load your Adv 2.0 sheet.")
 	}
 	if !isSpellcaster(c) {
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
+		return p.replyDM(ctx, fmt.Sprintf(
 			"%s isn't a caster class. `!attack` or `!consume <item>` instead.", titleClass(c.Class)))
 	}
 
 	spell, slotLevel, errMsg := parseCombatCast(ctx.Sender, c, strings.TrimSpace(args))
 	if errMsg != "" {
-		return p.SendDM(ctx.Sender, errMsg)
+		return p.replyDM(ctx, errMsg)
 	}
 	if spell.Effect == EffectReaction {
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
+		return p.replyDM(ctx, fmt.Sprintf(
 			"%s is a reaction spell — those still aren't usable. Pick a damage, healing, or control spell.", spell.Name))
 	}
 
 	player, enemy, err := p.combatantsForSession(sess)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
+		return p.replyDM(ctx, "Couldn't rebuild the fight: "+err.Error())
 	}
 
 	var eff *turnActionEffect
@@ -433,11 +446,11 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 		applySpellBuff(spell, c, &as, &am, slotLevel)
 		d := diffTurnBuff(player.Stats, as, player.Mods, am)
 		if !d.any() {
-			return p.SendDM(ctx.Sender, fmt.Sprintf(
+			return p.replyDM(ctx, fmt.Sprintf(
 				"%s has no effect the turn-based engine can apply yet.", spell.Name))
 		}
 		if msg := p.chargeSpellCost(ctx.Sender, spell, slotLevel); msg != "" {
-			return p.SendDM(ctx.Sender, msg)
+			return p.replyDM(ctx, msg)
 		}
 		sess.Statuses.applyBuffDelta(d)
 		player, enemy, err = p.combatantsForSession(sess)
@@ -445,7 +458,7 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 			if spell.Level > 0 {
 				_ = refundSpellSlot(ctx.Sender, slotLevel)
 			}
-			return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
+			return p.replyDM(ctx, "Couldn't rebuild the fight: "+err.Error())
 		}
 		label := spell.Name + " — active"
 		if d.heal > 0 {
@@ -458,11 +471,11 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 	} else {
 		out, supported := resolveTurnSpell(c, spell, slotLevel, &enemy.Stats)
 		if !supported {
-			return p.SendDM(ctx.Sender, fmt.Sprintf(
+			return p.replyDM(ctx, fmt.Sprintf(
 				"%s is a utility spell — those aren't usable in turn-based fights yet. Try a damage, healing, control, or buff spell.", spell.Name))
 		}
 		if msg := p.chargeSpellCost(ctx.Sender, spell, slotLevel); msg != "" {
-			return p.SendDM(ctx.Sender, msg)
+			return p.replyDM(ctx, msg)
 		}
 		eff = &turnActionEffect{
 			Label:       out.Desc,
@@ -478,9 +491,9 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 		if spell.Level > 0 {
 			_ = refundSpellSlot(ctx.Sender, slotLevel)
 		}
-		return p.SendDM(ctx.Sender, "Couldn't resolve the round: "+err.Error())
+		return p.replyDM(ctx, "Couldn't resolve the round: "+err.Error())
 	}
-	return p.SendDM(ctx.Sender, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
+	return p.replyDM(ctx, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
 }
 
 // chargeSpellCost debits a spell's material component and leveled slot for a
@@ -551,37 +564,37 @@ func (p *AdventurePlugin) handleConsumeCmd(ctx MessageContext, args string) erro
 
 	sess, err := getActiveCombatSession(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read combat state: "+err.Error())
+		return p.replyDM(ctx, "Couldn't read combat state: "+err.Error())
 	}
 	if sess == nil {
-		return p.SendDM(ctx.Sender, "`!consume <item>` spends an item on your turn in an Elite or Boss fight. You're not in one — outside combat, consumables fire automatically.")
+		return p.replyDM(ctx, "`!consume <item>` spends an item on your turn in an Elite or Boss fight. You're not in one — outside combat, consumables fire automatically.")
 	}
 
 	inv := p.loadConsumableInventory(ctx.Sender)
 	args = strings.TrimSpace(args)
 	if args == "" {
 		if len(inv) == 0 {
-			return p.SendDM(ctx.Sender, "You have no combat consumables. `!attack` / `!cast` / `!flee`.")
+			return p.replyDM(ctx, "You have no combat consumables. `!attack` / `!cast` / `!flee`.")
 		}
 		names := make([]string, len(inv))
 		for i, c := range inv {
 			names[i] = c.Def.Name
 		}
-		return p.SendDM(ctx.Sender, "Usage: `!consume <item>`. You're carrying: "+strings.Join(names, ", ")+".")
+		return p.replyDM(ctx, "Usage: `!consume <item>`. You're carrying: "+strings.Join(names, ", ")+".")
 	}
 
 	item, ambig := matchConsumable(inv, args)
 	if ambig != "" {
-		return p.SendDM(ctx.Sender, ambig)
+		return p.replyDM(ctx, ambig)
 	}
 	if item == nil {
-		return p.SendDM(ctx.Sender, fmt.Sprintf("No consumable matching %q in your inventory.", args))
+		return p.replyDM(ctx, fmt.Sprintf("No consumable matching %q in your inventory.", args))
 	}
 
 	def := item.Def
 	player, enemy, err := p.combatantsForSession(sess)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
+		return p.replyDM(ctx, "Couldn't rebuild the fight: "+err.Error())
 	}
 
 	eff := &turnActionEffect{Action: "use_consumable"}
@@ -600,13 +613,13 @@ func (p *AdventurePlugin) handleConsumeCmd(ctx MessageContext, args string) erro
 		ApplyConsumableMods(&as, &am, []ConsumableItem{{Def: def}})
 		d := diffTurnBuff(player.Stats, as, player.Mods, am)
 		if !d.any() {
-			return p.SendDM(ctx.Sender, fmt.Sprintf(
+			return p.replyDM(ctx, fmt.Sprintf(
 				"**%s** has no effect the turn-based engine can apply yet.", def.Name))
 		}
 		sess.Statuses.applyBuffDelta(d)
 		player, enemy, err = p.combatantsForSession(sess)
 		if err != nil {
-			return p.SendDM(ctx.Sender, "Couldn't rebuild the fight: "+err.Error())
+			return p.replyDM(ctx, "Couldn't rebuild the fight: "+err.Error())
 		}
 		eff.Label = def.Name + " — active"
 		eff.PlayerHeal = d.heal
@@ -615,7 +628,7 @@ func (p *AdventurePlugin) handleConsumeCmd(ctx MessageContext, args string) erro
 
 	events, err := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionConsume, Effect: eff})
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't resolve the round: "+err.Error())
+		return p.replyDM(ctx, "Couldn't resolve the round: "+err.Error())
 	}
 	// Round resolved and persisted — now burn the item. A removal failure here
 	// leaves the player a free use (logged, rare); better than charging them
@@ -623,5 +636,5 @@ func (p *AdventurePlugin) handleConsumeCmd(ctx MessageContext, args string) erro
 	if rerr := removeAdvInventoryItem(item.InventoryID); rerr != nil {
 		slog.Error("combat: consume remove inventory item failed", "user", ctx.Sender, "item", def.Name, "err", rerr)
 	}
-	return p.SendDM(ctx.Sender, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
+	return p.replyDM(ctx, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
 }
