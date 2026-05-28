@@ -819,7 +819,7 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 	case ClassCleric:
 		out := []string{"sacred_flame", "guidance", "mending"}
 		if level >= 1 {
-			out = append(out, "cure_wounds", "healing_word", "bless", "guiding_bolt", "shield_of_faith")
+			out = append(out, "cure_wounds", "healing_word", "bless", "guiding_bolt", "inflict_wounds", "shield_of_faith")
 		}
 		if maxSlot >= 2 {
 			out = append(out, "spiritual_weapon", "lesser_restoration", "aid")
@@ -878,10 +878,10 @@ func defaultKnownSpells(class DnDClass, level int) []string {
 	case ClassBard:
 		out := []string{"vicious_mockery", "minor_illusion", "message"}
 		if level >= 1 {
-			out = append(out, "cure_wounds", "healing_word", "heroism", "hideous_laughter", "faerie_fire")
+			out = append(out, "cure_wounds", "healing_word", "heroism", "hideous_laughter", "faerie_fire", "thunderwave")
 		}
 		if maxSlot >= 2 {
-			out = append(out, "hold_person", "shatter", "invisibility", "lesser_restoration")
+			out = append(out, "hold_person", "shatter", "heat_metal", "invisibility", "lesser_restoration")
 		}
 		if maxSlot >= 3 {
 			out = append(out, "hypnotic_pattern", "dispel_magic", "fear")

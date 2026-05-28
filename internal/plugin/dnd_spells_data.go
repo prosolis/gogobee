@@ -190,7 +190,7 @@ func buildSpellList() []SpellDefinition {
 			Description: "A foe locks rigid mid-step. Anything you hit them with next lands devastatingly well.",
 			Upcast:      "+1 target per slot above 2nd"},
 		{ID: "shatter", Name: "Shatter", Level: 2, School: "evocation",
-			Classes: mage, Effect: EffectDamageSave, CastTime: CastAction,
+			Classes: []DnDClass{ClassMage, ClassBard, ClassSorcerer}, Effect: EffectDamageSave, CastTime: CastAction,
 			SaveStat: "CON", DamageDice: "3d8", DamageType: "thunder", AOE: true,
 			Description: "An invisible chord rings, then snaps — everything brittle nearby cracks at once.",
 			Upcast:      "louder per slot above 2nd"},

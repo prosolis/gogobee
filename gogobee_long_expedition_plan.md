@@ -145,7 +145,34 @@ Each successful background walk now logs a `walk` entry (`appendExpeditionLog(..
 
 **D7-d (shipped 2026-05-27):** class corpus re-run + D5-d retune decision. First fixed a sim regression `expedition_sim.go` introduced by D5-b — bare `expedition start <zone>` now returns the loadout prompt instead of outfitting, so the sim was halting before persisting any expedition; harness now passes the `heavy` preset. Corpus: `sim_results/d7d_corpus.jsonl` (n=100 × 10 classes × 5 zones × L10 = 5000 runs, `heavy` preset, `-cap 300`). Analysis: `sim_results/d7d_analyze.py`. Writeup: `sim_results/d7d_findings.md`. **Key reads:** (i) leaderboard mirrors [[project_j2_sim_artifact]] — martials 78–82%, casters 21–42%, ~40pp cluster gap unchanged by long-expedition mechanics; (ii) bard/cleric trailers **not** relieved by autopilot camp pacing — cleric actually regressed at L10 (21% vs J2b L12 39%) on spell-pool richness, J3-territory; (iii) T3 hits target 4-day duration (median 3), T4 hits 5–6 days (median 5), T5 hits 5 of 7 (only 21 clears); (iv) **D5-d retune: no change.** `phase5BDailyBurnRatePct=50` + per-tier `DailyBurn` stay as-is — heavy-preset cleared runs end with 78–98% SU remaining; supply economy is not a binding constraint and players lose to HP zero, not starvation. New memory entry: [[project_d7d_baseline]].
 
-**Remaining work (D7-e+):** none scheduled; long-expedition mechanics are at v1. Future tuning rides on J3 caster picker widening (out of scope for the long-expedition track).
+**Remaining work (D7-e+):** none scheduled; long-expedition mechanics are at v1. Future tuning rides on the J3 caster sim-picker work below (split out of the long-expedition track).
+
+## 8. J3 caster-picker rework (next session)
+
+**Why split out:** D7-d corpus confirmed the martial/caster gap is class-roster + sim-picker driven, not autopilot/burn/pacing driven. Long-expedition mechanics are settled; the trailer fix lives in the sim picker, not the expedition shell.
+
+**D8-a (shipped 2026-05-27, this session):** quick data-layer cleanup. Bard L1 prepared list gained `thunderwave`; L2 gained `heat_metal`. Cleric L1 gained `inflict_wounds`. `shatter` overlay Classes broadened to mage/bard/sorcerer (overlay was already unioning via `mergeClassList`, so this is defensive). New `simPickSpiritualWeapon` runs before `simPickSpell` in `simPickCombatAction`: cleric with an L2 slot + spiritual_weapon prepared + `sess.Statuses.BuffSpiritProc == 0` opens the fight with it, picking up the existing `spiritWeaponStrike` per-round bonus-action attack. **Measured impact (L10, n=100/zone, heavy preset):** cleric 21.0 → 23.2% (+2.2pp), bard 34.2 → 32.8% (within noise). T3+ wall unchanged — the data fixes are correct but the picker math is what's binding. Files touched: `internal/plugin/dnd_spells_data.go:192`, `internal/plugin/dnd_spells.go:822,881,884`, `internal/plugin/expedition_sim.go:simPickCombatAction + new simPickSpiritualWeapon`. All green.
+
+**D8-b (TODO next session): sim picker upcasting.** At L10 a bard has 3×L1 + 3×L2 + 3×L3 + 3×L4 + 2×L5 = 14 slots, but no damage spell at L3/L4/L5 native level — the picker leaves those slots un-spent because it doesn't upcast. Wizard/sorcerer hit the same wall above their highest native-level damage spell.
+
+- Touch: `simPickSpell` in `internal/plugin/expedition_sim.go` (~line 903). For each prepared damage spell, instead of one candidate at `sp.Level`, enumerate candidates at every available slot level ≥ `sp.Level` where a slot is open. Use `spellExpectedDamage(sp, slotLevel, c.Level)` for the upcast scaling — that helper already exists and handles the "+1 die per slot above native" pattern in `rollSpellDamageDice` (`internal/plugin/dnd_spell_combat.go:387-418`).
+- Tie-break still: highest slot first (preserve high-slot supremacy), then highest expDmg. But now a bard at L10 with shatter can spend its L5 slot on shatter@L5 = 6d8 ≈ 27 instead of leaving it un-spent.
+- Risk: an upcasted L1 might out-score a native-L2 in the picker. That's actually probably correct (the picker is supposed to find max damage). But also enables warlock/ranger regressions — gate via `simMartialFirstClass` like the cast branch already does.
+- Validation: re-run the L10 d7d-style corpus (`/tmp/exp-sim -matrix -classes <10 classes> -levels 10 -zones <5 zones> -runs 100 -cap 300`). Compare against `sim_results/d7d_corpus.jsonl`. Expected: bard +5–10pp, mage/sorcerer/warlock +2–8pp. Martials unchanged (gated). Cleric small bump (already has high-level damage spells available).
+
+**D8-c (TODO next session): concentration-damage modeling.** `heat_metal`, `spirit_guardians`, `spike_growth`, `call_lightning`, `flaming_sphere`, `cloud_of_daggers`, etc. are scored once by `spellExpectedDamage` as if they were a single-shot, but their value is N rounds of repetition while concentration holds. The picker therefore under-ranks them — bard's `heat_metal` (2d8 concentration) loses to `shatter` (3d8 one-shot) on every L2 pick, even though heat_metal in real play deals 2d8 × ~4 rounds = 32 vs shatter's 13.5.
+
+- Touch: `spellExpectedDamage` in `internal/plugin/dnd_spell_combat.go` (or wherever it lives — verify). Add a concentration multiplier: if `sp.Concentration && sp.Effect ∈ {DamageAuto, DamageSave}` and damage dice present, multiply expDmg by an "expected concentration rounds" factor. Conservative start: 3 rounds (short of a real fight-length estimate, but big enough to flip the picker).
+- Risk: this also boosts druid (call_lightning, flaming_sphere) and cleric (spirit_guardians). That's desired — those are exactly the under-played identity spells. Don't multiplier-boost EffectDamageAttack (single-target attack-roll spells aren't typically concentration; `hex`-style cases are handled by mods, not the picker).
+- Subtle gotcha: casting a new concentration spell drops the old one. Picker is stateless (one decision per turn) so it can't easily know "I'm already concentrating on X." Acceptable v1: let it overwrite — sim noise will eat the rare double-cast. Stateful version: read `sess.Statuses` for an active concentration marker; defer.
+- Validation: same corpus + diff against D8-b.
+
+**Sequence:** D8-b first (bigger lever, no model assumption), measure, then D8-c (smaller lever, more assumption-laden). Both together should close ~10–15pp of the martial/caster gap if the model is right.
+
+**Open questions for D8:**
+1. Should D8-b upcast aggressively (every available slot considered) or conservatively (only the next slot above native)? Aggressive is closer to optimal play; conservative is safer if the engine's `+1 die per slot` heuristic over- or under-scales for specific spells.
+2. D8-c concentration-rounds factor: 3 fixed, or scale with tier (longer fights at T4/T5)? Fixed is simpler; tier-scaled is more correct.
+3. Cleric T3+ cliff (0% manor onward) likely needs more than picker fixes — could be (a) HP scaling (cleric loses to enemy damage), (b) AC scaling (gets hit too often), (c) heal-consumable threshold too low. Worth a separate diagnostic pass after D8-b/c land.
 
 ## 4. Cross-cutting risks
 

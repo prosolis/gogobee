@@ -862,6 +862,15 @@ func (s *SimRunner) simPickCombatAction(uid id.UserID, sess *CombatSession) (kin
 		}
 	}
 	if isSpellcaster(c) && !simMartialFirstClass(c.Class) {
+		// Cleric: Spiritual Weapon is a BuffSelf that fires a spectral
+		// bonus-action attack each round via SpiritWeaponProc/Dmg mods —
+		// simPickSpell skips BuffSelf entries by design, so a cleric
+		// otherwise never spends an L2 slot on it. Force the pick once
+		// per fight (BuffSpiritProc==0) so the picker doesn't pretend
+		// it's not a damage option.
+		if id := simPickSpiritualWeapon(c, uid, sess); id != "" {
+			return "cast", id
+		}
 		if id := simPickSpell(c, uid); id != "" {
 			return "cast", id
 		}
@@ -883,6 +892,42 @@ func simMartialFirstClass(class DnDClass) bool {
 		return true
 	}
 	return false
+}
+
+// simPickSpiritualWeapon returns "spiritual_weapon" when a cleric should
+// open the fight with it: the buff is not already active on the session,
+// the spell is prepared, and an L2 slot is available. Returns "" otherwise.
+// The buff path in combat_cmd.go folds into BuffSpiritProc/Dmg via
+// applyBuffDelta, which the turn engine fires each round via
+// spiritWeaponStrike — so one cast is worth more than a single L2 damage
+// spell across a multi-round fight.
+func simPickSpiritualWeapon(c *DnDCharacter, uid id.UserID, sess *CombatSession) string {
+	if c == nil || c.Class != ClassCleric || sess == nil {
+		return ""
+	}
+	if sess.Statuses.BuffSpiritProc > 0 {
+		return ""
+	}
+	known, err := listKnownSpells(uid)
+	if err != nil {
+		return ""
+	}
+	prepared := false
+	for _, k := range known {
+		if k.SpellID == "spiritual_weapon" && k.Prepared {
+			prepared = true
+			break
+		}
+	}
+	if !prepared {
+		return ""
+	}
+	slots, _ := getSpellSlots(uid)
+	pair, ok := slots[2]
+	if !ok || pair[0]-pair[1] <= 0 {
+		return ""
+	}
+	return "spiritual_weapon"
 }
 
 // simPickSpell returns the spell ID a competent player would cast this
