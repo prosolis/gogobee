@@ -423,8 +423,8 @@ func zoneManorBlackspire() ZoneDefinition {
 		Faction:    "Undead, Shadows, Vampiric",
 		Atmosphere: "Victorian decay, impossible architecture, portraits whose eyes follow movement, cold spots, locked rooms that weren't locked before.",
 		Hook:       "The manor has been for sale for eleven years. Every buyer has either left immediately or not left at all. The real estate listing describes it as 'full of character.' I find this accurate.",
-		MinRooms:   7,
-		MaxRooms:   9,
+		MinRooms:   22,
+		MaxRooms:   26,
 		Enemies: []ZoneEnemy{
 			// Phase 4-B (outlier fix): Wraith was the dominant
 			// standard-pool killer (45 hp loss/win, 85 attributed
@@ -491,8 +491,8 @@ func zoneUnderforge() ZoneDefinition {
 		Faction:    "Fire Elementals, Constructs, Salamanders, Azers",
 		Atmosphere: "Volcanic caverns, rivers of cooling lava, ancient dwarven stonework, the constant bass note of something very large moving below.",
 		Hook:       "The dwarven forge-city of Kharak Dûn was not abandoned. It was sealed from the outside. I do not have information on what they were sealing in.",
-		MinRooms:   7,
-		MaxRooms:   9,
+		MinRooms:   22,
+		MaxRooms:   26,
 		Enemies: []ZoneEnemy{
 			// Phase 5-C: underforge trailed at 49.5% (band 55-75)
 			// under the shipped HP×1.5/+3 floor. Trace named Fire

@@ -7,23 +7,39 @@ func TestUnderforgeGraph_Registered(t *testing.T) {
 	if !ok {
 		t.Fatal("zoneUnderforgeGraph not registered")
 	}
-	if len(g.Nodes) != 10 {
-		t.Errorf("nodes = %d, want 10", len(g.Nodes))
+	// Long-expedition D1-c widened this zone from 10 → 31 nodes so the
+	// longest entry→boss walk lands in the T3 [22,26] traversal band.
+	if len(g.Nodes) != 31 {
+		t.Errorf("nodes = %d, want 31", len(g.Nodes))
 	}
 }
 
-// TestUnderforgeGraph_LinearPreamble locks in the gauntlet shape:
-// the first five nodes after entry must each have exactly one outgoing
-// edge (linear chain). If a future edit splits the preamble, this test
-// catches it — that change should re-author the shape comment too.
+// TestUnderforgeGraph_LinearPreamble locks in the gauntlet identity:
+// every node from entry through resonance_passage has exactly one
+// outgoing edge — the only decision in the zone is the antechamber
+// 3-way at the very end. D1-c extends the chain but preserves the
+// "one-way descent" intent ("Kharak Dûn is a one-way descent — there
+// is no scenic route").
 func TestUnderforgeGraph_LinearPreamble(t *testing.T) {
 	g := zoneUnderforgeGraph()
 	for _, id := range []string{
 		"underforge.entry",
-		"underforge.sealed_gate",
+		"underforge.sealed_threshold",
+		"underforge.wardstone_arch",
 		"underforge.forge_descent",
+		"underforge.vapor_steps",
+		"underforge.slag_warrens",
 		"underforge.cooling_river",
+		"underforge.bellows_chamber",
+		"underforge.cinder_walk",
 		"underforge.magma_chamber",
+		"underforge.emberforge_hall",
+		"underforge.ashfall_corridor",
+		"underforge.smelting_vault",
+		"underforge.foreman_landing",
+		"underforge.broken_crucible",
+		"underforge.great_anvil",
+		"underforge.resonance_passage",
 	} {
 		outs := g.outgoingEdges(id)
 		if len(outs) != 1 {
