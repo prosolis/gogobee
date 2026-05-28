@@ -70,10 +70,10 @@ func TestComputeMaxHP_MageLevel5(t *testing.T) {
 	// Mage d6, CON +1
 	// L1: 6 + 1 = 7
 	// L2-5: 4 levels × (avg 4 + 1) = 4 × 5 = 20
-	// Raw total: 27; Phase 5-B: 27 × 1.5 = 40.5 → 41 (round half-up).
+	// Raw total: 27; Phase 5-B × casterHPMult: 27 × 1.5 × 1.25 = 50.625 → 51.
 	got := computeMaxHP(ClassMage, 1, 5)
-	if got != 41 {
-		t.Errorf("Mage L5 (CON+1) = %d, want 41 (27 raw × phase5BHPMult)", got)
+	if got != 51 {
+		t.Errorf("Mage L5 (CON+1) = %d, want 51 (27 raw × phase5BHPMult × casterHPMult)", got)
 	}
 }
 
@@ -94,8 +94,12 @@ func TestComputeAC(t *testing.T) {
 		{ClassFighter, 0, 16},  // 10 + 0 + 6
 		{ClassFighter, 2, 18},  // 10 + 2 + 6
 		{ClassRogue, 3, 14},    // 10 + 3 + 1
-		{ClassMage, 0, 10},     // 10 + 0 + 0
-		{ClassCleric, 1, 14},   // 10 + 1 + 3
+		{ClassMage, 0, 12},     // 10 + 0 + 2 (D8-d-fix caster floor)
+		{ClassSorcerer, 1, 13}, // 10 + 1 + 2
+		{ClassCleric, 1, 16},   // 10 + 1 + 5 (D8-d-fix caster floor)
+		{ClassDruid, 0, 15},    // 10 + 0 + 5
+		{ClassBard, 2, 15},     // 10 + 2 + 3 (D8-d-fix caster floor)
+		{ClassWarlock, 0, 13},  // 10 + 0 + 3
 		{ClassRanger, 2, 15},   // 10 + 2 + 3
 	}
 	for _, c := range cases {

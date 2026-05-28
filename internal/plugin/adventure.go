@@ -220,6 +220,10 @@ func (p *AdventurePlugin) Init() error {
 	// migration walks dnd_character once at startup; idempotent via
 	// JobCompleted gate.
 	bootstrapPhase5BHPRefresh()
+	// J3 D8-d-fix: caster HP lift (casterHPMult in dnd.go). Refresh
+	// existing caster rows once at startup so the lift reaches live
+	// players without waiting for level-up.
+	bootstrapCasterHPRefresh()
 	// Phase R1 orphan-archive used to run here on every Init, but it
 	// over-archived: it treats any active dnd_zone_run row not linked to
 	// an active expedition as a legacy `!adventure dungeon` orphan, which

@@ -161,6 +161,20 @@ func abilityModifier(score int) int {
 // startup to refresh stale rows.
 const phase5BHPMult = 1.5
 
+// casterHPMult is the J3 D8-d-fix caster durability lift. T4 sim showed
+// caster HPMax sat ~30% below martial (~95 vs 141 at L10) and the AC-floor
+// lift alone wasn't enough to crack the wall. Applied multiplicatively in
+// computeMaxHP on top of phase5BHPMult so the existing Phase 5-B floor
+// stays intact for martials. Refreshed for existing rows by
+// bootstrapCasterHPRefresh (job key caster_hp_refresh_v1).
+func casterHPMult(class DnDClass) float64 {
+	switch class {
+	case ClassCleric, ClassDruid, ClassBard, ClassWarlock, ClassMage, ClassSorcerer:
+		return 1.25
+	}
+	return 1.0
+}
+
 // computeMaxHP — D&D5e style. L1: full HP die + CON mod (min 1).
 // Per level after: average HP die (roundup of die/2 + 1) + CON mod.
 // The result is scaled by phase5BHPMult — see that constant for the
@@ -181,8 +195,8 @@ func computeMaxHP(class DnDClass, conMod, level int) int {
 		}
 		hp += gain
 	}
-	// Phase 5-B player power floor — round to nearest int.
-	scaled := int(float64(hp)*phase5BHPMult + 0.5)
+	// Phase 5-B player power floor + J3 D8-d-fix caster lift — round to nearest int.
+	scaled := int(float64(hp)*phase5BHPMult*casterHPMult(class) + 0.5)
 	if scaled < 1 {
 		scaled = 1
 	}
@@ -197,10 +211,16 @@ func computeAC(class DnDClass, dexMod int) int {
 	switch class {
 	case ClassFighter, ClassPaladin:
 		floor = 6 // heavy/medium-armor baseline
-	case ClassCleric, ClassRanger, ClassDruid:
+	case ClassCleric, ClassDruid:
+		floor = 5
+	case ClassRanger:
 		floor = 3
-	case ClassRogue, ClassBard, ClassWarlock:
+	case ClassBard, ClassWarlock:
+		floor = 3
+	case ClassRogue:
 		floor = 1
+	case ClassMage, ClassSorcerer:
+		floor = 2
 	}
 	return 10 + dexMod + floor
 }
