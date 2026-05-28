@@ -32,6 +32,7 @@ func main() {
 		zone    = flag.String("zone", "goblin_warrens", "zone id (single-run mode)")
 		bank    = flag.Float64("bank", 1000, "starting coin balance — must cover outfitting")
 		cap     = flag.Int("cap", 50, "max autopilot bursts per expedition (each = up to autopilotRoomCap rooms)")
+		days    = flag.Int("days", 0, "stop after N synthetic day rollovers (0 = unbounded; the -cap safety net still applies)")
 		dataDir = flag.String("data", "", "data dir for the temp sqlite db (default: OS tempdir; ignored in matrix mode)")
 		userTag = flag.String("user", "@sim:expedition", "synthetic user id (single-run mode)")
 		logFlag = flag.Bool("log", true, "include per-row expedition log in output (single-run default true; matrix default false)")
@@ -65,14 +66,14 @@ func main() {
 				includeLog = *logFlag
 			}
 		})
-		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, includeLog)
+		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, *days, includeLog)
 		return
 	}
 
-	runSingle(*class, *level, *zone, *userTag, *dataDir, *bank, *cap, *logFlag)
+	runSingle(*class, *level, *zone, *userTag, *dataDir, *bank, *cap, *days, *logFlag)
 }
 
-func runSingle(class string, level int, zone, userTag, dataDir string, bank float64, cap int, includeLog bool) {
+func runSingle(class string, level int, zone, userTag, dataDir string, bank float64, cap, days int, includeLog bool) {
 	dir := dataDir
 	if dir == "" {
 		var err error
@@ -83,7 +84,7 @@ func runSingle(class string, level int, zone, userTag, dataDir string, bank floa
 		defer os.RemoveAll(dir)
 	}
 
-	res, err := runOne(dir, id.UserID(userTag), plugin.DnDClass(class), level, plugin.ZoneID(zone), bank, cap)
+	res, err := runOne(dir, id.UserID(userTag), plugin.DnDClass(class), level, plugin.ZoneID(zone), bank, cap, days)
 	if err != nil {
 		if res != nil {
 			if !includeLog {
@@ -99,7 +100,7 @@ func runSingle(class string, level int, zone, userTag, dataDir string, bank floa
 	emitIndented(res)
 }
 
-func runMatrix(classes, levels, zones string, runs int, bank float64, cap int, includeLog bool) {
+func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days int, includeLog bool) {
 	cs := splitNonEmpty(classes)
 	ls := parseLevels(levels)
 	zs := splitNonEmpty(zones)
@@ -116,7 +117,7 @@ func runMatrix(classes, levels, zones string, runs int, bank float64, cap int, i
 						fail("mkdir temp:", err)
 					}
 					uid := id.UserID(fmt.Sprintf("@sim:%s-l%d-%s-%d", c, lv, z, r))
-					res, runErr := runOne(dir, uid, plugin.DnDClass(c), lv, plugin.ZoneID(z), bank, cap)
+					res, runErr := runOne(dir, uid, plugin.DnDClass(c), lv, plugin.ZoneID(z), bank, cap, days)
 					if res != nil && !includeLog {
 						res.Log = nil
 					}
@@ -139,7 +140,7 @@ func runMatrix(classes, levels, zones string, runs int, bank float64, cap int, i
 	}
 }
 
-func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zone plugin.ZoneID, bank float64, cap int) (*plugin.SimResult, error) {
+func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zone plugin.ZoneID, bank float64, cap, days int) (*plugin.SimResult, error) {
 	runner, err := plugin.NewSimRunner(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("init runner: %w", err)
@@ -150,7 +151,7 @@ func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zon
 		return nil, fmt.Errorf("build character: %w", err)
 	}
 	runner.Euro.Credit(uid, bank, "expedition-sim bankroll")
-	return runner.RunExpedition(uid, zone, cap)
+	return runner.RunExpedition(uid, zone, cap, days)
 }
 
 func emitIndented(res *plugin.SimResult) {

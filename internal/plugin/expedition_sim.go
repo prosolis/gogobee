@@ -282,7 +282,25 @@ type SimResult struct {
 	// without re-running the matrix. Populated from combat_sessions
 	// rows + their TurnLog at end-of-run.
 	Combats []SimCombatSummary
-	Log     []SimLogEntry
+	// DaySnapshots traces HP/SU/threat/rooms at every day rollover
+	// (Night camp) plus the start (Day 0) and the final state. Used by
+	// D7-c long-expedition baselining to see how the trajectory bends
+	// across multi-day runs without scrubbing the log.
+	DaySnapshots []SimDaySnapshot
+	Log          []SimLogEntry
+}
+
+// SimDaySnapshot is a point-in-time projection of the sim state at a
+// day-rollover boundary. Day 0 is captured at expedition start; every
+// subsequent entry lands right after a Night camp lands (CurrentDay
+// already incremented). A final entry is appended at end-of-run.
+type SimDaySnapshot struct {
+	Day       int
+	HPCurrent int
+	HPMax     int
+	Supplies  float32
+	Threat    int
+	Rooms     int // cumulative autopilot rooms walked at snapshot time
 }
 
 // SimCombatSummary is a compact per-fight trace: the entry stats, the
@@ -366,9 +384,14 @@ const simWalkInterval = autoRunCooldown
 // walkCap bounds the number of autopilot bursts as a safety net. Each
 // burst walks up to autopilotRoomCap rooms.
 //
+// maxDays, when > 0, stops the run once res.DayTicks reaches that count
+// — used by D7-c long-expedition baselining to bound multi-day runs by
+// synthetic day count rather than walk count. 0 leaves the run
+// unbounded by days (the walkCap safety net still applies).
+//
 // Pre-state: uid must own a synthetic character via BuildCharacter and
 // have a coin balance sufficient for outfitting (caller's responsibility).
-func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap int) (*SimResult, error) {
+func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays int) (*SimResult, error) {
 	c, err := LoadDnDCharacter(uid)
 	if err != nil || c == nil {
 		return nil, fmt.Errorf("LoadDnDCharacter: %w", err)
@@ -392,6 +415,9 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap int) (*S
 		return res, fmt.Errorf("expedition did not persist after start")
 	}
 	res.SUStart = exp.Supplies.Current
+	// Day-0 baseline so the snapshot stream always opens with a known
+	// starting state, even if the run halts before the first rollover.
+	s.captureDaySnapshot(res, exp, uid)
 
 	// Synthetic clock — anchored on the expedition's real start_date so
 	// nightCampWindow / nightSafetyNet comparisons against LastBriefingAt
@@ -500,9 +526,18 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap int) (*S
 			}
 			if advanced {
 				res.DayTicks++
+				if fresh2, _ := getActiveExpedition(uid); fresh2 != nil {
+					s.captureDaySnapshot(res, fresh2, uid)
+				}
 			}
 			if exp, _ = getActiveExpedition(uid); exp == nil {
 				res.Outcome = "extracted"
+				i = walkCap
+			}
+			if maxDays > 0 && res.DayTicks >= maxDays {
+				if res.Outcome == "" {
+					res.Outcome = "day_capped"
+				}
 				i = walkCap
 			}
 		default:
@@ -526,10 +561,19 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap int) (*S
 			}
 			if advanced {
 				res.DayTicks++
+				if fresh2, _ := getActiveExpedition(uid); fresh2 != nil {
+					s.captureDaySnapshot(res, fresh2, uid)
+				}
 			}
 			// maybeAutoCamp's drift step may have force-extracted (starvation).
 			if exp, _ = getActiveExpedition(uid); exp == nil {
 				res.Outcome = "extracted"
+				i = walkCap
+			}
+			if maxDays > 0 && res.DayTicks >= maxDays {
+				if res.Outcome == "" {
+					res.Outcome = "day_capped"
+				}
 				i = walkCap
 			}
 		}
@@ -557,7 +601,36 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap int) (*S
 	}
 	res.YieldCount, res.YieldsByName = simMaterialYields(uid)
 	res.Combats = simCombatSummaries(uid)
+	// Final snapshot. Re-read the expedition so closed-run state is
+	// visible (extracted runs return nil from getActiveExpedition; the
+	// row is still on disk via mostRecentExpeditionID). If the
+	// expedition row is gone we synthesize from the cached SU/threat
+	// already on res so the snapshot stream always closes.
+	if exp2, _ := getActiveExpedition(uid); exp2 != nil {
+		s.captureDaySnapshot(res, exp2, uid)
+	} else if past := mostRecentExpeditionID(uid); past != "" {
+		if exp3, _ := getExpedition(past); exp3 != nil {
+			s.captureDaySnapshot(res, exp3, uid)
+		}
+	}
 	return res, nil
+}
+
+// captureDaySnapshot appends a SimDaySnapshot reflecting current state.
+// HP is read from the live character row; SU/threat/day from the live
+// expedition. Rooms is the running res.Rooms counter.
+func (s *SimRunner) captureDaySnapshot(res *SimResult, exp *Expedition, uid id.UserID) {
+	snap := SimDaySnapshot{
+		Day:      exp.CurrentDay,
+		Supplies: exp.Supplies.Current,
+		Threat:   exp.ThreatLevel,
+		Rooms:    res.Rooms,
+	}
+	if c, _ := LoadDnDCharacter(uid); c != nil {
+		snap.HPCurrent = c.HPCurrent
+		snap.HPMax = c.HPMax
+	}
+	res.DaySnapshots = append(res.DaySnapshots, snap)
 }
 
 // simCombatSummaries pulls every combat_sessions row for uid and folds

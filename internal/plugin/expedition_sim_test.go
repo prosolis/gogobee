@@ -293,3 +293,51 @@ func TestSimRunner_TickDay_EventAnchoredLowSupplies(t *testing.T) {
 		t.Errorf("CurrentDay = %d, want >= 2", got.CurrentDay)
 	}
 }
+
+// D7-c: captureDaySnapshot must record the current expedition's day,
+// supplies, and threat plus the character's live HP into res.DaySnapshots.
+// Used by RunExpedition to trace state at every day rollover for
+// long-expedition baselining; verified here in isolation since
+// RunExpedition end-to-end isn't covered by package tests.
+func TestSimRunner_CaptureDaySnapshot_PopulatesFields(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@sim-snap:example")
+	campTestCharacter(t, uid, 3)
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, "",
+		ExpeditionSupplies{Current: 12, Max: 20, DailyBurn: 2, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp.CurrentDay = 3
+	exp.ThreatLevel = 7
+	if err := updateSupplies(exp.ID, exp.Supplies); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := LoadDnDCharacter(uid)
+
+	sim := &SimRunner{P: &AdventurePlugin{}}
+	res := &SimResult{Rooms: 9}
+	sim.captureDaySnapshot(res, exp, uid)
+
+	if len(res.DaySnapshots) != 1 {
+		t.Fatalf("DaySnapshots len = %d, want 1", len(res.DaySnapshots))
+	}
+	snap := res.DaySnapshots[0]
+	if snap.Day != 3 {
+		t.Errorf("Day = %d, want 3", snap.Day)
+	}
+	if snap.Supplies != 12 {
+		t.Errorf("Supplies = %v, want 12", snap.Supplies)
+	}
+	if snap.Threat != 7 {
+		t.Errorf("Threat = %d, want 7", snap.Threat)
+	}
+	if snap.Rooms != 9 {
+		t.Errorf("Rooms = %d, want 9", snap.Rooms)
+	}
+	if snap.HPCurrent != c.HPCurrent || snap.HPMax != c.HPMax {
+		t.Errorf("HP = %d/%d, want %d/%d", snap.HPCurrent, snap.HPMax, c.HPCurrent, c.HPMax)
+	}
+}
