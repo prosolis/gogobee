@@ -663,8 +663,8 @@ func zoneDragonsLair() ZoneDefinition {
 		Faction:    "Kobolds, Drakes, Young Dragons, Wyrm",
 		Atmosphere: "Scorched stone, rivers of gold coins half-melted into the floor, kobold warrens as outer defenses, growing heat, the unmistakable smell of something ancient and enormous.",
 		Hook:       "The mountain has not erupted in forty years. The locals say it is dormant. The locals are wrong about what lives in mountains. I have prepared an unusually long entry description for this one.",
-		MinRooms:   9,
-		MaxRooms:   10,
+		MinRooms:   36,
+		MaxRooms:   44,
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "kobold", SpawnWeight: 7},
 			{BestiaryID: "guard_drake", SpawnWeight: 5},
@@ -711,8 +711,8 @@ func zoneAbyssPortal() ZoneDefinition {
 		Faction:    "Demons, Fiends, Corrupted Celestials",
 		Atmosphere: "Reality fractures, impossible geometry, constant low psychic pressure, the feeling of being watched by something that has no eyes.",
 		Hook:       "Someone opened a door they should not have opened. The door is still open. Things are still coming through. I am not making jokes about this one.",
-		MinRooms:   9,
-		MaxRooms:   10,
+		MinRooms:   36,
+		MaxRooms:   44,
 		Enemies: []ZoneEnemy{
 			// Phase 4-B (outlier fix): Nalfeshnee was mis-classified
 			// as a standard at T5 — Phase 4-A measured 2.8% win rate
