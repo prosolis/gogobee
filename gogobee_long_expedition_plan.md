@@ -128,10 +128,12 @@ Each successful background walk now logs a `walk` entry (`appendExpeditionLog(..
 **Exit criteria:** balanced loadout completes intended-duration expedition in ≥ 85% of sim runs without starvation extraction.
 
 ### D6 — Player-facing surface cleanup
-- Help text rewrite — frame expedition as "supply pack + watch it play out".
-- Hide / soft-deprecate `!camp <type>` from primary help, keep it documented as an override.
-- `!fight` still in help, framed as override.
-- Status DM (`!expedition status`) shows: current day / expected days, rooms walked / total, supplies, last 3 events.
+
+**D6 (shipped 2026-05-27):** player-facing copy now matches the autopilot-first reality.
+- `expeditionHelpText` rewritten around the loop "pick a zone → pick a loadout → `!expedition run` watches it play out"; commands grouped into **Run an expedition** / **Mid-expedition** / **Overrides** with a one-line shape paragraph at the top.
+- `!camp` and `!fight` were already absent from the primary `!expedition` help; both are now explicitly listed under **Overrides** and framed as "autopilot covers these — only reach for them if you want manual control." `campHelpText` itself opens with the same override framing so a player who types `!camp` lands on the right mental model.
+- `expeditionCmdStatusImpl` (default `!expedition status`) now leads with **Day X / ~Y expected** (driven by new `expeditionTargetDays(tier ZoneTier)` in `dnd_expedition_supplies.go` — T1=2 → T5=7, the §2 anchor table), adds a **Rooms: N / Total in this region** line under the region marker (sourced from `getActiveZoneRun(...).CurrentRoom/TotalRooms`), and appends a **Recent:** block with the last 3 log entries (summary fallback to flavor). Supplies and threat lines unchanged; the `--debug` view is untouched.
+- No new public command surface, no schema change, no test churn (no existing test asserted on the rewritten strings); full `go test ./...` green.
 
 ### D7 — Sim + class re-baseline
 - `cmd/expedition-sim` extensions: multi-day mode, autopilot camp, autopilot boss.

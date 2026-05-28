@@ -91,18 +91,23 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 func expeditionHelpText() string {
 	var b strings.Builder
 	b.WriteString("**!expedition** — multi-day dungeon expeditions.\n\n")
-	b.WriteString("`!expedition list` — show zones available at your level\n")
-	b.WriteString("`!expedition start <zone> [loadout]` — outfit & begin\n")
-	b.WriteString("    loadout: `lean` / `balanced` / `heavy` (scales by zone tier)\n")
-	b.WriteString("    advanced: raw pack counts — `Ns Md` (e.g. `2s 1d`)\n")
-	b.WriteString("    no loadout? you'll be prompted to pick one\n")
-	b.WriteString("`!expedition run` — autopilot: walk rooms until something needs you (alias `!explore`)\n")
-	b.WriteString("`!expedition status` — current expedition snapshot\n")
+	b.WriteString("**The shape:** pick a zone, pick a supply pack, watch it play out. ")
+	b.WriteString("Autopilot walks rooms, pitches camp at night, and DMs you when something needs a decision (a fork, a boss, low HP).\n\n")
+	b.WriteString("**Run an expedition:**\n")
+	b.WriteString("`!expedition list` — zones available at your level\n")
+	b.WriteString("`!expedition start <zone>` — prompts a loadout: `lean` / `balanced` / `heavy`\n")
+	b.WriteString("`!expedition run` — start (or resume) the autopilot walk (alias `!explore`)\n")
+	b.WriteString("`!expedition status` — day, rooms, supplies, recent events\n\n")
+	b.WriteString("**Mid-expedition:**\n")
+	b.WriteString("`!extract` — bail safely (resumable for 7 days)\n")
+	b.WriteString("`!resume [loadout]` — resume an extracted expedition\n")
 	b.WriteString("`!expedition log` — last 5 log entries\n")
-	b.WriteString("`!expedition abandon` — end the expedition (no rewards)\n")
-	b.WriteString("`!extract` — voluntary extraction (1 day, resumable for 7 days)\n")
-	b.WriteString("`!resume [loadout]` — resume an extracted expedition (same `lean`/`balanced`/`heavy` choices)\n")
-	b.WriteString("`!map` — region/room ASCII map")
+	b.WriteString("`!expedition abandon` — end without rewards\n")
+	b.WriteString("`!map` — region/room ASCII map\n\n")
+	b.WriteString("**Overrides** _(autopilot covers these — only reach for them if you want manual control)_:\n")
+	b.WriteString("`!fight` — engage an Elite/Boss the autopilot paused at\n")
+	b.WriteString("`!camp` — force a rest right now (see `!camp` for types)\n")
+	b.WriteString("`!expedition start <zone> Ns Md` — raw pack counts instead of a preset")
 	return b.String()
 }
 
@@ -398,8 +403,9 @@ func (p *AdventurePlugin) expeditionCmdStatusImpl(ctx MessageContext, debug bool
 	zone, _ := getZone(exp.ZoneID)
 	c, _ := LoadDnDCharacter(ctx.Sender)
 
+	target := expeditionTargetDays(zone.Tier)
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🎭 **TwinBee — Status, Day %d**\n\n", exp.CurrentDay))
+	b.WriteString(fmt.Sprintf("🎭 **TwinBee — Status, Day %d / ~%d expected**\n\n", exp.CurrentDay, target))
 	b.WriteString(fmt.Sprintf("📍 **Zone:** %s _(T%d)_\n", zone.Display, int(zone.Tier)))
 	if r, ok := CurrentRegion(exp); ok {
 		cleared := IsRegionCleared(exp, r.ID)
@@ -409,6 +415,10 @@ func (p *AdventurePlugin) expeditionCmdStatusImpl(ctx MessageContext, debug bool
 		}
 		b.WriteString(fmt.Sprintf("🗺 **Region:** %s (%d/%d)%s\n",
 			r.Name, r.Order, len(regionsForZone(exp.ZoneID)), marker))
+	}
+	if run, rerr := getActiveZoneRun(ctx.Sender); rerr == nil && run != nil && run.TotalRooms > 0 {
+		b.WriteString(fmt.Sprintf("🚪 **Rooms:** %d / %d in this region\n",
+			run.CurrentRoom+1, run.TotalRooms))
 	}
 	if c != nil {
 		b.WriteString(fmt.Sprintf("❤️  **HP:** %d / %d\n", c.HPCurrent, c.HPMax))
@@ -442,6 +452,19 @@ func (p *AdventurePlugin) expeditionCmdStatusImpl(ctx MessageContext, debug bool
 		} else {
 			b.WriteString(fmt.Sprintf("⚠ **%s** — you're slower and clumsier than usual.\n",
 				depletionLabel(state)))
+		}
+	}
+	if entries, lerr := recentExpeditionLog(exp.ID, 3); lerr == nil && len(entries) > 0 {
+		b.WriteString("\n**Recent:**\n")
+		for _, e := range entries {
+			line := e.Summary
+			if line == "" {
+				line = e.Flavor
+			}
+			if line == "" {
+				continue
+			}
+			b.WriteString(fmt.Sprintf("  · _Day %d_ — %s\n", e.Day, line))
 		}
 	}
 	b.WriteString(fmt.Sprintf("\nStarted: %s   Last activity: %s",

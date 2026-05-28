@@ -117,7 +117,7 @@ func (p *AdventurePlugin) handleCampCmd(ctx MessageContext, args string) error {
 
 func campHelpText(exp *Expedition) string {
 	var b strings.Builder
-	b.WriteString("**!camp <type>** — establish camp during an expedition.\n\n")
+	b.WriteString("**!camp <type>** — _override._ Autopilot pitches camp at night automatically; reach for this only to force a rest right now.\n\n")
 	b.WriteString("`!camp rough` — partial rest (any location, +0.5 SU, high night risk)\n")
 	b.WriteString("`!camp standard` — full long rest (cleared room, +1 SU, medium risk)\n")
 	b.WriteString("`!camp fortified` — long rest + bonus (zone boss defeated, +2 SU, low risk)\n")

@@ -41,6 +41,25 @@ func supplyPackCaps(tier ZoneTier) (standard, deluxe int) {
 	return 3, 1
 }
 
+// expeditionTargetDays returns the §2 target-duration anchor for a zone
+// tier — what the supply-cap math, balanced loadout, and the
+// "Day X / ~Y expected" line in !expedition status are all sized against.
+func expeditionTargetDays(tier ZoneTier) int {
+	switch tier {
+	case ZoneTierBeginner:
+		return 2
+	case ZoneTierApprentice:
+		return 3
+	case ZoneTierJourneyman:
+		return 4
+	case ZoneTierVeteran:
+		return 5
+	case ZoneTierLegendary:
+		return 7
+	}
+	return 4
+}
+
 // SupplyLoadout names a tier-scaled preset purchase. D5-b: empty-arg
 // `!expedition start <zone>` now prompts the player to pick one of these
 // rather than silently defaulting to 1 standard pack. Raw `Ns Md` syntax
