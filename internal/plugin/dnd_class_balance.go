@@ -272,9 +272,19 @@ func spellExpectedDamage(s SpellDefinition, slot, charLevel int) float64 {
 	}
 	avgFace := (float64(faces) + 1) / 2
 	avg := float64(dice)*avgFace + float64(flat)
-	// Auto-damage (Magic Missile) doesn't roll to hit — count its
-	// expected-on-table value at face. Attack/save spells roll, and the
-	// engine will resolve hit chance at cast time.
+	// Concentration damage spells (heat_metal, spirit_guardians,
+	// flaming_sphere, call_lightning, spike_growth, cloud_of_daggers, …)
+	// re-tick each round while concentration holds. Without this factor
+	// the picker scores them as one-shots and they lose to higher-tier
+	// blasts on every comparison. Conservative ×3 = roughly the median
+	// fight length the picker can hope to keep concentration up; tier-
+	// scaled would be more correct but adds noise here.
+	// EffectDamageAttack is excluded — single-target attack-roll spells
+	// aren't generally concentration; the rare ones (hex-style) get
+	// their lift from mods, not this score.
+	if s.Concentration && (s.Effect == EffectDamageSave || s.Effect == EffectDamageAuto) {
+		avg *= 3
+	}
 	return avg
 }
 

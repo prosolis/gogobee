@@ -2,6 +2,18 @@
 
 > Goal: dungeon expeditions become real multi-day journeys (T1 ≈ 2 days → T5 ≈ 7 days). Player picks **camp supplies** at launch, then watches it play out. Camp pitch/break, elite engagement, and **boss engagement** all become autonomous. Foreground `!camp` / `!fight` survive as overrides, not the expected path.
 
+## Status @ 2026-05-28
+
+**Core track (D1–D7) — DONE.** All phases shipped; v1 of the long-expedition mechanics is live on `long-expeditions-d1`.
+
+**§6 decisions (2026-05-28) re-opened two threads** that ride after D8:
+- **D9** — T1–T3 room-count bump toward the 3–5× target band (D1 landed T1–T3 at ~2×). Sim-first: read T1/T2 day-counts from a fresh corpus *after* D8 lands.
+- **D10** — T4/T5 anchor-room variety (2nd elite + 2nd trap mid-zone). Bundle with D9 to avoid touching graphs twice.
+
+**Active work — §8 (J3 caster sim-picker):** D8-a / D8-b / D8-prereq / D8-d-diagnostic shipped; **D8-c (concentration), D8-d-fix (AC floor lift), D8-e (martial regression triage)** queued. D8 is sequentially the gate before D9/D10 — room counts only make sense once the sim accurately scores the classes that will walk through them.
+
+**Sequence:** D8-c → D8-d-fix → D8-e → D9 → D10. Re-baseline once at the end.
+
 ## 1. Why the current shape is "too short"
 
 | Tier | Zones | Rooms | Real-time exit |
@@ -145,7 +157,7 @@ Each successful background walk now logs a `walk` entry (`appendExpeditionLog(..
 
 **D7-d (shipped 2026-05-27):** class corpus re-run + D5-d retune decision. First fixed a sim regression `expedition_sim.go` introduced by D5-b — bare `expedition start <zone>` now returns the loadout prompt instead of outfitting, so the sim was halting before persisting any expedition; harness now passes the `heavy` preset. Corpus: `sim_results/d7d_corpus.jsonl` (n=100 × 10 classes × 5 zones × L10 = 5000 runs, `heavy` preset, `-cap 300`). Analysis: `sim_results/d7d_analyze.py`. Writeup: `sim_results/d7d_findings.md`. **Key reads:** (i) leaderboard mirrors [[project_j2_sim_artifact]] — martials 78–82%, casters 21–42%, ~40pp cluster gap unchanged by long-expedition mechanics; (ii) bard/cleric trailers **not** relieved by autopilot camp pacing — cleric actually regressed at L10 (21% vs J2b L12 39%) on spell-pool richness, J3-territory; (iii) T3 hits target 4-day duration (median 3), T4 hits 5–6 days (median 5), T5 hits 5 of 7 (only 21 clears); (iv) **D5-d retune: no change.** `phase5BDailyBurnRatePct=50` + per-tier `DailyBurn` stay as-is — heavy-preset cleared runs end with 78–98% SU remaining; supply economy is not a binding constraint and players lose to HP zero, not starvation. New memory entry: [[project_d7d_baseline]].
 
-**Remaining work (D7-e+):** none scheduled; long-expedition mechanics are at v1. Future tuning rides on the J3 caster sim-picker work below (split out of the long-expedition track).
+**Remaining work (D7-e+):** none in the core D7 scope. Two follow-up phases (D9 room-count bump, D10 T4/T5 anchor variety) were opened by the 2026-05-28 §6 resolution and are sequenced after D8. See §9 below.
 
 ## 8. J3 caster-picker rework (next session)
 
@@ -179,12 +191,11 @@ Also parallelized matrix mode via subprocess workers (`cmd/expedition-sim/main.g
 
 Caster/martial gap closed from ~40pp to ~22pp. T2/T3 zones are now the picker payoff (forest_shadows 75 → 99, manor_blackspire 45 → 75). **T4 caster wall persists** (every caster 0% at underdark); **T5 is universally 0%** including martials. Both require separate diagnostics — picker isn't the binding constraint past T3.
 
-**D8-c (TODO next session): concentration-damage modeling.** `heat_metal`, `spirit_guardians`, `spike_growth`, `call_lightning`, `flaming_sphere`, `cloud_of_daggers`, etc. are scored once by `spellExpectedDamage` as if they were a single-shot, but their value is N rounds of repetition while concentration holds. The picker therefore under-ranks them — bard's `heat_metal` (2d8 concentration) loses to `shatter` (3d8 one-shot) on every L2 pick, even though heat_metal in real play deals 2d8 × ~4 rounds = 32 vs shatter's 13.5.
+**D8-c (SHIPPED 2026-05-28):** concentration-damage multiplier. `spellExpectedDamage` (`internal/plugin/dnd_class_balance.go:280`) multiplies expected damage by 3 when `sp.Concentration && sp.Effect ∈ {EffectDamageSave, EffectDamageAuto}`. `EffectDamageAttack` excluded by design — single-target attack-roll spells aren't typically concentration; hex-style cases get their lift from mods. Test: `TestSpellExpectedDamage_ConcentrationMultiplier`.
 
-- Touch: `spellExpectedDamage` in `internal/plugin/dnd_spell_combat.go` (or wherever it lives — verify). Add a concentration multiplier: if `sp.Concentration && sp.Effect ∈ {DamageAuto, DamageSave}` and damage dice present, multiply expDmg by an "expected concentration rounds" factor. Conservative start: 3 rounds (short of a real fight-length estimate, but big enough to flip the picker).
-- Risk: this also boosts druid (call_lightning, flaming_sphere) and cleric (spirit_guardians). That's desired — those are exactly the under-played identity spells. Don't multiplier-boost EffectDamageAttack (single-target attack-roll spells aren't typically concentration; `hex`-style cases are handled by mods, not the picker).
-- Subtle gotcha: casting a new concentration spell drops the old one. Picker is stateless (one decision per turn) so it can't easily know "I'm already concentrating on X." Acceptable v1: let it overwrite — sim noise will eat the rare double-cast. Stateful version: read `sess.Statuses` for an active concentration marker; defer.
-- Validation: re-baseline against `sim_results/d8prereq_corpus.jsonl`, **not** d7d. Expected: incremental movement at T3 (already high after prereq); unclear lift at T4 (depends on whether picker-gap is the binding constraint there — see D8-d).
+**Measured impact (d8c_corpus.jsonl vs d8prereq, full diff in `sim_results/d8c_findings.md`):** every class within ±2.4pp on the leaderboard (1σ ≈ 2.2pp on n=500) — *macro-leaderboard unchanged*. Picker swap landed where expected at **T3 manor_blackspire**: bard +11pp (32→43), mage +10pp (71→81), sorcerer +9pp (60→69), druid +5pp manor + +1pp underdark. T4/T5 caster wall unchanged (still 0% for every caster except druid 0→1 underdark) — confirms [[project_d8d_diagnostic]]: past T3 the binding constraint is HP+AC, not picker quality.
+
+**Side discovery (engine modelling gap):** cleric stayed flat across all zones despite having spirit_guardians (L3, concentration, save) prepared — and warlock dropped 6pp at manor. Likely the sim's `EffectDamageSave` path resolves the AOE save *once* rather than re-ticking per round while concentration holds, so the multiplier overrates spells the engine then under-delivers on. **Filed as a separate follow-up** (concentration re-tick gap in `SimulateCombat`/turn-engine); does *not* unwind D8-c — bard/mage/sorcerer/druid picker swaps are clean and within plan. Cross-link [[project_concentration_retick_gap]] when written.
 
 **D8-d (DIAGNOSTIC SHIPPED 2026-05-28):** T4 caster wall diagnosed; no code change landed. Writeup: `sim_results/d8d_findings.md`. **Hypothesis disambiguation across cleric/bard/mage/sorcerer/warlock/druid L10 underdark (n=3–5 each):** (a) multi-region transit damage — REJECTED. All casters TPK in r1 (`underdark_surface_tunnels`) before any cross-region transit; `Combats=0` (the elite/boss session table is empty); deaths are entirely inline `SimulateCombat` mob rooms. (b) T4 attack-bonus vs caster AC — confirmed contributor. `computeAC` floor gives casters AC 11–14 vs martial 16–17; T4 standard roster (Atk +5 to +7) hits ~60–65%. (c) HP scaling — confirmed contributor. Caster HPMax 93–110 vs martial 141 (~30% gap). (d) Heal-stock — minor lever, NOT the lever. Direct experiment: bumped `simConsumableBundle` T4 from 2 → 5 Spirit Tonics, re-ran n=5 per class. Median rooms-before-TPK lifted +3–5 but 0/5 clears across every caster. Reverted. **Recommended tuning lever (next session, NOT shipped here):** lift `computeAC` class floors (cleric/druid 3 → 5, bard/warlock 1 → 3, mage/sorcerer 0 → 2) — single function, easy to revert, doesn't move the martial leaders. Validate against `d8prereq_corpus.jsonl`. Hit-dice rescale is the second option but is bigger surface area.
 
@@ -217,15 +228,53 @@ Likely none. Existing columns cover it:
 ## 6. Open questions for next session
 
 1. ~~Day-advance semantics~~ — **decided 2026-05-27: event-anchored.** day++ fires on autopilot camp-pitch (autopilot night-camp = sleep = day burn + briefing). UTC clock becomes a re-engagement-DM anchor only, not a state mutator. See §3-D2 for implementation impact.
-2. **Boss autopilot default**: always-on, opt-out, or opt-in? My lean: always-on with a per-expedition opt-out flag; revisit after D3 reads.
-3. **Per-tier room counts**: the table in §2 is a starting point. Worth a sim pass before D1 commits — or fine to ship a guess and refine in D7?
-4. **Extra anchor rooms**: T4/T5 with one elite + one trap may feel thin spread over 30+ rooms. Add a second elite mid-zone, or rely on multi-region + patrols + threat for variety?
-5. **Mobile/AFK friendliness**: should the autopilot-DM cadence aim for "1 DM per real-time evening" regardless of room count, or "1 DM per in-game day" (which could be hours apart if the player set the pacing fast)?
+2. ~~Boss autopilot default~~ — **decided 2026-05-28: default ON.** D3 already ships compact-mode boss auto-resolve gated by `bossSafetyGate` (HP/SU/exhaustion). No opt-out flag for now; revisit if players want manual final-blow framing.
+3. ~~Per-tier room counts: sim-first vs ship-and-refine~~ — **decided 2026-05-28: sim-first refinement in D7-d.** D1 shipped a guess; we're much closer now. Measured vs prior: T1 ~2x (7→16), T2 ~1.8x (9→19), T3 ~2x (11→35), T4 ~3x (10→46), T5 ~3x (13→47). Target band is 3–5x; T1–T3 likely want another bump but defer until the D7-d sim corpus reads day-counts. Don't churn graphs blindly.
+4. ~~Extra anchor rooms (T4/T5)~~ — **decided 2026-05-28: yes, add anchor-room variety in T4/T5.** Second elite + second trap mid-zone (not just rely on multi-region/patrols/threat). Slot into D7-d alongside the room-count retune so we don't re-touch the graphs twice.
+5. ~~Mobile/AFK / DM cadence~~ — **decided in D4-a (already shipped):** event-anchored to in-game day. Night-camp pitch flushes the day as a digest; fork/death/run-complete still DM the walk stream; mid-day rests/waypoints surface only the camp block; per-tick auto-walks silent. No real-time pacing knob.
 
 ## 7. Sequence
 
-D1 → D2 → D3 (independent of D4/D5) → D5 → D4 → D6 → D7.
+**Original D1–D7 plan (all shipped):** D1 → D2 → D3 → D5 → D4 → D6 → D7.
 
-D2 and D3 can land in either order; D4 needs the volume problem to be real (so after D2/D3 at minimum). D5 wants D1's new lengths but can run in parallel with D2/D3. D7 always last.
+**Current sequence (post-2026-05-28):** D8-c → D8-d-fix → D8-e → D9 → D10 → final re-baseline.
 
-Estimated sessions: 5–7. D2 and D5 are the biggest single-session chunks.
+| Phase | What | Blocks |
+|------|------|--------|
+| D8-c  | Concentration-damage multiplier in `spellExpectedDamage` | D8-d-fix read |
+| D8-d-fix | Lift `computeAC` caster floors (cleric/druid 3→5, bard/warlock 1→3, mage/sorcerer 0→2) | D8-e read |
+| D8-e  | Diff turn-engine vs inline-sim for paladin/fighter/ranger on T4/T5; decide whether martial regression is real or a "fix" target | D9 (need stable class baseline) |
+| D9    | T1–T3 room-count bump toward 3–5× band, sim-validated against fresh corpus | D10 |
+| D10   | T4/T5 anchor-room variety (2nd elite + 2nd trap mid-zone) | final re-baseline |
+| —     | One final L10 + L12 corpus pass to confirm tier day-counts + class spread | — |
+
+## 9. Post-§6 follow-ups (D9 / D10)
+
+### D9 — T1–T3 room-count bump
+
+**Why now:** §6 fork 3 resolved to "sim-first refinement"; D7-d corpus shows T3 hitting only median 3 days (target 4) and T1/T2 weren't even measured because the corpus only matrixed T3+. T1–T3 graphs landed at ~2× prior length in D1; target band is 3–5×.
+
+**Plan:**
+- Pull T1/T2 day-counts from a post-D8 corpus run (matrix needs to include `goblin_warrens`, `crypt_valdris`, `forest_shadows`, `sunken_temple` at L4/L6).
+- Lift graph sizes only if median days < tier target (T1=2, T2=3, T3=4). Don't churn graphs that already hit target.
+- Reuse the D1-a..e fork/anchor/merge patterns (`internal/plugin/zone_graph_*.go`); preserve existing topology — only add Exploration nodes + the second-anchor slot D10 will fill.
+- One-shot bootstrap: existing in-flight expeditions fence by `start_date` per §4 (consistent with D1 deploy).
+
+**Risk:** if D8-d-fix lifts caster T3 clears materially, day-counts move too; measure after D8 stabilizes, not before.
+
+### D10 — T4/T5 anchor-room variety
+
+**Why now:** §6 fork 4 resolved "yes". T4/T5 zones run 30–50 rooms with only one Trap + one Elite anchor; the long middle reads same-y. Bundle with D9 so we touch each `zone_graph_*.go` once.
+
+**Plan:**
+- Add a second Trap + second Elite anchor mid-zone for all T4/T5 zones (`underdark`, `feywild_crossing`, `dragons_lair`, `abyss_portal`).
+- Place the second Elite at the region-boundary spurs (good narrative justification — region-guardian rather than zone-guardian) so multi-region travel finally gets a teeth-y interrupt.
+- Place the second Trap on the long Exploration runs of fork branches, not on the merge node (keeps fork-choice loot/risk asymmetric).
+- Preserve longest-path length within current band — added anchors replace Exploration nodes, not append.
+
+**Validation:** same final corpus pass as D9. Look for boss-clear rate dipping by <5pp (anchor difficulty is intended, not punishing) and median day-count stable.
+
+### Cross-links picked up here
+- [[project_multiregion_travel_unwired]] — boss-clear → next-region auto-advance is wired (verified 2026-05-27); D10's region-boundary elites give it something to interrupt.
+- [[project_j3_caster_picker]] / [[project_d8d_diagnostic]] — D8 gates the whole sequence.
+- [[project_d8prereq_baseline]] — the corpus to diff against, not d7d.

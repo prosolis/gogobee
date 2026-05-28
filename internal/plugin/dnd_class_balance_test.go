@@ -408,3 +408,45 @@ func TestClassBalance_Phase1_FullMatrix(t *testing.T) {
 		}
 	}
 }
+
+// D8-c: concentration damage spells re-tick each round; the picker has to
+// score them above one-shots of similar level or it'll never pick them.
+func TestSpellExpectedDamage_ConcentrationMultiplier(t *testing.T) {
+	const concentrationFactor = 3.0
+	// 2d8 base: avg = 9.
+	const baseAvg = 9.0
+
+	cases := []struct {
+		name string
+		sp   SpellDefinition
+		want float64
+	}{
+		{"oneshot save (shatter-like)",
+			SpellDefinition{Level: 2, Effect: EffectDamageSave, DamageDice: "2d8"},
+			baseAvg},
+		{"oneshot attack",
+			SpellDefinition{Level: 2, Effect: EffectDamageAttack, DamageDice: "2d8"},
+			baseAvg},
+		{"concentration save (spirit_guardians-like)",
+			SpellDefinition{Level: 2, Effect: EffectDamageSave, Concentration: true, DamageDice: "2d8"},
+			baseAvg * concentrationFactor},
+		{"concentration auto (spike_growth-like)",
+			SpellDefinition{Level: 2, Effect: EffectDamageAuto, Concentration: true, DamageDice: "2d8"},
+			baseAvg * concentrationFactor},
+		{"concentration attack stays unmultiplied",
+			SpellDefinition{Level: 2, Effect: EffectDamageAttack, Concentration: true, DamageDice: "2d8"},
+			baseAvg},
+	}
+	for _, tc := range cases {
+		got := spellExpectedDamage(tc.sp, tc.sp.Level, 10)
+		if got != tc.want {
+			t.Errorf("%s: expDmg=%.2f want %.2f", tc.name, got, tc.want)
+		}
+	}
+
+	// Upcast still applies before the multiplier: 2d8 at slot 3 = 3d8 = 13.5, ×3 = 40.5.
+	sp := SpellDefinition{Level: 2, Effect: EffectDamageSave, Concentration: true, DamageDice: "2d8"}
+	if got := spellExpectedDamage(sp, 3, 10); got != 13.5*concentrationFactor {
+		t.Errorf("upcast + concentration: got %.2f want %.2f", got, 13.5*concentrationFactor)
+	}
+}
