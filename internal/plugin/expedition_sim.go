@@ -847,6 +847,15 @@ func simPickSpell(c *DnDCharacter, uid id.UserID) string {
 //
 // The clock is anchored on exp.StartDate so repeat calls advance one
 // real-day per call regardless of wall-clock time when the sim runs.
+//
+// Event-anchored expeditions (D2-b) own the rollover inside the
+// autopilot's night-camp pitch, which the sim doesn't drive on a
+// synthetic clock. To keep TickDay's contract ("one call = one day")
+// we short-circuit: fire processNightCamp directly + apply a Standard
+// rest if affordable (mirroring pitchAutopilotCamp with Night=true),
+// then stamp last_briefing_at at the synthetic threshold. deliverBriefing
+// is skipped — its event-anchored branch reads wall-clock time and
+// would never see "enough" elapsed time to force-fire under the sim.
 func (s *SimRunner) TickDay(exp *Expedition) error {
 	if exp == nil {
 		return fmt.Errorf("nil expedition")
@@ -868,12 +877,50 @@ func (s *SimRunner) TickDay(exp *Expedition) error {
 	}
 
 	briefAt := dayBase.AddDate(0, 0, 1).Add(time.Duration(expeditionBriefingHour) * time.Hour).Add(30 * time.Second)
-	if err := s.P.deliverBriefing(exp, briefAt); err != nil {
-		return fmt.Errorf("deliverBriefing: %w", err)
+	if isEventAnchored(exp) {
+		if err := s.tickEventAnchoredRollover(exp, briefAt); err != nil {
+			return err
+		}
+	} else {
+		if err := s.P.deliverBriefing(exp, briefAt); err != nil {
+			return fmt.Errorf("deliverBriefing: %w", err)
+		}
 	}
 	if fresh, _ := getExpedition(exp.ID); fresh != nil {
 		*exp = *fresh
 	}
+	return nil
+}
+
+// tickEventAnchoredRollover mirrors pitchAutopilotCamp with Night=true
+// for the sim: burn → optional Standard rest (if supplies cover it) →
+// drift → stamp last_briefing_at. No DM, no camp row left active (rest
+// is applied and immediately cleared the way pitchAutopilotCamp does
+// via applyCampRest + the next walk-tick break). On the no-rest branch
+// we still want burn/drift so supplies drain — matches a stalled
+// autopilot which D2-b's safety net force-fires via processNightCamp.
+func (s *SimRunner) tickEventAnchoredRollover(exp *Expedition, briefAt time.Time) error {
+	burn, err := s.P.nightRolloverBurn(exp)
+	if err != nil {
+		return fmt.Errorf("nightRolloverBurn: %w", err)
+	}
+	// Pitch a Standard rest if affordable, else skip (autopilot would
+	// also bail in low-SU; the burn already landed). Rough is the
+	// fallback so the sim isn't stuck at zero healing on tight budgets.
+	kind := CampTypeStandard
+	if exp.Supplies.Current < campSupplyCost[kind] {
+		kind = CampTypeRough
+	}
+	if exp.Supplies.Current >= campSupplyCost[kind] {
+		exp.Supplies.Current -= campSupplyCost[kind]
+		if err := updateSupplies(exp.ID, exp.Supplies); err != nil {
+			return fmt.Errorf("updateSupplies: %w", err)
+		}
+		applyCampRest(exp, kind)
+	}
+	drift := s.P.nightRolloverDrift(exp, briefAt)
+	_ = burn
+	_ = drift
 	return nil
 }
 

@@ -136,9 +136,14 @@ Each successful background walk now logs a `walk` entry (`appendExpeditionLog(..
 - No new public command surface, no schema change, no test churn (no existing test asserted on the rewritten strings); full `go test ./...` green.
 
 ### D7 — Sim + class re-baseline
-- `cmd/expedition-sim` extensions: multi-day mode, autopilot camp, autopilot boss.
+
+**D7-a (shipped 2026-05-27):** `SimRunner.TickDay` now drives event-anchored expeditions. `expedition_sim.go` short-circuits when `isEventAnchored(exp)` is true: instead of calling `deliverBriefing` (whose `deliverBriefingEventAnchored` branch reads `time.Now().UTC()` and would never trip the safety-net under synthetic ticks), it runs `nightRolloverBurn` → optional `applyCampRest(Standard)` if affordable (Rough fallback, skipped on low-SU) → `nightRolloverDrift(briefAt)`. Mirrors `pitchAutopilotCamp` with `Night=true`. Production paths untouched. New `expedition_sim_test.go` covers (i) 3 ticks advancing day 1→4 with supply burn + stamped `LastBriefingAt`, and (ii) the low-SU branch where the rest is skipped but burn/drift still fire. Unblocks D5-d empirical re-baseline of `phase5BDailyBurnRatePct` and the class corpus re-run.
+
+**Remaining work (D7-b+):**
+- `cmd/expedition-sim` extensions: multi-day mode CLI, autopilot camp, autopilot boss.
 - Re-run the class win-rate corpus (cross-link `project_class_balance`, `project_j2_sim_artifact`).
 - Re-check trailers (bard/cleric per `project_j1_post_sweep_findings`) — autopilot camp pacing may relieve their HP-cliff issue.
+- D5-d retune of `DailyBurn` / `phase5BDailyBurnRatePct` against measured day-counts.
 - New balance memory entry once corpus stabilizes.
 
 ## 4. Cross-cutting risks
