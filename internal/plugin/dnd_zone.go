@@ -548,8 +548,8 @@ func zoneUnderdark() ZoneDefinition {
 		Faction:    "Drow, Mind Flayers, Beholders (far), Ropers, Hook Horrors",
 		Atmosphere: "Absolute darkness, phosphorescent mushroom groves, vast underground seas, carved drow cities in the distance, things older than the surface world.",
 		Hook:       "There is a world below the world. It has its own cities, its own wars, its own sky — which is stone, and has never once been kind. I speak more quietly here. Something might be listening.",
-		MinRooms:   8,
-		MaxRooms:   10,
+		MinRooms:   28,
+		MaxRooms:   34,
 		Enemies: []ZoneEnemy{
 			// Phase 5-C: underdark ran 88% (band 45-65, way over)
 			// at the T4 centerline — its sibling feywild sat at
@@ -605,8 +605,8 @@ func zoneFeywildCrossing() ZoneDefinition {
 		Faction:    "Hags, Redcaps, Will-o-Wisps, Fomorians, Unseelie Fey",
 		Atmosphere: "Impossible beauty, treacherous whimsy, time distortion, rules that change without notice, bargains with terrible fine print.",
 		Hook:       "The veil between worlds is thin here. Colors are too saturated. The mushrooms are too large. A small creature made of starlight just offered you a deal. I advise extreme caution regarding deals.",
-		MinRooms:   8,
-		MaxRooms:   10,
+		MinRooms:   28,
+		MaxRooms:   34,
 		Enemies: []ZoneEnemy{
 			// Phase 5-C: feywild trailed at 54% (band 45-65, but
 			// the design goal was to close the 30pp gap with its

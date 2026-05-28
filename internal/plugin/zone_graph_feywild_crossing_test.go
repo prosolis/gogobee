@@ -7,8 +7,18 @@ func TestFeywildCrossingGraph_Registered(t *testing.T) {
 	if !ok {
 		t.Fatal("zoneFeywildCrossingGraph not registered")
 	}
-	if len(g.Nodes) != 9 {
-		t.Errorf("nodes = %d, want 9", len(g.Nodes))
+	// Long-expedition D1-d widened this zone from 9 → 53 nodes so the
+	// longest entry→boss walk lands in the T4 [28,34] traversal band.
+	if len(g.Nodes) != 53 {
+		t.Errorf("nodes = %d, want 53", len(g.Nodes))
+	}
+}
+
+func TestFeywildCrossingGraph_LongestPathInBand(t *testing.T) {
+	g := zoneFeywildCrossingGraph()
+	got := graphLongestPath(g)
+	if got < 28 || got > 34 {
+		t.Errorf("longest path = %d, want in T4 band [28,34]", got)
 	}
 }
 
@@ -71,5 +81,40 @@ func TestFeywildCrossingGraph_FirstCHALock(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected at least one LockStatCheck CHA edge — Feywild theme")
+	}
+}
+
+// TestFeywildCrossingGraph_TrapAnchor verifies D1-d added the missing
+// Trap node. Original G8f graph had elite/secret but no trap.
+func TestFeywildCrossingGraph_TrapAnchor(t *testing.T) {
+	g := zoneFeywildCrossingGraph()
+	var trapCount int
+	for _, n := range g.Nodes {
+		if n.Kind == NodeKindTrap {
+			trapCount++
+		}
+	}
+	if trapCount != 1 {
+		t.Errorf("trap nodes = %d, want 1", trapCount)
+	}
+}
+
+// TestFeywildCrossingGraph_FaeCourtMerge verifies all three second-
+// stage endings (hag_circle, time_eddy, illusion_garden) converge at
+// the fae_court merge before the final boss approach. D1-d added this
+// merge to avoid triplicating the long pre-boss walk.
+func TestFeywildCrossingGraph_FaeCourtMerge(t *testing.T) {
+	g := zoneFeywildCrossingGraph()
+	for _, ending := range []string{
+		"feywild_crossing.hag_circle",
+		"feywild_crossing.time_eddy",
+		"feywild_crossing.illusion_garden",
+	} {
+		if !reachable(g, ending, "feywild_crossing.fae_court") {
+			t.Errorf("%s does not reach fae_court merge", ending)
+		}
+	}
+	if !reachable(g, "feywild_crossing.fae_court", "feywild_crossing.boss") {
+		t.Error("fae_court → boss path missing")
 	}
 }

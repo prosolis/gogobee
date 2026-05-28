@@ -7,8 +7,18 @@ func TestUnderdarkGraph_Registered(t *testing.T) {
 	if !ok {
 		t.Fatal("zoneUnderdarkGraph not registered")
 	}
-	if len(g.Nodes) != 10 {
-		t.Errorf("nodes = %d, want 10", len(g.Nodes))
+	// Long-expedition D1-d widened this zone from 10 → 46 nodes so the
+	// longest entry→boss walk lands in the T4 [28,34] traversal band.
+	if len(g.Nodes) != 46 {
+		t.Errorf("nodes = %d, want 46", len(g.Nodes))
+	}
+}
+
+func TestUnderdarkGraph_LongestPathInBand(t *testing.T) {
+	g := zoneUnderdarkGraph()
+	got := graphLongestPath(g)
+	if got < 28 || got > 34 {
+		t.Errorf("longest path = %d, want in T4 band [28,34]", got)
 	}
 }
 
@@ -18,10 +28,10 @@ func TestUnderdarkGraph_Registered(t *testing.T) {
 func TestUnderdarkGraph_AllNodesHaveRegion(t *testing.T) {
 	g := zoneUnderdarkGraph()
 	validRegions := map[string]bool{
-		"underdark_surface_tunnels":  true,
-		"underdark_drow_outpost":     true,
-		"underdark_illithid_warren":  true,
-		"underdark_deep_throne":      true,
+		"underdark_surface_tunnels": true,
+		"underdark_drow_outpost":    true,
+		"underdark_illithid_warren": true,
+		"underdark_deep_throne":     true,
 	}
 	for id, n := range g.Nodes {
 		if n.RegionID == "" {
@@ -93,5 +103,20 @@ func TestUnderdarkGraph_AllArmsReachBoss(t *testing.T) {
 		if !reachable(g, leaf, "underdark.boss") {
 			t.Errorf("%s unreachable to boss", leaf)
 		}
+	}
+}
+
+// TestUnderdarkGraph_TrapAnchor verifies D1-d added the missing Trap
+// node. Original G8i graph had elite/boss/harvest but no trap.
+func TestUnderdarkGraph_TrapAnchor(t *testing.T) {
+	g := zoneUnderdarkGraph()
+	var trapCount int
+	for _, n := range g.Nodes {
+		if n.Kind == NodeKindTrap {
+			trapCount++
+		}
+	}
+	if trapCount != 1 {
+		t.Errorf("trap nodes = %d, want 1", trapCount)
 	}
 }
