@@ -930,8 +930,10 @@ func simPickSpiritualWeapon(c *DnDCharacter, uid id.UserID, sess *CombatSession)
 	return "spiritual_weapon"
 }
 
-// simPickSpell returns the spell ID a competent player would cast this
-// turn, or "" when no usable spell is available (forcing a !attack).
+// simPickSpell returns the spell argument a competent player would pass
+// to !cast this turn, or "" when no usable spell is available (forcing a
+// !attack). The return value is fed straight to handleCombatCastCmd, so
+// upcast picks come back as `"<spell_id> --upcast N"`.
 // Selection rules:
 //   - Only damage-effect spells (damage_attack / damage_save / damage_auto).
 //     Control/buff/heal are out (J2c sweep showed control scoring at
@@ -939,12 +941,13 @@ func simPickSpiritualWeapon(c *DnDCharacter, uid id.UserID, sess *CombatSession)
 //     no headroom worth the complexity). Healing is handled by the
 //     consumable-first branch in simPickCombatAction.
 //   - Reaction-cast spells are excluded (engine rejects them).
-//   - Non-cantrips require an available slot at their native level (no
-//     upcasting — preserves high slots for high-level spells).
-//   - Among feasible candidates, prefer higher slot level; tie-break on
+//   - For each prepared leveled spell, enumerate one candidate per
+//     available slot at level ≥ native (D8-b, aggressive upcasting).
+//     spellExpectedDamage handles the +1-die-per-slot-above-native
+//     scaling. Cantrips contribute one slot-0 candidate.
+//   - Among feasible candidates, prefer higher slot level (preserves
+//     high-slot supremacy and burns the big slots first); tie-break on
 //     expected damage from the dice string.
-//
-// Returns the spell ID for handleCombatCastCmd.
 func simPickSpell(c *DnDCharacter, uid id.UserID) string {
 	known, err := listKnownSpells(uid)
 	if err != nil || len(known) == 0 {
@@ -952,9 +955,10 @@ func simPickSpell(c *DnDCharacter, uid id.UserID) string {
 	}
 	slots, _ := getSpellSlots(uid)
 	type cand struct {
-		id     string
-		level  int
-		expDmg float64
+		id          string
+		slot        int
+		nativeLevel int
+		expDmg      float64
 	}
 	var cands []cand
 	for _, k := range known {
@@ -983,24 +987,40 @@ func simPickSpell(c *DnDCharacter, uid id.UserID) string {
 		if !onList {
 			continue
 		}
-		if sp.Level > 0 {
-			pair, ok := slots[sp.Level]
+		if sp.Level == 0 {
+			cands = append(cands, cand{id: sp.ID, slot: 0, nativeLevel: 0, expDmg: spellExpectedDamage(sp, 0, c.Level)})
+			continue
+		}
+		// simMaxSlot mirrors parseCombatCast's slot-level cap; anything
+		// above it would be rejected by the cast handler anyway.
+		const simMaxSlot = 5
+		for sl := sp.Level; sl <= simMaxSlot; sl++ {
+			pair, ok := slots[sl]
 			if !ok || pair[0]-pair[1] <= 0 {
 				continue
 			}
+			cands = append(cands, cand{
+				id:          sp.ID,
+				slot:        sl,
+				nativeLevel: sp.Level,
+				expDmg:      spellExpectedDamage(sp, sl, c.Level),
+			})
 		}
-		cands = append(cands, cand{id: sp.ID, level: sp.Level, expDmg: spellExpectedDamage(sp, sp.Level, c.Level)})
 	}
 	if len(cands) == 0 {
 		return ""
 	}
 	sort.Slice(cands, func(i, j int) bool {
-		if cands[i].level != cands[j].level {
-			return cands[i].level > cands[j].level
+		if cands[i].slot != cands[j].slot {
+			return cands[i].slot > cands[j].slot
 		}
 		return cands[i].expDmg > cands[j].expDmg
 	})
-	return cands[0].id
+	best := cands[0]
+	if best.slot > best.nativeLevel && best.nativeLevel > 0 {
+		return fmt.Sprintf("%s --upcast %d", best.id, best.slot)
+	}
+	return best.id
 }
 
 // applyAutoCamp drives the production camp scheduler under the sim's
