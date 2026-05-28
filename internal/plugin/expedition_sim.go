@@ -406,7 +406,10 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays
 	}
 
 	ctx := MessageContext{Sender: uid}
-	if err := s.P.handleDnDExpeditionCmd(ctx, "start "+string(zoneID)); err != nil {
+	// D5-b made a bare "start <zone>" return the loadout prompt without
+	// outfitting. Force the tier-max "heavy" preset so multi-day runs
+	// have enough supplies to actually exercise [[project-sim-event-anchored-broken]] rollovers.
+	if err := s.P.handleDnDExpeditionCmd(ctx, "start "+string(zoneID)+" heavy"); err != nil {
 		return res, fmt.Errorf("expedition start: %w", err)
 	}
 	exp, _ := getActiveExpedition(uid)

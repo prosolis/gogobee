@@ -143,11 +143,9 @@ Each successful background walk now logs a `walk` entry (`appendExpeditionLog(..
 
 **D7-c (shipped 2026-05-27):** `cmd/expedition-sim` gained a `-days N` flag — when set, `RunExpedition` exits with `Outcome="day_capped"` after the Nth synthetic day rollover; 0 (default) is unbounded and only the existing `-cap` walk safety net applies. `SimResult` gained `DaySnapshots []SimDaySnapshot` ({Day, HPCurrent, HPMax, Supplies, Threat, Rooms}), captured at expedition start (Day 0), after every `applyAutoCamp`/`applyAutoCampBossSafety` Night-camp rollover, and one final end-of-run entry (reads `getExpedition(mostRecentExpeditionID(...))` when the row already extracted so closed runs still close their trajectory). `RunExpedition` signature picked up the `maxDays int` parameter; sole caller is the CLI. Coverage: `TestSimRunner_CaptureDaySnapshot_PopulatesFields` exercises the helper in isolation (HP from the live character row, SU/threat/day from the live expedition, Rooms from `res.Rooms`). Unblocks empirical D5-d retune of `phase5BDailyBurnRatePct` against per-day SU draws.
 
-**Remaining work (D7-d+):**
-- Re-run the class win-rate corpus (cross-link `project_class_balance`, `project_j2_sim_artifact`).
-- Re-check trailers (bard/cleric per `project_j1_post_sweep_findings`) — autopilot camp pacing may relieve their HP-cliff issue.
-- D5-d retune of `DailyBurn` / `phase5BDailyBurnRatePct` against measured day-counts.
-- New balance memory entry once corpus stabilizes.
+**D7-d (shipped 2026-05-27):** class corpus re-run + D5-d retune decision. First fixed a sim regression `expedition_sim.go` introduced by D5-b — bare `expedition start <zone>` now returns the loadout prompt instead of outfitting, so the sim was halting before persisting any expedition; harness now passes the `heavy` preset. Corpus: `sim_results/d7d_corpus.jsonl` (n=100 × 10 classes × 5 zones × L10 = 5000 runs, `heavy` preset, `-cap 300`). Analysis: `sim_results/d7d_analyze.py`. Writeup: `sim_results/d7d_findings.md`. **Key reads:** (i) leaderboard mirrors [[project_j2_sim_artifact]] — martials 78–82%, casters 21–42%, ~40pp cluster gap unchanged by long-expedition mechanics; (ii) bard/cleric trailers **not** relieved by autopilot camp pacing — cleric actually regressed at L10 (21% vs J2b L12 39%) on spell-pool richness, J3-territory; (iii) T3 hits target 4-day duration (median 3), T4 hits 5–6 days (median 5), T5 hits 5 of 7 (only 21 clears); (iv) **D5-d retune: no change.** `phase5BDailyBurnRatePct=50` + per-tier `DailyBurn` stay as-is — heavy-preset cleared runs end with 78–98% SU remaining; supply economy is not a binding constraint and players lose to HP zero, not starvation. New memory entry: [[project_d7d_baseline]].
+
+**Remaining work (D7-e+):** none scheduled; long-expedition mechanics are at v1. Future tuning rides on J3 caster picker widening (out of scope for the long-expedition track).
 
 ## 4. Cross-cutting risks
 
