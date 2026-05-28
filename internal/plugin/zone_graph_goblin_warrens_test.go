@@ -13,8 +13,10 @@ func TestGoblinWarrensGraph_Registered(t *testing.T) {
 	if g.Boss != "goblin_warrens.boss" {
 		t.Errorf("boss node = %q, want goblin_warrens.boss", g.Boss)
 	}
-	if len(g.Nodes) != 7 {
-		t.Errorf("nodes = %d, want 7", len(g.Nodes))
+	// Long-expedition D1 widened this zone from 7 → 16 nodes so both
+	// branches land in the T1 [12,14] traversal band.
+	if len(g.Nodes) != 16 {
+		t.Errorf("nodes = %d, want 16", len(g.Nodes))
 	}
 }
 
@@ -30,7 +32,7 @@ func TestGoblinWarrensGraph_BothPathsReachBoss(t *testing.T) {
 
 func TestGoblinWarrensGraph_ForkLayout(t *testing.T) {
 	g := zoneGoblinWarrensGraph()
-	outs := g.outgoingEdges("goblin_warrens.fork")
+	outs := g.outgoingEdges("goblin_warrens.cavern_junction")
 	if len(outs) != 2 {
 		t.Fatalf("fork outgoing edges = %d, want 2", len(outs))
 	}

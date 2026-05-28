@@ -214,8 +214,8 @@ func zoneGoblinWarrens() ZoneDefinition {
 		Faction:    "Goblins, Hobgoblins",
 		Atmosphere: "Low ceilings, torchlight, crude traps, cackling in the dark.",
 		Hook:       "A network of fetid tunnels burrowed beneath the Merchant's Road. The smell arrives before the sounds — smoke, rot, and something worse. I advise keeping one hand on your blade.",
-		MinRooms:   6,
-		MaxRooms:   7,
+		MinRooms:   12,
+		MaxRooms:   14,
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "goblin_sneak", SpawnWeight: 7},
 			{BestiaryID: "goblin_archer", SpawnWeight: 6},
