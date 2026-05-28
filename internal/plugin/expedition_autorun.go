@@ -141,6 +141,15 @@ func loadExpeditionsForAutoRun(runCutoff, ageCutoff time.Time) ([]string, error)
 // supplies/threat/run-graph state are mutated by the walk itself, just
 // as they would be in a foreground !expedition run.
 func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
+	// Long-expedition D2-a — camp dwell gate. A camp (player or auto)
+	// still inside its dwell window means the party is resting; skip
+	// the walk entirely. An auto-pitched camp past dwell gets broken
+	// here so this tick can proceed.
+	if shouldSkipAutoRunForCamp(e, now) {
+		return nil
+	}
+	autoCampBroken := breakAutoCampIfDue(e, now)
+
 	cutoff := now.Add(-autoRunCooldown)
 	res, err := db.Get().Exec(`
 		UPDATE dnd_expedition
@@ -163,11 +172,33 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 		// "no expedition" / "no run" — race with abandon/extract. Silent.
 		return nil
 	}
+	// Long-expedition D2-a — post-walk camp scheduler. After the walk
+	// settles, see if the autopilot should pitch a rest camp (HP low)
+	// or a base-camp waypoint (region boss just cleared). The walk's
+	// own preflight handles low-SU pauses; the scheduler stays out of
+	// fork/combat/death/complete branches by checking r.reason.
+	campBlock := ""
+	if r.reason != stopEnded && r.reason != stopComplete &&
+		r.reason != stopBlocked && r.reason != stopFork {
+		if fresh, ferr := getExpedition(e.ID); ferr == nil && fresh != nil &&
+			fresh.Status == ExpeditionStatusActive {
+			campBlock = p.maybeAutoCamp(fresh)
+		}
+	}
+	if campBlock != "" {
+		r.finalMsg += campBlock
+	}
+	_ = autoCampBroken // reserved for D2-b end-of-day DM bundling
+
 	// Emergence seam: a run-complete reached by the background ticker is
 	// still a live emergence — roll pet arrival. See maybeRollPetArrivalOnEmerge.
 	// Deferred until after the run-summary DM below so the "animal in your
 	// house" prompt lands after the summary, not ahead of it.
-	if shouldDMAutoRun(r) {
+	//
+	// DM rule: surface anytime the regular suppression says to, OR
+	// whenever the autopilot pitched a camp this tick — a camp event
+	// is always worth a DM, even if the walk itself was quiet.
+	if shouldDMAutoRun(r) || campBlock != "" {
 		body := renderAutoRunDM(r)
 		if err := p.SendDM(uid, body); err != nil {
 			slog.Warn("expedition: autorun DM", "user", uid, "err", err)

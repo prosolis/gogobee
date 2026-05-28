@@ -1,0 +1,158 @@
+# Long Expeditions — multi-session plan
+
+> Goal: dungeon expeditions become real multi-day journeys (T1 ≈ 2 days → T5 ≈ 7 days). Player picks **camp supplies** at launch, then watches it play out. Camp pitch/break, elite engagement, and **boss engagement** all become autonomous. Foreground `!camp` / `!fight` survive as overrides, not the expected path.
+
+## 1. Why the current shape is "too short"
+
+| Tier | Zones | Rooms | Real-time exit |
+|------|-------|------|----------------|
+| T1   | Goblin Warrens, Crypt Valdris       | 6–7  | usually <1 calendar day |
+| T2   | Forest Shadows, Sunken Temple       | 7–8  | usually 1 day |
+| T3   | Manor Blackspire, Underforge        | 7–9  | 1–2 days |
+| T4   | Underdark, Feywild Crossing         | 8–10 (×regions) | 2–3 days |
+| T5   | Dragon's Lair, Abyss Portal         | 9–10 (×regions) | 2–4 days |
+
+(Room counts from `internal/plugin/dnd_zone.go:70-134`; tier zones from memory `project_expedition_difficulty`.)
+
+Because the autopilot walks ~3 rooms / 2h (`expedition_autorun.go:43,53`) and boss/elite stops are manual, a player who pays attention clears T1–T3 in an evening. Briefing/recap UTC ticks fire but rarely matter — the expedition is over before "day 2" ever lands.
+
+## 2. Target shape
+
+| Tier | Target duration | New room budget (single-region) | Notes |
+|------|-----------------|---------------------------------|-------|
+| T1   | 2 days  | 12–14 | one autopilot-camp |
+| T2   | 3 days  | 16–20 | two camps |
+| T3   | 4 days  | 22–26 | three camps; threat starts to bite |
+| T4   | 5–6 days | 28–34 (split across 3–4 regions) | base camp emerges |
+| T5   | 7 days  | 36–44 (split across 3–4 regions) | full siege/temporal pressure |
+
+(Numbers are first-draft anchors; class-balance sim drives the actual dial in D7.)
+
+Duration is measured in **expedition-days advanced by autopilot camp**, not real-time UTC days. Each autopilot night-camp = day++. Real-time UTC still drives the morning briefing DM cadence, but day-count and supply burn become event-driven (camp = sleep = day++ = burn).
+
+The autopilot decides:
+- when to camp (and which camp type)
+- whether to engage elites and bosses, or to camp first and retry
+- whether to extract early on starvation/HP collapse
+
+The player decides:
+- supply pack purchases at launch (only meaningful pre-expedition choice)
+- whether to override (`!camp <kind>`, `!fight`, `!expedition extract`)
+
+## 3. Phasing
+
+Built across multiple sessions; each phase ships independently with tests and a small DM-side feedback loop.
+
+### D1 — Length + room-count rework
+**Files:** `dnd_zone.go` (per-zone Min/MaxRooms), `dnd_expedition_region.go` (multi-region region sizes), `dnd_zone_run.go:generateRoomSequence` (still terminates Entry → … → Elite → Boss, but with more Explorations).
+**Work:**
+- Re-pitch Min/MaxRooms per zone to the table in §2.
+- Multi-region zones: extend per-region room budgets so the total stays in band when summed.
+- Keep the fixed Entry / Trap / Elite / Boss anchors; only Exploration count scales.
+- Consider 2 traps + 2 elites for T4–T5 to break up the long middle (deferred decision — see §6).
+- Update existing zone graphs in `zone_graph_*.go` for the new lengths. *Auditing whether each zone has a hand-tuned graph or relies on the linear compiler is part of D1 scoping.*
+
+**Exit criteria:** `expedition-sim` shows mean-room-cleared per zone in the new band; no test fixtures hard-code old counts.
+
+### D2 — Autopilot camp scheduler
+
+**D2-a (shipped 2026-05-27):** new `expedition_autocamp.go` with pure `decideAutopilotCamp` + `pitchAutopilotCamp` + dwell-window lifecycle (`shouldSkipAutoRunForCamp`, `breakAutoCampIfDue`). Wired into `tryAutoRun`: skip while inside `minAutoCampDwell` (4h), break + walk past it, post-walk scheduler pitches HP-low rest camps and region-boss base-camp waypoints. CampState gained `AutoPitched` so auto- vs player-pitched lifetimes diverge. Day rollover is still UTC-anchored; D2-b moves it event-anchored.
+
+
+**Files:** new `expedition_autocamp.go`; hooks in `expedition_autorun.go:tryAutoRun`; reuse `dnd_expedition_camp.go:campPitch` / `applyCampRest`.
+**Heuristics (in priority order):**
+1. **Day-budget pacing** — pitch when rooms-walked-this-day ≥ tier-specific day-room target. Standard if room cleared, rough if not.
+2. **Resource gates** — pitch if HP < 35% of max, or supplies projected to cover <1 more day's burn (`exp.Supplies.Current < exp.Supplies.DailyBurn * harshMod`).
+3. **Post-elite breath** — auto-pitch a standard camp in the cleared elite room.
+4. **Region boss cleared in multi-region zone** — auto-pitch base camp at first eligible site.
+5. **Don't pitch when** mid-fight, in a trap/boss room, in a fork-pending state, or already camped.
+
+Auto-break already happens on move (`autoBreakCampOnMove` in `dnd_expedition_camp.go:401`). Autopilot just needs to *not* break a freshly-pitched camp by immediately walking on — gate by `time.Since(camp.EstablishedAt) > minCampDwell` (15min real-time? or simply: don't auto-walk while camped).
+
+**Day-rollover semantics change (decided event-anchored):** today, day++ happens at the 06:00 UTC briefing (`dnd_expedition_cycle.go:236`). After D2, the autopilot **night-camp pitch** is the event that fires day++, supply burn, overnight rest, and threat drift — in one atomic rollover the camp scheduler triggers. The 06:00 UTC briefing tick survives only as a re-engagement DM anchor (and a safety net: if for some reason no camp pitched in N hours, force one). Concretely:
+- Move the body of `deliverBriefing` (`dnd_expedition_cycle.go:186-`) into a `processNightCamp(exp)` helper called from the autopilot camp scheduler when it pitches a *night* camp (rough/standard/fortified — not mid-day breath stops).
+- Distinguish "night camp" (advances day) from "rest stop" (doesn't). Heuristic: a camp pitched at the end of the day-budget room count is night; one pitched purely for HP/SU recovery mid-day is a rest stop. Both apply `applyCampRest`; only night also runs supply burn + day++ + threat drift.
+- The existing UTC briefing ticker becomes: if `last_briefing_at` is older than ~20h *and* the user is active, post a "Day N — here's where you stand" re-engagement DM. It calls **no** mutators.
+- Manual `!camp <type>` from the player still does what it does today (apply rest immediately) but **also** counts as a night camp if invoked with no other camp today — keep parity with the autopilot behavior so the override doesn't accidentally stall day advancement.
+
+**Migration:** in-flight expeditions at deploy time keep their existing 06:00 UTC day++ until they end (fence by `start_date`). New expeditions use the event-anchored model.
+
+**Exit criteria:** sim shows autopilot pitches the right kind of camp at the right room with no player input; supply economy still survives a 7-day T5.
+
+### D3 — Autonomous elite + boss engagement
+**Files:** `dnd_zone_cmd.go:497-535` (the prev==RoomElite / RoomBoss branch).
+**Work:**
+- Background autopilot (compact==true): drop the `prev == RoomBoss` carve-out. Boss auto-resolves through the same forward-sim path as elites.
+- **Safety gate before boss**: if HP < 80% of max OR supplies < 1 day's burn OR active "low" status, autopilot pitches a camp instead of engaging. Retry next tick.
+- **Loss handling**: a death on auto-resolved boss still kicks the player-death narration and ends the run. No special treatment.
+- Foreground `!fight` still works (manual override). Foreground `!expedition run` still stops at boss for the player who wants to watch.
+
+**Open question:** do we want a "set autopilot off" toggle for players who actively want to play the boss themselves? My take: default-on, single-flag per expedition (`autopilot_engage`) settable at start or via `!expedition autopilot off`. Defer until D3 lands and we see how it reads.
+
+**Exit criteria:** sim runs a full T5 expedition launch → boss kill with zero player commands besides `!expedition start`.
+
+### D4 — DM volume + day surfaces
+The big risk: a 7-day T5 with autopilot walking, camping, fighting elites, and killing bosses will spam DMs unless we bundle. The user has already pushed back on recap chatter (`feedback_skip_recaps`).
+**Work:**
+- One **end-of-day DM** per autopilot night-camp, bundling: rooms walked, fights resolved, loot, camp pitched, day++ event. Replaces today's per-room auto-walk DM in compact mode.
+- One **morning re-engagement DM** when the player first opens the channel after a day-rollover (anchored to user activity, not UTC clock — drops the 06:00 wakeup if the player isn't around).
+- Boss kill + run-complete still get their own DM (the climax beat, not bundled).
+- TwinBee voice: first-person only (`feedback_twinbee_voice`).
+- No trailing recaps (`feedback_skip_recaps`).
+
+**Exit criteria:** a 7-day T5 produces ≤ 10 DMs across the whole expedition (1 launch + 6 end-of-day + 1 boss + 1 run-complete + 1 emergency).
+
+### D5 — Supplies economics retune
+**Files:** `dnd_expedition.go:38-47` (ExpeditionSupplies), pack-purchase surface (E1b), `applyDailyBurn`.
+**Work:**
+- New pack tiers sized for 2-day → 7-day. Max packs scale with intended duration. Today's caps (PacksStandard ≤ 3, PacksDeluxe ≤ 1) are a 2-day shape.
+- DailyBurn: keep zone-tier scaling, but the autopilot's camp choices now consume meaningful SU per day — so `Max` headroom needs to roughly equal `DailyBurn × intendedDays × 1.3` (slop).
+- Surface supply purchase at launch as a single "Pick your loadout" prompt with 3–4 presets ("Lean: 2-day shape", "Balanced", "Heavy: full T5"), with raw pack counts as an advanced override.
+- Forage and Ranger forage tuning re-baseline.
+
+**Exit criteria:** balanced loadout completes intended-duration expedition in ≥ 85% of sim runs without starvation extraction.
+
+### D6 — Player-facing surface cleanup
+- Help text rewrite — frame expedition as "supply pack + watch it play out".
+- Hide / soft-deprecate `!camp <type>` from primary help, keep it documented as an override.
+- `!fight` still in help, framed as override.
+- Status DM (`!expedition status`) shows: current day / expected days, rooms walked / total, supplies, last 3 events.
+
+### D7 — Sim + class re-baseline
+- `cmd/expedition-sim` extensions: multi-day mode, autopilot camp, autopilot boss.
+- Re-run the class win-rate corpus (cross-link `project_class_balance`, `project_j2_sim_artifact`).
+- Re-check trailers (bard/cleric per `project_j1_post_sweep_findings`) — autopilot camp pacing may relieve their HP-cliff issue.
+- New balance memory entry once corpus stabilizes.
+
+## 4. Cross-cutting risks
+
+- **Existing in-flight expeditions** at deploy time. Either fence by `start_date` (old expeditions finish under old rules) or write a one-shot migration that retunes their room counts. Lean: fence — these are typically <2 days.
+- **The 24h zone-run inactivity timeout** (`dnd_zone_run.go:254`) — must be raised, or the autopilot must self-poke `last_action_at` per tick. With multi-day expeditions, a quiet stretch overnight is now expected.
+- **Idle reaper** (commit `0f72484`, see `expedition_autorun.go` references) — already holds streak on autopilot; verify it tolerates 5-day expeditions.
+- **Babysit perk** — `BabysitSafeRest` already upgrades Standard → Fortified at rest (`dnd_expedition_camp.go:241-245`); confirm interaction with autopilot picking Standard (no change needed; the upgrade fires inside `applyCampRest`).
+- **Multi-region travel still unwired in autopilot** (memory `project_multiregion_travel_unwired`). For T4/T5 to actually take 5–7 days, autopilot **must** auto-advance regions on region-clear. D2/D3 covers this implicitly but call it out — likely a small dedicated commit.
+- **Pet arrival** (memory `project_pet_event_reachability`) — emergence seam is at run-complete; longer expedition just delays the roll, no code change needed.
+- **Twinbee voice + secret NPC buffs** (memories `feedback_twinbee_voice`, `feedback_npc_buffs_are_secret`) — none of the new copy can break these.
+
+## 5. Schema impact
+
+Likely none. Existing columns cover it:
+- `current_day` → autopilot increments via `advanceExpeditionDay`.
+- `camp_json`, `supplies_json`, `region_state`, `threat_*` already in place.
+- One **possible** new column: `expected_days` int (set at launch from zone tier + loadout) so status/end-of-day DMs can render "Day 3/5". Cheaper to derive than store — defer.
+
+## 6. Open questions for next session
+
+1. ~~Day-advance semantics~~ — **decided 2026-05-27: event-anchored.** day++ fires on autopilot camp-pitch (autopilot night-camp = sleep = day burn + briefing). UTC clock becomes a re-engagement-DM anchor only, not a state mutator. See §3-D2 for implementation impact.
+2. **Boss autopilot default**: always-on, opt-out, or opt-in? My lean: always-on with a per-expedition opt-out flag; revisit after D3 reads.
+3. **Per-tier room counts**: the table in §2 is a starting point. Worth a sim pass before D1 commits — or fine to ship a guess and refine in D7?
+4. **Extra anchor rooms**: T4/T5 with one elite + one trap may feel thin spread over 30+ rooms. Add a second elite mid-zone, or rely on multi-region + patrols + threat for variety?
+5. **Mobile/AFK friendliness**: should the autopilot-DM cadence aim for "1 DM per real-time evening" regardless of room count, or "1 DM per in-game day" (which could be hours apart if the player set the pacing fast)?
+
+## 7. Sequence
+
+D1 → D2 → D3 (independent of D4/D5) → D5 → D4 → D6 → D7.
+
+D2 and D3 can land in either order; D4 needs the volume problem to be real (so after D2/D3 at minimum). D5 wants D1's new lengths but can run in parallel with D2/D3. D7 always last.
+
+Estimated sessions: 5–7. D2 and D5 are the biggest single-session chunks.

@@ -57,6 +57,11 @@ type CampState struct {
 	// threat -5 etc.) have already been applied at pitch time. processOvernightCamp
 	// uses it to skip re-applying so the night cycle just breaks the camp.
 	RestApplied bool `json:"rest_applied,omitempty"`
+	// AutoPitched is set when the long-expedition autopilot pitched this
+	// camp. The autorun ticker breaks an auto-pitched camp itself after a
+	// minimum dwell so the walk can keep moving; player-pitched camps stay
+	// up until the player breaks them (or moves on).
+	AutoPitched bool `json:"auto_pitched,omitempty"`
 }
 
 // ThreatEvent — §8.4.
