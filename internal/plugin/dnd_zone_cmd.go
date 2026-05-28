@@ -389,7 +389,38 @@ const (
 	stopBlocked                    // an active CombatSession blocks the advance
 	stopHarvestCombat              // auto-harvest pulled into combat that resolved short of death
 	stopPreflight                  // pre-iteration preflight tripped (low HP / low SU)
+	stopBossSafety                 // compact autopilot bailed before boss (HP/SU/exhaustion gate) — caller pitches a rest camp
 )
+
+// bossSafetyHPPct — compact-autopilot won't engage a boss while current HP
+// is at or below this fraction of max. 0.80 ≫ autopilotLowHPPct (0.30) so
+// the gate fires well before the player is in real danger; the boss is
+// the run's climax beat and we'd rather rest first than chip-trade into it.
+const bossSafetyHPPct = 0.80
+
+// bossSafetyExhaustion — gate trips at this level or above. 3 is the 5e
+// "disadvantage on attack rolls and saving throws" tier; engaging a boss
+// past that is a coin-flip TPK. A standard rest decrements exhaustion by 1,
+// so two rest cycles clears a stack of 3 even without a long rest.
+const bossSafetyExhaustion = 3
+
+// bossSafetyGate reports whether the compact autopilot should pause before
+// engaging the boss. Returns (player-facing reason, true) when blocked.
+// Plumbed through the boss/elite branch of advanceOnceWithOpts so the
+// scheduler can pitch a rest camp in response (see tryAutoRun).
+func bossSafetyGate(userID id.UserID, exp *Expedition) (string, bool) {
+	cur, max := dndHPSnapshot(userID)
+	if max > 0 && float64(cur) <= float64(max)*bossSafetyHPPct {
+		return fmt.Sprintf("HP %d/%d — below %.0f%% boss-engage threshold", cur, max, bossSafetyHPPct*100), true
+	}
+	if exp != nil && exp.Supplies.DailyBurn > 0 && exp.Supplies.Current < exp.Supplies.DailyBurn {
+		return fmt.Sprintf("supplies %.1f/%.1f SU — under a day's burn", exp.Supplies.Current, exp.Supplies.DailyBurn), true
+	}
+	if c, _ := LoadDnDCharacter(userID); c != nil && c.Exhaustion >= bossSafetyExhaustion {
+		return fmt.Sprintf("exhaustion %d — too worn to fight clean", c.Exhaustion), true
+	}
+	return "", false
+}
 
 // advanceResult bundles the staged narration + dispatch shape of one
 // advanceOnce step. preStream/intro/phases/final mirror the streamOrSend
@@ -487,9 +518,12 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 	// means the fight's done; fall through so the graph clears the room.
 	//
 	// compact==true (background autopilot) auto-resolves elite rooms via
-	// the same forward-sim engine used for exploration combat. Boss still
-	// pauses regardless — the boss is the run's climax beat and shouldn't
-	// be settled while the player isn't paying attention.
+	// the same forward-sim engine used for exploration combat. Long-
+	// expedition D3 extends the same path to boss rooms — gated by a
+	// safety check (HP/SU/exhaustion). When the gate trips the walk
+	// returns stopBossSafety; the autorun layer pitches a rest camp in
+	// response (see tryAutoRun). Foreground (!compact) still parks the
+	// player at the doorway for a manual !fight.
 	var eliteAutoIntro string
 	var eliteAutoPhases []string
 	var eliteAutoOutcome string
@@ -501,7 +535,7 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 			return advanceResult{}, fmt.Errorf("Couldn't read combat state: %s", serr.Error())
 		}
 		if sess == nil || sess.Status != CombatStatusWon {
-			if prev == RoomBoss || !compact {
+			if !compact {
 				kind := "Elite"
 				r := stopElite
 				if prev == RoomBoss {
@@ -514,10 +548,23 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 					reason: r,
 				}, nil
 			}
-			// Compact-mode elite auto-resolve.
-			ai, ap, ao, aended, aerr := p.resolveCombatRoom(ctx.Sender, run, zone, true, true)
+			if prev == RoomBoss {
+				// Cheap extra read — only fires on the boss doorway tick.
+				exp, _ := getActiveExpedition(ctx.Sender)
+				if reason, blocked := bossSafetyGate(ctx.Sender, exp); blocked {
+					return advanceResult{
+						final: fmt.Sprintf(
+							"⏸ **Autopilot held back from the boss** — %s. Pitching a rest camp; will re-engage after recovery.",
+							reason),
+						reason: stopBossSafety,
+					}, nil
+				}
+			}
+			// Compact-mode elite/boss auto-resolve. resolveCombatRoom
+			// selects monster + label by run.CurrentRoomType().
+			ai, ap, ao, aended, aerr := p.resolveCombatRoom(ctx.Sender, run, zone, prev == RoomElite, true)
 			if aerr != nil {
-				return advanceResult{}, fmt.Errorf("Couldn't auto-resolve elite: %s", aerr.Error())
+				return advanceResult{}, fmt.Errorf("Couldn't auto-resolve %s: %s", strings.ToLower(string(prev)), aerr.Error())
 			}
 			if aended {
 				return advanceResult{
@@ -890,9 +937,28 @@ func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone Zo
 // Phases will be nil only on a "no roster" skip — caller treats that as a
 // non-paced fallthrough.
 func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition, elite, compact bool) (intro string, phases []string, outcome string, ended bool, err error) {
-	monster, ok := pickZoneEnemy(zone, run.RunID, run.CurrentRoom, elite)
+	// Long-expedition D3 — compact autopilot now auto-resolves boss rooms
+	// too. The room-type drives monster selection (boss room → zone.Boss
+	// bestiary entry; exploration/elite → roster pick). Foreground boss
+	// combat is still the manual !fight path; resolveRoom() doesn't
+	// dispatch for RoomBoss outside compact.
+	isBoss := run.CurrentRoomType() == RoomBoss
+	var monster DnDMonsterTemplate
+	var ok bool
+	if isBoss {
+		monster, ok = dndBestiary[zone.Boss.BestiaryID]
+	} else {
+		monster, ok = pickZoneEnemy(zone, run.RunID, run.CurrentRoom, elite)
+	}
 	if !ok {
-		outcome = fmt.Sprintf("_(No %s roster entry — skipping.)_", map[bool]string{true: "elite", false: "exploration"}[elite])
+		kind := "exploration"
+		switch {
+		case isBoss:
+			kind = "boss"
+		case elite:
+			kind = "elite"
+		}
+		outcome = fmt.Sprintf("_(No %s roster entry — skipping.)_", kind)
 		return
 	}
 	preHP, _ := dndHPSnapshot(userID)
@@ -910,7 +976,10 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		hpDelta := preHP - postHP
 		var ob strings.Builder
 		label := monster.Name
-		if elite {
+		switch {
+		case isBoss:
+			label = "👑 Boss — " + monster.Name
+		case elite:
 			label = "Elite " + monster.Name
 		}
 		ob.WriteString(fmt.Sprintf("⚔️ **%s** down — HP %d→%d", label, preHP, postHP))
@@ -919,8 +988,8 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		}
 		ob.WriteString(".")
 		recordZoneKillForUser(userID, monster.ID)
-		applyRoomCombatThreatForUser(userID, elite)
-		if drop := p.dropZoneLoot(userID, zone.ID, monster, false); drop != "" {
+		applyRoomCombatThreatForUser(userID, elite || isBoss)
+		if drop := p.dropZoneLoot(userID, zone.ID, monster, isBoss); drop != "" {
 			ob.WriteString(" ")
 			ob.WriteString(drop)
 		}

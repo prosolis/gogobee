@@ -178,7 +178,15 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 	// own preflight handles low-SU pauses; the scheduler stays out of
 	// fork/combat/death/complete branches by checking r.reason.
 	campBlock := ""
-	if r.reason != stopEnded && r.reason != stopComplete &&
+	if r.reason == stopBossSafety {
+		// D3 — the boss-engage gate tripped. Force-pitch a rest camp
+		// regardless of decideAutopilotCamp's normal HP threshold and
+		// its RoomBoss block. Next tick past dwell retries the boss.
+		if fresh, ferr := getExpedition(e.ID); ferr == nil && fresh != nil &&
+			fresh.Status == ExpeditionStatusActive {
+			campBlock = p.pitchBossSafetyCamp(fresh)
+		}
+	} else if r.reason != stopEnded && r.reason != stopComplete &&
 		r.reason != stopBlocked && r.reason != stopFork {
 		if fresh, ferr := getExpedition(e.ID); ferr == nil && fresh != nil &&
 			fresh.Status == ExpeditionStatusActive {

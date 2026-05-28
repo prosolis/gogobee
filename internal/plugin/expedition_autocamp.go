@@ -334,6 +334,60 @@ func renderAutoCampBlock(exp *Expedition, d autoCampDecision, cost float32, flav
 	return out
 }
 
+// pitchBossSafetyCamp force-pitches a rest camp after the compact
+// autopilot bailed out before the boss (stopBossSafety). Bypasses the
+// decideAutopilotCamp HP threshold and its RoomBoss room-type block —
+// the boss doorway is *exactly* where this camp belongs. Picks the best
+// kind the supplies will pay for (Standard > Rough); returns "" if even
+// Rough is too expensive (extract-soon territory). The returned block is
+// appended to the autorun DM by the caller.
+//
+// Day-rollover handling mirrors decideAutopilotCamp: when enough real
+// time has elapsed since the last briefing on an event-anchored
+// expedition, the pitch carries Night=true and runs the burn/drift
+// alongside the rest.
+func (p *AdventurePlugin) pitchBossSafetyCamp(exp *Expedition) string {
+	if exp == nil || exp.Status != ExpeditionStatusActive {
+		return ""
+	}
+	if exp.Camp != nil && exp.Camp.Active {
+		// Already resting — nothing to pitch. The dwell window will pass
+		// and the next autorun tick will retry the boss engagement.
+		return ""
+	}
+	kind := CampTypeStandard
+	if exp.Supplies.Current < campSupplyCost[kind] {
+		kind = CampTypeRough
+	}
+	if exp.Supplies.Current < campSupplyCost[kind] {
+		// No SU even for Rough — autopilot can't help here. The walk's
+		// preflight will surface low-SU on the next tick if the player
+		// doesn't extract.
+		return ""
+	}
+	night := false
+	if isEventAnchored(exp) {
+		var since time.Duration
+		if exp.LastBriefingAt != nil {
+			since = time.Since(*exp.LastBriefingAt)
+		} else {
+			since = time.Since(exp.StartDate)
+		}
+		night = since >= nightCampWindow
+	}
+	d := autoCampDecision{
+		Kind:   kind,
+		Reason: "boss-safety hold — resting before re-engaging",
+		Night:  night,
+	}
+	block, err := p.pitchAutopilotCamp(exp, d)
+	if err != nil {
+		slog.Warn("autopilot boss-safety camp: pitch failed", "expedition", exp.ID, "kind", kind, "err", err)
+		return ""
+	}
+	return block
+}
+
 // breakAutoCampIfDue tears down an auto-pitched camp once it has dwelled
 // for minAutoCampDwell. Returns true when it broke a camp (so the
 // caller knows the walk should proceed this tick). Player-pitched camps

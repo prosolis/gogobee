@@ -642,7 +642,9 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 		// Doorway/blocked stops fire *before* the current room actually
 		// resolved — those don't count as a walked room. Everything else
 		// (OK, fork after a clear, ended after combat, complete) does.
-		if res.reason != stopBlocked && res.reason != stopElite && res.reason != stopBoss {
+		// stopBossSafety also fires at the doorway (compact autopilot
+		// bailed before engaging), so it doesn't count either.
+		if res.reason != stopBlocked && res.reason != stopElite && res.reason != stopBoss && res.reason != stopBossSafety {
 			rooms++
 		}
 
@@ -706,15 +708,16 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 			exp = fresh
 		}
 
-		// Arrived at a Boss doorway: stop here. The "Room X/Y — Boss.
-		// !fight when ready." line in res.final already tells the player
-		// what to do; another loop iteration would just hit the gate and
-		// emit a duplicate "Room X/Y — Boss" message.
+		// Arrived at an Elite/Boss doorway. Foreground stops here so the
+		// player can decide; the "Room X/Y — Boss. !fight when ready."
+		// line in res.final already tells them what to do.
 		//
-		// For Elite + non-compact, do the same. In compact mode we let
-		// the next iteration run because the gate will auto-resolve the
-		// elite inline (which is the whole point of compact mode).
-		if res.nextRoomType == RoomBoss || (res.nextRoomType == RoomElite && !compact) {
+		// In compact mode (background autopilot, long-expedition D2/D3)
+		// we let the next iteration run because the gate will auto-
+		// resolve the encounter inline — elite always, boss when the
+		// safety check passes (otherwise the gate returns stopBossSafety
+		// and the autorun ticker pitches a rest camp).
+		if !compact && (res.nextRoomType == RoomBoss || res.nextRoomType == RoomElite) {
 			r := stopBoss
 			if res.nextRoomType == RoomElite {
 				r = stopElite
@@ -823,6 +826,8 @@ func autopilotFooter(reason stopReason, rooms int) string {
 		return fmt.Sprintf("⏸ **Autopilot paused — elite ahead** (after %s). `!fight` when ready, then `!expedition run` to continue.", roomsStr)
 	case stopBoss:
 		return fmt.Sprintf("⏸ **Autopilot paused — boss ahead** (after %s). `!fight` when ready.", roomsStr)
+	case stopBossSafety:
+		return "" // res.final already carries the held-back-from-boss line
 	case stopEnded:
 		return "" // death narration is the final; no footer
 	case stopComplete:

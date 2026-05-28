@@ -310,6 +310,7 @@ func TestAutopilotFooter_Reasons(t *testing.T) {
 		{stopEnded, "", false},
 		{stopComplete, "", false},
 		{stopBlocked, "", false},
+		{stopBossSafety, "", false}, // res.final carries the held-back line
 	}
 	for _, c := range cases {
 		got := autopilotFooter(c.r, 3)
@@ -320,6 +321,59 @@ func TestAutopilotFooter_Reasons(t *testing.T) {
 		} else if got != "" {
 			t.Errorf("%v: expected empty footer, got %q", c.r, got)
 		}
+	}
+}
+
+// TestBossSafetyGate covers all three trip conditions (HP, supplies,
+// exhaustion) and the all-clear case. The gate is the D3 boss carve-out
+// replacement — compact autopilot asks it before engaging the boss.
+func TestBossSafetyGate(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@exp-boss-safety-gate:example")
+	expeditionCmdTestCharacter(t, uid, 1)
+	defer cleanupExpeditions(uid)
+
+	healthyExp := &Expedition{
+		Supplies: ExpeditionSupplies{Current: 10, DailyBurn: 1},
+	}
+
+	// All-clear baseline: full HP, supplies fat, no exhaustion → no block.
+	c, _ := LoadDnDCharacter(uid)
+	c.HPCurrent = c.HPMax
+	c.Exhaustion = 0
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	if msg, blocked := bossSafetyGate(uid, healthyExp); blocked {
+		t.Fatalf("expected healthy party to pass gate, blocked with %q", msg)
+	}
+
+	// HP below 80% → block.
+	c.HPCurrent = int(float64(c.HPMax) * 0.5)
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	if msg, blocked := bossSafetyGate(uid, healthyExp); !blocked || !strings.Contains(msg, "HP") {
+		t.Errorf("HP gate: blocked=%v msg=%q", blocked, msg)
+	}
+
+	// HP healed, but supplies under one day's burn → block.
+	c.HPCurrent = c.HPMax
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	lowSU := &Expedition{Supplies: ExpeditionSupplies{Current: 0.5, DailyBurn: 1.5}}
+	if msg, blocked := bossSafetyGate(uid, lowSU); !blocked || !strings.Contains(msg, "supplies") {
+		t.Errorf("SU gate: blocked=%v msg=%q", blocked, msg)
+	}
+
+	// Supplies refilled, but exhaustion ≥ 3 → block.
+	c.Exhaustion = 3
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	if msg, blocked := bossSafetyGate(uid, healthyExp); !blocked || !strings.Contains(msg, "exhaustion") {
+		t.Errorf("exhaustion gate: blocked=%v msg=%q", blocked, msg)
 	}
 }
 

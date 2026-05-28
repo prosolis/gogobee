@@ -83,11 +83,12 @@ Auto-break already happens on move (`autoBreakCampOnMove` in `dnd_expedition_cam
 
 ### D3 — Autonomous elite + boss engagement
 **Files:** `dnd_zone_cmd.go:497-535` (the prev==RoomElite / RoomBoss branch).
-**Work:**
-- Background autopilot (compact==true): drop the `prev == RoomBoss` carve-out. Boss auto-resolves through the same forward-sim path as elites.
-- **Safety gate before boss**: if HP < 80% of max OR supplies < 1 day's burn OR active "low" status, autopilot pitches a camp instead of engaging. Retry next tick.
-- **Loss handling**: a death on auto-resolved boss still kicks the player-death narration and ends the run. No special treatment.
-- Foreground `!fight` still works (manual override). Foreground `!expedition run` still stops at boss for the player who wants to watch.
+
+**Shipped 2026-05-27.** `dnd_zone_cmd.go` adds `stopBossSafety` + `bossSafetyGate(uid, exp)` (HP < 80%, supplies < daily burn, exhaustion ≥ 3 — the "active low status" interpretation). The elite/boss doorway branch drops the `prev == RoomBoss || !compact` carve-out: in compact mode bosses fall through to the same `resolveCombatRoom` path elites have used, after the gate clears. `resolveCombatRoom` selects monster + label + loot-drop by `run.CurrentRoomType()` so the same call site handles boss kills (zone.Boss bestiary, "👑 Boss — name down", boss-loot drop, elite-tier threat bump). Loss on auto-resolved boss falls through to the existing player-death narration / forceExtractExpeditionForRunLoss path — no special treatment.
+
+The walk loop (`dnd_expedition_cmd.go:717`) only breaks at the elite/boss doorway when `!compact`; compact lets the next iteration auto-resolve. `stopBossSafety` is excluded from the rooms-walked tally and its `autopilotFooter` returns "" — `res.final` already carries the held-back line.
+
+When the gate trips, `tryAutoRun` calls `pitchBossSafetyCamp(exp)` (new in `expedition_autocamp.go`): force-pitches Standard (or Rough fallback) regardless of `decideAutopilotCamp`'s HP threshold or its RoomBoss room-type block, with the same `Night` event-anchored rollover handling. Dwell expires → next tick retries the boss. Foreground `!fight` and foreground `!expedition run` are unchanged: both still stop at the boss doorway for the player who wants to watch. Sim path is unaffected — `stopBossSafety` falls into `expedition_sim.go`'s default branch (tick-a-day, retry next walk).
 
 **Open question:** do we want a "set autopilot off" toggle for players who actively want to play the boss themselves? My take: default-on, single-flag per expedition (`autopilot_engage`) settable at start or via `!expedition autopilot off`. Defer until D3 lands and we see how it reads.
 
