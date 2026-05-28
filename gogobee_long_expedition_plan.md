@@ -118,8 +118,9 @@ Each successful background walk now logs a `walk` entry (`appendExpeditionLog(..
 
 > **Note:** the original "Empirical (sim-driven)" path was blocked: under D2-b event-anchored expeditions, `SimRunner.TickDay` calls `deliverBriefing` → `deliverBriefingEventAnchored`, which reads `time.Now().UTC()` for its safety-net check, so synthetic ticks never advance `CurrentDay` and `DaysAtEnd` stays at 0. Re-baselining off real day-counts requires teaching the sim to drive the event-anchored rollover (D7).
 
-**Remaining work (D5-b+):**
-- "Pick your loadout" preset prompt at launch (Lean / Balanced / Heavy) — raw `Ns Md` syntax becomes the advanced override.
+**D5-b (shipped 2026-05-27):** "Pick your loadout" preset prompt at launch. `!expedition start <zone>` with no pack arg now DMs a Lean / Balanced / Heavy menu (sized per zone tier via new `loadoutPurchase(tier, SupplyLoadout)` in `dnd_expedition_supplies.go`); player replies with `!expedition start <zone> lean|balanced|heavy` (short forms `l`/`b`/`h` also work). `!resume` got the same treatment. Raw `Ns Md` syntax remains the advanced override — `resolveLoadoutOrParse` in `dnd_expedition_cmd.go` tries a single-token preset first, falls back to `parseSupplyArgs`. Heavy always equals `supplyPackCaps` (the D5-a harsh×3 ceiling); Lean covers intended days at raw burn; Balanced sits between. `parseSupplyArgs("")` still returns 1 standard for any tier — it's no longer reachable from `!expedition start` (the empty path is intercepted to prompt), but the `1s` default is preserved so future callers don't get surprise zero-pack purchases. Help text updated; two existing scenario tests now pass `lean` explicitly, three new tests cover preset resolution + the prompt-vs-start guard.
+
+**Remaining work (D5-c+):**
 - Forage and Ranger forage re-baseline against the new caps.
 - DailyBurn / `phase5BDailyBurnRatePct` revisit once D7 sim measures real elapsed-day counts.
 

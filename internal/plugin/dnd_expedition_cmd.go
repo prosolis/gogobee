@@ -92,16 +92,16 @@ func expeditionHelpText() string {
 	var b strings.Builder
 	b.WriteString("**!expedition** — multi-day dungeon expeditions.\n\n")
 	b.WriteString("`!expedition list` — show zones available at your level\n")
-	b.WriteString("`!expedition start <zone> [Ns] [Md]` — outfit & begin\n")
-	b.WriteString("    `Ns` = N standard packs (10 SU, 50 coins; cap scales by zone tier)\n")
-	b.WriteString("    `Md` = M deluxe packs (20 SU, 90 coins; cap scales by zone tier)\n")
-	b.WriteString("    default: `1s`\n")
+	b.WriteString("`!expedition start <zone> [loadout]` — outfit & begin\n")
+	b.WriteString("    loadout: `lean` / `balanced` / `heavy` (scales by zone tier)\n")
+	b.WriteString("    advanced: raw pack counts — `Ns Md` (e.g. `2s 1d`)\n")
+	b.WriteString("    no loadout? you'll be prompted to pick one\n")
 	b.WriteString("`!expedition run` — autopilot: walk rooms until something needs you (alias `!explore`)\n")
 	b.WriteString("`!expedition status` — current expedition snapshot\n")
 	b.WriteString("`!expedition log` — last 5 log entries\n")
 	b.WriteString("`!expedition abandon` — end the expedition (no rewards)\n")
 	b.WriteString("`!extract` — voluntary extraction (1 day, resumable for 7 days)\n")
-	b.WriteString("`!resume [Ns] [Md]` — resume an extracted expedition\n")
+	b.WriteString("`!resume [loadout]` — resume an extracted expedition (same `lean`/`balanced`/`heavy` choices)\n")
 	b.WriteString("`!map` — region/room ASCII map")
 	return b.String()
 }
@@ -178,6 +178,66 @@ func parseSupplyArgs(rest string) (SupplyPurchase, error) {
 	return p, nil
 }
 
+// resolveLoadoutOrParse first tries a single-token preset (lean/balanced/
+// heavy and short forms); on miss it falls back to raw `Ns Md` parsing.
+// Tier is needed because preset purchase counts scale by zone tier.
+func resolveLoadoutOrParse(tok string, tier ZoneTier) (SupplyPurchase, error) {
+	trimmed := strings.TrimSpace(tok)
+	if !strings.ContainsAny(trimmed, " \t") {
+		if l, ok := parseLoadoutToken(trimmed); ok {
+			return loadoutPurchase(tier, l), nil
+		}
+	}
+	return parseSupplyArgs(tok)
+}
+
+// renderLoadoutPrompt formats the "pick your loadout" DM. The resume
+// command and start command share it; cmdHint tells the player which
+// command to type back with the chosen preset.
+func renderLoadoutPrompt(zone ZoneDefinition, cmdHint string) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("🎒 **Pick a loadout — %s** _(T%d)_\n\n", zone.Display, int(zone.Tier)))
+	for _, l := range []SupplyLoadout{LoadoutLean, LoadoutBalanced, LoadoutHeavy} {
+		pp := loadoutPurchase(zone.Tier, l)
+		b.WriteString(fmt.Sprintf("  `%s` — %s — %.0f SU, %d coins — %s\n",
+			loadoutName(l), packBreakdown(pp), pp.Total(), pp.Cost(), loadoutBlurb(l)))
+	}
+	b.WriteString(fmt.Sprintf("\nType `!%s %s` (or `lean` / `heavy`).\n", cmdHint, loadoutName(LoadoutBalanced)))
+	b.WriteString("Advanced: raw pack counts like `2s 1d`.")
+	return b.String()
+}
+
+func loadoutName(l SupplyLoadout) string {
+	switch l {
+	case LoadoutLean:
+		return "lean"
+	case LoadoutHeavy:
+		return "heavy"
+	}
+	return "balanced"
+}
+
+func loadoutBlurb(l SupplyLoadout) string {
+	switch l {
+	case LoadoutLean:
+		return "covers the intended run at calm burn; thin if things go sideways"
+	case LoadoutHeavy:
+		return "max cap; rides out harsh stretches and overruns"
+	}
+	return "recommended; absorbs a harsh patch or two"
+}
+
+func packBreakdown(p SupplyPurchase) string {
+	switch {
+	case p.StandardPacks > 0 && p.DeluxePacks > 0:
+		return fmt.Sprintf("%d standard + %d deluxe", p.StandardPacks, p.DeluxePacks)
+	case p.DeluxePacks > 0:
+		return fmt.Sprintf("%d deluxe", p.DeluxePacks)
+	default:
+		return fmt.Sprintf("%d standard", p.StandardPacks)
+	}
+}
+
 func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter, rest string) error {
 	if rest == "" {
 		return p.SendDM(ctx.Sender,
@@ -195,11 +255,16 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 		return p.SendDM(ctx.Sender,
 			"Unknown zone for your level. Try `!expedition list`.")
 	}
-	purchase, err := parseSupplyArgs(packTok)
+	zoneForCaps, _ := getZone(zoneID)
+	// D5-b: prompt for a preset loadout on empty args. Raw `Ns Md` syntax
+	// still works as the advanced override.
+	if strings.TrimSpace(packTok) == "" {
+		return p.SendDM(ctx.Sender, renderLoadoutPrompt(zoneForCaps, "expedition start "+string(zoneID)))
+	}
+	purchase, err := resolveLoadoutOrParse(packTok, zoneForCaps.Tier)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't parse supply packs: "+err.Error())
 	}
-	zoneForCaps, _ := getZone(zoneID)
 	if err := purchase.Validate(zoneForCaps.Tier); err != nil {
 		return p.SendDM(ctx.Sender, "Invalid pack selection: "+err.Error())
 	}

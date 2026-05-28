@@ -304,7 +304,7 @@ func TestAdv2Scenario_HarvestForestShadows(t *testing.T) {
 	p := &AdventurePlugin{euro: euro}
 
 	// Forage-friendly expedition.
-	if err := p.handleDnDExpeditionCmd(MessageContext{Sender: uid}, "start forest_shadows"); err != nil {
+	if err := p.handleDnDExpeditionCmd(MessageContext{Sender: uid}, "start forest_shadows lean"); err != nil {
 		t.Fatalf("expedition start: %v", err)
 	}
 	exp, _ := getActiveExpedition(uid)

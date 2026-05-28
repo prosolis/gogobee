@@ -308,11 +308,15 @@ func (p *AdventurePlugin) handleResumeCmd(ctx MessageContext, args string) error
 			"That extraction is past its 7-day resume window — the dungeon has reshaped without you. Start a new expedition.")
 	}
 
-	purchase, err := parseSupplyArgs(strings.TrimSpace(args))
+	resumeZone, _ := getZone(exp.ZoneID)
+	// D5-b: prompt for a preset loadout on empty args.
+	if strings.TrimSpace(args) == "" {
+		return p.SendDM(ctx.Sender, renderLoadoutPrompt(resumeZone, "resume"))
+	}
+	purchase, err := resolveLoadoutOrParse(strings.TrimSpace(args), resumeZone.Tier)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't parse supply packs: "+err.Error())
 	}
-	resumeZone, _ := getZone(exp.ZoneID)
 	if err := purchase.Validate(resumeZone.Tier); err != nil {
 		return p.SendDM(ctx.Sender, "Invalid pack selection: "+err.Error())
 	}

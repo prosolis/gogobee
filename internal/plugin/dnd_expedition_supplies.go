@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"strings"
 )
 
 // Phase 12 E1b — Supply procurement, daily burn, and depletion effects.
@@ -37,6 +38,68 @@ func supplyPackCaps(tier ZoneTier) (standard, deluxe int) {
 		return 7, 2
 	}
 	return 3, 1
+}
+
+// SupplyLoadout names a tier-scaled preset purchase. D5-b: empty-arg
+// `!expedition start <zone>` now prompts the player to pick one of these
+// rather than silently defaulting to 1 standard pack. Raw `Ns Md` syntax
+// remains the advanced override.
+type SupplyLoadout int
+
+const (
+	LoadoutLean SupplyLoadout = iota
+	LoadoutBalanced
+	LoadoutHeavy
+)
+
+// loadoutPurchase returns the SupplyPurchase for a preset at a tier.
+// Lean: covers intended days at raw daily burn (cheap, no harsh buffer).
+// Balanced: ~harsh-ready for an intended-length run (recommended).
+// Heavy: equals supplyPackCaps — the harsh×3 ceiling D5-a sized for.
+func loadoutPurchase(tier ZoneTier, l SupplyLoadout) SupplyPurchase {
+	switch l {
+	case LoadoutHeavy:
+		std, dlx := supplyPackCaps(tier)
+		return SupplyPurchase{StandardPacks: std, DeluxePacks: dlx}
+	case LoadoutBalanced:
+		switch tier {
+		case ZoneTierBeginner, ZoneTierApprentice:
+			return SupplyPurchase{StandardPacks: 2}
+		case ZoneTierJourneyman:
+			return SupplyPurchase{StandardPacks: 3}
+		case ZoneTierVeteran:
+			return SupplyPurchase{StandardPacks: 5}
+		case ZoneTierLegendary:
+			return SupplyPurchase{StandardPacks: 5, DeluxePacks: 1}
+		}
+		return SupplyPurchase{StandardPacks: 2}
+	default: // LoadoutLean
+		switch tier {
+		case ZoneTierBeginner, ZoneTierApprentice:
+			return SupplyPurchase{StandardPacks: 1}
+		case ZoneTierJourneyman:
+			return SupplyPurchase{StandardPacks: 2}
+		case ZoneTierVeteran:
+			return SupplyPurchase{StandardPacks: 3}
+		case ZoneTierLegendary:
+			return SupplyPurchase{StandardPacks: 5}
+		}
+		return SupplyPurchase{StandardPacks: 1}
+	}
+}
+
+// parseLoadoutToken returns the preset selected by tok, if any. Accepts
+// short forms (l/b/h) and a couple of synonyms. Empty/unknown → false.
+func parseLoadoutToken(tok string) (SupplyLoadout, bool) {
+	switch strings.ToLower(strings.TrimSpace(tok)) {
+	case "lean", "l", "light":
+		return LoadoutLean, true
+	case "balanced", "b", "bal", "standard":
+		return LoadoutBalanced, true
+	case "heavy", "h", "max", "full":
+		return LoadoutHeavy, true
+	}
+	return 0, false
 }
 
 // supplyDailyBurn returns the base SU/day for a zone tier (§4.1).
