@@ -42,6 +42,14 @@ const (
 	nightSafetyNet = 28 * time.Hour
 )
 
+// briefingIdleSkipWindow — D4-b: an event-anchored expedition skips its
+// 06:00 UTC re-engagement DM when the player's last_activity is older than
+// the new day's briefing threshold (i.e. they haven't moved since before
+// the day rolled). The briefing then fires lazily from OnMessage on the
+// next inbound message via maybeDeliverDeferredBriefing. The safety-net
+// force-fire path still wins past nightSafetyNet so stalled autopilots
+// never sit forever waiting on a silent player.
+
 // eventAnchoredCutoff — expeditions started at or after this timestamp
 // use the D2-b event-anchored day-rollover model: day++/burn/threat-drift
 // fire when the autopilot (or a player !camp) pitches a night camp, and
@@ -210,6 +218,24 @@ func (p *AdventurePlugin) fireExpeditionBriefings(now time.Time) {
 		if hasActiveCombatSession(id.UserID(e.UserID)) {
 			slog.Info("expedition: briefing deferred — player in combat session", "expedition", e.ID, "user", e.UserID)
 			continue
+		}
+		// D4-b: skip the ticker DM for event-anchored expeditions whose
+		// player has been idle past the new day's threshold. The safety-
+		// net force path (handled inside deliverBriefingEventAnchored)
+		// still has to run when the autopilot stalled past nightSafetyNet,
+		// so only skip when both the player is idle AND we're not in the
+		// safety-net window.
+		if isEventAnchored(e) && e.LastActivity.Before(threshold) {
+			var since time.Duration
+			if e.LastBriefingAt != nil {
+				since = now.Sub(*e.LastBriefingAt)
+			} else {
+				since = now.Sub(e.StartDate)
+			}
+			if since <= nightSafetyNet {
+				slog.Info("expedition: briefing deferred — player idle, awaiting next inbound", "expedition", e.ID, "user", e.UserID)
+				continue
+			}
 		}
 		if err := p.deliverBriefing(e, now); err != nil {
 			slog.Error("expedition: briefing", "expedition", e.ID, "err", err)
@@ -401,6 +427,56 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 		return err
 	}
 	return nil
+}
+
+// maybeDeliverDeferredBriefing — D4-b lazy-delivery hook. When the 06:00
+// UTC ticker skips an event-anchored expedition because the player was
+// idle, the morning DM is posted here on their next inbound message.
+// Cheap fast paths (no expedition, not event-anchored, briefing already
+// stamped past today's threshold) keep the per-message cost to one
+// indexed row lookup. Idempotency rides on deliverBriefing's CAS.
+func (p *AdventurePlugin) maybeDeliverDeferredBriefing(uid id.UserID, now time.Time) {
+	if uid == "" {
+		return
+	}
+	exp, err := getActiveExpedition(uid)
+	if err != nil || exp == nil || !isEventAnchored(exp) {
+		return
+	}
+	// Stamp presence: per-D4-b, any inbound message in any room counts as
+	// "the player is here." The ticker's idle-skip reads last_activity to
+	// decide whether to suppress the 06:00 DM, so we update it on every
+	// message — not just bot commands.
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET last_activity = ? WHERE expedition_id = ?`,
+		now, exp.ID); err != nil {
+		slog.Warn("expedition: stamp activity", "user", uid, "err", err)
+	}
+	// Only lazy-deliver when a briefing is actually owed: a previous
+	// briefing exists (so we know the cadence is live) or the autopilot
+	// has rolled past day 1 without one (so a rollover happened in the
+	// player's absence). Day-1 inbounds shouldn't trigger a briefing
+	// before the first night camp has even happened.
+	if exp.LastBriefingAt == nil && exp.CurrentDay <= 1 {
+		return
+	}
+	// Don't lazy-deliver before today's 06:00 UTC threshold. The
+	// deliverBriefing CAS keys off the same threshold, so a pre-06:00
+	// fire would double-emit when the 06:00 ticker sweep arrives.
+	threshold := time.Date(now.Year(), now.Month(), now.Day(),
+		expeditionBriefingHour, 0, 0, 0, time.UTC)
+	if now.Before(threshold) {
+		return
+	}
+	if exp.LastBriefingAt != nil && !exp.LastBriefingAt.Before(threshold) {
+		return
+	}
+	if hasActiveCombatSession(uid) {
+		return
+	}
+	if err := p.deliverBriefing(exp, now); err != nil {
+		slog.Warn("expedition: deferred briefing", "user", uid, "err", err)
+	}
 }
 
 // deliverBriefingEventAnchored — D2-b 06:00 UTC ticker for event-anchored

@@ -172,6 +172,97 @@ func TestDeliverBriefing_EventAnchoredSafetyNetForces(t *testing.T) {
 	}
 }
 
+// D4-b: the 06:00 ticker skips event-anchored expeditions whose player
+// hasn't moved since before today's threshold; the briefing lands lazily
+// on the next inbound message via maybeDeliverDeferredBriefing.
+func TestFireBriefings_EventAnchoredIdleSkip(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-d4b-idle:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, "",
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	useEventAnchored(t, exp)
+
+	// Synthetic now pinned past today's 06:00 UTC so the test outcome is
+	// independent of wall-clock time of day.
+	wall := time.Now().UTC()
+	// Synthetic now is today's 06:30 UTC — just past the ticker threshold,
+	// but well inside the 28h nightSafetyNet window so the safety-net
+	// force path doesn't kick in.
+	now := time.Date(wall.Year(), wall.Month(), wall.Day(), 6, 30, 0, 0, time.UTC)
+	threshold := time.Date(now.Year(), now.Month(), now.Day(),
+		expeditionBriefingHour, 0, 0, 0, time.UTC)
+	idleActivity := threshold.Add(-2 * time.Hour)
+	priorBriefing := now.Add(-24 * time.Hour)
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET current_day = 3 WHERE expedition_id = ?`,
+		exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET last_activity = ?, last_briefing_at = ? WHERE expedition_id = ?`,
+		idleActivity, priorBriefing, exp.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &AdventurePlugin{}
+	p.fireExpeditionBriefings(now)
+
+	got, _ := getExpedition(exp.ID)
+	if got.LastBriefingAt == nil || !got.LastBriefingAt.Equal(priorBriefing) {
+		t.Fatalf("idle ticker should not have stamped last_briefing_at: got %v want %v",
+			got.LastBriefingAt, priorBriefing)
+	}
+
+	// Simulate inbound message: lazy delivery should fire now.
+	p.maybeDeliverDeferredBriefing(uid, now)
+	got, _ = getExpedition(exp.ID)
+	if got.LastBriefingAt == nil || got.LastBriefingAt.Equal(priorBriefing) {
+		t.Fatalf("deferred delivery should have stamped a fresh last_briefing_at: got %v",
+			got.LastBriefingAt)
+	}
+}
+
+// D4-b: an active player (last_activity >= today's threshold) still gets
+// the morning DM on the regular ticker — no idle skip.
+func TestFireBriefings_EventAnchoredActivePlayerDelivers(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-d4b-active:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, "",
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	useEventAnchored(t, exp)
+
+	wall := time.Now().UTC()
+	now := time.Date(wall.Year(), wall.Month(), wall.Day(), 6, 30, 0, 0, time.UTC)
+	threshold := time.Date(now.Year(), now.Month(), now.Day(),
+		expeditionBriefingHour, 0, 0, 0, time.UTC)
+	activeActivity := threshold.Add(15 * time.Minute)
+	priorBriefing := now.Add(-24 * time.Hour)
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET last_activity = ?, last_briefing_at = ? WHERE expedition_id = ?`,
+		activeActivity, priorBriefing, exp.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &AdventurePlugin{}
+	p.fireExpeditionBriefings(now)
+
+	got, _ := getExpedition(exp.ID)
+	if got.LastBriefingAt == nil || got.LastBriefingAt.Equal(priorBriefing) {
+		t.Fatalf("active player should have received briefing: last_briefing_at=%v",
+			got.LastBriefingAt)
+	}
+}
+
 func TestDeliverBriefing_HarshConditionsBurnFaster(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@exp-cycle-harsh:example")

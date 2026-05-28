@@ -105,10 +105,9 @@ The big risk: a 7-day T5 with autopilot walking, camping, fighting elites, and k
 - Everything else — uneventful walks, preflight pauses, harvest interrupts — goes silent.
 Each successful background walk now logs a `walk` entry (`appendExpeditionLog(... "walk" ...)`) so the digest can count rooms walked from structured logs (the raw `r.stream` narration is no longer persisted across ticks). Digest groups counts of walk/harvest/interrupt and inlines threat/milestone/narrative lines for the prior day (`dayExpeditionLog` helper). `maybeAutoCamp` + `pitchBossSafetyCamp` now return the `autoCampDecision` so `tryAutoRun` can branch on `dec.Night`.
 
-**D4-b (pending):** morning re-engagement DM anchored to user activity, not 06:00 UTC. Drop the wakeup ping when the player is idle; post the morning DM lazily on the next inbound message after a rollover.
+**D4-b (shipped 2026-05-27):** morning re-engagement DM anchored to user activity, not 06:00 UTC. `fireExpeditionBriefings` now skips event-anchored expeditions whose `last_activity` is older than today's 06:00 UTC threshold (and we're still inside `nightSafetyNet` — stalled-autopilot force-fires still win). New `maybeDeliverDeferredBriefing` runs at the top of `AdventurePlugin.OnMessage` on every inbound message in any room: it stamps `last_activity` (so the next ticker pass sees the player as present, even from non-bot chatter) and posts the deferred briefing if one is owed (CAS-gated by today's 06:00 threshold; pre-06:00 lazy fires are suppressed to avoid double-emit with the ticker sweep that follows). Day-1 inbounds don't trigger a briefing before the first night camp has happened.
 
 **Remaining work:**
-- D4-b: activity-anchored morning DM (see above).
 - TwinBee voice + no-recap copy pass on the digest once the shape settles.
 
 **Exit criteria:** a 7-day T5 produces ≤ 10 DMs across the whole expedition (1 launch + 6 end-of-day + 1 boss + 1 run-complete + 1 emergency).

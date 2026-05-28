@@ -279,6 +279,12 @@ func (p *AdventurePlugin) OnReaction(_ ReactionContext) error { return nil }
 // ── Message Dispatch ─────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
+	// D4-b: lazy morning briefing. When the 06:00 UTC ticker skips an idle
+	// player's event-anchored expedition, the briefing fires here on their
+	// next inbound message. Fast-paths to a no-op for users with no active
+	// expedition.
+	p.maybeDeliverDeferredBriefing(ctx.Sender, time.Now().UTC())
+
 	// 0. D&D layer commands (Phase 1 — work in rooms and DMs)
 	if p.IsCommand(ctx.Body, "setup") {
 		return p.handleDnDSetupCmd(ctx, p.GetArgs(ctx.Body, "setup"))
