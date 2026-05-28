@@ -198,13 +198,13 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 		// its RoomBoss block. Next tick past dwell retries the boss.
 		if fresh, ferr := getExpedition(e.ID); ferr == nil && fresh != nil &&
 			fresh.Status == ExpeditionStatusActive {
-			campBlock, campDecision, campPitched = p.pitchBossSafetyCamp(fresh)
+			campBlock, campDecision, campPitched = p.pitchBossSafetyCamp(fresh, now)
 		}
 	} else if r.reason != stopEnded && r.reason != stopComplete &&
 		r.reason != stopBlocked && r.reason != stopFork {
 		if fresh, ferr := getExpedition(e.ID); ferr == nil && fresh != nil &&
 			fresh.Status == ExpeditionStatusActive {
-			campBlock, campDecision, campPitched = p.maybeAutoCamp(fresh)
+			campBlock, campDecision, campPitched = p.maybeAutoCamp(fresh, now)
 		}
 	}
 	_ = autoCampBroken // hint reserved for downstream digest tweaks

@@ -160,7 +160,7 @@ func TestPitchAutopilotCamp_DeductsSuppliesAndRestores(t *testing.T) {
 	p := &AdventurePlugin{}
 	block, err := p.pitchAutopilotCamp(exp, autoCampDecision{
 		Kind: CampTypeStandard, Reason: "test pitch",
-	})
+	}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestPitchAutopilotCamp_NightRunsProcessNightCamp(t *testing.T) {
 	p := &AdventurePlugin{}
 	_, err = p.pitchAutopilotCamp(exp, autoCampDecision{
 		Kind: CampTypeStandard, Reason: "night-camp test", Night: true,
-	})
+	}, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}

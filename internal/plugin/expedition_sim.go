@@ -350,10 +350,18 @@ type SimLogEntry struct {
 	TS      time.Time
 }
 
+// simWalkInterval — how much synthetic time each autopilot walk
+// represents. Matches the production autorun cooldown so the
+// nightCampWindow check inside decideAutopilotCamp lands on the same
+// real-time cadence: ~8 walks ≈ 16h ≈ one Night-camp rollover.
+const simWalkInterval = autoRunCooldown
+
 // RunExpedition starts an expedition for uid in zoneID and loops the
 // autopilot walk (compact mode, so elite rooms auto-resolve inline)
-// until a hard stop fires. Between walks it fast-forwards the day
-// cycle so multi-day expeditions complete without real-time waits.
+// until a hard stop fires. Between walks it advances a synthetic clock
+// (simWalkInterval per walk) and calls into the same maybeAutoCamp /
+// pitchBossSafetyCamp scheduler the production autorun ticker uses, so
+// HP-low mid-day rests + Night-camp rollovers fire under the sim.
 //
 // walkCap bounds the number of autopilot bursts as a safety net. Each
 // burst walks up to autopilotRoomCap rooms.
@@ -385,7 +393,13 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap int) (*S
 	}
 	res.SUStart = exp.Supplies.Current
 
+	// Synthetic clock — anchored on the expedition's real start_date so
+	// nightCampWindow / nightSafetyNet comparisons against LastBriefingAt
+	// stay coherent with the rows the autopilot scheduler reads.
+	simNow := exp.StartDate
+
 	for i := 0; i < walkCap; i++ {
+		simNow = simNow.Add(simWalkInterval)
 		walk := s.P.runAutopilotWalk(ctx, autopilotRoomCap, true)
 		if walk.initErr != "" {
 			res.Outcome = "halted"
@@ -467,24 +481,53 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap int) (*S
 		case stopBlocked:
 			res.Outcome = "blocked"
 			i = walkCap
-		default:
-			// stopOK / stopPreflight / stopHarvestCombat — soft stops.
-			// Fast-forward a day so the next walk has fresh supplies
-			// budgeted, HP that overnight camp may have healed, and
-			// threat drift recorded.
-			if exp, _ = getActiveExpedition(uid); exp == nil {
+		case stopBossSafety:
+			// Compact autopilot bailed before the boss (HP/SU gate). Mirror
+			// the production autorun: force-pitch a rest camp, dwell, then
+			// break it so the next walk re-engages the boss.
+			fresh, _ := getActiveExpedition(uid)
+			if fresh == nil {
 				res.Outcome = "extracted"
 				i = walkCap
 				break
 			}
-			if err := s.TickDay(exp); err != nil {
+			advanced, err := s.applyAutoCampBossSafety(fresh, &simNow)
+			if err != nil {
 				res.Outcome = "halted"
-				res.StopCode = "tick:" + err.Error()
+				res.StopCode = "boss_safety_camp:" + err.Error()
 				i = walkCap
 				break
 			}
-			res.DayTicks++
-			// TickDay may have force-extracted (starvation). Re-check.
+			if advanced {
+				res.DayTicks++
+			}
+			if exp, _ = getActiveExpedition(uid); exp == nil {
+				res.Outcome = "extracted"
+				i = walkCap
+			}
+		default:
+			// stopOK / stopPreflight / stopHarvestCombat — soft stops.
+			// Run the same camp scheduler the production autorun fires
+			// after every walk. With simNow past nightCampWindow the
+			// pitch is a Night camp and drives the day rollover; below
+			// that, an HP-low rest may fire mid-day.
+			fresh, _ := getActiveExpedition(uid)
+			if fresh == nil {
+				res.Outcome = "extracted"
+				i = walkCap
+				break
+			}
+			advanced, err := s.applyAutoCamp(fresh, &simNow)
+			if err != nil {
+				res.Outcome = "halted"
+				res.StopCode = "auto_camp:" + err.Error()
+				i = walkCap
+				break
+			}
+			if advanced {
+				res.DayTicks++
+			}
+			// maybeAutoCamp's drift step may have force-extracted (starvation).
 			if exp, _ = getActiveExpedition(uid); exp == nil {
 				res.Outcome = "extracted"
 				i = walkCap
@@ -839,6 +882,47 @@ func simPickSpell(c *DnDCharacter, uid id.UserID) string {
 	return cands[0].id
 }
 
+// applyAutoCamp drives the production camp scheduler under the sim's
+// synthetic clock: call maybeAutoCamp with *simNow, then if a camp
+// pitched, advance *simNow past minAutoCampDwell and break the camp so
+// the next walk can proceed. Returns whether the pitch was a Night
+// camp (i.e. a day rollover fired).
+func (s *SimRunner) applyAutoCamp(exp *Expedition, simNow *time.Time) (bool, error) {
+	_, d, ok := s.P.maybeAutoCamp(exp, *simNow)
+	if !ok {
+		return false, nil
+	}
+	return s.dwellAndBreakAutoCamp(exp, simNow, d.Night)
+}
+
+// applyAutoCampBossSafety mirrors applyAutoCamp for the stopBossSafety
+// gate — the camp is force-pitched even when the regular HP threshold
+// hasn't tripped (decideAutopilotCamp also blocks pitches at boss
+// rooms, which is exactly where this one belongs).
+func (s *SimRunner) applyAutoCampBossSafety(exp *Expedition, simNow *time.Time) (bool, error) {
+	_, d, ok := s.P.pitchBossSafetyCamp(exp, *simNow)
+	if !ok {
+		return false, nil
+	}
+	return s.dwellAndBreakAutoCamp(exp, simNow, d.Night)
+}
+
+// dwellAndBreakAutoCamp advances *simNow past minAutoCampDwell and
+// breaks the auto-pitched camp. Reloads exp from the DB first so the
+// camp row reflects the just-applied pitch. Returns the night flag
+// passed in (for the DayTicks counter).
+func (s *SimRunner) dwellAndBreakAutoCamp(exp *Expedition, simNow *time.Time, night bool) (bool, error) {
+	*simNow = simNow.Add(minAutoCampDwell)
+	fresh, err := getExpedition(exp.ID)
+	if err != nil {
+		return night, err
+	}
+	if fresh != nil {
+		_ = breakAutoCampIfDue(fresh, *simNow)
+	}
+	return night, nil
+}
+
 // TickDay drives one synthetic day rollover for exp: 21:00 recap of
 // the current day, then 06:00 briefing of the next day. The briefing
 // is what bumps current_day and applies supply burn / overnight camp /
@@ -849,13 +933,11 @@ func simPickSpell(c *DnDCharacter, uid id.UserID) string {
 // real-day per call regardless of wall-clock time when the sim runs.
 //
 // Event-anchored expeditions (D2-b) own the rollover inside the
-// autopilot's night-camp pitch, which the sim doesn't drive on a
-// synthetic clock. To keep TickDay's contract ("one call = one day")
-// we short-circuit: fire processNightCamp directly + apply a Standard
-// rest if affordable (mirroring pitchAutopilotCamp with Night=true),
-// then stamp last_briefing_at at the synthetic threshold. deliverBriefing
-// is skipped — its event-anchored branch reads wall-clock time and
-// would never see "enough" elapsed time to force-fire under the sim.
+// autopilot's night-camp pitch — RunExpedition exercises that path via
+// applyAutoCamp; TickDay is retained for tests and the legacy
+// non-event-anchored fallback. The event-anchored branch here short-
+// circuits to processNightCamp so callers that DO invoke TickDay on a
+// post-cutoff expedition still see one-call-one-day semantics.
 func (s *SimRunner) TickDay(exp *Expedition) error {
 	if exp == nil {
 		return fmt.Errorf("nil expedition")

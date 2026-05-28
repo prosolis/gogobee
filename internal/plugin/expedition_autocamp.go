@@ -157,7 +157,12 @@ func decideAutopilotCamp(in autoCampInputs) (autoCampDecision, bool) {
 // "" if no camp was pitched), along with the decision and an ok flag.
 // D4-a uses the Night bit on the decision to switch tryAutoRun's DM
 // rendering into end-of-day digest mode.
-func (p *AdventurePlugin) maybeAutoCamp(exp *Expedition) (string, autoCampDecision, bool) {
+//
+// now drives the nightCampWindow check inside decideAutopilotCamp and
+// the camp.EstablishedAt / drift timestamps inside pitchAutopilotCamp.
+// Production callers pass time.Now().UTC(); the sim injects a synthetic
+// clock so multi-day rollovers fire without real-time waits.
+func (p *AdventurePlugin) maybeAutoCamp(exp *Expedition, now time.Time) (string, autoCampDecision, bool) {
 	uid := id.UserID(exp.UserID)
 
 	var run *DungeonRun
@@ -190,7 +195,7 @@ func (p *AdventurePlugin) maybeAutoCamp(exp *Expedition) (string, autoCampDecisi
 		HPCur:          hpCur,
 		HPMax:          hpMax,
 		Supplies:       exp.Supplies,
-		Now:            time.Now().UTC(),
+		Now:            now,
 		EventAnchored:  isEventAnchored(exp),
 		LastBriefingAt: exp.LastBriefingAt,
 		StartDate:      exp.StartDate,
@@ -199,7 +204,7 @@ func (p *AdventurePlugin) maybeAutoCamp(exp *Expedition) (string, autoCampDecisi
 	if !ok {
 		return "", autoCampDecision{}, false
 	}
-	block, err := p.pitchAutopilotCamp(exp, d)
+	block, err := p.pitchAutopilotCamp(exp, d, now)
 	if err != nil {
 		slog.Warn("autopilot camp: pitch failed", "expedition", exp.ID, "kind", d.Kind, "err", err)
 		return "", autoCampDecision{}, false
@@ -215,7 +220,7 @@ func (p *AdventurePlugin) maybeAutoCamp(exp *Expedition) (string, autoCampDecisi
 // too: nightRolloverBurn before the camp cost (so the burn lands on
 // pre-pitch supplies, matching the legacy morning-burn ordering), then
 // applyCampRest, then nightRolloverDrift.
-func (p *AdventurePlugin) pitchAutopilotCamp(exp *Expedition, d autoCampDecision) (string, error) {
+func (p *AdventurePlugin) pitchAutopilotCamp(exp *Expedition, d autoCampDecision, now time.Time) (string, error) {
 	var (
 		nightBurn  float32
 		nightTemp  []string
@@ -234,7 +239,7 @@ func (p *AdventurePlugin) pitchAutopilotCamp(exp *Expedition, d autoCampDecision
 			// Starvation during burn is rare (burn alone doesn't trigger
 			// starvation — that needs supplies <= 0 *after* burn), but
 			// guard anyway so we don't pitch a camp on an abandoned exp.
-			drift := p.nightRolloverDrift(exp, time.Now().UTC())
+			drift := p.nightRolloverDrift(exp, now)
 			nightTemp = drift.TemporalLines
 			nightMile = drift.MilestoneLines
 			nightForce = true
@@ -253,7 +258,7 @@ func (p *AdventurePlugin) pitchAutopilotCamp(exp *Expedition, d autoCampDecision
 		Active:        true,
 		Type:          d.Kind,
 		RoomIndex:     campCurrentRoomIndex(exp),
-		EstablishedAt: time.Now().UTC(),
+		EstablishedAt: now,
 		NightEvents:   []string{},
 		AutoPitched:   true,
 	}
@@ -287,7 +292,7 @@ func (p *AdventurePlugin) pitchAutopilotCamp(exp *Expedition, d autoCampDecision
 	}
 
 	if d.Night {
-		drift := p.nightRolloverDrift(exp, time.Now().UTC())
+		drift := p.nightRolloverDrift(exp, now)
 		nightTemp = drift.TemporalLines
 		nightMile = drift.MilestoneLines
 	}
@@ -348,7 +353,7 @@ func renderAutoCampBlock(exp *Expedition, d autoCampDecision, cost float32, flav
 // time has elapsed since the last briefing on an event-anchored
 // expedition, the pitch carries Night=true and runs the burn/drift
 // alongside the rest.
-func (p *AdventurePlugin) pitchBossSafetyCamp(exp *Expedition) (string, autoCampDecision, bool) {
+func (p *AdventurePlugin) pitchBossSafetyCamp(exp *Expedition, now time.Time) (string, autoCampDecision, bool) {
 	if exp == nil || exp.Status != ExpeditionStatusActive {
 		return "", autoCampDecision{}, false
 	}
@@ -371,9 +376,9 @@ func (p *AdventurePlugin) pitchBossSafetyCamp(exp *Expedition) (string, autoCamp
 	if isEventAnchored(exp) {
 		var since time.Duration
 		if exp.LastBriefingAt != nil {
-			since = time.Since(*exp.LastBriefingAt)
+			since = now.Sub(*exp.LastBriefingAt)
 		} else {
-			since = time.Since(exp.StartDate)
+			since = now.Sub(exp.StartDate)
 		}
 		night = since >= nightCampWindow
 	}
@@ -382,7 +387,7 @@ func (p *AdventurePlugin) pitchBossSafetyCamp(exp *Expedition) (string, autoCamp
 		Reason: "boss-safety hold — resting before re-engaging",
 		Night:  night,
 	}
-	block, err := p.pitchAutopilotCamp(exp, d)
+	block, err := p.pitchAutopilotCamp(exp, d, now)
 	if err != nil {
 		slog.Warn("autopilot boss-safety camp: pitch failed", "expedition", exp.ID, "kind", kind, "err", err)
 		return "", autoCampDecision{}, false
