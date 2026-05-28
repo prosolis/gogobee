@@ -14,6 +14,7 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"time"
 
@@ -21,6 +22,12 @@ import (
 
 	"maunium.net/go/mautrix/id"
 )
+
+// simInlineBossCombat is a D8-e DIAGNOSTIC toggle. When GOGOBEE_SIM_INLINE_BOSS=1
+// the sim routes boss/elite doorways through the inline SimulateCombat path
+// (production autopilot behavior) instead of the turn-based !fight engine.
+// Used to A/B the martial T4/T5 regression. NOT for production.
+func simInlineBossCombat() bool { return os.Getenv("GOGOBEE_SIM_INLINE_BOSS") == "1" }
 
 // SimRunner owns a temp-DB AdventurePlugin + EuroPlugin pair and exposes
 // just enough surface to drive synthetic players end-to-end.
@@ -429,7 +436,7 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays
 
 	for i := 0; i < walkCap; i++ {
 		simNow = simNow.Add(simWalkInterval)
-		walk := s.P.runAutopilotWalk(ctx, autopilotRoomCap, true, false)
+		walk := s.P.runAutopilotWalk(ctx, autopilotRoomCap, true, simInlineBossCombat())
 		if walk.initErr != "" {
 			res.Outcome = "halted"
 			res.StopCode = "init:" + walk.initErr
