@@ -154,8 +154,10 @@ func decideAutopilotCamp(in autoCampInputs) (autoCampDecision, bool) {
 
 // maybeAutoCamp gathers DB state, calls decideAutopilotCamp, and pitches
 // when the decision says to. Returns the player-facing camp block (or
-// "" if no camp was pitched) so the autorun DM can include it.
-func (p *AdventurePlugin) maybeAutoCamp(exp *Expedition) string {
+// "" if no camp was pitched), along with the decision and an ok flag.
+// D4-a uses the Night bit on the decision to switch tryAutoRun's DM
+// rendering into end-of-day digest mode.
+func (p *AdventurePlugin) maybeAutoCamp(exp *Expedition) (string, autoCampDecision, bool) {
 	uid := id.UserID(exp.UserID)
 
 	var run *DungeonRun
@@ -195,14 +197,14 @@ func (p *AdventurePlugin) maybeAutoCamp(exp *Expedition) string {
 	}
 	d, ok := decideAutopilotCamp(in)
 	if !ok {
-		return ""
+		return "", autoCampDecision{}, false
 	}
 	block, err := p.pitchAutopilotCamp(exp, d)
 	if err != nil {
 		slog.Warn("autopilot camp: pitch failed", "expedition", exp.ID, "kind", d.Kind, "err", err)
-		return ""
+		return "", autoCampDecision{}, false
 	}
-	return block
+	return block, d, true
 }
 
 // pitchAutopilotCamp performs the same state mutations as the player
@@ -346,14 +348,14 @@ func renderAutoCampBlock(exp *Expedition, d autoCampDecision, cost float32, flav
 // time has elapsed since the last briefing on an event-anchored
 // expedition, the pitch carries Night=true and runs the burn/drift
 // alongside the rest.
-func (p *AdventurePlugin) pitchBossSafetyCamp(exp *Expedition) string {
+func (p *AdventurePlugin) pitchBossSafetyCamp(exp *Expedition) (string, autoCampDecision, bool) {
 	if exp == nil || exp.Status != ExpeditionStatusActive {
-		return ""
+		return "", autoCampDecision{}, false
 	}
 	if exp.Camp != nil && exp.Camp.Active {
 		// Already resting — nothing to pitch. The dwell window will pass
 		// and the next autorun tick will retry the boss engagement.
-		return ""
+		return "", autoCampDecision{}, false
 	}
 	kind := CampTypeStandard
 	if exp.Supplies.Current < campSupplyCost[kind] {
@@ -363,7 +365,7 @@ func (p *AdventurePlugin) pitchBossSafetyCamp(exp *Expedition) string {
 		// No SU even for Rough — autopilot can't help here. The walk's
 		// preflight will surface low-SU on the next tick if the player
 		// doesn't extract.
-		return ""
+		return "", autoCampDecision{}, false
 	}
 	night := false
 	if isEventAnchored(exp) {
@@ -383,9 +385,9 @@ func (p *AdventurePlugin) pitchBossSafetyCamp(exp *Expedition) string {
 	block, err := p.pitchAutopilotCamp(exp, d)
 	if err != nil {
 		slog.Warn("autopilot boss-safety camp: pitch failed", "expedition", exp.ID, "kind", kind, "err", err)
-		return ""
+		return "", autoCampDecision{}, false
 	}
-	return block
+	return block, d, true
 }
 
 // breakAutoCampIfDue tears down an auto-pitched camp once it has dwelled

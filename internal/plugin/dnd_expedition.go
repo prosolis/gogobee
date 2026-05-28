@@ -442,6 +442,34 @@ func appendExpeditionLog(expID string, day int, entryType, summary, flavor strin
 	return err
 }
 
+// dayExpeditionLog returns every log entry recorded against the given
+// (expedition, day) pair, oldest first. Used by the D4-a end-of-day
+// digest to bundle a single rollup DM at night-camp pitch.
+func dayExpeditionLog(expID string, day int) ([]ExpeditionEntry, error) {
+	rows, err := db.Get().Query(`
+		SELECT entry_id, expedition_id, day, timestamp, entry_type, summary, flavor
+		  FROM dnd_expedition_log
+		 WHERE expedition_id = ?
+		   AND day = ?
+		 ORDER BY entry_id`, expID, day)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ExpeditionEntry
+	for rows.Next() {
+		var e ExpeditionEntry
+		if err := rows.Scan(
+			&e.EntryID, &e.ExpeditionID, &e.Day, &e.Timestamp,
+			&e.Type, &e.Summary, &e.Flavor,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // recentExpeditionLog returns the last `limit` entries, newest first.
 func recentExpeditionLog(expID string, limit int) ([]ExpeditionEntry, error) {
 	if limit <= 0 {

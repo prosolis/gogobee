@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -20,13 +21,15 @@ import (
 //     quiet window, or on a very-fresh expedition (give them a beat).
 //   • Walk up to autoRunRoomCap rooms per tick. Smaller than foreground's
 //     cap so background DMs stay digestible.
-//   • DM-suppression rules:
-//     - 0 rooms walked → silent (still stuck at a fork / blocked / etc.;
-//       the player already knows, no point spamming).
-//     - rooms > 0 with stopOK (hit room cap) → silent; we'll keep walking
-//       on the next tick. Cadence handles pacing; no "stretch complete"
-//       footer churn.
-//     - Any other reason with rooms > 0 → DM the bundled walk.
+//   • DM-suppression rules (D4-a — long expedition bundling):
+//     - Surface ONLY for: fork (player decision), death, run-complete,
+//       boss-safety camp pitch (explicit hold), or a Night=true camp
+//       pitch (end-of-day digest).
+//     - Everything else — uneventful walks, preflight pauses, harvest
+//       interrupts, mid-day rest camps — goes silent. The accumulated
+//       day reads as one EoD digest DM when the autopilot night-camps.
+//     - Each successful background walk logs a `walk` entry so the EoD
+//       digest can count rooms walked without persisting raw narration.
 //   • Idempotency: CAS-claim last_autorun_at before doing any work. A
 //     double-fire on the same expedition is a no-op.
 
@@ -172,70 +175,121 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 		// "no expedition" / "no run" — race with abandon/extract. Silent.
 		return nil
 	}
+
+	// D4-a — drop a `walk` log entry per successful background walk so
+	// the EoD digest can count rooms walked from structured logs without
+	// persisting the raw stream narration we used to DM.
+	if r.rooms > 0 {
+		_ = appendExpeditionLog(e.ID, e.CurrentDay, "walk",
+			fmt.Sprintf("auto-walk: %d room(s)", r.rooms), "")
+	}
+
 	// Long-expedition D2-a — post-walk camp scheduler. After the walk
 	// settles, see if the autopilot should pitch a rest camp (HP low)
 	// or a base-camp waypoint (region boss just cleared). The walk's
 	// own preflight handles low-SU pauses; the scheduler stays out of
 	// fork/combat/death/complete branches by checking r.reason.
 	campBlock := ""
+	var campDecision autoCampDecision
+	campPitched := false
 	if r.reason == stopBossSafety {
 		// D3 — the boss-engage gate tripped. Force-pitch a rest camp
 		// regardless of decideAutopilotCamp's normal HP threshold and
 		// its RoomBoss block. Next tick past dwell retries the boss.
 		if fresh, ferr := getExpedition(e.ID); ferr == nil && fresh != nil &&
 			fresh.Status == ExpeditionStatusActive {
-			campBlock = p.pitchBossSafetyCamp(fresh)
+			campBlock, campDecision, campPitched = p.pitchBossSafetyCamp(fresh)
 		}
 	} else if r.reason != stopEnded && r.reason != stopComplete &&
 		r.reason != stopBlocked && r.reason != stopFork {
 		if fresh, ferr := getExpedition(e.ID); ferr == nil && fresh != nil &&
 			fresh.Status == ExpeditionStatusActive {
-			campBlock = p.maybeAutoCamp(fresh)
+			campBlock, campDecision, campPitched = p.maybeAutoCamp(fresh)
 		}
 	}
-	if campBlock != "" {
-		r.finalMsg += campBlock
+	_ = autoCampBroken // hint reserved for downstream digest tweaks
+	_ = campPitched    // surfaced via campBlock != ""; kept for readability
+
+	// D4-a DM dispatch. The old per-tick auto-walk DM is retired in compact
+	// mode: a Night-camp pitch flushes the accumulated day as a digest;
+	// every other quiet path stays silent until something interactive fires.
+	if body, ok := buildAutoRunDM(e.ID, r, campBlock, campDecision); ok {
+		if err := p.SendDM(uid, body); err != nil {
+			slog.Warn("expedition: autorun DM", "user", uid, "err", err)
+		}
 	}
-	_ = autoCampBroken // reserved for D2-b end-of-day DM bundling
 
 	// Emergence seam: a run-complete reached by the background ticker is
 	// still a live emergence — roll pet arrival. See maybeRollPetArrivalOnEmerge.
 	// Deferred until after the run-summary DM below so the "animal in your
 	// house" prompt lands after the summary, not ahead of it.
-	//
-	// DM rule: surface anytime the regular suppression says to, OR
-	// whenever the autopilot pitched a camp this tick — a camp event
-	// is always worth a DM, even if the walk itself was quiet.
-	if shouldDMAutoRun(r) || campBlock != "" {
-		body := renderAutoRunDM(r)
-		if err := p.SendDM(uid, body); err != nil {
-			slog.Warn("expedition: autorun DM", "user", uid, "err", err)
-		}
-	}
 	if r.reason == stopComplete {
 		p.maybeRollPetArrivalOnEmerge(uid)
 	}
 	return nil
 }
 
-// shouldDMAutoRun applies the background suppression rules. See the
-// file-top design block for the rationale.
-func shouldDMAutoRun(r autopilotWalkResult) bool {
-	if r.rooms == 0 {
-		return false
+// buildAutoRunDM applies D4-a's surface rules and returns the DM body to
+// send. ok=false means the tick is silent. Inputs:
+//   - expID: the expedition row id (for the EoD digest log fetch).
+//   - r:     walk result, including reason + accumulated stream.
+//   - camp:  rendered camp block from maybeAutoCamp / pitchBossSafetyCamp,
+//           or "" when no camp was pitched this tick.
+//   - dec:   the camp decision; dec.Night is the trigger for the EoD
+//           digest variant. Zero-value when no pitch happened.
+//
+// Surface rules:
+//   - stopFork / stopEnded / stopComplete  → render the walk DM. These
+//     are the interactive / climax beats and stay their own messages.
+//   - Night camp pitched                  → render the EoD digest +
+//     camp block. Walk stream is dropped (the digest summarizes the day).
+//   - Boss-safety camp pitched            → short hold notice + camp
+//     block; walk stream dropped (compact bail was deliberate).
+//   - Anything else                       → silent.
+func buildAutoRunDM(expID string, r autopilotWalkResult, camp string, dec autoCampDecision) (string, bool) {
+	switch r.reason {
+	case stopFork, stopEnded, stopComplete:
+		body := renderAutoRunWalkDM(r)
+		if camp != "" {
+			body += camp
+		}
+		return body, true
 	}
-	if r.reason == stopOK {
-		// Hit the per-tick room cap. Next tick will continue; no need to
-		// post a "stretch complete" filler DM.
-		return false
+	if camp == "" {
+		return "", false
 	}
-	return true
+	if dec.Night {
+		// EoD digest. The camp pitch already bumped current_day in
+		// nightRolloverBurn, so the day-that-just-ended is CurrentDay-1.
+		// digest is the day rollup, then the camp block lays out the rest.
+		fresh, ferr := getExpedition(expID)
+		prevDay := 0
+		if ferr == nil && fresh != nil {
+			prevDay = fresh.CurrentDay - 1
+		}
+		digest := ""
+		if prevDay > 0 {
+			digest = renderEndOfDayDigest(expID, prevDay)
+		}
+		if digest == "" {
+			// No structured day yet — fall back to a thin header so the
+			// camp block isn't dropped on the player without context.
+			digest = "🌙 *The day winds down.*\n\n"
+		}
+		return digest + camp, true
+	}
+	if dec.Reason == "boss-safety hold — resting before re-engaging" {
+		return "⏸ *Holding before the boss — pitching a rest camp.*\n" + camp, true
+	}
+	// Non-night auto-camp (mid-day rest / base camp waypoint). Surface a
+	// short notice so the player can see the dungeon's decision; full
+	// digest waits for the night pitch.
+	return camp, true
 }
 
-// renderAutoRunDM bundles the staged walk narration into a single DM.
-// Background can't pace via streamFlow, so we concatenate phases with a
-// blank line between each beat and tack on the final message.
-func renderAutoRunDM(r autopilotWalkResult) string {
+// renderAutoRunWalkDM is the legacy concat-the-stream renderer, kept for
+// the surfaces D4-a still DMs (fork / death / run-complete).
+func renderAutoRunWalkDM(r autopilotWalkResult) string {
 	var b strings.Builder
 	b.WriteString("🚶 *Auto-walk*\n\n")
 	for _, s := range r.stream {

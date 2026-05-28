@@ -96,12 +96,20 @@ When the gate trips, `tryAutoRun` calls `pitchBossSafetyCamp(exp)` (new in `expe
 
 ### D4 — DM volume + day surfaces
 The big risk: a 7-day T5 with autopilot walking, camping, fighting elites, and killing bosses will spam DMs unless we bundle. The user has already pushed back on recap chatter (`feedback_skip_recaps`).
-**Work:**
-- One **end-of-day DM** per autopilot night-camp, bundling: rooms walked, fights resolved, loot, camp pitched, day++ event. Replaces today's per-room auto-walk DM in compact mode.
-- One **morning re-engagement DM** when the player first opens the channel after a day-rollover (anchored to user activity, not UTC clock — drops the 06:00 wakeup if the player isn't around).
-- Boss kill + run-complete still get their own DM (the climax beat, not bundled).
-- TwinBee voice: first-person only (`feedback_twinbee_voice`).
-- No trailing recaps (`feedback_skip_recaps`).
+
+**D4-a (shipped 2026-05-27):** autopilot DM bundling. `expedition_autorun.go:tryAutoRun` now drops per-tick auto-walk DMs in compact mode. New surface rules:
+- Fork / death / run-complete still DM the walk stream — interactive + climax beats.
+- A Night=true camp pitch flushes the day as an end-of-day digest (`renderEndOfDayDigest` in new `expedition_autorun_digest.go`) followed by the camp block.
+- Boss-safety camp pitch gets a short "holding before the boss" header + camp block (walk stream dropped).
+- Non-night auto-camp (mid-day rest / base-camp waypoint) surfaces the camp block by itself.
+- Everything else — uneventful walks, preflight pauses, harvest interrupts — goes silent.
+Each successful background walk now logs a `walk` entry (`appendExpeditionLog(... "walk" ...)`) so the digest can count rooms walked from structured logs (the raw `r.stream` narration is no longer persisted across ticks). Digest groups counts of walk/harvest/interrupt and inlines threat/milestone/narrative lines for the prior day (`dayExpeditionLog` helper). `maybeAutoCamp` + `pitchBossSafetyCamp` now return the `autoCampDecision` so `tryAutoRun` can branch on `dec.Night`.
+
+**D4-b (pending):** morning re-engagement DM anchored to user activity, not 06:00 UTC. Drop the wakeup ping when the player is idle; post the morning DM lazily on the next inbound message after a rollover.
+
+**Remaining work:**
+- D4-b: activity-anchored morning DM (see above).
+- TwinBee voice + no-recap copy pass on the digest once the shape settles.
 
 **Exit criteria:** a 7-day T5 produces ≤ 10 DMs across the whole expedition (1 launch + 6 end-of-day + 1 boss + 1 run-complete + 1 emergency).
 
