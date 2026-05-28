@@ -17,8 +17,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"gogobee/internal/plugin"
 
@@ -46,6 +49,8 @@ func main() {
 		trace = flag.Bool("trace", false, "include raw per-round CombatEvent stream on the LAST combat of each expedition (boss room) — for J2 diagnostic sweeps")
 
 		petLevel = flag.Int("pet-level", 0, "attach a base housing pet at this level (1-10) to every sim character; 0 = no pet (default, matches prod char-creation)")
+
+		jobs = flag.Int("jobs", 0, "matrix mode — concurrent worker count (each worker is a subprocess so it gets its own sqlite). 0 = runtime.NumCPU()")
 	)
 	flag.Parse()
 
@@ -66,7 +71,7 @@ func main() {
 				includeLog = *logFlag
 			}
 		})
-		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, *days, includeLog)
+		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, *days, includeLog, *jobs, *trace, *petLevel)
 		return
 	}
 
@@ -100,45 +105,108 @@ func runSingle(class string, level int, zone, userTag, dataDir string, bank floa
 	emitIndented(res)
 }
 
-func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days int, includeLog bool) {
+// matrixJob is one (class, level, zone, replicate-index) cell of the
+// matrix sweep. Each job is run by a worker as a single-run subprocess so
+// it gets its own SQLite handle — the plugin package's db.* globals
+// preclude in-process parallelism.
+type matrixJob struct {
+	class string
+	level int
+	zone  string
+	rep   int
+}
+
+func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days int, includeLog bool, jobs int, trace bool, petLevel int) {
 	cs := splitNonEmpty(classes)
 	ls := parseLevels(levels)
 	zs := splitNonEmpty(zones)
 	if len(cs) == 0 || len(ls) == 0 || len(zs) == 0 || runs <= 0 {
 		fail("matrix mode requires non-empty -classes, -levels, -zones and runs > 0")
 	}
-	enc := json.NewEncoder(os.Stdout)
+	if jobs <= 0 {
+		jobs = runtime.NumCPU()
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		fail("os.Executable:", err)
+	}
+
+	work := make([]matrixJob, 0, len(cs)*len(ls)*len(zs)*runs)
 	for _, c := range cs {
 		for _, lv := range ls {
 			for _, z := range zs {
 				for r := 0; r < runs; r++ {
-					dir, err := os.MkdirTemp("", "expedition-sim-")
-					if err != nil {
-						fail("mkdir temp:", err)
-					}
-					uid := id.UserID(fmt.Sprintf("@sim:%s-l%d-%s-%d", c, lv, z, r))
-					res, runErr := runOne(dir, uid, plugin.DnDClass(c), lv, plugin.ZoneID(z), bank, cap, days)
-					if res != nil && !includeLog {
-						res.Log = nil
-					}
-					if runErr != nil && res == nil {
-						// Synthesize a row so the corpus has one line per
-						// cell regardless of init failures.
-						res = &plugin.SimResult{
-							UserID:  string(uid),
-							Class:   c,
-							Level:   lv,
-							Zone:    z,
-							Outcome: "halted",
-						}
-					}
-					_ = enc.Encode(res)
-					_ = os.RemoveAll(dir)
+					work = append(work, matrixJob{class: c, level: lv, zone: z, rep: r})
 				}
 			}
 		}
 	}
+
+	workCh := make(chan matrixJob)
+	resCh := make(chan *plugin.SimResult, len(work))
+	var wg sync.WaitGroup
+	for i := 0; i < jobs; i++ {
+		wg.Add(1)
+		go matrixWorker(exe, workCh, resCh, &wg, bank, cap, days, includeLog, trace, petLevel)
+	}
+	go func() {
+		for _, j := range work {
+			workCh <- j
+		}
+		close(workCh)
+	}()
+	go func() {
+		wg.Wait()
+		close(resCh)
+	}()
+
+	enc := json.NewEncoder(os.Stdout)
+	for r := range resCh {
+		_ = enc.Encode(r)
+	}
 }
+
+func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult, wg *sync.WaitGroup, bank float64, cap, days int, includeLog, trace bool, petLevel int) {
+	defer wg.Done()
+	for j := range in {
+		uid := fmt.Sprintf("@sim:%s-l%d-%s-%d", j.class, j.level, j.zone, j.rep)
+		dir, err := os.MkdirTemp("", "expedition-sim-")
+		if err != nil {
+			out <- &plugin.SimResult{UserID: uid, Class: j.class, Level: j.level, Zone: j.zone, Outcome: "halted"}
+			continue
+		}
+		args := []string{
+			"-class", j.class,
+			"-level", strconv.Itoa(j.level),
+			"-zone", j.zone,
+			"-bank", strconv.FormatFloat(bank, 'f', -1, 64),
+			"-cap", strconv.Itoa(cap),
+			"-days", strconv.Itoa(days),
+			"-data", dir,
+			"-user", uid,
+			fmt.Sprintf("-log=%t", includeLog),
+			fmt.Sprintf("-pet-level=%d", petLevel),
+		}
+		if trace {
+			args = append(args, "-trace")
+		}
+		cmd := exec.Command(exe, args...)
+		stdout, runErr := cmd.Output()
+		var res plugin.SimResult
+		if jerr := json.Unmarshal(stdout, &res); jerr != nil {
+			res = plugin.SimResult{UserID: uid, Class: j.class, Level: j.level, Zone: j.zone, Outcome: "halted"}
+		}
+		if runErr != nil && res.Outcome == "" {
+			res.Outcome = "halted"
+		}
+		if !includeLog {
+			res.Log = nil
+		}
+		out <- &res
+		_ = os.RemoveAll(dir)
+	}
+}
+
 
 func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zone plugin.ZoneID, bank float64, cap, days int) (*plugin.SimResult, error) {
 	runner, err := plugin.NewSimRunner(dataDir)

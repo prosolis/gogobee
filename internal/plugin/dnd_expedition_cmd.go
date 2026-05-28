@@ -642,7 +642,7 @@ type autopilotWalkResult struct {
 // combat already auto-resolves inside resolveCombatRoom; elite/boss
 // doorways stop here so the player can choose !fight on their own terms.
 func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
-	r := p.runAutopilotWalk(ctx, autopilotRoomCap, false)
+	r := p.runAutopilotWalk(ctx, autopilotRoomCap, false, false)
 	if r.initErr != "" {
 		return p.SendDM(ctx.Sender, r.initErr)
 	}
@@ -667,7 +667,7 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 // run graph / harvest tally / supplies / threat — same as before, just
 // no streamFlow here. compact==true switches the underlying combat
 // narration into terse mode and auto-resolves elite (not boss) rooms.
-func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, compact bool) autopilotWalkResult {
+func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, compact, inlineBossCombat bool) autopilotWalkResult {
 	exp, err := getActiveExpedition(ctx.Sender)
 	if err != nil {
 		return autopilotWalkResult{initErr: "Couldn't read expedition state: " + err.Error()}
@@ -717,7 +717,7 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 			}
 		}
 
-		res, aerr := p.advanceOnceWithOpts(ctx, compact)
+		res, aerr := p.advanceOnceWithOpts(ctx, compact, inlineBossCombat)
 		if aerr != nil {
 			return autopilotWalkResult{initErr: aerr.Error()}
 		}

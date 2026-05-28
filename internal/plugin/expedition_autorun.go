@@ -170,7 +170,7 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 	}
 
 	uid := id.UserID(e.UserID)
-	r := p.runAutopilotWalk(MessageContext{Sender: uid}, autoRunRoomCap, true)
+	r := p.runAutopilotWalk(MessageContext{Sender: uid}, autoRunRoomCap, true, true)
 	if r.initErr != "" {
 		// "no expedition" / "no run" — race with abandon/extract. Silent.
 		return nil

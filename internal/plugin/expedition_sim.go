@@ -429,7 +429,7 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays
 
 	for i := 0; i < walkCap; i++ {
 		simNow = simNow.Add(simWalkInterval)
-		walk := s.P.runAutopilotWalk(ctx, autopilotRoomCap, true)
+		walk := s.P.runAutopilotWalk(ctx, autopilotRoomCap, true, false)
 		if walk.initErr != "" {
 			res.Outcome = "halted"
 			res.StopCode = "init:" + walk.initErr

@@ -472,10 +472,17 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 // doorways (boss still stops; boss is the climax beat). Foreground
 // `!expedition run` / `!zone advance` always pass false.
 func (p *AdventurePlugin) advanceOnce(ctx MessageContext) (advanceResult, error) {
-	return p.advanceOnceWithOpts(ctx, false)
+	return p.advanceOnceWithOpts(ctx, false, false)
 }
 
-func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) (advanceResult, error) {
+// inlineBossCombat (only consulted when compact==true) selects between the
+// two background combat paths at a boss/elite doorway. true keeps the
+// long-expedition D3 inline auto-resolve (production autorun). false
+// returns stopBoss/stopElite after the safety gate so a turn-based driver
+// — currently only the headless sim's autoResolveCombat / simPickCombatAction
+// — handles the fight via the regular !fight / !attack engine. The sim
+// uses false so simPickSpell actually fires; D8-prereq re-wired this seam.
+func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact, inlineBossCombat bool) (advanceResult, error) {
 	run, err := getActiveZoneRun(ctx.Sender)
 	if err != nil {
 		return advanceResult{}, fmt.Errorf("Couldn't read run state: %s", err.Error())
@@ -559,6 +566,17 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact bool) 
 						reason: stopBossSafety,
 					}, nil
 				}
+			}
+			if !inlineBossCombat {
+				// Background caller wants to drive the fight itself (sim's
+				// autoResolveCombat / simPickCombatAction). Surface the
+				// doorway like the foreground path does, after the safety
+				// gate has had a chance to defer the engagement.
+				r := stopElite
+				if prev == RoomBoss {
+					r = stopBoss
+				}
+				return advanceResult{reason: r}, nil
 			}
 			// Compact-mode elite/boss auto-resolve. resolveCombatRoom
 			// selects monster + label by run.CurrentRoomType().
