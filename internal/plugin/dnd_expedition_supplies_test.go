@@ -166,6 +166,67 @@ func TestMakeSupplies_FillsFromTier(t *testing.T) {
 	}
 }
 
+func TestApplyRangerForage(t *testing.T) {
+	ranger := &DnDCharacter{Class: ClassRanger}
+	fighter := &DnDCharacter{Class: ClassFighter}
+	det := func(n int) int { return n - 1 } // always rolls the max (1d4 = 4)
+
+	// Ranger, fresh day, plenty of headroom: max 1d4 = 4 SU added, flag set.
+	exp := &Expedition{Supplies: ExpeditionSupplies{Current: 10, Max: 50}}
+	if gain := applyRangerForage(exp, ranger, det); gain != 4 {
+		t.Errorf("ranger forage gain = %v, want 4", gain)
+	}
+	if exp.Supplies.Current != 14 {
+		t.Errorf("current after forage = %v, want 14", exp.Supplies.Current)
+	}
+	if !exp.Supplies.ForagedToday {
+		t.Error("ForagedToday should be set after a successful grant")
+	}
+
+	// Same day, second call: no-op (already foraged).
+	if gain := applyRangerForage(exp, ranger, det); gain != 0 {
+		t.Errorf("repeat forage gain = %v, want 0", gain)
+	}
+	if exp.Supplies.Current != 14 {
+		t.Errorf("current after repeat = %v, want 14", exp.Supplies.Current)
+	}
+
+	// Non-Ranger: never grants, never sets the flag.
+	exp2 := &Expedition{Supplies: ExpeditionSupplies{Current: 10, Max: 50}}
+	if gain := applyRangerForage(exp2, fighter, det); gain != 0 {
+		t.Errorf("non-ranger gain = %v, want 0", gain)
+	}
+	if exp2.Supplies.ForagedToday {
+		t.Error("non-ranger should not stamp ForagedToday")
+	}
+
+	// Headroom cap: 2 SU short of Max → grant clamps to 2 even on a max roll.
+	exp3 := &Expedition{Supplies: ExpeditionSupplies{Current: 48, Max: 50}}
+	if gain := applyRangerForage(exp3, ranger, det); gain != 2 {
+		t.Errorf("headroom-capped gain = %v, want 2", gain)
+	}
+	if exp3.Supplies.Current != 50 {
+		t.Errorf("current should clamp to Max, got %v", exp3.Supplies.Current)
+	}
+
+	// Already at Max: no grant, but flag still set so the day's roll is spent.
+	exp4 := &Expedition{Supplies: ExpeditionSupplies{Current: 50, Max: 50}}
+	if gain := applyRangerForage(exp4, ranger, det); gain != 0 {
+		t.Errorf("full-bag gain = %v, want 0", gain)
+	}
+	if !exp4.Supplies.ForagedToday {
+		t.Error("full-bag should still consume the day's forage attempt")
+	}
+
+	// Nil character / nil expedition: never panics, returns 0.
+	if gain := applyRangerForage(exp, nil, det); gain != 0 {
+		t.Errorf("nil char gain = %v, want 0", gain)
+	}
+	if gain := applyRangerForage(nil, ranger, det); gain != 0 {
+		t.Errorf("nil exp gain = %v, want 0", gain)
+	}
+}
+
 func TestApplyDailyBurn_DrainsAndClamps(t *testing.T) {
 	// Phase 5-B (shipped): applyDailyBurn now scales by
 	// phase5BDailyBurnRatePct = 50 by default — every expected value

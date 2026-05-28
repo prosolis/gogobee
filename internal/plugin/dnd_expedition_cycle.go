@@ -82,6 +82,16 @@ type nightRolloverResult struct {
 // to finish the rollover; legacy deliverBriefing interleaves processOvernightCamp
 // between the two so a fortified camp's −5 lands before drift's +3.
 func (p *AdventurePlugin) nightRolloverBurn(e *Expedition) (float32, error) {
+	// D5-c: Ranger forage runs before the daily burn so the +SU lands on
+	// today's supplies, not tomorrow's. Logged so the end-of-day digest
+	// can surface the gain; pure no-op for non-Ranger characters.
+	if c, err := LoadDnDCharacter(id.UserID(e.UserID)); err == nil && c != nil {
+		if gain := applyRangerForage(e, c, nil); gain > 0 {
+			_ = appendExpeditionLog(e.ID, e.CurrentDay, "forage",
+				fmt.Sprintf("ranger forage +%g SU", gain),
+				flavor.Pick(flavor.HarvestForageSuccess))
+		}
+	}
 	burnOverride := applyZoneTemporalPreBurn(e, e.CurrentDay+1)
 	var newSupplies ExpeditionSupplies
 	var burn float32

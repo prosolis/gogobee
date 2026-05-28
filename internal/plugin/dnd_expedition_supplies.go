@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"strings"
 )
 
@@ -136,6 +137,45 @@ func supplyHarshMultiplier(tier ZoneTier) float32 {
 		return 3.0
 	}
 	return 1.0
+}
+
+// applyRangerForage grants the Ranger's daily 1d4-SU forage yield (§4.2,
+// wired in D5-c). Returns the SU added — 0 for non-Rangers, when the
+// player has already foraged today, or when supplies are already at Max.
+// The grant is headroom-capped so a Heavy loadout doesn't overflow its
+// purchased ceiling. rng is the test-injectable [0,n) source; nil falls
+// back to math/rand. Caller owns the persistence.
+//
+// Sizing rationale: with D5-a caps so generous (Lean T5 = 50 SU vs ~14 SU
+// burned over a 7-day intended run at phase5B×0.5), this perk operates
+// as a quiet Lean-loadout cushion, not a Heavy multiplier — average +2.5
+// SU/day off a Ranger is roughly one extra day of late-stage T5 burn
+// across a full expedition.
+func applyRangerForage(e *Expedition, c *DnDCharacter, rng func(int) int) float32 {
+	if e == nil || c == nil || c.Class != ClassRanger {
+		return 0
+	}
+	if e.Supplies.ForagedToday {
+		return 0
+	}
+	headroom := e.Supplies.Max - e.Supplies.Current
+	if headroom <= 0 {
+		e.Supplies.ForagedToday = true
+		return 0
+	}
+	var roll int
+	if rng != nil {
+		roll = rng(SupplyForageMaxSU) + 1
+	} else {
+		roll = rand.IntN(SupplyForageMaxSU) + 1
+	}
+	gain := float32(roll)
+	if gain > headroom {
+		gain = headroom
+	}
+	e.Supplies.Current += gain
+	e.Supplies.ForagedToday = true
+	return gain
 }
 
 // SupplyDepletionState classifies remaining supply ratio (§4.3).

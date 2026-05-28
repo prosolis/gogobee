@@ -40,6 +40,7 @@ func renderEndOfDayDigest(expID string, prevDay int) string {
 		walks         int
 		harvests      int
 		interrupts    int
+		forageLines   []string
 		threatLines   []string
 		milestoneLine []string
 		narrativeBits []string
@@ -53,6 +54,8 @@ func renderEndOfDayDigest(expID string, prevDay int) string {
 			if strings.Contains(e.Summary, "success") {
 				harvests++
 			}
+		case "forage":
+			forageLines = append(forageLines, e.Summary)
 		case "interrupt":
 			interrupts++
 		case "threat":
@@ -86,6 +89,12 @@ func renderEndOfDayDigest(expID string, prevDay int) string {
 	}
 	if harvests > 0 {
 		b.WriteString(fmt.Sprintf("• Came back with **%d** harvest%s.\n", harvests, pluralS(harvests)))
+		bulleted = true
+	}
+	for _, f := range forageLines {
+		b.WriteString("• ")
+		b.WriteString(f)
+		b.WriteString("\n")
 		bulleted = true
 	}
 	for _, t := range threatLines {
