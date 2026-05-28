@@ -18,8 +18,10 @@ func TestCryptValdrisGraph_Registered(t *testing.T) {
 	if g.Boss != "crypt_valdris.boss" {
 		t.Errorf("boss node = %q, want crypt_valdris.boss", g.Boss)
 	}
-	if len(g.Nodes) != 8 {
-		t.Errorf("nodes = %d, want 8", len(g.Nodes))
+	// Long-expedition D1-b widened this zone from 8 → 17 nodes so the
+	// longest entry→boss walk lands in the T1 [12,14] traversal band.
+	if len(g.Nodes) != 17 {
+		t.Errorf("nodes = %d, want 17", len(g.Nodes))
 	}
 }
 

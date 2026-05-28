@@ -258,8 +258,8 @@ func zoneCryptValdris() ZoneDefinition {
 		Faction:    "Undead",
 		Atmosphere: "Stone corridors, dripping water, candles that shouldn't still be burning.",
 		Hook:       "The iron gate hangs open — someone left in a hurry. Carved into the stone above: \"HERE LIES VALDRIS. DO NOT.\" The rest has been chiseled away. I decline to speculate.",
-		MinRooms:   6,
-		MaxRooms:   7,
+		MinRooms:   12,
+		MaxRooms:   14,
 		Enemies: []ZoneEnemy{
 			// Phase 4-B (outlier fix): the live roster was the only
 			// dual-killer-elite zone (wight + flameskull, both CR3+ on
@@ -314,8 +314,8 @@ func zoneForestShadows() ZoneDefinition {
 		Faction:    "Beasts, Fey-corrupted creatures, Bandits",
 		Atmosphere: "Ancient forest, twisted paths, eerie silence, bioluminescent fungi, things in the canopy.",
 		Hook:       "The forest was beautiful once. Travelers still say so, usually right before they stop saying anything at all. The trees lean in when you're not looking. I have noted this is not a metaphor.",
-		MinRooms:   6,
-		MaxRooms:   8,
+		MinRooms:   16,
+		MaxRooms:   20,
 		Enemies: []ZoneEnemy{
 			// Phase 4-B (outlier fix): standard pool was carrying two
 			// real killers — Displacer Beast (38% win as a standard
@@ -377,8 +377,8 @@ func zoneSunkenTemple() ZoneDefinition {
 		Faction:    "Kuo-toa, Water Elementals, Aboleth-touched",
 		Atmosphere: "Flooded stone chambers, barnacled pillars, salt smell, alien glyphs, things that swim in the dark water.",
 		Hook:       "The tide went out thirty years ago and never fully came back. The temple stayed wet anyway. Something down there keeps it that way. I suggest waterproofing your spellbook.",
-		MinRooms:   6,
-		MaxRooms:   8,
+		MinRooms:   16,
+		MaxRooms:   20,
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "kuo_toa", SpawnWeight: 7},
 			{BestiaryID: "kuo_toa_whip", SpawnWeight: 4},
