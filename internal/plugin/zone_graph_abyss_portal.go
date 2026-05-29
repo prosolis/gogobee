@@ -56,6 +56,18 @@ package plugin
 // Longest entry→boss walk: 10 (R1) + 10 (R2) + 10 (R3) + 10 (R4) = 40
 // nodes, inside [36, 44]. All four meaningful walks (fork1 × fork2 ×
 // capstone) hit the same node count by construction.
+//
+// D10 anchor variety (in-place kind swaps, no length change): the Abyss
+// shipped with NO trap node and only the fork2 vrock ELITE, so D10 adds
+// two traps and a region-guardian elite —
+//   - Hush Corridor (fork1 silent_chambers Perception-loot spur) and
+//     Seam Threshold (fork3 reality_seam SECRET spur) become TRAPs, so
+//     the two loot/secret branches each carry a hazard.
+//   - Warden's Hall (R3 wardens_post buildup, main path) becomes an
+//     ELITE — the region literally named for its wardens finally has
+//     one, giving every walk a mid-zone region-guardian.
+// The burning_wastes / mind_corridor / void_charge / usurper_throne
+// routes stay clean, preserving the safe-vs-loot fork trade-off.
 
 func zoneAbyssPortalGraph() ZoneGraph {
 	r1 := "abyss_outer_rift"
@@ -96,7 +108,7 @@ func zoneAbyssPortalGraph() ZoneGraph {
 
 		{NodeID: "abyss_portal.silent_chambers", Kind: NodeKindExploration, RegionID: r2,
 			Label: "Silent Chambers", PosX: 10, PosY: 3},
-		{NodeID: "abyss_portal.hush_corridor", Kind: NodeKindExploration, RegionID: r2,
+		{NodeID: "abyss_portal.hush_corridor", Kind: NodeKindTrap, RegionID: r2,
 			Label: "Hush Corridor", PosX: 11, PosY: 3},
 		{NodeID: "abyss_portal.listening_room", Kind: NodeKindExploration, RegionID: r2,
 			Label: "Listening Room", PosX: 12, PosY: 3},
@@ -135,7 +147,7 @@ func zoneAbyssPortalGraph() ZoneGraph {
 		// R3 buildup to fork3.
 		{NodeID: "abyss_portal.wardens_outer_post", Kind: NodeKindExploration, RegionID: r3,
 			Label: "Outer Warden Post", PosX: 23, PosY: 2},
-		{NodeID: "abyss_portal.wardens_hall", Kind: NodeKindExploration, RegionID: r3,
+		{NodeID: "abyss_portal.wardens_hall", Kind: NodeKindElite, RegionID: r3,
 			Label: "Warden's Hall", PosX: 24, PosY: 2},
 		{NodeID: "abyss_portal.wardens_chapel", Kind: NodeKindExploration, RegionID: r3,
 			Label: "Warden's Chapel", PosX: 25, PosY: 2},
@@ -163,7 +175,7 @@ func zoneAbyssPortalGraph() ZoneGraph {
 		{NodeID: "abyss_portal.claimed_path", Kind: NodeKindExploration, RegionID: r4,
 			Label: "Claimed Path", PosX: 32, PosY: 2},
 
-		{NodeID: "abyss_portal.seam_threshold", Kind: NodeKindExploration, RegionID: r4,
+		{NodeID: "abyss_portal.seam_threshold", Kind: NodeKindTrap, RegionID: r4,
 			Label: "Seam Threshold", PosX: 30, PosY: 3},
 		{NodeID: "abyss_portal.reality_seam", Kind: NodeKindSecret, RegionID: r4,
 			Label: "Reality Seam", PosX: 31, PosY: 3,

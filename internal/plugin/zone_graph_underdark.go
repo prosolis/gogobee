@@ -51,6 +51,16 @@ package plugin
 //
 // Trap anchor (Collapsed Arch) is new — the original G8i graph had no
 // Trap node. Placed in the R1 preamble so every walk hits it.
+//
+// D10 anchor variety (in-place kind swaps, no length change):
+//   - Silenced Chamber (R3 illithid arm) becomes a TRAP — the second
+//     trap, on a fork branch so the illithid route reads riskier than
+//     the drow route.
+//   - Drow Gate Garrison (R2 arm tail, at the R2→R4 boundary) becomes a
+//     region-guardian ELITE, giving the drow arm two elites (Captain +
+//     Garrison) and the multi-region transition a teeth-y interrupt.
+// The deep_chasm spur stays anchor-light (harvest, no second trap/elite)
+// so the CON-gated climb keeps its "denser loot, less fighting" identity.
 
 func zoneUnderdarkGraph() ZoneGraph {
 	r1 := "underdark_surface_tunnels"
@@ -111,15 +121,15 @@ func zoneUnderdarkGraph() ZoneGraph {
 			Label: "Drow Descent", PosX: 17, PosY: 0},
 		{NodeID: "underdark.drow_passage", Kind: NodeKindExploration, RegionID: r2,
 			Label: "Lower Passage", PosX: 18, PosY: 0},
-		{NodeID: "underdark.drow_gate", Kind: NodeKindExploration, RegionID: r2,
-			Label: "Drow Gate", PosX: 19, PosY: 0},
+		{NodeID: "underdark.drow_gate", Kind: NodeKindElite, RegionID: r2,
+			Label: "Drow Gate Garrison", PosX: 19, PosY: 0},
 
 		// R3 illithid_warren arm.
 		{NodeID: "underdark.psionic_corridor", Kind: NodeKindExploration, RegionID: r3,
 			Label: "Psionic Corridor", PosX: 8, PosY: 2},
 		{NodeID: "underdark.whispering_hall", Kind: NodeKindExploration, RegionID: r3,
 			Label: "Whispering Hall", PosX: 9, PosY: 2},
-		{NodeID: "underdark.silenced_chamber", Kind: NodeKindExploration, RegionID: r3,
+		{NodeID: "underdark.silenced_chamber", Kind: NodeKindTrap, RegionID: r3,
 			Label: "Silenced Chamber", PosX: 10, PosY: 2},
 		{NodeID: "underdark.mind_tank_room", Kind: NodeKindExploration, RegionID: r3,
 			Label: "Brine Tanks", PosX: 11, PosY: 2},

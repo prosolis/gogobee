@@ -106,8 +106,8 @@ func TestUnderdarkGraph_AllArmsReachBoss(t *testing.T) {
 	}
 }
 
-// TestUnderdarkGraph_TrapAnchor verifies D1-d added the missing Trap
-// node. Original G8i graph had elite/boss/harvest but no trap.
+// TestUnderdarkGraph_TrapAnchor verifies D1-d added the missing R1 Trap
+// (collapsed_arch) and D10 added the illithid-arm Trap (silenced_chamber).
 func TestUnderdarkGraph_TrapAnchor(t *testing.T) {
 	g := zoneUnderdarkGraph()
 	var trapCount int
@@ -116,7 +116,30 @@ func TestUnderdarkGraph_TrapAnchor(t *testing.T) {
 			trapCount++
 		}
 	}
-	if trapCount != 1 {
-		t.Errorf("trap nodes = %d, want 1", trapCount)
+	if trapCount != 2 {
+		t.Errorf("trap nodes = %d, want 2 (collapsed_arch + D10 silenced_chamber)", trapCount)
+	}
+	if g.Nodes["underdark.silenced_chamber"].Kind != NodeKindTrap {
+		t.Error("D10: silenced_chamber (illithid arm) should be a Trap")
+	}
+}
+
+// TestUnderdarkGraph_EliteAnchors verifies the per-arm elites (drow
+// Captain, illithid Mind Flayer) plus the D10 region-guardian elite at
+// the drow→throne boundary (drow_gate), so the drow arm carries two
+// elites while the chasm spur stays anchor-light.
+func TestUnderdarkGraph_EliteAnchors(t *testing.T) {
+	g := zoneUnderdarkGraph()
+	var eliteCount int
+	for _, n := range g.Nodes {
+		if n.Kind == NodeKindElite {
+			eliteCount++
+		}
+	}
+	if eliteCount != 3 {
+		t.Errorf("elite nodes = %d, want 3 (drow_captain + mind_flayer + D10 drow_gate)", eliteCount)
+	}
+	if g.Nodes["underdark.drow_gate"].Kind != NodeKindElite {
+		t.Error("D10: drow_gate (R2→R4 boundary) should be a region-guardian Elite")
 	}
 }

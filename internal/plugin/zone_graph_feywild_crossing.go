@@ -18,6 +18,16 @@ package plugin
 // Also new: cursed_thicket TRAP anchor in the preamble — every walk
 // hits it. The original G8f graph had no Trap node.
 //
+// D10 anchor variety (in-place kind swaps, no length change): the two
+// first-stage approaches each gain one distinct anchor so the fork
+// choice carries a flavor, not just a skill gate —
+//   - Grove approach: Singing Orchard becomes an ELITE (the CHA-bonus
+//     route is guarded; you pay for the bargain in blood).
+//   - Marsh approach: Mire Steps becomes a TRAP (the free route is
+//     hazardous footing rather than a fight).
+// The time_eddy / illusion_garden exclusive endings stay anchor-light so
+// they keep their "skip the hag elite for loot" trade-off.
+//
 //   Preamble (10 nodes, ending in fork1):
 //     entry → twilight_path → veiled_glade → faerie_lights →
 //     cursed_thicket (TRAP) → revel_road → moonshadow_bridge →
@@ -87,7 +97,7 @@ func zoneFeywildCrossingGraph() ZoneGraph {
 			Label: "Grove Threshold", PosX: 10, PosY: 0},
 		{NodeID: "feywild_crossing.starlight_path", Kind: NodeKindExploration,
 			Label: "Starlight Path", PosX: 11, PosY: 0},
-		{NodeID: "feywild_crossing.singing_orchard", Kind: NodeKindExploration,
+		{NodeID: "feywild_crossing.singing_orchard", Kind: NodeKindElite,
 			Label: "Singing Orchard", PosX: 12, PosY: 0},
 		{NodeID: "feywild_crossing.mirror_pond", Kind: NodeKindExploration,
 			Label: "Mirror Pond", PosX: 13, PosY: 0},
@@ -109,7 +119,7 @@ func zoneFeywildCrossingGraph() ZoneGraph {
 			Label: "Fog Basin", PosX: 12, PosY: 4},
 		{NodeID: "feywild_crossing.moaning_reeds", Kind: NodeKindExploration,
 			Label: "Moaning Reeds", PosX: 13, PosY: 4},
-		{NodeID: "feywild_crossing.mire_steps", Kind: NodeKindExploration,
+		{NodeID: "feywild_crossing.mire_steps", Kind: NodeKindTrap,
 			Label: "Mire Steps", PosX: 14, PosY: 4},
 		{NodeID: "feywild_crossing.submerged_stones", Kind: NodeKindExploration,
 			Label: "Submerged Stones", PosX: 15, PosY: 4},

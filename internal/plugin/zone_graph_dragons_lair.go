@@ -52,6 +52,17 @@ package plugin
 // Longest entry→boss walk: 10 (R1) + 10 (R2) + 9 (R3) + 10 (R4) = 39
 // nodes, inside [36, 44]. The two R2 spurs and three R4 capstones each
 // reach the boss in the same node count by construction.
+//
+// D10 anchor variety (in-place kind swaps, no length change): the two
+// loot-leaning branches each gain a guard, so "the richer route costs
+// more" —
+//   - Coin-Strewn Hall (treasure_vault spur) becomes an ELITE; the
+//     Perception loot route is now guarded, mirroring the ash_bridge
+//     spur's TRAP so both fork1 branches carry an anchor.
+//   - Hidden Passage (hoard_pillar SECRET capstone spur) becomes a
+//     TRAP guarding the densest loot in the zone.
+// The direct-confrontation and dragon-bargain routes stay clean, so the
+// fork choice trades safety for loot.
 
 func zoneDragonsLairGraph() ZoneGraph {
 	r1 := "dragons_lair_kobold_warrens"
@@ -110,7 +121,7 @@ func zoneDragonsLairGraph() ZoneGraph {
 		{NodeID: "dragons_lair.treasure_vault", Kind: NodeKindExploration, RegionID: r2,
 			Label: "Treasure Vault", PosX: 17, PosY: 2,
 			Content: ZoneNodeContent{LootBias: 1.5}},
-		{NodeID: "dragons_lair.coin_strewn_hall", Kind: NodeKindExploration, RegionID: r2,
+		{NodeID: "dragons_lair.coin_strewn_hall", Kind: NodeKindElite, RegionID: r2,
 			Label: "Coin-Strewn Hall", PosX: 18, PosY: 2},
 		{NodeID: "dragons_lair.vault_passage", Kind: NodeKindExploration, RegionID: r2,
 			Label: "Vault Passage", PosX: 19, PosY: 2},
@@ -152,7 +163,7 @@ func zoneDragonsLairGraph() ZoneGraph {
 			Label: "Audience Hall", PosX: 31, PosY: 1},
 
 		// R4 hoard_pillar spur (Perception 17, SECRET).
-		{NodeID: "dragons_lair.hidden_passage", Kind: NodeKindExploration, RegionID: r4,
+		{NodeID: "dragons_lair.hidden_passage", Kind: NodeKindTrap, RegionID: r4,
 			Label: "Hidden Passage", PosX: 29, PosY: 2},
 		{NodeID: "dragons_lair.hoard_pillar", Kind: NodeKindSecret, RegionID: r4,
 			Label: "Hidden Hoard Pillar", PosX: 30, PosY: 2,

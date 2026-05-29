@@ -119,3 +119,34 @@ func TestAbyssPortalGraph_RealitySeamHighestBias(t *testing.T) {
 		t.Errorf("reality_seam LootBias = %v, want >= 3.0 (Abyss capstone)", seam.Content.LootBias)
 	}
 }
+
+// TestAbyssPortalGraph_D10Anchors verifies the D10 anchor-variety pass.
+// The Abyss shipped with no Trap node and a single fork2 Elite, so D10
+// adds two branch Traps (Hush Corridor, Seam Threshold) and a main-path
+// region-guardian Elite (Warden's Hall). Counts: 2 traps, 2 elites.
+func TestAbyssPortalGraph_D10Anchors(t *testing.T) {
+	g := zoneAbyssPortalGraph()
+	var trapCount, eliteCount int
+	for _, n := range g.Nodes {
+		switch n.Kind {
+		case NodeKindTrap:
+			trapCount++
+		case NodeKindElite:
+			eliteCount++
+		}
+	}
+	if trapCount != 2 {
+		t.Errorf("trap nodes = %d, want 2 (D10 hush_corridor + seam_threshold)", trapCount)
+	}
+	if eliteCount != 2 {
+		t.Errorf("elite nodes = %d, want 2 (vrock_aerie + D10 wardens_hall)", eliteCount)
+	}
+	if g.Nodes["abyss_portal.wardens_hall"].Kind != NodeKindElite {
+		t.Error("D10: wardens_hall (R3 region-guardian) should be an Elite")
+	}
+	for _, id := range []string{"abyss_portal.hush_corridor", "abyss_portal.seam_threshold"} {
+		if g.Nodes[id].Kind != NodeKindTrap {
+			t.Errorf("D10: %s should be a Trap", id)
+		}
+	}
+}

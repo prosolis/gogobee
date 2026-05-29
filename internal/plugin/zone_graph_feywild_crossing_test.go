@@ -93,6 +93,8 @@ func TestFeywildCrossingGraph_FirstCHALock(t *testing.T) {
 
 // TestFeywildCrossingGraph_TrapAnchor verifies D1-d added the missing
 // Trap node. Original G8f graph had elite/secret but no trap.
+// TestFeywildCrossingGraph_TrapAnchor verifies the preamble trap plus
+// the D10 marsh-branch trap (Mire Steps).
 func TestFeywildCrossingGraph_TrapAnchor(t *testing.T) {
 	g := zoneFeywildCrossingGraph()
 	var trapCount int
@@ -101,8 +103,30 @@ func TestFeywildCrossingGraph_TrapAnchor(t *testing.T) {
 			trapCount++
 		}
 	}
-	if trapCount != 1 {
-		t.Errorf("trap nodes = %d, want 1", trapCount)
+	if trapCount != 2 {
+		t.Errorf("trap nodes = %d, want 2 (cursed_thicket + D10 mire_steps)", trapCount)
+	}
+	if g.Nodes["feywild_crossing.mire_steps"].Kind != NodeKindTrap {
+		t.Error("D10: mire_steps (marsh branch) should be a Trap")
+	}
+}
+
+// TestFeywildCrossingGraph_EliteAnchors verifies the shared hag_circle
+// elite plus the D10 grove-branch elite (Singing Orchard), so the first
+// fork carries a per-branch anchor (grove=elite, marsh=trap).
+func TestFeywildCrossingGraph_EliteAnchors(t *testing.T) {
+	g := zoneFeywildCrossingGraph()
+	var eliteCount int
+	for _, n := range g.Nodes {
+		if n.Kind == NodeKindElite {
+			eliteCount++
+		}
+	}
+	if eliteCount != 2 {
+		t.Errorf("elite nodes = %d, want 2 (hag_circle + D10 singing_orchard)", eliteCount)
+	}
+	if g.Nodes["feywild_crossing.singing_orchard"].Kind != NodeKindElite {
+		t.Error("D10: singing_orchard (grove branch) should be an Elite")
 	}
 }
 

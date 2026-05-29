@@ -111,3 +111,32 @@ func TestDragonsLairGraph_LootBiasEscalation(t *testing.T) {
 		t.Errorf("hoard_pillar LootBias = %v, want >= 2.5 (T5 secret)", hoard.Content.LootBias)
 	}
 }
+
+// TestDragonsLairGraph_D10Anchors verifies the D10 anchor-variety pass:
+// the treasure_vault spur gains a guarding Elite (Coin-Strewn Hall) to
+// mirror the ash_bridge spur's Trap, and the hoard_pillar SECRET capstone
+// spur gains a Trap (Hidden Passage). Counts: 2 traps, 2 elites.
+func TestDragonsLairGraph_D10Anchors(t *testing.T) {
+	g := zoneDragonsLairGraph()
+	var trapCount, eliteCount int
+	for _, n := range g.Nodes {
+		switch n.Kind {
+		case NodeKindTrap:
+			trapCount++
+		case NodeKindElite:
+			eliteCount++
+		}
+	}
+	if trapCount != 2 {
+		t.Errorf("trap nodes = %d, want 2 (ash_bridge + D10 hidden_passage)", trapCount)
+	}
+	if eliteCount != 2 {
+		t.Errorf("elite nodes = %d, want 2 (wyrmlings_nest + D10 coin_strewn_hall)", eliteCount)
+	}
+	if g.Nodes["dragons_lair.coin_strewn_hall"].Kind != NodeKindElite {
+		t.Error("D10: coin_strewn_hall (treasure_vault spur) should be an Elite")
+	}
+	if g.Nodes["dragons_lair.hidden_passage"].Kind != NodeKindTrap {
+		t.Error("D10: hidden_passage (hoard_pillar spur) should be a Trap")
+	}
+}
