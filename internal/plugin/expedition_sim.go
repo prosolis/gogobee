@@ -506,9 +506,22 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays
 			// Boss kill closes the run via combat resolution → continue
 			// the loop so the next walk picks up the cleared-run state.
 		case stopFork:
-			// Deterministic sim policy: always take path 1. Real players
-			// pick based on intent; the sim just needs to make progress.
-			if err := s.P.handleDnDExpeditionCmd(ctx, "go 1"); err != nil {
+			// Deterministic sim policy: take the first UNLOCKED path. The
+			// old blind "go 1" stalled forever on all-skill-check forks
+			// (feywild fork1) — resolveForkChoice rejects a locked edge but
+			// zoneCmdGo swallows it as a sent-DM with a nil return, so the
+			// run never advanced and burned every walk at the same node. A
+			// real player reads the menu and picks a passable path; mirror
+			// that. choice==0 means every edge is locked (a graph soft-lock
+			// the author must fix) — halt loudly rather than spin.
+			choice := s.firstUnlockedForkChoice(ctx.Sender)
+			if choice == 0 {
+				res.Outcome = "halted"
+				res.StopCode = "fork_all_locked"
+				i = walkCap
+				break
+			}
+			if err := s.P.handleDnDExpeditionCmd(ctx, fmt.Sprintf("go %d", choice)); err != nil {
 				res.Outcome = "halted"
 				res.StopCode = "fork:" + err.Error()
 				i = walkCap
@@ -624,6 +637,26 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays
 		}
 	}
 	return res, nil
+}
+
+// firstUnlockedForkChoice returns the 1-based index of the first
+// traversable option at the pending fork, or 0 if every edge is locked
+// (a graph soft-lock — see feywild fork1, which had no LockNone exit).
+func (s *SimRunner) firstUnlockedForkChoice(uid id.UserID) int {
+	run, err := getActiveZoneRun(uid)
+	if err != nil || run == nil {
+		return 1
+	}
+	pf, err := decodePendingFork(run.NodeChoices)
+	if err != nil || pf == nil {
+		return 1
+	}
+	for _, o := range pf.Options {
+		if o.Unlocked {
+			return o.Index
+		}
+	}
+	return 0
 }
 
 // captureDaySnapshot appends a SimDaySnapshot reflecting current state.

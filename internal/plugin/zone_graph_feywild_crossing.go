@@ -23,9 +23,9 @@ package plugin
 //     cursed_thicket (TRAP) → revel_road → moonshadow_bridge →
 //     bargain_walk → fey_market → fork1
 //
-//   Fork1 → both options locked (CHA vs Perception, no free choice):
+//   Fork1 → marsh (free default) | grove (CHA DC 14 bonus — the bargain):
 //
-//   Grove approach (8 nodes, CHA DC 14):
+//   Grove approach (8 nodes, CHA DC 14 bonus):
 //     grove_threshold → starlight_path → singing_orchard → mirror_pond
 //     → prismatic_arbor → moonpetal_clearing → dawnglow_walk →
 //     glamoured_grove (fork2a)
@@ -203,13 +203,19 @@ func zoneFeywildCrossingGraph() ZoneGraph {
 		{From: "feywild_crossing.bargain_walk", To: "feywild_crossing.fey_market", Lock: LockNone},
 		{From: "feywild_crossing.fey_market", To: "feywild_crossing.fork1", Lock: LockNone},
 
-		// Fork1 — both options locked (CHA vs. Perception, no LockNone).
+		// Fork1 — marsh is the free default path; grove is a CHA-gated
+		// bonus route (the fey bargain). (Both were skill-locked originally,
+		// with no LockNone exit — a soft-lock: any character failing both
+		// the CHA and Perception checks was permanently stranded here, since
+		// fork rolls are deterministic with no retry. Every other zone fork
+		// has a free path; freeing marsh restores that invariant while
+		// keeping the signature CHA fey-bargain route as a bonus.)
 		{From: "feywild_crossing.fork1", To: "feywild_crossing.grove_threshold",
 			Lock: LockStatCheck, LockData: map[string]any{"stat": "CHA", "dc": 14},
 			Hint: "a starlight creature offering a deal — you'd have to play along", Weight: 1},
 		{From: "feywild_crossing.fork1", To: "feywild_crossing.marsh_threshold",
-			Lock: LockPerception, LockData: map[string]any{"dc": 14},
-			Hint: "wisp-light flickering between two trees — they look like the same tree", Weight: 1},
+			Lock: LockNone,
+			Hint: "wisp-light flickering between two trees — pick your way through", Weight: 1},
 
 		// Grove approach.
 		{From: "feywild_crossing.grove_threshold", To: "feywild_crossing.starlight_path", Lock: LockNone},

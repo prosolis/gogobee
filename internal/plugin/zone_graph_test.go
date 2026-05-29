@@ -190,6 +190,40 @@ func TestCompileLegacyZoneGraph_AllRegistered(t *testing.T) {
 	}
 }
 
+// TestZoneGraphs_NoSoftLockedFork guards the invariant that every fork
+// node offers at least one traversable (LockNone) exit. A fork whose
+// every edge is skill-locked strands any player who fails all the checks
+// — fork rolls are deterministic with no retry. D8-f part 2 found
+// feywild fork1 violating this (it stranded ~60% of runs). Catch any
+// future author who locks every exit of a fork.
+func TestZoneGraphs_NoSoftLockedFork(t *testing.T) {
+	for _, z := range allZones() {
+		g, ok := loadZoneGraph(z.ID)
+		if !ok {
+			continue
+		}
+		for nodeID, node := range g.Nodes {
+			if node.Kind != NodeKindFork {
+				continue
+			}
+			outs := g.outgoingEdges(nodeID)
+			if len(outs) == 0 {
+				continue
+			}
+			free := false
+			for _, e := range outs {
+				if e.Lock == LockNone || e.Lock == "" {
+					free = true
+					break
+				}
+			}
+			if !free {
+				t.Errorf("zone %q fork %q: every exit is locked — soft-lock (a player failing all checks is stranded; add a LockNone fallback)", z.ID, nodeID)
+			}
+		}
+	}
+}
+
 func TestDeriveLegacyNodeID_StableShape(t *testing.T) {
 	got := deriveLegacyNodeID("crypt_valdris", 0)
 	want := "crypt_valdris.r1"

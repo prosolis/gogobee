@@ -55,15 +55,22 @@ func TestFeywildCrossingGraph_PartialOverlap(t *testing.T) {
 	}
 }
 
-// TestFeywildCrossingGraph_NoFreeChoiceAtFork1 captures the design
-// intent: both fork1 outgoing edges are locked. The player must succeed
-// at CHA or Perception to enter; no LockNone fallback.
-func TestFeywildCrossingGraph_NoFreeChoiceAtFork1(t *testing.T) {
+// TestFeywildCrossingGraph_Fork1HasFreePath guards the no-soft-lock
+// invariant: fork1 must offer at least one LockNone exit. The original
+// design locked BOTH edges (CHA + Perception) with no fallback — fork
+// rolls are deterministic with no retry, so a character failing both was
+// permanently stranded (D8-f part 2 found this stranded ~60% of runs).
+// Every other zone fork has a free path; fork1 must too.
+func TestFeywildCrossingGraph_Fork1HasFreePath(t *testing.T) {
 	g := zoneFeywildCrossingGraph()
+	free := 0
 	for _, e := range g.outgoingEdges("feywild_crossing.fork1") {
-		if e.Lock == LockNone {
-			t.Errorf("fork1 has unlocked edge to %s — expected all locked", e.To)
+		if e.Lock == LockNone || e.Lock == "" {
+			free++
 		}
+	}
+	if free == 0 {
+		t.Error("fork1 has no free (LockNone) exit — soft-lock: a player failing every skill check is permanently stranded")
 	}
 }
 
