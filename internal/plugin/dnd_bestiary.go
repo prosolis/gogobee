@@ -602,9 +602,18 @@ var _ = func() bool {
 		},
 		"boss_infernax": {
 			ID: "boss_infernax", Name: "Infernax the Undying",
-			CR: 24, HP: 546, AC: 22, Attack: 38, AttackBonus: 11, Speed: 18,
+			// T5 lift (D11): dragons_lair was an impossible wall — at L15-16
+			// (mid-range) leaders cleared 0-2%, 100% TPK at the boss (it has
+			// 546 HP / AC22 / 49-dmg multiattack / near-guaranteed stun, a
+			// CR24 block fought ~9 levels under its CR). Nerfed to land
+			// martial leaders in the 60-75% band: HP 546→405, AC 22→20,
+			// frightful-presence stun 0.80→0.40, multiattack 49→42 (srd).
+			// (Pass 1's 360/AC20/36 over-nerfed → 98% leaders; Pass 2's
+			// 460/AC21/42 over-corrected → ~40%; this Pass 3 405/AC20/42
+			// lands leaders in band.)
+			CR: 24, HP: 405, AC: 20, Attack: 38, AttackBonus: 11, Speed: 18,
 			BlockRate: 0.15,
-			Ability:   &MonsterAbility{Name: "Frightful Presence", Phase: "opening", ProcChance: 0.80, Effect: "stun"},
+			Ability:   &MonsterAbility{Name: "Frightful Presence", Phase: "opening", ProcChance: 0.40, Effect: "stun"},
 			XPValue:   62000,
 			Notes:     "Dragon's Lair boss. Ancient Red Dragon. Legendary Actions; Lair Actions; phase 2 below 50% HP — fire ignores resistance.",
 			FireAttacker: true,
@@ -652,7 +661,15 @@ var _ = func() bool {
 		},
 		"boss_belaxath": {
 			ID: "boss_belaxath", Name: "Belaxath the Undivided",
-			CR: 19, HP: 262, AC: 19, Attack: 31, AttackBonus: 11, Speed: 14,
+			// T5 lift (D11): abyss_portal was a faceroll for leaders — at its
+			// own floor (L15) fighter/ranger cleared 88-92% (above the 60-75%
+			// band), killing the 262-HP boss in 6-13 rounds with HP to spare.
+			// Buffed to bring leaders into band: HP 262→300, AC 19→20,
+			// multiattack 40→41 (srd). Elites (nalfeshnee/marilith) already
+			// wall the trailers, so this only moves the leaders. (Pass 1's
+			// 360/AC20/45 over-buffed → 19-40% leaders; this is the Pass 2
+			// correction back down toward band.)
+			CR: 19, HP: 300, AC: 20, Attack: 31, AttackBonus: 11, Speed: 14,
 			BlockRate: 0.20,
 			Ability:   &MonsterAbility{Name: "Lightning Discharge", Phase: "decisive", ProcChance: 0.40, Effect: "aoe"},
 			XPValue:   22000,

@@ -80,7 +80,12 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 	} else {
 		monster, ok = pickZoneEnemy(zone, run.RunID, run.CurrentRoom, true)
 	}
-	if !ok {
+	if !ok || monster.ID == "" {
+		// monster.ID == "" guards a malformed bestiary entry (e.g. one whose
+		// ID field was dropped): startCombatSession would otherwise persist a
+		// session with an empty EnemyID, and the turn engine — having no enemy
+		// to resolve — spins inertly until autoDriveCombat's round cap. Fail
+		// loudly instead of stalling.
 		return p.replyDM(ctx, "_(No bestiary entry for this encounter — file a bug. `!zone abandon` to bail.)_")
 	}
 

@@ -88,14 +88,14 @@ var srdProfiles = map[string]SRDProfile{
 		{Name: "Thorned Lash", AttackBonus: 9, Damage: 12},
 		{Name: "Thorned Lash", AttackBonus: 9, Damage: 11},
 	}},
-	"boss_infernax": {Attacks: []SRDAttack{ // Attack 38 → ~49
-		{Name: "Bite", AttackBonus: 11, Damage: 19},
-		{Name: "Claw", AttackBonus: 11, Damage: 15},
-		{Name: "Claw", AttackBonus: 11, Damage: 15},
+	"boss_infernax": {Attacks: []SRDAttack{ // D11 T5 lift: 49 → ~42 (nerf; was an impossible wall at L15-16)
+		{Name: "Bite", AttackBonus: 11, Damage: 16},
+		{Name: "Claw", AttackBonus: 11, Damage: 13},
+		{Name: "Claw", AttackBonus: 11, Damage: 13},
 	}},
-	"boss_belaxath": {Attacks: []SRDAttack{ // Attack 31 → ~40
+	"boss_belaxath": {Attacks: []SRDAttack{ // D11 T5 lift: 40 → ~41 (buff; was a leader faceroll)
 		{Name: "Longsword", AttackBonus: 11, Damage: 24},
-		{Name: "Whip", AttackBonus: 11, Damage: 16},
+		{Name: "Whip", AttackBonus: 11, Damage: 17},
 	}},
 
 	// ── Multiattack elites ───────────────────────────────────────────────
