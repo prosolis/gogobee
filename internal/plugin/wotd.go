@@ -247,8 +247,17 @@ func (p *WOTDPlugin) prefetchWord(force bool) error {
 		if _, delErr := d.Exec(`DELETE FROM wotd_log WHERE date = ?`, today); delErr != nil {
 			slog.Error("wotd: force delete failed", "err", delErr)
 		}
-		// Also clear job-completed flags so PostWOTD will re-post
-		d.Exec(`DELETE FROM job_completed WHERE job_name = 'wotd' AND job_key LIKE ?`, today+"%")
+		// Also clear job-completed flags so PostWOTD will re-post. The
+		// per-room dedup keys are "<date>:<roomID>" in daily_prefetch, so
+		// match every room's flag for today. (Was targeting a non-existent
+		// job_completed/job_key table — a silent no-op that left forced
+		// re-posts blocked by the stale dedup row.)
+		if _, delErr := d.Exec(
+			`DELETE FROM daily_prefetch WHERE job_name = 'wotd' AND date LIKE ?`,
+			today+"%",
+		); delErr != nil {
+			slog.Error("wotd: force clear dedup flags failed", "err", delErr)
+		}
 	}
 
 	_, err := d.Exec(
