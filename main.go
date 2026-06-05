@@ -206,6 +206,14 @@ func main() {
 
 	// ---- Set up event handlers ----
 
+	// Bots we ignore wholesale (no repost, no XP). Set IGNORED_BOTS to a
+	// comma-separated list of Matrix user IDs. Pete (@pete:...) posts plain
+	// m.text, so the m.notice convention below won't catch it on its own.
+	ignoredBots := make(map[id.UserID]bool)
+	for _, u := range splitAndTrim(os.Getenv("IGNORED_BOTS"), ",") {
+		ignoredBots[id.UserID(u)] = true
+	}
+
 	syncer := client.Syncer.(*mautrix.DefaultSyncer)
 
 	// Auto-join on invite + moderation member tracking
@@ -260,8 +268,22 @@ func main() {
 			return
 		}
 
+		// Skip explicitly ignored bots (e.g. Pete, which posts m.text).
+		if ignoredBots[evt.Sender] {
+			return
+		}
+
 		content := evt.Content.AsMessage()
 		if content == nil || content.Body == "" {
+			return
+		}
+
+		// Ignore messages from other bots. By Matrix convention automated
+		// clients send m.notice (instead of m.text) precisely so other bots
+		// don't react to them, which avoids feedback loops. Dropping notices
+		// here means no plugin reposts them (urls.go) or awards XP for them
+		// (xp.go). Our own messages are already skipped by the sender check.
+		if content.MsgType == event.MsgNotice {
 			return
 		}
 
