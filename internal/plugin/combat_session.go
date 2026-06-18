@@ -77,6 +77,15 @@ type CombatStatuses struct {
 	ArcaneWardHP    int     `json:"arcane_ward_hp,omitempty"`
 	HealChargesLeft int     `json:"heal_charges_left,omitempty"`
 
+	// ConcentrationDmg is the per-round damage of the player's active
+	// concentration AOE (Spirit Guardians, Spike Growth, Call Lightning,
+	// Flaming Sphere…). A one-shot !cast lands its burst the casting round,
+	// then this re-ticks the aura at round_end every round until the fight
+	// ends or another concentration spell overwrites it — the lingering half
+	// of the spell the engine used to drop on the floor, which left clerics
+	// and druids with no sustained DPS once their burst landed.
+	ConcentrationDmg int `json:"concentration_dmg,omitempty"`
+
 	// Once-per-fight class/race/subclass one-shots: the "already used" flags.
 	// Without persistence these reset every round on resume, letting a Halfling
 	// reroll a nat 1 or an Orc rage every single round of a turn-based fight.

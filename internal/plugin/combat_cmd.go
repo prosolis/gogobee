@@ -489,6 +489,14 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 			PlayerHeal:  out.PlayerHeal,
 			EnemySkip:   out.EnemySkip,
 		}
+		// Concentration AOE damage spells linger: the burst lands this round
+		// (EnemyDamage) and the same value re-ticks every round_end after, via
+		// the engine's concentration aura. spiritual_weapon already covers the
+		// cleric's bonus-action half of the combo; this restores the action half.
+		if spell.Concentration &&
+			(spell.Effect == EffectDamageAuto || spell.Effect == EffectDamageSave) {
+			eff.ConcentrationDmg = out.EnemyDamage
+		}
 	}
 
 	events, err := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionCast, Effect: eff})

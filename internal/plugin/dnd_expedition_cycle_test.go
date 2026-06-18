@@ -239,19 +239,26 @@ func TestFireBriefings_EventAnchoredActivePlayerDelivers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	useEventAnchored(t, exp)
-
 	wall := time.Now().UTC()
 	now := time.Date(wall.Year(), wall.Month(), wall.Day(), 6, 30, 0, 0, time.UTC)
 	threshold := time.Date(now.Year(), now.Month(), now.Day(),
 		expeditionBriefingHour, 0, 0, 0, time.UTC)
 	activeActivity := threshold.Add(15 * time.Minute)
 	priorBriefing := now.Add(-24 * time.Hour)
+	// Pin start_date before today's threshold. Left at the default (real
+	// time.Now()), a suite run after 06:00 UTC lands start_date past the
+	// threshold and loadExpeditionsNeedingBriefing (start_date < threshold)
+	// filters the row out — a wall-clock-of-day flake. useEventAnchored runs
+	// after, so its cutoff tracks the backdated start and the run stays
+	// event-anchored.
+	startAt := now.Add(-24 * time.Hour)
+	exp.StartDate = startAt
 	if _, err := db.Get().Exec(
-		`UPDATE dnd_expedition SET last_activity = ?, last_briefing_at = ? WHERE expedition_id = ?`,
-		activeActivity, priorBriefing, exp.ID); err != nil {
+		`UPDATE dnd_expedition SET start_date = ?, last_activity = ?, last_briefing_at = ? WHERE expedition_id = ?`,
+		startAt, activeActivity, priorBriefing, exp.ID); err != nil {
 		t.Fatal(err)
 	}
+	useEventAnchored(t, exp)
 
 	p := &AdventurePlugin{}
 	p.fireExpeditionBriefings(now)

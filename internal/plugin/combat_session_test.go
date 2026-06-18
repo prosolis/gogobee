@@ -263,6 +263,74 @@ func TestTurnEngine_PoisonTickCanBeLethal(t *testing.T) {
 	}
 }
 
+func TestTurnEngine_ConcentrationTickAtRoundEnd(t *testing.T) {
+	sess := turnSession(CombatPhaseRoundEnd, 50, 80)
+	sess.Statuses = CombatStatuses{ConcentrationDmg: 12}
+	player, enemy := basePlayer(), baseEnemy()
+
+	events, err := stepEngine(sess, &player, &enemy, PlayerAction{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.EnemyHP != 68 {
+		t.Errorf("enemy_hp = %d, want 68 (80 - 12 aura)", sess.EnemyHP)
+	}
+	if sess.Statuses.ConcentrationDmg != 12 {
+		t.Errorf("concentration_dmg = %d, want 12 (aura persists)", sess.Statuses.ConcentrationDmg)
+	}
+	if len(events) != 1 || events[0].Action != "concentration_tick" || events[0].Damage != 12 {
+		t.Errorf("expected one concentration_tick event, got %+v", events)
+	}
+	if sess.Round != 2 || sess.Phase != CombatPhasePlayerTurn {
+		t.Errorf("round=%d phase=%q, want 2/player_turn", sess.Round, sess.Phase)
+	}
+}
+
+func TestTurnEngine_ConcentrationTickCanBeLethal(t *testing.T) {
+	sess := turnSession(CombatPhaseRoundEnd, 50, 9)
+	sess.Statuses = CombatStatuses{ConcentrationDmg: 12}
+	player, enemy := basePlayer(), baseEnemy()
+
+	if _, err := stepEngine(sess, &player, &enemy, PlayerAction{}); err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != CombatStatusWon || sess.Phase != CombatPhaseOver {
+		t.Errorf("status=%q phase=%q, want won/over (aura dropped enemy)", sess.Status, sess.Phase)
+	}
+	if sess.EnemyHP != 0 {
+		t.Errorf("enemy_hp = %d, want 0", sess.EnemyHP)
+	}
+}
+
+// A concentration damage cast lands its burst this round AND arms the aura so
+// it re-ticks at every subsequent round_end.
+func TestTurnEngine_ConcentrationCastArmsAura(t *testing.T) {
+	sess := turnSession(CombatPhasePlayerTurn, 50, 200)
+	player, enemy := basePlayer(), baseEnemy()
+
+	eff := &turnActionEffect{
+		Label: "Spirit Guardians", Action: "spell_cast",
+		EnemyDamage: 15, ConcentrationDmg: 15,
+	}
+	if _, err := stepEngine(sess, &player, &enemy, PlayerAction{Kind: ActionCast, Effect: eff}); err != nil {
+		t.Fatal(err)
+	}
+	if sess.EnemyHP != 185 {
+		t.Errorf("enemy_hp = %d, want 185 (200 - 15 burst)", sess.EnemyHP)
+	}
+	if sess.Statuses.ConcentrationDmg != 15 {
+		t.Fatalf("concentration_dmg = %d, want 15 (aura armed)", sess.Statuses.ConcentrationDmg)
+	}
+	// Drive to round_end and confirm the aura bites again.
+	sess.Phase = CombatPhaseRoundEnd
+	if _, err := stepEngine(sess, &player, &enemy, PlayerAction{}); err != nil {
+		t.Fatal(err)
+	}
+	if sess.EnemyHP != 170 {
+		t.Errorf("enemy_hp = %d, want 170 (185 - 15 aura tick)", sess.EnemyHP)
+	}
+}
+
 func TestTurnEngine_Flee(t *testing.T) {
 	sess := turnSession(CombatPhasePlayerTurn, 50, 50)
 	player, enemy := basePlayer(), baseEnemy()

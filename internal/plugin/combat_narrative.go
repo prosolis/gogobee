@@ -239,6 +239,9 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 	case "spirit_weapon_strike":
 		return fmt.Sprintf(pickRand(narrativeSpiritWeapon), e.Damage)
 
+	case "concentration_tick":
+		return fmt.Sprintf(pickRand(narrativeConcentrationTick), e.Damage)
+
 	case "pet_deflect":
 		return pickRand(narrativePetDeflect)
 
@@ -534,6 +537,13 @@ var narrativeSpiritWeapon = []string{
 	"✨ Your spiritual weapon hovers, picks an angle, strikes — %d damage. No grip, all conviction.",
 	"✨ A glowing weapon arcs in from beside you. %d damage. The enemy keeps trying to track it. Cannot.",
 	"✨ The spectral blade flickers, then bites. %d damage. It does not tire. It does not blink.",
+}
+
+var narrativeConcentrationTick = []string{
+	"🌀 The lingering aura grinds the enemy down — %d damage. Still humming. Still hungry.",
+	"🌀 Your spell hasn't let go: the spirits sweep through again for %d damage.",
+	"🌀 The radiant field pulses once more — %d damage. Concentration holds.",
+	"🌀 The enemy steps wrong and the standing magic answers, %d damage. It does not move on.",
 }
 
 var narrativePetDeflect = []string{

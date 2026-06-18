@@ -224,6 +224,12 @@ func (p *AdventurePlugin) Init() error {
 	// existing caster rows once at startup so the lift reaches live
 	// players without waiting for level-up.
 	bootstrapCasterHPRefresh()
+	// 2026-06-18 caster-aid: backfill default spells that postdate a
+	// character's roll (ensureSpellsForCharacter only seeds an empty book),
+	// and a one-off pet gift for an endgame player who never got the morning
+	// arrival roll. Both idempotent via JobCompleted gates.
+	bootstrapCasterSpellBackfill()
+	bootstrapGrantStarterPet()
 	// Phase R1 orphan-archive used to run here on every Init, but it
 	// over-archived: it treats any active dnd_zone_run row not linked to
 	// an active expedition as a legacy `!adventure dungeon` orphan, which

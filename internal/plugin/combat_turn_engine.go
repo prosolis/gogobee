@@ -64,6 +64,12 @@ type turnActionEffect struct {
 	EnemyDamage int
 	PlayerHeal  int
 	EnemySkip   bool // control spell: enemy forfeits its attack this round
+	// ConcentrationDmg arms a per-round aura tick when a concentration damage
+	// spell is cast: EnemyDamage is the burst that lands this round, this is
+	// what re-ticks at every round_end after. Zero for one-shot spells; a
+	// non-zero value overwrites any aura already running (5e: one
+	// concentration at a time).
+	ConcentrationDmg int
 }
 
 // turnEngine wraps a combatState reconstructed from a persisted CombatSession
@@ -125,6 +131,7 @@ func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.R
 		autoCrit:              sess.Statuses.AutoCritFirst,
 		arcaneWardHP:          sess.Statuses.ArcaneWardHP,
 		healChargesLeft:       sess.Statuses.HealChargesLeft,
+		concentrationDmg:      sess.Statuses.ConcentrationDmg,
 		deathSaveUsed:         sess.Statuses.DeathSaveUsed,
 		luckyUsed:             sess.Statuses.LuckyUsed,
 		raged:                 sess.Statuses.Raged,
@@ -299,6 +306,12 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 		hpCap := max(1, te.sess.PlayerHPMax-st.maxHPDrain)
 		st.playerHP = min(hpCap, st.playerHP+eff.PlayerHeal)
 	}
+	// Arm / replace the concentration aura. A new concentration cast overwrites
+	// the old one (5e: one concentration at a time); non-concentration casts
+	// leave any running aura alone.
+	if eff.ConcentrationDmg > 0 {
+		st.concentrationDmg = eff.ConcentrationDmg
+	}
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: turnCombatPhase.Name, Actor: "player", Action: action,
 		Damage: enemyDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Desc: eff.Label,
@@ -454,6 +467,20 @@ func (te *turnEngine) stepRoundEnd() {
 			}
 		}
 	}
+	// Concentration aura (Spirit Guardians et al.): the lingering spell bites
+	// the enemy each round it stays up. Ticks before enemy regen so a lethal
+	// pulse settles the fight before the enemy knits its wounds back.
+	if st.concentrationDmg > 0 && st.enemyHP > 0 {
+		st.enemyHP = max(0, st.enemyHP-st.concentrationDmg)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: CombatPhaseRoundEnd, Actor: "player", Action: "concentration_tick",
+			Damage: st.concentrationDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.enemyHP <= 0 {
+			te.finish(CombatStatusWon)
+			return
+		}
+	}
 	// Regenerate (monster ability): the enemy knits its wounds at round end.
 	if st.enemyRegen > 0 && st.enemyHP > 0 && st.enemyHP < te.enemy.Stats.MaxHP {
 		st.enemyHP = min(te.enemy.Stats.MaxHP, st.enemyHP+st.enemyRegen)
@@ -499,6 +526,7 @@ func (te *turnEngine) commit() {
 	s.AutoCritFirst = st.autoCrit
 	s.ArcaneWardHP = st.arcaneWardHP
 	s.HealChargesLeft = st.healChargesLeft
+	s.ConcentrationDmg = st.concentrationDmg
 	s.DeathSaveUsed = st.deathSaveUsed
 	s.LuckyUsed = st.luckyUsed
 	s.Raged = st.raged

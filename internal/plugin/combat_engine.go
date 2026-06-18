@@ -332,6 +332,14 @@ type combatState struct {
 	// Phase 10 SUB2b — Abjuration Arcane Ward HP buffer.
 	arcaneWardHP int
 
+	// concentrationDmg — per-round damage of an active concentration AOE
+	// (Spirit Guardians et al.). Armed by a !cast of a concentration damage
+	// spell, ticked against the enemy every round_end until the fight ends
+	// or another concentration spell overwrites it. Only the turn engine
+	// reads it; SimulateCombat resolves whole fights in one pass and folds
+	// the aura's value into the picker's concentration multiplier instead.
+	concentrationDmg int
+
 	// Phase 13 bestiary slice 3 — stateful monster-ability effects. Each is
 	// armed by applyAbility and read by the shared resolution primitives, so
 	// both engines honour them; the turn-based engine additionally round-trips

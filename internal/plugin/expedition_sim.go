@@ -919,7 +919,12 @@ func (p *AdventurePlugin) pickAutoCombatAction(uid id.UserID, sess *CombatSessio
 		if id := simPickSpiritualWeapon(c, uid, sess); id != "" {
 			return "cast", id
 		}
-		if id := simPickSpell(c, uid); id != "" {
+		// Once a concentration aura is up, a competent caster maintains it and
+		// attacks (or casts a non-concentration spell) rather than burning a
+		// slot to re-arm the same aura — so the picker excludes concentration
+		// spells while one is active.
+		auraActive := sess.Statuses.ConcentrationDmg > 0
+		if id := simPickSpell(c, uid, auraActive); id != "" {
 			return "cast", id
 		}
 	}
@@ -1008,7 +1013,7 @@ func simPickSpiritualWeapon(c *DnDCharacter, uid id.UserID, sess *CombatSession)
 //   - Among feasible candidates, prefer higher slot level (preserves
 //     high-slot supremacy and burns the big slots first); tie-break on
 //     expected damage from the dice string.
-func simPickSpell(c *DnDCharacter, uid id.UserID) string {
+func simPickSpell(c *DnDCharacter, uid id.UserID, auraActive bool) string {
 	known, err := listKnownSpells(uid)
 	if err != nil || len(known) == 0 {
 		return ""
@@ -1035,6 +1040,11 @@ func simPickSpell(c *DnDCharacter, uid id.UserID) string {
 			continue
 		}
 		if sp.CastTime == CastReaction {
+			continue
+		}
+		// An aura is already ticking — don't re-arm it; prefer attacks or a
+		// non-concentration spell this turn.
+		if auraActive && sp.Concentration {
 			continue
 		}
 		onList := false
