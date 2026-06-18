@@ -42,6 +42,145 @@ func TestZoneRun_AutoAbandonsAfter24h(t *testing.T) {
 	}
 }
 
+// A run reaped by the idle timeout must also terminate the wrapping active
+// expedition, or the expedition is orphaned 'active' over a dead run and the
+// player soft-locks (the original feywild "stuck, can't route" bug).
+func TestZoneRun_IdleTimeoutExtractsWrappingExpedition(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@orphan-run:example")
+	defer cleanupExpeditions(uid)
+
+	run, err := startZoneRun(uid, ZoneGoblinWarrens, 1, nil)
+	if err != nil {
+		t.Fatalf("startZoneRun: %v", err)
+	}
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, run.RunID,
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatalf("startExpedition: %v", err)
+	}
+	if err := setExpeditionRunID(exp.ID, run.RunID); err != nil {
+		t.Fatalf("link run: %v", err)
+	}
+	// Backdate the run past the 24h stale threshold.
+	if _, err := dbExecZoneRunBackdate(run.RunID, 25*time.Hour); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+
+	got, err := getActiveZoneRun(uid)
+	if err != nil {
+		t.Fatalf("getActiveZoneRun: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil after timeout, got run %q", got.RunID)
+	}
+	// The wrapping expedition must no longer be active.
+	after, err := getExpedition(exp.ID)
+	if err != nil {
+		t.Fatalf("getExpedition: %v", err)
+	}
+	if after == nil {
+		t.Fatal("expedition row vanished")
+	}
+	if after.Status == ExpeditionStatusActive {
+		t.Errorf("expedition still active after run idle-timeout; status=%q", after.Status)
+	}
+}
+
+// A stale background fork auto-picks the first unlocked route so the
+// expedition keeps moving instead of idling out to the reaper.
+func TestAutoPickStaleFork_TakesAvailableRoute(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@stale-fork:example")
+	defer cleanupExpeditions(uid)
+
+	run, err := startZoneRun(uid, ZoneGoblinWarrens, 1, nil)
+	if err != nil {
+		t.Fatalf("startZoneRun: %v", err)
+	}
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, run.RunID,
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatalf("startExpedition: %v", err)
+	}
+	if err := setExpeditionRunID(exp.ID, run.RunID); err != nil {
+		t.Fatalf("link run: %v", err)
+	}
+	pf := pendingFork{
+		PendingAt: "goblin_warrens.cavern_junction",
+		Options: []pendingChoice{
+			{Index: 1, To: "goblin_warrens.guard_post", Label: "Guard Post",
+				Unlocked: false, Lock: "perception_check", Reason: "Perception 8 vs DC 14"},
+			{Index: 2, To: "goblin_warrens.kennel_path", Label: "Kennel Path",
+				Unlocked: true, Lock: "none"},
+		},
+	}
+	if err := writePendingFork(run.RunID, pf); err != nil {
+		t.Fatalf("writePendingFork: %v", err)
+	}
+	r2, _ := getZoneRun(run.RunID)
+	got, _ := decodePendingFork(r2.NodeChoices)
+	if got == nil {
+		t.Fatal("fork not persisted")
+	}
+
+	p := &AdventurePlugin{}
+	if ok := p.autoPickStaleFork(exp, r2, got); !ok {
+		t.Fatal("expected auto-pick to commit a route")
+	}
+	after, _ := getZoneRun(run.RunID)
+	if after.CurrentNode != "goblin_warrens.kennel_path" {
+		t.Errorf("did not advance to the unlocked route: current_node=%q", after.CurrentNode)
+	}
+	if pf2, _ := decodePendingFork(after.NodeChoices); pf2 != nil {
+		t.Errorf("pending fork not cleared after auto-pick")
+	}
+}
+
+// When every option is locked there's nothing safe to auto-pick — leave the
+// fork intact for the player (or the reaper).
+func TestAutoPickStaleFork_AllLockedLeavesForkIntact(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@locked-fork:example")
+	defer cleanupExpeditions(uid)
+
+	run, err := startZoneRun(uid, ZoneGoblinWarrens, 1, nil)
+	if err != nil {
+		t.Fatalf("startZoneRun: %v", err)
+	}
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, run.RunID,
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatalf("startExpedition: %v", err)
+	}
+	_ = setExpeditionRunID(exp.ID, run.RunID)
+	pf := pendingFork{
+		PendingAt: "goblin_warrens.cavern_junction",
+		Options: []pendingChoice{
+			{Index: 1, To: "goblin_warrens.guard_post", Label: "Guard Post",
+				Unlocked: false, Lock: "perception_check", Reason: "DC 14"},
+		},
+	}
+	if err := writePendingFork(run.RunID, pf); err != nil {
+		t.Fatalf("writePendingFork: %v", err)
+	}
+	r2, _ := getZoneRun(run.RunID)
+	before := r2.CurrentNode
+	got, _ := decodePendingFork(r2.NodeChoices)
+
+	p := &AdventurePlugin{}
+	if ok := p.autoPickStaleFork(exp, r2, got); ok {
+		t.Fatal("expected no auto-pick when every option is locked")
+	}
+	after, _ := getZoneRun(run.RunID)
+	if after.CurrentNode != before {
+		t.Errorf("current_node moved on an all-locked fork: %q → %q", before, after.CurrentNode)
+	}
+	if pf2, _ := decodePendingFork(after.NodeChoices); pf2 == nil {
+		t.Errorf("pending fork was cleared on an all-locked fork")
+	}
+}
+
 func TestZoneRun_FreshRunNotAutoAbandoned(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@fresh-run:example")

@@ -290,6 +290,17 @@ func getActiveZoneRun(userID id.UserID) (*DungeonRun, error) {
 	}
 	if time.Since(r.LastActionAt) > zoneRunInactivityTimeout {
 		_ = abandonZoneRunByID(r.RunID)
+		// A run reaped by the §4.3 idle timeout must also terminate the
+		// wrapping active expedition. Without this, the expedition is left
+		// status='active' pointing at a now-abandoned run: the autopilot's
+		// runAutopilotWalk reads run==nil and bails, but the briefing/recap
+		// ambient tickers keep firing — the player soft-locks at the last
+		// fork, "stuck" with no way to route on. Mirror the run-loss seam,
+		// but only when this run is the active expedition's current run so
+		// a standalone (non-expedition) stale run still reaps cleanly.
+		if exp, _ := getActiveExpedition(userID); exp != nil && exp.RunID == r.RunID {
+			forceExtractExpeditionForRunLoss(userID, "run idle-timeout (§4.3 stale-run reap)")
+		}
 		return nil, nil
 	}
 	return r, nil

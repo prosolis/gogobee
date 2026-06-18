@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -667,6 +668,45 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 // run graph / harvest tally / supplies / threat — same as before, just
 // no streamFlow here. compact==true switches the underlying combat
 // narration into terse mode and auto-resolves elite (not boss) rooms.
+// forkAutoPickTimeout — how long a background fork may sit unanswered
+// before the autopilot picks an available route itself. Short enough that
+// the expedition keeps moving rather than idling out to the 24h stale-run
+// reaper; long enough that a player away for the evening still gets first
+// say on a genuine fork.
+const forkAutoPickTimeout = 8 * time.Hour
+
+// autoPickStaleFork commits the first unlocked option of a stale background
+// fork, advancing the run to that node exactly as `!zone go <n>` would
+// (advanceZoneRunNode + region-transition hook). Returns false — no pick —
+// when every option is locked, so the caller re-emits the prompt and the
+// run idles on toward the reaper. The choice is logged as a narrative entry
+// so the end-of-day digest can surface the decision the player missed.
+func (p *AdventurePlugin) autoPickStaleFork(exp *Expedition, run *DungeonRun, pf *pendingFork) bool {
+	var chosen *pendingChoice
+	for i := range pf.Options {
+		if pf.Options[i].Unlocked {
+			chosen = &pf.Options[i]
+			break
+		}
+	}
+	if chosen == nil {
+		return false // nothing unlocked — leave it for the player / reaper
+	}
+	if err := advanceZoneRunNode(run.RunID, chosen.To); err != nil {
+		slog.Warn("expedition: auto-pick stale fork",
+			"user", run.UserID, "run", run.RunID, "err", err)
+		return false
+	}
+	g, _ := loadZoneGraph(run.ZoneID)
+	fireGraphRegionTransition(run.UserID, g.Nodes[run.CurrentNode], g.Nodes[chosen.To])
+	if exp != nil {
+		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative",
+			fmt.Sprintf("autopilot took an available path after %dh idle at the fork: %s",
+				int(forkAutoPickTimeout.Hours()), chosen.Label), "")
+	}
+	return true
+}
+
 func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, compact, inlineBossCombat bool) autopilotWalkResult {
 	exp, err := getActiveExpedition(ctx.Sender)
 	if err != nil {
@@ -679,18 +719,28 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 		return autopilotWalkResult{initErr: "No active region run. Try `!region` to refresh."}
 	}
 
-	// Already standing at a pending fork: autopilot can't pick for the
-	// player. Re-emit the prompt with rooms=0 so the background DM
-	// suppression keeps quiet and we don't tick the rooms counter on a
-	// no-op walk.
+	// Already standing at a pending fork. The autopilot can't pick for the
+	// player, so a fresh fork re-emits the prompt with rooms=0 (background
+	// DM suppression keeps quiet; the rooms counter doesn't tick on a no-op
+	// walk). But a background fork left unanswered past forkAutoPickTimeout
+	// would otherwise idle all the way to the 24h stale-run reaper and end
+	// the expedition — so once it's stale, auto-pick the first available
+	// (unlocked) route and keep walking instead of stalling out.
 	if run, rerr := getActiveZoneRun(ctx.Sender); rerr == nil && run != nil {
 		if pf, derr := decodePendingFork(run.NodeChoices); derr == nil && pf != nil {
-			zone := zoneOrFallback(run.ZoneID)
-			return autopilotWalkResult{
-				finalMsg: renderForkPrompt(zone, *pf),
-				rooms:    0,
-				reason:   stopFork,
+			picked := compact &&
+				time.Since(run.LastActionAt) > forkAutoPickTimeout &&
+				p.autoPickStaleFork(exp, run, pf)
+			if !picked {
+				zone := zoneOrFallback(run.ZoneID)
+				return autopilotWalkResult{
+					finalMsg: renderForkPrompt(zone, *pf),
+					rooms:    0,
+					reason:   stopFork,
+				}
 			}
+			// Auto-picked: the run now points at the chosen node. Fall
+			// through into the walk loop so this same tick advances it.
 		}
 	}
 
