@@ -53,6 +53,11 @@ type CombatModifiers struct {
 	PetAttackDmg     int
 	PetDeflectProc   float64
 	PetWhiffProc     float64 // pet distracts enemy → guaranteed miss
+	// Spiritual Weapon — separate channel from the pet so the spectral mace
+	// gets its own narration when a cleric without a companion casts it.
+	// Damage formula mirrors PetAttack (Dmg + d5), proc rolls per round.
+	SpiritWeaponProc float64
+	SpiritWeaponDmg  int
 	SniperKillProc   float64 // Arina instant-kill
 	MistyHealProc    float64
 	MistyHealAmt     int
@@ -319,10 +324,6 @@ type combatState struct {
 	// the enemy would otherwise attack).
 	enemySkipFirst bool
 
-	// Phase 13 turn-based — pet attack decided once at fight start; the pet
-	// strikes once on the player's first acting turn, which clears this.
-	petProcReady bool
-
 	// Phase 10 SUB2a-ii first-attack one-shots.
 	firstAttackBonusUsed  bool
 	assassinateRerollUsed bool
@@ -330,6 +331,14 @@ type combatState struct {
 
 	// Phase 10 SUB2b — Abjuration Arcane Ward HP buffer.
 	arcaneWardHP int
+
+	// concentrationDmg — per-round damage of an active concentration AOE
+	// (Spirit Guardians et al.). Armed by a !cast of a concentration damage
+	// spell, ticked against the enemy every round_end until the fight ends
+	// or another concentration spell overwrites it. Only the turn engine
+	// reads it; SimulateCombat resolves whole fights in one pass and folds
+	// the aura's value into the picker's concentration multiplier instead.
+	concentrationDmg int
 
 	// Phase 13 bestiary slice 3 — stateful monster-ability effects. Each is
 	// armed by applyAbility and read by the shared resolution primitives, so
@@ -643,6 +652,19 @@ func simulateRound(st *combatState, player, enemy *Combatant, phase *CombatPhase
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "pet", Action: "pet_attack",
 			Damage: petDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if enemyDown(st, phaseName) {
+			return true
+		}
+	}
+
+	// Spiritual Weapon strike
+	if player.Mods.SpiritWeaponProc > 0 && st.randFloat() < player.Mods.SpiritWeaponProc {
+		swDmg := player.Mods.SpiritWeaponDmg + st.roll(5)
+		st.enemyHP = max(0, st.enemyHP-swDmg)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "spirit_weapon", Action: "spirit_weapon_strike",
+			Damage: swDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
 		if enemyDown(st, phaseName) {
 			return true

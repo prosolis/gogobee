@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -91,18 +92,23 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 func expeditionHelpText() string {
 	var b strings.Builder
 	b.WriteString("**!expedition** — multi-day dungeon expeditions.\n\n")
-	b.WriteString("`!expedition list` — show zones available at your level\n")
-	b.WriteString("`!expedition start <zone> [Ns] [Md]` — outfit & begin\n")
-	b.WriteString("    `Ns` = N standard packs (10 SU, 50 coins, max 3)\n")
-	b.WriteString("    `Md` = M deluxe packs (20 SU, 90 coins, max 1)\n")
-	b.WriteString("    default: `1s`\n")
-	b.WriteString("`!expedition run` — autopilot: walk rooms until something needs you (alias `!explore`)\n")
-	b.WriteString("`!expedition status` — current expedition snapshot\n")
+	b.WriteString("**The shape:** pick a zone, pick a supply pack, watch it play out. ")
+	b.WriteString("Autopilot walks rooms, pitches camp at night, and DMs you when something needs a decision (a fork, a boss, low HP).\n\n")
+	b.WriteString("**Run an expedition:**\n")
+	b.WriteString("`!expedition list` — zones available at your level\n")
+	b.WriteString("`!expedition start <zone>` — prompts a loadout: `lean` / `balanced` / `heavy`\n")
+	b.WriteString("`!expedition run` — start (or resume) the autopilot walk (alias `!explore`)\n")
+	b.WriteString("`!expedition status` — day, rooms, supplies, recent events\n\n")
+	b.WriteString("**Mid-expedition:**\n")
+	b.WriteString("`!extract` — bail safely (resumable for 7 days)\n")
+	b.WriteString("`!resume [loadout]` — resume an extracted expedition\n")
 	b.WriteString("`!expedition log` — last 5 log entries\n")
-	b.WriteString("`!expedition abandon` — end the expedition (no rewards)\n")
-	b.WriteString("`!extract` — voluntary extraction (1 day, resumable for 7 days)\n")
-	b.WriteString("`!resume [Ns] [Md]` — resume an extracted expedition\n")
-	b.WriteString("`!map` — region/room ASCII map")
+	b.WriteString("`!expedition abandon` — end without rewards\n")
+	b.WriteString("`!map` — region/room ASCII map\n\n")
+	b.WriteString("**Overrides** _(autopilot covers these — only reach for them if you want manual control)_:\n")
+	b.WriteString("`!fight` — engage an Elite/Boss the autopilot paused at\n")
+	b.WriteString("`!camp` — force a rest right now (see `!camp` for types)\n")
+	b.WriteString("`!expedition start <zone> Ns Md` — raw pack counts instead of a preset")
 	return b.String()
 }
 
@@ -178,6 +184,66 @@ func parseSupplyArgs(rest string) (SupplyPurchase, error) {
 	return p, nil
 }
 
+// resolveLoadoutOrParse first tries a single-token preset (lean/balanced/
+// heavy and short forms); on miss it falls back to raw `Ns Md` parsing.
+// Tier is needed because preset purchase counts scale by zone tier.
+func resolveLoadoutOrParse(tok string, tier ZoneTier) (SupplyPurchase, error) {
+	trimmed := strings.TrimSpace(tok)
+	if !strings.ContainsAny(trimmed, " \t") {
+		if l, ok := parseLoadoutToken(trimmed); ok {
+			return loadoutPurchase(tier, l), nil
+		}
+	}
+	return parseSupplyArgs(tok)
+}
+
+// renderLoadoutPrompt formats the "pick your loadout" DM. The resume
+// command and start command share it; cmdHint tells the player which
+// command to type back with the chosen preset.
+func renderLoadoutPrompt(zone ZoneDefinition, cmdHint string) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("🎒 **Pick a loadout — %s** _(T%d)_\n\n", zone.Display, int(zone.Tier)))
+	for _, l := range []SupplyLoadout{LoadoutLean, LoadoutBalanced, LoadoutHeavy} {
+		pp := loadoutPurchase(zone.Tier, l)
+		b.WriteString(fmt.Sprintf("  `%s` — %s — %.0f SU, %d coins — %s\n",
+			loadoutName(l), packBreakdown(pp), pp.Total(), pp.Cost(), loadoutBlurb(l)))
+	}
+	b.WriteString(fmt.Sprintf("\nType `!%s %s` (or `lean` / `heavy`).\n", cmdHint, loadoutName(LoadoutBalanced)))
+	b.WriteString("Advanced: raw pack counts like `2s 1d`.")
+	return b.String()
+}
+
+func loadoutName(l SupplyLoadout) string {
+	switch l {
+	case LoadoutLean:
+		return "lean"
+	case LoadoutHeavy:
+		return "heavy"
+	}
+	return "balanced"
+}
+
+func loadoutBlurb(l SupplyLoadout) string {
+	switch l {
+	case LoadoutLean:
+		return "covers the intended run at calm burn; thin if things go sideways"
+	case LoadoutHeavy:
+		return "max cap; rides out harsh stretches and overruns"
+	}
+	return "recommended; absorbs a harsh patch or two"
+}
+
+func packBreakdown(p SupplyPurchase) string {
+	switch {
+	case p.StandardPacks > 0 && p.DeluxePacks > 0:
+		return fmt.Sprintf("%d standard + %d deluxe", p.StandardPacks, p.DeluxePacks)
+	case p.DeluxePacks > 0:
+		return fmt.Sprintf("%d deluxe", p.DeluxePacks)
+	default:
+		return fmt.Sprintf("%d standard", p.StandardPacks)
+	}
+}
+
 func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter, rest string) error {
 	if rest == "" {
 		return p.SendDM(ctx.Sender,
@@ -195,11 +261,17 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 		return p.SendDM(ctx.Sender,
 			"Unknown zone for your level. Try `!expedition list`.")
 	}
-	purchase, err := parseSupplyArgs(packTok)
+	zoneForCaps, _ := getZone(zoneID)
+	// D5-b: prompt for a preset loadout on empty args. Raw `Ns Md` syntax
+	// still works as the advanced override.
+	if strings.TrimSpace(packTok) == "" {
+		return p.SendDM(ctx.Sender, renderLoadoutPrompt(zoneForCaps, "expedition start "+string(zoneID)))
+	}
+	purchase, err := resolveLoadoutOrParse(packTok, zoneForCaps.Tier)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't parse supply packs: "+err.Error())
 	}
-	if err := purchase.Validate(); err != nil {
+	if err := purchase.Validate(zoneForCaps.Tier); err != nil {
 		return p.SendDM(ctx.Sender, "Invalid pack selection: "+err.Error())
 	}
 	cost := float64(purchase.Cost())
@@ -226,9 +298,10 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 			zone.Display))
 	}
 
-	zone, _ := getZone(zoneID)
+	zone := zoneForCaps
 	// Holiday perk: a complimentary standard pack is added to the supplies
-	// snapshot without inflating the coin cost.
+	// snapshot without inflating the coin cost. Bypasses the per-tier cap
+	// on purpose — it's a freebie on top of whatever the player bought.
 	suppliesPurchase := purchase
 	if isHol, _ := isHolidayToday(); isHol {
 		suppliesPurchase.StandardPacks++
@@ -261,6 +334,7 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	// Log the start with prewritten flavor.
 	startLine := flavor.Pick(flavor.ExpeditionStart)
 	_ = appendExpeditionLog(exp.ID, 1, "narrative", "expedition started", startLine)
+	markActedToday(ctx.Sender)
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🗺 **Expedition begins — %s** _(T%d)_\n\n", zone.Display, int(zone.Tier)))
@@ -330,8 +404,9 @@ func (p *AdventurePlugin) expeditionCmdStatusImpl(ctx MessageContext, debug bool
 	zone, _ := getZone(exp.ZoneID)
 	c, _ := LoadDnDCharacter(ctx.Sender)
 
+	target := expeditionTargetDays(zone.Tier)
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🎭 **TwinBee — Status, Day %d**\n\n", exp.CurrentDay))
+	b.WriteString(fmt.Sprintf("🎭 **TwinBee — Status, Day %d / ~%d expected**\n\n", exp.CurrentDay, target))
 	b.WriteString(fmt.Sprintf("📍 **Zone:** %s _(T%d)_\n", zone.Display, int(zone.Tier)))
 	if r, ok := CurrentRegion(exp); ok {
 		cleared := IsRegionCleared(exp, r.ID)
@@ -341,6 +416,10 @@ func (p *AdventurePlugin) expeditionCmdStatusImpl(ctx MessageContext, debug bool
 		}
 		b.WriteString(fmt.Sprintf("🗺 **Region:** %s (%d/%d)%s\n",
 			r.Name, r.Order, len(regionsForZone(exp.ZoneID)), marker))
+	}
+	if run, rerr := getActiveZoneRun(ctx.Sender); rerr == nil && run != nil && run.TotalRooms > 0 {
+		b.WriteString(fmt.Sprintf("🚪 **Rooms:** %d / %d in this region\n",
+			run.CurrentRoom+1, run.TotalRooms))
 	}
 	if c != nil {
 		b.WriteString(fmt.Sprintf("❤️  **HP:** %d / %d\n", c.HPCurrent, c.HPMax))
@@ -374,6 +453,19 @@ func (p *AdventurePlugin) expeditionCmdStatusImpl(ctx MessageContext, debug bool
 		} else {
 			b.WriteString(fmt.Sprintf("⚠ **%s** — you're slower and clumsier than usual.\n",
 				depletionLabel(state)))
+		}
+	}
+	if entries, lerr := recentExpeditionLog(exp.ID, 3); lerr == nil && len(entries) > 0 {
+		b.WriteString("\n**Recent:**\n")
+		for _, e := range entries {
+			line := e.Summary
+			if line == "" {
+				line = e.Flavor
+			}
+			if line == "" {
+				continue
+			}
+			b.WriteString(fmt.Sprintf("  · _Day %d_ — %s\n", e.Day, line))
 		}
 	}
 	b.WriteString(fmt.Sprintf("\nStarted: %s   Last activity: %s",
@@ -484,11 +576,17 @@ func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
 	if err := abandonExpedition(ctx.Sender); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't abandon: "+err.Error())
 	}
+	markActedToday(ctx.Sender)
 	_ = retireAllRegionRuns(exp)
 	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative", "expedition abandoned", "")
-	return p.SendDM(ctx.Sender, fmt.Sprintf(
+	if err := p.SendDM(ctx.Sender, fmt.Sprintf(
 		"Expedition in **%s** abandoned on Day %d. Supplies are forfeit. The dungeon remembers.",
-		zone.Display, exp.CurrentDay))
+		zone.Display, exp.CurrentDay)); err != nil {
+		return err
+	}
+	// Emergence seam: see maybeRollPetArrivalOnEmerge.
+	p.maybeRollPetArrivalOnEmerge(ctx.Sender)
+	return nil
 }
 
 // helper: ensure we don't shadow id.UserID import in test harness.
@@ -545,11 +643,23 @@ type autopilotWalkResult struct {
 // combat already auto-resolves inside resolveCombatRoom; elite/boss
 // doorways stop here so the player can choose !fight on their own terms.
 func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
-	r := p.runAutopilotWalk(ctx, autopilotRoomCap, false)
+	r := p.runAutopilotWalk(ctx, autopilotRoomCap, false, false)
 	if r.initErr != "" {
 		return p.SendDM(ctx.Sender, r.initErr)
 	}
-	return p.streamFlow(ctx.Sender, r.stream, r.finalMsg)
+	// Emergence seam: a natural run-complete (boss down / dead-end node)
+	// surfaces the player alive just like an extract or abandon — roll pet
+	// arrival here too. The roll lives in the real callers, not in
+	// runAutopilotWalk, so the sim path (which calls the walk directly)
+	// never fires arrival DMs. See maybeRollPetArrivalOnEmerge. Defer it
+	// behind the paced stream so the "animal in your house" DM lands after
+	// the "Run complete" beat, not before it.
+	var after func()
+	if r.reason == stopComplete {
+		uid := ctx.Sender
+		after = func() { p.maybeRollPetArrivalOnEmerge(uid) }
+	}
+	return p.streamFlowThen(ctx.Sender, r.stream, r.finalMsg, after)
 }
 
 // runAutopilotWalk runs the autopilot loop up to maxRooms times and
@@ -558,7 +668,46 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 // run graph / harvest tally / supplies / threat — same as before, just
 // no streamFlow here. compact==true switches the underlying combat
 // narration into terse mode and auto-resolves elite (not boss) rooms.
-func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, compact bool) autopilotWalkResult {
+// forkAutoPickTimeout — how long a background fork may sit unanswered
+// before the autopilot picks an available route itself. Short enough that
+// the expedition keeps moving rather than idling out to the 24h stale-run
+// reaper; long enough that a player away for the evening still gets first
+// say on a genuine fork.
+const forkAutoPickTimeout = 8 * time.Hour
+
+// autoPickStaleFork commits the first unlocked option of a stale background
+// fork, advancing the run to that node exactly as `!zone go <n>` would
+// (advanceZoneRunNode + region-transition hook). Returns false — no pick —
+// when every option is locked, so the caller re-emits the prompt and the
+// run idles on toward the reaper. The choice is logged as a narrative entry
+// so the end-of-day digest can surface the decision the player missed.
+func (p *AdventurePlugin) autoPickStaleFork(exp *Expedition, run *DungeonRun, pf *pendingFork) bool {
+	var chosen *pendingChoice
+	for i := range pf.Options {
+		if pf.Options[i].Unlocked {
+			chosen = &pf.Options[i]
+			break
+		}
+	}
+	if chosen == nil {
+		return false // nothing unlocked — leave it for the player / reaper
+	}
+	if err := advanceZoneRunNode(run.RunID, chosen.To); err != nil {
+		slog.Warn("expedition: auto-pick stale fork",
+			"user", run.UserID, "run", run.RunID, "err", err)
+		return false
+	}
+	g, _ := loadZoneGraph(run.ZoneID)
+	fireGraphRegionTransition(run.UserID, g.Nodes[run.CurrentNode], g.Nodes[chosen.To])
+	if exp != nil {
+		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative",
+			fmt.Sprintf("autopilot took an available path after %dh idle at the fork: %s",
+				int(forkAutoPickTimeout.Hours()), chosen.Label), "")
+	}
+	return true
+}
+
+func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, compact, inlineBossCombat bool) autopilotWalkResult {
 	exp, err := getActiveExpedition(ctx.Sender)
 	if err != nil {
 		return autopilotWalkResult{initErr: "Couldn't read expedition state: " + err.Error()}
@@ -568,6 +717,31 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 	}
 	if exp.RunID == "" {
 		return autopilotWalkResult{initErr: "No active region run. Try `!region` to refresh."}
+	}
+
+	// Already standing at a pending fork. The autopilot can't pick for the
+	// player, so a fresh fork re-emits the prompt with rooms=0 (background
+	// DM suppression keeps quiet; the rooms counter doesn't tick on a no-op
+	// walk). But a background fork left unanswered past forkAutoPickTimeout
+	// would otherwise idle all the way to the 24h stale-run reaper and end
+	// the expedition — so once it's stale, auto-pick the first available
+	// (unlocked) route and keep walking instead of stalling out.
+	if run, rerr := getActiveZoneRun(ctx.Sender); rerr == nil && run != nil {
+		if pf, derr := decodePendingFork(run.NodeChoices); derr == nil && pf != nil {
+			picked := compact &&
+				time.Since(run.LastActionAt) > forkAutoPickTimeout &&
+				p.autoPickStaleFork(exp, run, pf)
+			if !picked {
+				zone := zoneOrFallback(run.ZoneID)
+				return autopilotWalkResult{
+					finalMsg: renderForkPrompt(zone, *pf),
+					rooms:    0,
+					reason:   stopFork,
+				}
+			}
+			// Auto-picked: the run now points at the chosen node. Fall
+			// through into the walk loop so this same tick advances it.
+		}
 	}
 
 	var stream []string
@@ -593,7 +767,7 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 			}
 		}
 
-		res, aerr := p.advanceOnceWithOpts(ctx, compact)
+		res, aerr := p.advanceOnceWithOpts(ctx, compact, inlineBossCombat)
 		if aerr != nil {
 			return autopilotWalkResult{initErr: aerr.Error()}
 		}
@@ -608,8 +782,50 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 		// Doorway/blocked stops fire *before* the current room actually
 		// resolved — those don't count as a walked room. Everything else
 		// (OK, fork after a clear, ended after combat, complete) does.
-		if res.reason != stopBlocked && res.reason != stopElite && res.reason != stopBoss {
+		// stopBossSafety also fires at the doorway (compact autopilot
+		// bailed before engaging), so it doesn't count either.
+		if res.reason != stopBlocked && res.reason != stopElite && res.reason != stopBoss && res.reason != stopBossSafety {
 			rooms++
+		}
+
+		// Multi-region auto-advance: a mid-zone region clear completes the
+		// region's run (stopComplete) but leaves the wrapping expedition
+		// active. Rather than dead-stopping the walk at every region
+		// boundary, cross into the next region — burning the transit day +
+		// supplies exactly like manual `!region travel` — and keep walking
+		// within the remaining room budget. A full zone clear instead flips
+		// the expedition to 'complete' (getActiveExpedition → nil) and falls
+		// through to the normal stop below.
+		if res.reason == stopComplete {
+			if fresh, ferr := getActiveExpedition(ctx.Sender); ferr == nil && fresh != nil &&
+				IsMultiRegionZone(fresh.ZoneID) {
+				if cur, ok := CurrentRegion(fresh); ok {
+					if next, ok := nextRegion(fresh.ZoneID, cur.ID); ok {
+						// A region crossing burns a transit day + supplies and
+						// draws unprotected wandering damage. On the background
+						// walk, don't cross while the player is weak — preflight
+						// HP/SU and hand the crossing back to a foreground
+						// `!region travel` / `!expedition run` if either is low.
+						if compact {
+							if msg, stop := autopilotPreflight(ctx.Sender, fresh); stop {
+								finalMsg = res.final + "\n\n" + msg
+								reason = stopPreflight
+								break
+							}
+						}
+						stream = append(stream, res.final)
+						transit, terr := p.advanceToNextRegion(ctx.Sender, fresh, cur, next)
+						if terr != nil {
+							finalMsg = res.final + "\n\n⏸ **Autopilot paused — region transit failed.** `!region travel` to cross over manually."
+							reason = stopComplete
+							break
+						}
+						stream = append(stream, transit)
+						exp = fresh
+						continue
+					}
+				}
+			}
 		}
 
 		if res.reason != stopOK {
@@ -632,15 +848,16 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 			exp = fresh
 		}
 
-		// Arrived at a Boss doorway: stop here. The "Room X/Y — Boss.
-		// !fight when ready." line in res.final already tells the player
-		// what to do; another loop iteration would just hit the gate and
-		// emit a duplicate "Room X/Y — Boss" message.
+		// Arrived at an Elite/Boss doorway. Foreground stops here so the
+		// player can decide; the "Room X/Y — Boss. !fight when ready."
+		// line in res.final already tells them what to do.
 		//
-		// For Elite + non-compact, do the same. In compact mode we let
-		// the next iteration run because the gate will auto-resolve the
-		// elite inline (which is the whole point of compact mode).
-		if res.nextRoomType == RoomBoss || (res.nextRoomType == RoomElite && !compact) {
+		// In compact mode (background autopilot, long-expedition D2/D3)
+		// we let the next iteration run because the gate will auto-
+		// resolve the encounter inline — elite always, boss when the
+		// safety check passes (otherwise the gate returns stopBossSafety
+		// and the autorun ticker pitches a rest camp).
+		if !compact && (res.nextRoomType == RoomBoss || res.nextRoomType == RoomElite) {
 			r := stopBoss
 			if res.nextRoomType == RoomElite {
 				r = stopElite
@@ -749,6 +966,8 @@ func autopilotFooter(reason stopReason, rooms int) string {
 		return fmt.Sprintf("⏸ **Autopilot paused — elite ahead** (after %s). `!fight` when ready, then `!expedition run` to continue.", roomsStr)
 	case stopBoss:
 		return fmt.Sprintf("⏸ **Autopilot paused — boss ahead** (after %s). `!fight` when ready.", roomsStr)
+	case stopBossSafety:
+		return "" // res.final already carries the held-back-from-boss line
 	case stopEnded:
 		return "" // death narration is the final; no footer
 	case stopComplete:

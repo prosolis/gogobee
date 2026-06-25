@@ -701,6 +701,7 @@ func TestAbyss_DailyInstabilityIncrements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rewindToLegacyAnchor(t, exp)
 	p := &AdventurePlugin{}
 	// Three briefings → instability should hit 15.
 	for i := 0; i < 3; i++ {
@@ -732,6 +733,7 @@ func TestAbyss_UnravelingDoublesBurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rewindToLegacyAnchor(t, exp)
 	// Set instability to 85 (unravel band).
 	if _, err := db.Get().Exec(
 		`UPDATE dnd_expedition SET temporal_stack = 85 WHERE expedition_id = ?`,
@@ -760,6 +762,7 @@ func TestAbyss_CollapseFailsExpedition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rewindToLegacyAnchor(t, exp)
 	// Set instability to 95 — next daily +5 lands on 100 (collapse).
 	if _, err := db.Get().Exec(
 		`UPDATE dnd_expedition SET temporal_stack = 95 WHERE expedition_id = ?`,

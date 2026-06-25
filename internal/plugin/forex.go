@@ -122,6 +122,10 @@ const fxHelpText = "**Forex Commands**\n\n" +
 // ── Command Handlers ────────────────────────────────────────────────────────
 
 func (p *ForexPlugin) cmdRate(ctx MessageContext, args []string) error {
+	if msg := fxValidateAnalysisArgs(args); msg != "" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, msg)
+	}
+
 	// Check for cross-pair syntax like EUR/USD or USD/JPY
 	if pair := fxParsePair(args, false); pair != nil {
 		return p.cmdPairRateOrReport(ctx, pair, false)
@@ -277,6 +281,9 @@ func (p *ForexPlugin) fxPerUSD(cur string, fiatRates map[string]float64) (float6
 }
 
 func (p *ForexPlugin) cmdReport(ctx MessageContext, args []string) error {
+	if msg := fxValidateAnalysisArgs(args); msg != "" {
+		return p.SendReply(ctx.RoomID, ctx.EventID, msg)
+	}
 	if pair := fxParsePair(args, false); pair != nil {
 		return p.cmdPairRateOrReport(ctx, pair, true)
 	}
@@ -403,6 +410,34 @@ func (p *ForexPlugin) checkAlerts(rates map[string]float64) {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+// fxValidateAnalysisArgs vets the currency tokens passed to the fiat-only
+// rate/report path. It returns a player-facing error message if any token is
+// unusable here, or "" when the args are fine (including empty args, which fall
+// back to the default tracked set). Crypto tokens get a dedicated nudge since
+// crypto only works on the conversion path; anything else is just invalid.
+func fxValidateAnalysisArgs(args []string) string {
+	for _, a := range args {
+		// Split pair syntax (BTC/USD) into its sides so each is checked.
+		raw := strings.ToUpper(a)
+		toks := []string{raw}
+		for _, sep := range []string{"/", "|", "-"} {
+			if strings.Contains(raw, sep) {
+				toks = strings.SplitN(raw, sep, 2)
+				break
+			}
+		}
+		for _, t := range toks {
+			if fxIsCrypto(t) {
+				return "Silly rabbit. Crypto is for kids! (In other words.. that's an invalid command — crypto only works for conversions like `!fx 100 USD to BTC`.)"
+			}
+			if !fxIsSupported(t) {
+				return fmt.Sprintf("Don't know the currency `%s`. Try `!fx help`.", t)
+			}
+		}
+	}
+	return ""
+}
 
 func fxParseCurrencies(args []string) []string {
 	var out []string

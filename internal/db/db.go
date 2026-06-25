@@ -333,6 +333,9 @@ func runMigrations(d *sql.DB) error {
 		// engages when a fork / elite / boss / supply pinch actually
 		// needs a decision. CAS-claim on this column gates re-entry.
 		`ALTER TABLE dnd_expedition ADD COLUMN last_autorun_at DATETIME`,
+		// URL link previews now post the page's og:image/twitter:image
+		// thumbnail; cache it alongside the title/description.
+		`ALTER TABLE url_cache ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1124,6 +1127,7 @@ CREATE TABLE IF NOT EXISTS url_cache (
 	url TEXT PRIMARY KEY,
 	title TEXT DEFAULT '',
 	description TEXT DEFAULT '',
+	image_url TEXT NOT NULL DEFAULT '',
 	cached_at INTEGER DEFAULT (unixepoch())
 );
 
@@ -2041,15 +2045,15 @@ func SeedSchedulerDefaults(d *sql.DB) error {
 		name string
 		cron string
 	}{
-		{"prefetch", "5 0 * * *"},       // 00:05 daily
-		{"maintenance", "0 3 * * *"},    // 03:00 daily
-		{"wotd", "0 8 * * *"},           // 08:00 daily
-		{"holidays", "0 7 * * *"},       // 07:00 daily
-		{"releases", "0 9 * * 1"},       // 09:00 Monday
-		{"birthday_check", "0 6 * * *"}, // 06:00 daily
-		{"anime_releases", "0 10 * * *"},// 10:00 daily
-		{"movie_releases", "0 11 * * *"},// 11:00 daily
-		{"concert_digest", "0 12 * * 0"},// 12:00 Sunday
+		{"prefetch", "5 0 * * *"},        // 00:05 daily
+		{"maintenance", "0 3 * * *"},     // 03:00 daily
+		{"wotd", "0 8 * * *"},            // 08:00 daily
+		{"holidays", "0 7 * * *"},        // 07:00 daily
+		{"releases", "0 9 * * 1"},        // 09:00 Monday
+		{"birthday_check", "0 6 * * *"},  // 06:00 daily
+		{"anime_releases", "0 10 * * *"}, // 10:00 daily
+		{"movie_releases", "0 11 * * *"}, // 11:00 daily
+		{"concert_digest", "0 12 * * 0"}, // 12:00 Sunday
 	}
 
 	stmt, err := d.Prepare(`INSERT OR IGNORE INTO scheduler_config (job_name, cron_expr) VALUES (?, ?)`)

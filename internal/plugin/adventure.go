@@ -220,6 +220,16 @@ func (p *AdventurePlugin) Init() error {
 	// migration walks dnd_character once at startup; idempotent via
 	// JobCompleted gate.
 	bootstrapPhase5BHPRefresh()
+	// J3 D8-d-fix: caster HP lift (casterHPMult in dnd.go). Refresh
+	// existing caster rows once at startup so the lift reaches live
+	// players without waiting for level-up.
+	bootstrapCasterHPRefresh()
+	// 2026-06-18 caster-aid: backfill default spells that postdate a
+	// character's roll (ensureSpellsForCharacter only seeds an empty book),
+	// and a one-off pet gift for an endgame player who never got the morning
+	// arrival roll. Both idempotent via JobCompleted gates.
+	bootstrapCasterSpellBackfill()
+	bootstrapGrantStarterPet()
 	// Phase R1 orphan-archive used to run here on every Init, but it
 	// over-archived: it treats any active dnd_zone_run row not linked to
 	// an active expedition as a legacy `!adventure dungeon` orphan, which
@@ -279,6 +289,12 @@ func (p *AdventurePlugin) OnReaction(_ ReactionContext) error { return nil }
 // ── Message Dispatch ─────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
+	// D4-b: lazy morning briefing. When the 06:00 UTC ticker skips an idle
+	// player's event-anchored expedition, the briefing fires here on their
+	// next inbound message. Fast-paths to a no-op for users with no active
+	// expedition.
+	p.maybeDeliverDeferredBriefing(ctx.Sender, time.Now().UTC())
+
 	// 0. D&D layer commands (Phase 1 — work in rooms and DMs)
 	if p.IsCommand(ctx.Body, "setup") {
 		return p.handleDnDSetupCmd(ctx, p.GetArgs(ctx.Body, "setup"))
@@ -853,7 +869,7 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 	case "pet_type":
 		return p.resolvePetType(ctx)
 	case "pet_name":
-		return p.resolvePetName(ctx)
+		return p.resolvePetName(ctx, interaction)
 	}
 	return nil
 }

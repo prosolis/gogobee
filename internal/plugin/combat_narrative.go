@@ -236,6 +236,12 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 	case "pet_attack":
 		return fmt.Sprintf(pickRand(narrativePetAttack), e.Damage)
 
+	case "spirit_weapon_strike":
+		return fmt.Sprintf(pickRand(narrativeSpiritWeapon), e.Damage)
+
+	case "concentration_tick":
+		return fmt.Sprintf(pickRand(narrativeConcentrationTick), e.Damage)
+
 	case "pet_deflect":
 		return pickRand(narrativePetDeflect)
 
@@ -326,9 +332,9 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 	case "survive_at_1":
 		return pickRand(narrativeSurvive)
 	case "stat_drain":
-		return pickRand(narrativeStatDrain)
+		return fmt.Sprintf(pickRand(narrativeStatDrain), e.Damage)
 	case "debuff":
-		return pickRand(narrativeDebuff)
+		return fmt.Sprintf(pickRand(narrativeDebuff), e.Damage)
 	case "max_hp_drain":
 		return fmt.Sprintf(pickRand(narrativeMaxHPDrain), e.Damage)
 
@@ -346,7 +352,7 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 	case "fear_resist":
 		return pickRand(narrativeFearResist)
 	case "ally_buff":
-		return pickRand(narrativeAllyBuff)
+		return fmt.Sprintf(pickRand(narrativeAllyBuff), e.Damage)
 
 	case "timeout":
 		return pickRand(narrativeTimeout)
@@ -524,6 +530,20 @@ var narrativePetAttack = []string{
 	"🐾 Your pet strikes from the side with zero hesitation. %d additional damage. The enemy was not monitoring the pet. Mistake.",
 	"🐾 Your pet joins the fray with a well-timed attack. %d damage. The timing was suspicious. Your pet may be smarter than you.",
 	"🐾 Your faithful companion lands a hit for %d damage. More faithful than accurate, but today both applied.",
+}
+
+var narrativeSpiritWeapon = []string{
+	"✨ The spectral mace swings on its own and lands for %d damage. Floating menace, well-balanced.",
+	"✨ Your spiritual weapon hovers, picks an angle, strikes — %d damage. No grip, all conviction.",
+	"✨ A glowing weapon arcs in from beside you. %d damage. The enemy keeps trying to track it. Cannot.",
+	"✨ The spectral blade flickers, then bites. %d damage. It does not tire. It does not blink.",
+}
+
+var narrativeConcentrationTick = []string{
+	"🌀 The lingering aura grinds the enemy down — %d damage. Still humming. Still hungry.",
+	"🌀 Your spell hasn't let go: the spirits sweep through again for %d damage.",
+	"🌀 The radiant field pulses once more — %d damage. Concentration holds.",
+	"🌀 The enemy steps wrong and the standing magic answers, %d damage. It does not move on.",
 }
 
 var narrativePetDeflect = []string{

@@ -169,7 +169,7 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 		return p.SendDM(ctx.Sender, "Couldn't decode pending fork: "+derr.Error())
 	}
 	if pf == nil {
-		return p.SendDM(ctx.Sender, "No fork pending. Use `!zone advance` to continue.")
+		return p.SendDM(ctx.Sender, "No fork pending. Use "+continueHint(ctx.Sender))
 	}
 	rest = strings.TrimSpace(rest)
 	if rest == "" {
@@ -187,6 +187,7 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 	if aerr := advanceZoneRunNode(run.RunID, chosen.To); aerr != nil {
 		return p.SendDM(ctx.Sender, "Couldn't advance: "+aerr.Error())
 	}
+	markActedToday(ctx.Sender)
 	g, _ := loadZoneGraph(run.ZoneID)
 	zone := zoneOrFallback(run.ZoneID)
 	fromNode := g.Nodes[run.CurrentNode]
@@ -195,6 +196,9 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 	nextRoom := nodeKindToRoomType(nextNode.Kind)
 	nextIdx := run.CurrentRoom + 1
 	var b strings.Builder
+	if kind := autoBreakCampOnMove(ctx.Sender); kind != "" {
+		b.WriteString(fmt.Sprintf("⛺ Camp struck (**%s**) — the party moved on.\n\n", kind))
+	}
 	b.WriteString(fmt.Sprintf("➡ You take the path: **%s**.\n\n", chosen.Label))
 	if nextRoom == RoomBoss {
 		if line := composeBossEntry(zone.ID, run.RunID, nextIdx); line != "" {
@@ -207,7 +211,14 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 			b.WriteString("\n\n")
 		}
 	}
-	b.WriteString(fmt.Sprintf("**Room %d/%d — %s.** `!zone advance` to continue.",
-		nextIdx+1, run.TotalRooms, prettyRoomType(nextRoom)))
+	b.WriteString(fmt.Sprintf("**Room %d/%d — %s.** ", nextIdx+1, run.TotalRooms, prettyRoomType(nextRoom)))
+	switch nextRoom {
+	case RoomBoss:
+		b.WriteString("`!fight` when you're ready for the boss.")
+	case RoomElite:
+		b.WriteString("`!fight` when ready.")
+	default:
+		b.WriteString(continueHint(ctx.Sender))
+	}
 	return p.SendDM(ctx.Sender, b.String())
 }

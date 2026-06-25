@@ -256,7 +256,7 @@ var _ = func() bool {
 		},
 		"green_hag": {
 			ID: "green_hag", Name: "Green Hag",
-			CR: 3, HP: 82, AC: 17, Attack: 6, AttackBonus: 5, Speed: 12,
+			CR: 3, HP: 105, AC: 18, Attack: 6, AttackBonus: 5, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Invisible Passage", Phase: "any", ProcChance: 0.35, Effect: "evade"},
 			XPValue:   700,
@@ -463,7 +463,7 @@ var _ = func() bool {
 		},
 		"drow_elite_warrior": {
 			ID: "drow_elite_warrior", Name: "Drow Elite Warrior",
-			CR: 5, HP: 71, AC: 18, Attack: 8, AttackBonus: 7, Speed: 12,
+			CR: 5, HP: 95, AC: 19, Attack: 8, AttackBonus: 7, Speed: 12,
 			BlockRate: 0.20,
 			Ability:   &MonsterAbility{Name: "Parry", Phase: "any", ProcChance: 0.35, Effect: "block"},
 			XPValue:   1800,
@@ -471,23 +471,23 @@ var _ = func() bool {
 		},
 		"drow_mage": {
 			ID: "drow_mage", Name: "Drow Mage",
-			CR: 7, HP: 45, AC: 12, Attack: 12, AttackBonus: 5, Speed: 12,
+			CR: 7, HP: 65, AC: 12, Attack: 12, AttackBonus: 5, Speed: 12,
 			BlockRate: 0.05,
-			Ability:   &MonsterAbility{Name: "Lightning Bolt", Phase: "decisive", ProcChance: 0.45, Effect: "aoe"},
+			Ability:   &MonsterAbility{Name: "Lightning Bolt", Phase: "decisive", ProcChance: 0.25, Effect: "aoe"},
 			XPValue:   2900,
 			Notes:     "Spells: Lightning Bolt, Fly, Darkness, Faerie Fire. Magic Resistance.",
 		},
 		"mind_flayer": {
 			ID: "mind_flayer", Name: "Mind Flayer",
-			CR: 7, HP: 71, AC: 15, Attack: 12, AttackBonus: 7, Speed: 12,
+			CR: 7, HP: 90, AC: 15, Attack: 12, AttackBonus: 7, Speed: 12,
 			BlockRate: 0.10,
-			Ability:   &MonsterAbility{Name: "Mind Blast", Phase: "opening", ProcChance: 0.55, Effect: "stun"},
+			Ability:   &MonsterAbility{Name: "Mind Blast", Phase: "opening", ProcChance: 0.30, Effect: "stun"},
 			XPValue:   2900,
 			Notes:     "Mind Blast AoE psychic INT DC 15 or Stunned; Extract Brain instakills stunned; telepathy.",
 		},
 		"hook_horror": {
 			ID: "hook_horror", Name: "Hook Horror",
-			CR: 3, HP: 75, AC: 15, Attack: 6, AttackBonus: 6, Speed: 10,
+			CR: 3, HP: 95, AC: 16, Attack: 6, AttackBonus: 6, Speed: 10,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Pack Tactics", Phase: "any", ProcChance: 0.30, Effect: "advantage"},
 			XPValue:   700,
@@ -495,15 +495,15 @@ var _ = func() bool {
 		},
 		"roper": {
 			ID: "roper", Name: "Roper",
-			CR: 5, HP: 93, AC: 20, Attack: 8, AttackBonus: 7, Speed: 4,
+			CR: 5, HP: 115, AC: 20, Attack: 8, AttackBonus: 7, Speed: 4,
 			BlockRate: 0.20,
-			Ability:   &MonsterAbility{Name: "Reel", Phase: "any", ProcChance: 0.50, Effect: "stun"},
+			Ability:   &MonsterAbility{Name: "Reel", Phase: "any", ProcChance: 0.30, Effect: "stun"},
 			XPValue:   1800,
 			Notes:     "Elite. 6 tendrils grapple+restrain; Reel pulls 25 ft; False Appearance.",
 		},
 		"boss_ilvaras_xunyl": {
 			ID: "boss_ilvaras_xunyl", Name: "Ilvaras Xunyl, Drow High Priestess",
-			CR: 12, HP: 162, AC: 16, Attack: 19, AttackBonus: 9, Speed: 12,
+			CR: 12, HP: 210, AC: 18, Attack: 19, AttackBonus: 9, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Divine Word", Phase: "decisive", ProcChance: 0.40, Effect: "execute"},
 			XPValue:   8400,
@@ -512,7 +512,7 @@ var _ = func() bool {
 		// ── Feywild Crossing ─────────────────────────────────────────────
 		"redcap": {
 			ID: "redcap", Name: "Redcap",
-			CR: 3, HP: 45, AC: 13, Attack: 6, AttackBonus: 6, Speed: 14,
+			CR: 3, HP: 60, AC: 15, Attack: 6, AttackBonus: 6, Speed: 14,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Outsize Strength", Phase: "any", ProcChance: 0.40, Effect: "bonus_damage"},
 			XPValue:   700,
@@ -520,7 +520,7 @@ var _ = func() bool {
 		},
 		"will_o_wisp": {
 			ID: "will_o_wisp", Name: "Will-o'-Wisp",
-			CR: 2, HP: 22, AC: 19, Attack: 4, AttackBonus: 4, Speed: 14,
+			CR: 2, HP: 30, AC: 19, Attack: 4, AttackBonus: 4, Speed: 14,
 			BlockRate: 0.0,
 			Ability:   &MonsterAbility{Name: "Consume Life", Phase: "any", ProcChance: 0.40, Effect: "lifesteal"},
 			XPValue:   450,
@@ -528,7 +528,7 @@ var _ = func() bool {
 		},
 		"quickling": {
 			ID: "quickling", Name: "Quickling",
-			CR: 1, HP: 10, AC: 16, Attack: 2, AttackBonus: 5, Speed: 18,
+			CR: 1, HP: 16, AC: 16, Attack: 2, AttackBonus: 5, Speed: 18,
 			BlockRate: 0.05,
 			Ability:   &MonsterAbility{Name: "Blur", Phase: "any", ProcChance: 0.50, Effect: "evade"},
 			XPValue:   200,
@@ -536,7 +536,7 @@ var _ = func() bool {
 		},
 		"night_hag": {
 			ID: "night_hag", Name: "Night Hag",
-			CR: 5, HP: 112, AC: 17, Attack: 8, AttackBonus: 7, Speed: 12,
+			CR: 5, HP: 135, AC: 18, Attack: 8, AttackBonus: 7, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Etherealness", Phase: "any", ProcChance: 0.30, Effect: "evade"},
 			XPValue:   1800,
@@ -544,7 +544,7 @@ var _ = func() bool {
 		},
 		"fomorian": {
 			ID: "fomorian", Name: "Fomorian",
-			CR: 8, HP: 149, AC: 14, Attack: 13, AttackBonus: 9, Speed: 12,
+			CR: 8, HP: 180, AC: 16, Attack: 13, AttackBonus: 9, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Evil Eye", Phase: "any", ProcChance: 0.45, Effect: "stun"},
 			XPValue:   3900,
@@ -552,7 +552,7 @@ var _ = func() bool {
 		},
 		"boss_thornmother": {
 			ID: "boss_thornmother", Name: "The Thornmother",
-			CR: 11, HP: 187, AC: 17, Attack: 18, AttackBonus: 8, Speed: 12,
+			CR: 11, HP: 235, AC: 18, Attack: 18, AttackBonus: 8, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Beguiling Bargain", Phase: "opening", ProcChance: 0.50, Effect: "stun"},
 			XPValue:   7200,
@@ -602,9 +602,18 @@ var _ = func() bool {
 		},
 		"boss_infernax": {
 			ID: "boss_infernax", Name: "Infernax the Undying",
-			CR: 24, HP: 546, AC: 22, Attack: 38, AttackBonus: 11, Speed: 18,
+			// T5 lift (D11): dragons_lair was an impossible wall — at L15-16
+			// (mid-range) leaders cleared 0-2%, 100% TPK at the boss (it has
+			// 546 HP / AC22 / 49-dmg multiattack / near-guaranteed stun, a
+			// CR24 block fought ~9 levels under its CR). Nerfed to land
+			// martial leaders in the 60-75% band: HP 546→405, AC 22→20,
+			// frightful-presence stun 0.80→0.40, multiattack 49→42 (srd).
+			// (Pass 1's 360/AC20/36 over-nerfed → 98% leaders; Pass 2's
+			// 460/AC21/42 over-corrected → ~40%; this Pass 3 405/AC20/42
+			// lands leaders in band.)
+			CR: 24, HP: 405, AC: 20, Attack: 38, AttackBonus: 11, Speed: 18,
 			BlockRate: 0.15,
-			Ability:   &MonsterAbility{Name: "Frightful Presence", Phase: "opening", ProcChance: 0.80, Effect: "stun"},
+			Ability:   &MonsterAbility{Name: "Frightful Presence", Phase: "opening", ProcChance: 0.40, Effect: "stun"},
 			XPValue:   62000,
 			Notes:     "Dragon's Lair boss. Ancient Red Dragon. Legendary Actions; Lair Actions; phase 2 below 50% HP — fire ignores resistance.",
 			FireAttacker: true,
@@ -652,7 +661,15 @@ var _ = func() bool {
 		},
 		"boss_belaxath": {
 			ID: "boss_belaxath", Name: "Belaxath the Undivided",
-			CR: 19, HP: 262, AC: 19, Attack: 31, AttackBonus: 11, Speed: 14,
+			// T5 lift (D11): abyss_portal was a faceroll for leaders — at its
+			// own floor (L15) fighter/ranger cleared 88-92% (above the 60-75%
+			// band), killing the 262-HP boss in 6-13 rounds with HP to spare.
+			// Buffed to bring leaders into band: HP 262→300, AC 19→20,
+			// multiattack 40→41 (srd). Elites (nalfeshnee/marilith) already
+			// wall the trailers, so this only moves the leaders. (Pass 1's
+			// 360/AC20/45 over-buffed → 19-40% leaders; this is the Pass 2
+			// correction back down toward band.)
+			CR: 19, HP: 300, AC: 20, Attack: 31, AttackBonus: 11, Speed: 14,
 			BlockRate: 0.20,
 			Ability:   &MonsterAbility{Name: "Lightning Discharge", Phase: "decisive", ProcChance: 0.40, Effect: "aoe"},
 			XPValue:   22000,

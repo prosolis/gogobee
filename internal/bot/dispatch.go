@@ -2,6 +2,8 @@ package bot
 
 import (
 	"log/slog"
+	"os"
+	"strings"
 	"sync"
 
 	"gogobee/internal/plugin"
@@ -9,13 +11,24 @@ import (
 
 // Registry manages plugin registration and event dispatch.
 type Registry struct {
-	mu      sync.RWMutex
-	plugins []plugin.Plugin
+	mu          sync.RWMutex
+	plugins     []plugin.Plugin
+	ignoredBots map[string]struct{}
 }
 
-// NewRegistry creates an empty plugin registry.
+// NewRegistry creates an empty plugin registry. Senders listed in the
+// IGNORED_BOTS env var (comma-separated full Matrix user IDs, e.g.
+// "@pete:parodia.dev") are dropped before any plugin sees them.
 func NewRegistry() *Registry {
-	return &Registry{}
+	ignored := make(map[string]struct{})
+	if raw := os.Getenv("IGNORED_BOTS"); raw != "" {
+		for _, u := range strings.Split(raw, ",") {
+			if u = strings.TrimSpace(u); u != "" {
+				ignored[u] = struct{}{}
+			}
+		}
+	}
+	return &Registry{ignoredBots: ignored}
 }
 
 // Register adds a plugin to the registry.
@@ -42,6 +55,9 @@ func (r *Registry) Init() error {
 
 // DispatchMessage sends a message context to all plugins in order.
 func (r *Registry) DispatchMessage(ctx plugin.MessageContext) {
+	if _, ok := r.ignoredBots[string(ctx.Sender)]; ok {
+		return
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, p := range r.plugins {
@@ -71,6 +87,9 @@ func (r *Registry) safeOnMessage(p plugin.Plugin, ctx plugin.MessageContext) {
 
 // DispatchReaction sends a reaction context to all plugins in order.
 func (r *Registry) DispatchReaction(ctx plugin.ReactionContext) {
+	if _, ok := r.ignoredBots[string(ctx.Sender)]; ok {
+		return
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, p := range r.plugins {

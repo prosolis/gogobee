@@ -108,11 +108,21 @@ func (r *DungeonRun) CurrentRoomType() RoomType {
 // generateRoomSequence builds the deterministic-but-seeded room layout
 // for a run of the given zone. The boss room is always last; one Entry
 // is always first; one Trap and one Elite room sit between explorations.
-// Total length is sampled in [zone.MinRooms, zone.MaxRooms].
+//
+// Total length tracks the zone's *graph* longest entry→boss path so the
+// "Room X/Y" display lines up with what the player actually walks. If
+// the graph hasn't been authored / can't be loaded, we fall back to a
+// dice roll within [zone.MinRooms, zone.MaxRooms] (the pre-graph shape).
 func generateRoomSequence(zone ZoneDefinition, rng *rand.Rand) []RoomType {
-	total := zone.MinRooms
-	if zone.MaxRooms > zone.MinRooms {
-		total += rng.IntN(zone.MaxRooms - zone.MinRooms + 1)
+	total := 0
+	if g, ok := loadZoneGraph(zone.ID); ok {
+		total = graphLongestPath(g)
+	}
+	if total == 0 {
+		total = zone.MinRooms
+		if zone.MaxRooms > zone.MinRooms {
+			total += rng.IntN(zone.MaxRooms - zone.MinRooms + 1)
+		}
 	}
 	// Fixed slots: Entry + Trap + Elite + Boss = 4. Remaining = explorations.
 	const fixed = 4
@@ -280,6 +290,17 @@ func getActiveZoneRun(userID id.UserID) (*DungeonRun, error) {
 	}
 	if time.Since(r.LastActionAt) > zoneRunInactivityTimeout {
 		_ = abandonZoneRunByID(r.RunID)
+		// A run reaped by the §4.3 idle timeout must also terminate the
+		// wrapping active expedition. Without this, the expedition is left
+		// status='active' pointing at a now-abandoned run: the autopilot's
+		// runAutopilotWalk reads run==nil and bails, but the briefing/recap
+		// ambient tickers keep firing — the player soft-locks at the last
+		// fork, "stuck" with no way to route on. Mirror the run-loss seam,
+		// but only when this run is the active expedition's current run so
+		// a standalone (non-expedition) stale run still reaps cleanly.
+		if exp, _ := getActiveExpedition(userID); exp != nil && exp.RunID == r.RunID {
+			forceExtractExpeditionForRunLoss(userID, "run idle-timeout (§4.3 stale-run reap)")
+		}
 		return nil, nil
 	}
 	return r, nil

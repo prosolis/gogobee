@@ -119,6 +119,9 @@ func (p *AdventurePlugin) handleExpeditionMapCmd(ctx MessageContext, _ string) e
 			b.WriteString(renderZoneGraphMap(g, run))
 			b.WriteString("\n```\n")
 			b.WriteString("_E=Entry  ?=Exploration  T=Trap  ★=Elite  ☠=Boss  ⚿=Secret · ✓ cleared  ▶ here  · pending  ╳ locked_")
+			if path := renderVisitedPath(g, run); path != "" {
+				b.WriteString("\n**Path:** " + path)
+			}
 			if chain != "" {
 				b.WriteString("\n_Regions: ")
 				b.WriteString(renderRegionLegend(exp))

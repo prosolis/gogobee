@@ -13,8 +13,10 @@ func TestForestShadowsGraph_Registered(t *testing.T) {
 	if g.Boss != "forest_shadows.boss" {
 		t.Errorf("boss node = %q, want forest_shadows.boss", g.Boss)
 	}
-	if len(g.Nodes) != 9 {
-		t.Errorf("nodes = %d, want 9", len(g.Nodes))
+	// Long-expedition D1-b widened this zone from 9 → 19 nodes so the
+	// longest entry→boss walk lands in the T2 [16,20] traversal band.
+	if len(g.Nodes) != 19 {
+		t.Errorf("nodes = %d, want 19", len(g.Nodes))
 	}
 }
 
@@ -42,11 +44,13 @@ func TestForestShadowsGraph_AsymmetricMainFork(t *testing.T) {
 	g := zoneForestShadowsGraph()
 	longLen := bfsHops(g, "forest_shadows.fork1", "forest_shadows.fork2", "forest_shadows.grove_descent")
 	shortLen := bfsHops(g, "forest_shadows.fork1", "forest_shadows.fork2", "forest_shadows.thorn_tunnel")
-	if longLen != 3 {
-		t.Errorf("long branch hops = %d, want 3 (grove_descent → dryad_circle → fork2)", longLen)
+	// D1-b: long branch is now 3 mid-nodes (grove_descent → dryad_circle
+	// → torn_meadow), short is 2 (thorn_tunnel → briar_warren).
+	if longLen != 4 {
+		t.Errorf("long branch hops = %d, want 4 (grove_descent → dryad_circle → torn_meadow → fork2)", longLen)
 	}
-	if shortLen != 2 {
-		t.Errorf("short branch hops = %d, want 2 (thorn_tunnel → fork2)", shortLen)
+	if shortLen != 3 {
+		t.Errorf("short branch hops = %d, want 3 (thorn_tunnel → briar_warren → fork2)", shortLen)
 	}
 	if longLen <= shortLen {
 		t.Errorf("expected asymmetric branches (long > short); got long=%d short=%d", longLen, shortLen)

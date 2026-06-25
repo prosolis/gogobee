@@ -64,6 +64,12 @@ type turnActionEffect struct {
 	EnemyDamage int
 	PlayerHeal  int
 	EnemySkip   bool // control spell: enemy forfeits its attack this round
+	// ConcentrationDmg arms a per-round aura tick when a concentration damage
+	// spell is cast: EnemyDamage is the burst that lands this round, this is
+	// what re-ticks at every round_end after. Zero for one-shot spells; a
+	// non-zero value overwrites any aura already running (5e: one
+	// concentration at a time).
+	ConcentrationDmg int
 }
 
 // turnEngine wraps a combatState reconstructed from a persisted CombatSession
@@ -116,7 +122,6 @@ func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.R
 		armorBroken:    sess.Statuses.ArmorBroken,
 		armorBreakAmt:  sess.Statuses.ArmorBreakAmt,
 		enemySkipFirst: sess.Statuses.EnemySkipNext,
-		petProcReady:   sess.Statuses.PetProcReady,
 		// Fight-scoped depleting resources + once-per-fight one-shots: restored
 		// from the persisted statuses so a charge or "already used" flag can't
 		// reset across a suspend/resume. commit writes the updated values back.
@@ -126,6 +131,7 @@ func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.R
 		autoCrit:              sess.Statuses.AutoCritFirst,
 		arcaneWardHP:          sess.Statuses.ArcaneWardHP,
 		healChargesLeft:       sess.Statuses.HealChargesLeft,
+		concentrationDmg:      sess.Statuses.ConcentrationDmg,
 		deathSaveUsed:         sess.Statuses.DeathSaveUsed,
 		luckyUsed:             sess.Statuses.LuckyUsed,
 		raged:                 sess.Statuses.Raged,
@@ -220,22 +226,26 @@ func (te *turnEngine) stepPlayerTurn(action PlayerAction) {
 		te.finish(CombatStatusWon)
 		return
 	}
+	if te.spiritWeaponStrike() {
+		te.finish(CombatStatusWon)
+		return
+	}
 	te.sess.Phase = CombatPhaseEnemyTurn
 }
 
-// petStrike resolves the player's pet attack for a turn-based fight. Whether
-// the pet lands a hit was decided once at fight start (rollCombatSessionPetProc)
-// and parked on the session; the pet then strikes a single time on the player's
-// first acting turn — this clears the flag so it never repeats. Damage reuses
-// the auto-resolve formula (PetAttackDmg + d5), and PetAttackDmg already carries
-// any mid-fight buff delta via applySessionBuffs. Returns true if the strike
-// dropped the enemy.
+// petStrike resolves the player's pet attack for a turn-based fight. The pet
+// rolls fresh on every player-acting turn (PetAttackProc), mirroring the
+// auto-resolve engine's per-round chance rather than a once-per-fight strike.
+// The roll rides the per-(round,phase) step RNG, so a suspend/resume or reaper
+// auto-play of the same turn reproduces the same outcome. Damage reuses the
+// auto-resolve formula (PetAttackDmg + d5), and PetAttackDmg already carries any
+// mid-fight buff delta via applySessionBuffs. Returns true if the strike dropped
+// the enemy.
 func (te *turnEngine) petStrike() bool {
 	st := te.st
-	if !st.petProcReady {
+	if te.player.Mods.PetAttackProc <= 0 || st.randFloat() >= te.player.Mods.PetAttackProc {
 		return false
 	}
-	st.petProcReady = false
 	petDmg := te.player.Mods.PetAttackDmg + st.roll(5)
 	st.enemyHP = max(0, st.enemyHP-petDmg)
 	st.events = append(st.events, CombatEvent{
@@ -245,30 +255,22 @@ func (te *turnEngine) petStrike() bool {
 	return enemyDown(st, turnCombatPhase.Name)
 }
 
-// rollCombatSessionPetProc makes the one-and-only per-fight pet-attack roll and
-// parks the result on the session. Called once at fight start. The draw is
-// deterministic — seeded off the session id on a stream distinct from the
-// per-(round,phase) combat streams — so a reaper auto-play of an abandoned
-// fight reproduces the same outcome. Returns true if the pet will attack (so
-// the caller can decide whether the session needs persisting).
-//
-// Note: only the base PetAttackProc (class/race/subclass passives) is rolled
-// here — a pet-proc buff cast mid-fight gets no fresh roll, consistent with the
-// per-fight rule. Such a buff still raises PetAttackDmg if the pet does strike.
-func rollCombatSessionPetProc(sess *CombatSession, playerMods CombatModifiers) bool {
-	if playerMods.PetAttackProc <= 0 {
+// spiritWeaponStrike resolves the spell's bonus-action attack each round when
+// the spiritual_weapon buff is active. Same per-turn cadence as petStrike, but
+// rolls and narrates on its own channel so the spectral mace doesn't borrow
+// pet flavor on a petless caster. Returns true if the strike dropped the enemy.
+func (te *turnEngine) spiritWeaponStrike() bool {
+	st := te.st
+	if te.player.Mods.SpiritWeaponProc <= 0 || st.randFloat() >= te.player.Mods.SpiritWeaponProc {
 		return false
 	}
-	var seed uint64 = 1469598103934665603
-	for _, c := range sess.SessionID {
-		seed = (seed ^ uint64(c)) * 1099511628211
-	}
-	rng := rand.New(rand.NewPCG(seed, 0x9E3779B97F4A7C15))
-	if rngFloat(rng) < playerMods.PetAttackProc {
-		sess.Statuses.PetProcReady = true
-		return true
-	}
-	return false
+	dmg := te.player.Mods.SpiritWeaponDmg + st.roll(5)
+	st.enemyHP = max(0, st.enemyHP-dmg)
+	st.events = append(st.events, CombatEvent{
+		Round: st.round, Phase: turnCombatPhase.Name, Actor: "spirit_weapon", Action: "spirit_weapon_strike",
+		Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+	})
+	return enemyDown(st, turnCombatPhase.Name)
 }
 
 // stepPlayerActionEffect resolves a !cast / !consume turn: the command handler
@@ -304,6 +306,12 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 		hpCap := max(1, te.sess.PlayerHPMax-st.maxHPDrain)
 		st.playerHP = min(hpCap, st.playerHP+eff.PlayerHeal)
 	}
+	// Arm / replace the concentration aura. A new concentration cast overwrites
+	// the old one (5e: one concentration at a time); non-concentration casts
+	// leave any running aura alone.
+	if eff.ConcentrationDmg > 0 {
+		st.concentrationDmg = eff.ConcentrationDmg
+	}
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: turnCombatPhase.Name, Actor: "player", Action: action,
 		Damage: enemyDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Desc: eff.Label,
@@ -319,6 +327,10 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 		return
 	}
 	if te.petStrike() {
+		te.finish(CombatStatusWon)
+		return
+	}
+	if te.spiritWeaponStrike() {
 		te.finish(CombatStatusWon)
 		return
 	}
@@ -375,17 +387,32 @@ func (te *turnEngine) stepEnemyTurn() {
 	}
 
 	if !abilityDealtDamage {
+		// Pet defensive procs are a single proc per enemy turn: roll once, then
+		// spend it on the first swing only. Whiff makes that one swing a
+		// guaranteed miss; deflect halves its damage. Against a multiattack the
+		// remaining swings resolve normally — a single proc shouldn't nullify a
+		// boss's whole multiattack round. (This deliberately diverges from the
+		// auto-resolve engine's apply-to-all model.)
+		petWhiff := te.player.Mods.PetWhiffProc > 0 && te.st.randFloat() < te.player.Mods.PetWhiffProc
+		petDeflect := te.player.Mods.PetDeflectProc > 0 && te.st.randFloat() < te.player.Mods.PetDeflectProc
+		if petDeflect {
+			te.result.PetDeflected = true
+		}
+
 		// SRD multiattack: each profile entry is one attack roll resolved
 		// through the shared primitive. A registered elite/boss swings its full
 		// profile; everyone else gets a single attack from the template stats.
 		// resolveEnemyAttack returns true when the fight is decided — either the
 		// player went down without a death save, or a reflect consumable killed
 		// the enemy. Disambiguate by inspecting HP.
-		for _, atk := range enemyAttackProfile(te.sess.EnemyID, te.enemy.Stats) {
+		for i, atk := range enemyAttackProfile(te.sess.EnemyID, te.enemy.Stats) {
 			swing := *te.enemy
 			swing.Stats.Attack = atk.Damage
 			swing.Stats.AttackBonus = atk.AttackBonus
-			decided := resolveEnemyAttack(te.st, te.player, &swing, &turnCombatPhase, te.result, false, false, false)
+			// Spend the proc on the first swing only; later swings see false.
+			swingWhiff := petWhiff && i == 0
+			swingDeflect := petDeflect && i == 0
+			decided := resolveEnemyAttack(te.st, te.player, &swing, &turnCombatPhase, te.result, swingWhiff, swingDeflect, false)
 			if te.st.playerHP <= 0 {
 				te.finish(CombatStatusLost)
 				return
@@ -440,6 +467,20 @@ func (te *turnEngine) stepRoundEnd() {
 			}
 		}
 	}
+	// Concentration aura (Spirit Guardians et al.): the lingering spell bites
+	// the enemy each round it stays up. Ticks before enemy regen so a lethal
+	// pulse settles the fight before the enemy knits its wounds back.
+	if st.concentrationDmg > 0 && st.enemyHP > 0 {
+		st.enemyHP = max(0, st.enemyHP-st.concentrationDmg)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: CombatPhaseRoundEnd, Actor: "player", Action: "concentration_tick",
+			Damage: st.concentrationDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		if st.enemyHP <= 0 {
+			te.finish(CombatStatusWon)
+			return
+		}
+	}
 	// Regenerate (monster ability): the enemy knits its wounds at round end.
 	if st.enemyRegen > 0 && st.enemyHP > 0 && st.enemyHP < te.enemy.Stats.MaxHP {
 		st.enemyHP = min(te.enemy.Stats.MaxHP, st.enemyHP+st.enemyRegen)
@@ -479,13 +520,13 @@ func (te *turnEngine) commit() {
 	s.ArmorBroken = st.armorBroken
 	s.ArmorBreakAmt = st.armorBreakAmt
 	s.EnemySkipNext = st.enemySkipFirst
-	s.PetProcReady = st.petProcReady
 	s.WardCharges = st.wardCharges
 	s.SporeRounds = st.sporeRounds
 	s.ReflectFrac = st.reflectFrac
 	s.AutoCritFirst = st.autoCrit
 	s.ArcaneWardHP = st.arcaneWardHP
 	s.HealChargesLeft = st.healChargesLeft
+	s.ConcentrationDmg = st.concentrationDmg
 	s.DeathSaveUsed = st.deathSaveUsed
 	s.LuckyUsed = st.luckyUsed
 	s.Raged = st.raged

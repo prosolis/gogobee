@@ -311,7 +311,30 @@ func (c *AdventureCharacter) CanDoHarvest(isHoliday bool) bool {
 }
 
 func (c *AdventureCharacter) HasActedToday() bool {
-	return c.CombatActionsUsed > 0 || c.HarvestActionsUsed > 0
+	if c.CombatActionsUsed > 0 || c.HarvestActionsUsed > 0 {
+		return true
+	}
+	// DnD-side flows (expedition / zone / rest / autopilot) don't touch
+	// the legacy action counters; they credit the day via LastActionDate
+	// instead. Honor that so a player who ran an expedition all day and
+	// extracted before midnight still counts as having acted.
+	return c.LastActionDate == time.Now().UTC().Format("2006-01-02")
+}
+
+// markActedToday stamps the player's LastActionDate to today so the
+// midnight reset credits the day. Safe to call on every DnD-side action;
+// no-ops if the date is already today.
+func markActedToday(userID id.UserID) {
+	today := time.Now().UTC().Format("2006-01-02")
+	c, err := loadAdvCharacter(userID)
+	if err != nil || c == nil {
+		return
+	}
+	if c.LastActionDate == today {
+		return
+	}
+	c.LastActionDate = today
+	_ = saveAdvCharacter(c)
 }
 
 func (c *AdventureCharacter) AllActionsUsed(isHoliday bool) bool {

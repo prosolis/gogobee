@@ -66,6 +66,76 @@ func TestParseSupplyArgs_Combinations(t *testing.T) {
 	}
 }
 
+func TestResolveLoadout_PresetTokens(t *testing.T) {
+	cases := []struct {
+		tok      string
+		tier     ZoneTier
+		std, dlx int
+	}{
+		{"lean", ZoneTierBeginner, 1, 0},
+		{"balanced", ZoneTierJourneyman, 3, 0},
+		{"heavy", ZoneTierLegendary, 7, 2},
+		{"h", ZoneTierVeteran, 5, 1},
+		{"L", ZoneTierLegendary, 5, 0},
+	}
+	for _, c := range cases {
+		got, err := resolveLoadoutOrParse(c.tok, c.tier)
+		if err != nil {
+			t.Errorf("%q@T%d: %v", c.tok, c.tier, err)
+			continue
+		}
+		if got.StandardPacks != c.std || got.DeluxePacks != c.dlx {
+			t.Errorf("%q@T%d: got %+v, want std=%d dlx=%d", c.tok, c.tier, got, c.std, c.dlx)
+		}
+	}
+}
+
+func TestResolveLoadout_FallsBackToRawParse(t *testing.T) {
+	got, err := resolveLoadoutOrParse("2s 1d", ZoneTierJourneyman)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.StandardPacks != 2 || got.DeluxePacks != 1 {
+		t.Errorf("raw parse: got %+v", got)
+	}
+}
+
+func TestLoadoutPurchase_HeavyMatchesCaps(t *testing.T) {
+	for _, tier := range []ZoneTier{ZoneTierBeginner, ZoneTierApprentice, ZoneTierJourneyman, ZoneTierVeteran, ZoneTierLegendary} {
+		p := loadoutPurchase(tier, LoadoutHeavy)
+		std, dlx := supplyPackCaps(tier)
+		if p.StandardPacks != std || p.DeluxePacks != dlx {
+			t.Errorf("T%d heavy %+v, want std=%d dlx=%d", tier, p, std, dlx)
+		}
+		if err := p.Validate(tier); err != nil {
+			t.Errorf("T%d heavy fails own validation: %v", tier, err)
+		}
+	}
+}
+
+func TestExpeditionCmd_StartNoArgsPromptsLoadout(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@exp-cmd-prompt:example")
+	expeditionCmdTestCharacter(t, uid, 1)
+	defer cleanupExpeditions(uid)
+
+	euro := &EuroPlugin{}
+	euro.ensureBalance(uid)
+	euro.Credit(uid, 500, "test")
+	p := &AdventurePlugin{euro: euro}
+
+	// Empty pack args: should prompt, NOT start.
+	if err := p.handleDnDExpeditionCmd(MessageContext{Sender: uid}, "start goblin_warrens"); err != nil {
+		t.Fatal(err)
+	}
+	if exp, _ := getActiveExpedition(uid); exp != nil {
+		t.Error("expedition started on empty-arg prompt; should have waited for preset choice")
+	}
+	if bal := euro.GetBalance(uid); bal != 500 {
+		t.Errorf("coins moved on prompt: %v", bal)
+	}
+}
+
 func TestThreatThresholdLabel_Bands(t *testing.T) {
 	cases := []struct {
 		level int
@@ -119,8 +189,8 @@ func TestExpeditionCmd_StartAbandonRoundtrip(t *testing.T) {
 	euro.Credit(uid, 200, "test setup")
 	p := &AdventurePlugin{euro: euro}
 
-	// Default 1 standard pack = 50 coins. Should land an active expedition.
-	if err := p.handleDnDExpeditionCmd(MessageContext{Sender: uid}, "start goblin_warrens"); err != nil {
+	// Lean preset = 1 standard pack at T1 = 50 coins. Should land an active expedition.
+	if err := p.handleDnDExpeditionCmd(MessageContext{Sender: uid}, "start goblin_warrens lean"); err != nil {
 		t.Fatal(err)
 	}
 	exp, err := getActiveExpedition(uid)
@@ -219,7 +289,7 @@ func TestExpeditionCmd_RunWalksRooms(t *testing.T) {
 	euro.Credit(uid, 200, "test setup")
 	p := &AdventurePlugin{euro: euro}
 
-	if err := p.handleDnDExpeditionCmd(MessageContext{Sender: uid}, "start goblin_warrens"); err != nil {
+	if err := p.handleDnDExpeditionCmd(MessageContext{Sender: uid}, "start goblin_warrens lean"); err != nil {
 		t.Fatal(err)
 	}
 	exp, _ := getActiveExpedition(uid)
@@ -310,6 +380,7 @@ func TestAutopilotFooter_Reasons(t *testing.T) {
 		{stopEnded, "", false},
 		{stopComplete, "", false},
 		{stopBlocked, "", false},
+		{stopBossSafety, "", false}, // res.final carries the held-back line
 	}
 	for _, c := range cases {
 		got := autopilotFooter(c.r, 3)
@@ -320,6 +391,59 @@ func TestAutopilotFooter_Reasons(t *testing.T) {
 		} else if got != "" {
 			t.Errorf("%v: expected empty footer, got %q", c.r, got)
 		}
+	}
+}
+
+// TestBossSafetyGate covers all three trip conditions (HP, supplies,
+// exhaustion) and the all-clear case. The gate is the D3 boss carve-out
+// replacement — compact autopilot asks it before engaging the boss.
+func TestBossSafetyGate(t *testing.T) {
+	setupAuditTestDB(t)
+	uid := id.UserID("@exp-boss-safety-gate:example")
+	expeditionCmdTestCharacter(t, uid, 1)
+	defer cleanupExpeditions(uid)
+
+	healthyExp := &Expedition{
+		Supplies: ExpeditionSupplies{Current: 10, DailyBurn: 1},
+	}
+
+	// All-clear baseline: full HP, supplies fat, no exhaustion → no block.
+	c, _ := LoadDnDCharacter(uid)
+	c.HPCurrent = c.HPMax
+	c.Exhaustion = 0
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	if msg, blocked := bossSafetyGate(uid, healthyExp); blocked {
+		t.Fatalf("expected healthy party to pass gate, blocked with %q", msg)
+	}
+
+	// HP below 80% → block.
+	c.HPCurrent = int(float64(c.HPMax) * 0.5)
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	if msg, blocked := bossSafetyGate(uid, healthyExp); !blocked || !strings.Contains(msg, "HP") {
+		t.Errorf("HP gate: blocked=%v msg=%q", blocked, msg)
+	}
+
+	// HP healed, but supplies under one day's burn → block.
+	c.HPCurrent = c.HPMax
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	lowSU := &Expedition{Supplies: ExpeditionSupplies{Current: 0.5, DailyBurn: 1.5}}
+	if msg, blocked := bossSafetyGate(uid, lowSU); !blocked || !strings.Contains(msg, "supplies") {
+		t.Errorf("SU gate: blocked=%v msg=%q", blocked, msg)
+	}
+
+	// Supplies refilled, but exhaustion ≥ 3 → block.
+	c.Exhaustion = 3
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	if msg, blocked := bossSafetyGate(uid, healthyExp); !blocked || !strings.Contains(msg, "exhaustion") {
+		t.Errorf("exhaustion gate: blocked=%v msg=%q", blocked, msg)
 	}
 }
 

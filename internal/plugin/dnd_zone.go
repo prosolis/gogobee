@@ -214,8 +214,8 @@ func zoneGoblinWarrens() ZoneDefinition {
 		Faction:    "Goblins, Hobgoblins",
 		Atmosphere: "Low ceilings, torchlight, crude traps, cackling in the dark.",
 		Hook:       "A network of fetid tunnels burrowed beneath the Merchant's Road. The smell arrives before the sounds — smoke, rot, and something worse. I advise keeping one hand on your blade.",
-		MinRooms:   6,
-		MaxRooms:   7,
+		MinRooms:   12,
+		MaxRooms:   14,
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "goblin_sneak", SpawnWeight: 7},
 			{BestiaryID: "goblin_archer", SpawnWeight: 6},
@@ -258,8 +258,8 @@ func zoneCryptValdris() ZoneDefinition {
 		Faction:    "Undead",
 		Atmosphere: "Stone corridors, dripping water, candles that shouldn't still be burning.",
 		Hook:       "The iron gate hangs open — someone left in a hurry. Carved into the stone above: \"HERE LIES VALDRIS. DO NOT.\" The rest has been chiseled away. I decline to speculate.",
-		MinRooms:   6,
-		MaxRooms:   7,
+		MinRooms:   12,
+		MaxRooms:   14,
 		Enemies: []ZoneEnemy{
 			// Phase 4-B (outlier fix): the live roster was the only
 			// dual-killer-elite zone (wight + flameskull, both CR3+ on
@@ -314,8 +314,8 @@ func zoneForestShadows() ZoneDefinition {
 		Faction:    "Beasts, Fey-corrupted creatures, Bandits",
 		Atmosphere: "Ancient forest, twisted paths, eerie silence, bioluminescent fungi, things in the canopy.",
 		Hook:       "The forest was beautiful once. Travelers still say so, usually right before they stop saying anything at all. The trees lean in when you're not looking. I have noted this is not a metaphor.",
-		MinRooms:   6,
-		MaxRooms:   8,
+		MinRooms:   16,
+		MaxRooms:   20,
 		Enemies: []ZoneEnemy{
 			// Phase 4-B (outlier fix): standard pool was carrying two
 			// real killers — Displacer Beast (38% win as a standard
@@ -377,8 +377,8 @@ func zoneSunkenTemple() ZoneDefinition {
 		Faction:    "Kuo-toa, Water Elementals, Aboleth-touched",
 		Atmosphere: "Flooded stone chambers, barnacled pillars, salt smell, alien glyphs, things that swim in the dark water.",
 		Hook:       "The tide went out thirty years ago and never fully came back. The temple stayed wet anyway. Something down there keeps it that way. I suggest waterproofing your spellbook.",
-		MinRooms:   6,
-		MaxRooms:   8,
+		MinRooms:   16,
+		MaxRooms:   20,
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "kuo_toa", SpawnWeight: 7},
 			{BestiaryID: "kuo_toa_whip", SpawnWeight: 4},
@@ -423,8 +423,8 @@ func zoneManorBlackspire() ZoneDefinition {
 		Faction:    "Undead, Shadows, Vampiric",
 		Atmosphere: "Victorian decay, impossible architecture, portraits whose eyes follow movement, cold spots, locked rooms that weren't locked before.",
 		Hook:       "The manor has been for sale for eleven years. Every buyer has either left immediately or not left at all. The real estate listing describes it as 'full of character.' I find this accurate.",
-		MinRooms:   7,
-		MaxRooms:   9,
+		MinRooms:   22,
+		MaxRooms:   26,
 		Enemies: []ZoneEnemy{
 			// Phase 4-B (outlier fix): Wraith was the dominant
 			// standard-pool killer (45 hp loss/win, 85 attributed
@@ -491,8 +491,8 @@ func zoneUnderforge() ZoneDefinition {
 		Faction:    "Fire Elementals, Constructs, Salamanders, Azers",
 		Atmosphere: "Volcanic caverns, rivers of cooling lava, ancient dwarven stonework, the constant bass note of something very large moving below.",
 		Hook:       "The dwarven forge-city of Kharak Dûn was not abandoned. It was sealed from the outside. I do not have information on what they were sealing in.",
-		MinRooms:   7,
-		MaxRooms:   9,
+		MinRooms:   22,
+		MaxRooms:   26,
 		Enemies: []ZoneEnemy{
 			// Phase 5-C: underforge trailed at 49.5% (band 55-75)
 			// under the shipped HP×1.5/+3 floor. Trace named Fire
@@ -548,8 +548,8 @@ func zoneUnderdark() ZoneDefinition {
 		Faction:    "Drow, Mind Flayers, Beholders (far), Ropers, Hook Horrors",
 		Atmosphere: "Absolute darkness, phosphorescent mushroom groves, vast underground seas, carved drow cities in the distance, things older than the surface world.",
 		Hook:       "There is a world below the world. It has its own cities, its own wars, its own sky — which is stone, and has never once been kind. I speak more quietly here. Something might be listening.",
-		MinRooms:   8,
-		MaxRooms:   10,
+		MinRooms:   28,
+		MaxRooms:   34,
 		Enemies: []ZoneEnemy{
 			// Phase 5-C: underdark ran 88% (band 45-65, way over)
 			// at the T4 centerline — its sibling feywild sat at
@@ -605,8 +605,8 @@ func zoneFeywildCrossing() ZoneDefinition {
 		Faction:    "Hags, Redcaps, Will-o-Wisps, Fomorians, Unseelie Fey",
 		Atmosphere: "Impossible beauty, treacherous whimsy, time distortion, rules that change without notice, bargains with terrible fine print.",
 		Hook:       "The veil between worlds is thin here. Colors are too saturated. The mushrooms are too large. A small creature made of starlight just offered you a deal. I advise extreme caution regarding deals.",
-		MinRooms:   8,
-		MaxRooms:   10,
+		MinRooms:   28,
+		MaxRooms:   34,
 		Enemies: []ZoneEnemy{
 			// Phase 5-C: feywild trailed at 54% (band 45-65, but
 			// the design goal was to close the 30pp gap with its
@@ -663,8 +663,8 @@ func zoneDragonsLair() ZoneDefinition {
 		Faction:    "Kobolds, Drakes, Young Dragons, Wyrm",
 		Atmosphere: "Scorched stone, rivers of gold coins half-melted into the floor, kobold warrens as outer defenses, growing heat, the unmistakable smell of something ancient and enormous.",
 		Hook:       "The mountain has not erupted in forty years. The locals say it is dormant. The locals are wrong about what lives in mountains. I have prepared an unusually long entry description for this one.",
-		MinRooms:   9,
-		MaxRooms:   10,
+		MinRooms:   36,
+		MaxRooms:   44,
 		Enemies: []ZoneEnemy{
 			{BestiaryID: "kobold", SpawnWeight: 7},
 			{BestiaryID: "guard_drake", SpawnWeight: 5},
@@ -711,8 +711,8 @@ func zoneAbyssPortal() ZoneDefinition {
 		Faction:    "Demons, Fiends, Corrupted Celestials",
 		Atmosphere: "Reality fractures, impossible geometry, constant low psychic pressure, the feeling of being watched by something that has no eyes.",
 		Hook:       "Someone opened a door they should not have opened. The door is still open. Things are still coming through. I am not making jokes about this one.",
-		MinRooms:   9,
-		MaxRooms:   10,
+		MinRooms:   36,
+		MaxRooms:   44,
 		Enemies: []ZoneEnemy{
 			// Phase 4-B (outlier fix): Nalfeshnee was mis-classified
 			// as a standard at T5 — Phase 4-A measured 2.8% win rate

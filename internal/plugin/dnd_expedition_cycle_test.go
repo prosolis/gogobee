@@ -14,6 +14,20 @@ import (
 // synthetic "now" and verify state transitions. Ticker scheduling is a
 // thin wrapper over those.
 
+// rewindToLegacyAnchor backdates an expedition's start_date to before
+// eventAnchoredCutoff so deliverBriefing exercises the legacy UTC-anchored
+// mutator path. Tests of the D2-b event-anchored path should NOT call this.
+func rewindToLegacyAnchor(t *testing.T, exp *Expedition) {
+	t.Helper()
+	before := eventAnchoredCutoff.Add(-24 * time.Hour)
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET start_date = ? WHERE expedition_id = ?`,
+		before, exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	exp.StartDate = before
+}
+
 func TestPickMorningBriefing_DayBands(t *testing.T) {
 	cases := []struct {
 		day  int
@@ -57,6 +71,7 @@ func TestDeliverBriefing_AdvancesDayAndBurnsSupplies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rewindToLegacyAnchor(t, exp)
 	p := &AdventurePlugin{}
 	now := time.Now().UTC()
 	if err := p.deliverBriefing(exp, now); err != nil {
@@ -87,6 +102,174 @@ func TestDeliverBriefing_AdvancesDayAndBurnsSupplies(t *testing.T) {
 	}
 }
 
+// useEventAnchored fences the eventAnchoredCutoff to before the given
+// expedition's start_date so the D2-b path is taken. Test-scoped via t.Cleanup.
+func useEventAnchored(t *testing.T, exp *Expedition) {
+	t.Helper()
+	saved := eventAnchoredCutoff
+	eventAnchoredCutoff = exp.StartDate.Add(-time.Minute)
+	t.Cleanup(func() { eventAnchoredCutoff = saved })
+}
+
+func TestDeliverBriefing_EventAnchoredSkipsMutators(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-evt-skip:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, "",
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	useEventAnchored(t, exp)
+
+	// last_briefing_at is NULL and start_date is "now-ish", so the safety
+	// net should NOT fire — sub-28h since start.
+	p := &AdventurePlugin{}
+	if err := p.deliverBriefing(exp, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getExpedition(exp.ID)
+	if got.CurrentDay != 1 {
+		t.Errorf("day = %d, want 1 (event-anchored briefing should not advance day)", got.CurrentDay)
+	}
+	if got.Supplies.Current != 10 {
+		t.Errorf("supplies = %v, want 10 (event-anchored briefing should not burn)", got.Supplies.Current)
+	}
+}
+
+func TestDeliverBriefing_EventAnchoredSafetyNetForces(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-evt-safety:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, "",
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	useEventAnchored(t, exp)
+
+	// Backdate start_date so > nightSafetyNet has elapsed with no rollover.
+	before := time.Now().UTC().Add(-(nightSafetyNet + time.Hour))
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET start_date = ? WHERE expedition_id = ?`,
+		before, exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	exp.StartDate = before
+
+	p := &AdventurePlugin{}
+	if err := p.deliverBriefing(exp, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := getExpedition(exp.ID)
+	if got.CurrentDay != 2 {
+		t.Errorf("day = %d, want 2 (safety net should force rollover)", got.CurrentDay)
+	}
+	if got.Supplies.Current >= 10 {
+		t.Errorf("supplies = %v, want < 10 (safety net should burn)", got.Supplies.Current)
+	}
+}
+
+// D4-b: the 06:00 ticker skips event-anchored expeditions whose player
+// hasn't moved since before today's threshold; the briefing lands lazily
+// on the next inbound message via maybeDeliverDeferredBriefing.
+func TestFireBriefings_EventAnchoredIdleSkip(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-d4b-idle:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, "",
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	useEventAnchored(t, exp)
+
+	// Synthetic now pinned past today's 06:00 UTC so the test outcome is
+	// independent of wall-clock time of day.
+	wall := time.Now().UTC()
+	// Synthetic now is today's 06:30 UTC — just past the ticker threshold,
+	// but well inside the 28h nightSafetyNet window so the safety-net
+	// force path doesn't kick in.
+	now := time.Date(wall.Year(), wall.Month(), wall.Day(), 6, 30, 0, 0, time.UTC)
+	threshold := time.Date(now.Year(), now.Month(), now.Day(),
+		expeditionBriefingHour, 0, 0, 0, time.UTC)
+	idleActivity := threshold.Add(-2 * time.Hour)
+	priorBriefing := now.Add(-24 * time.Hour)
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET current_day = 3 WHERE expedition_id = ?`,
+		exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET last_activity = ?, last_briefing_at = ? WHERE expedition_id = ?`,
+		idleActivity, priorBriefing, exp.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &AdventurePlugin{}
+	p.fireExpeditionBriefings(now)
+
+	got, _ := getExpedition(exp.ID)
+	if got.LastBriefingAt == nil || !got.LastBriefingAt.Equal(priorBriefing) {
+		t.Fatalf("idle ticker should not have stamped last_briefing_at: got %v want %v",
+			got.LastBriefingAt, priorBriefing)
+	}
+
+	// Simulate inbound message: lazy delivery should fire now.
+	p.maybeDeliverDeferredBriefing(uid, now)
+	got, _ = getExpedition(exp.ID)
+	if got.LastBriefingAt == nil || got.LastBriefingAt.Equal(priorBriefing) {
+		t.Fatalf("deferred delivery should have stamped a fresh last_briefing_at: got %v",
+			got.LastBriefingAt)
+	}
+}
+
+// D4-b: an active player (last_activity >= today's threshold) still gets
+// the morning DM on the regular ticker — no idle skip.
+func TestFireBriefings_EventAnchoredActivePlayerDelivers(t *testing.T) {
+	setupZoneRunTestDB(t)
+	uid := id.UserID("@exp-d4b-active:example")
+	defer cleanupExpeditions(uid)
+
+	exp, err := startExpedition(uid, ZoneGoblinWarrens, "",
+		ExpeditionSupplies{Current: 10, Max: 10, DailyBurn: 1, HarshMod: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wall := time.Now().UTC()
+	now := time.Date(wall.Year(), wall.Month(), wall.Day(), 6, 30, 0, 0, time.UTC)
+	threshold := time.Date(now.Year(), now.Month(), now.Day(),
+		expeditionBriefingHour, 0, 0, 0, time.UTC)
+	activeActivity := threshold.Add(15 * time.Minute)
+	priorBriefing := now.Add(-24 * time.Hour)
+	// Pin start_date before today's threshold. Left at the default (real
+	// time.Now()), a suite run after 06:00 UTC lands start_date past the
+	// threshold and loadExpeditionsNeedingBriefing (start_date < threshold)
+	// filters the row out — a wall-clock-of-day flake. useEventAnchored runs
+	// after, so its cutoff tracks the backdated start and the run stays
+	// event-anchored.
+	startAt := now.Add(-24 * time.Hour)
+	exp.StartDate = startAt
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET start_date = ?, last_activity = ?, last_briefing_at = ? WHERE expedition_id = ?`,
+		startAt, activeActivity, priorBriefing, exp.ID); err != nil {
+		t.Fatal(err)
+	}
+	useEventAnchored(t, exp)
+
+	p := &AdventurePlugin{}
+	p.fireExpeditionBriefings(now)
+
+	got, _ := getExpedition(exp.ID)
+	if got.LastBriefingAt == nil || got.LastBriefingAt.Equal(priorBriefing) {
+		t.Fatalf("active player should have received briefing: last_briefing_at=%v",
+			got.LastBriefingAt)
+	}
+}
+
 func TestDeliverBriefing_HarshConditionsBurnFaster(t *testing.T) {
 	setupZoneRunTestDB(t)
 	uid := id.UserID("@exp-cycle-harsh:example")
@@ -97,6 +280,7 @@ func TestDeliverBriefing_HarshConditionsBurnFaster(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rewindToLegacyAnchor(t, exp)
 	// Force harsh conditions via threat clock above 60.
 	if err := applyThreatDelta(exp.ID, 70, "test"); err != nil {
 		t.Fatal(err)

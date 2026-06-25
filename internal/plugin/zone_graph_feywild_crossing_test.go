@@ -7,8 +7,18 @@ func TestFeywildCrossingGraph_Registered(t *testing.T) {
 	if !ok {
 		t.Fatal("zoneFeywildCrossingGraph not registered")
 	}
-	if len(g.Nodes) != 9 {
-		t.Errorf("nodes = %d, want 9", len(g.Nodes))
+	// Long-expedition D1-d widened this zone from 9 → 53 nodes so the
+	// longest entry→boss walk lands in the T4 [28,34] traversal band.
+	if len(g.Nodes) != 53 {
+		t.Errorf("nodes = %d, want 53", len(g.Nodes))
+	}
+}
+
+func TestFeywildCrossingGraph_LongestPathInBand(t *testing.T) {
+	g := zoneFeywildCrossingGraph()
+	got := graphLongestPath(g)
+	if got < 28 || got > 34 {
+		t.Errorf("longest path = %d, want in T4 band [28,34]", got)
 	}
 }
 
@@ -45,15 +55,22 @@ func TestFeywildCrossingGraph_PartialOverlap(t *testing.T) {
 	}
 }
 
-// TestFeywildCrossingGraph_NoFreeChoiceAtFork1 captures the design
-// intent: both fork1 outgoing edges are locked. The player must succeed
-// at CHA or Perception to enter; no LockNone fallback.
-func TestFeywildCrossingGraph_NoFreeChoiceAtFork1(t *testing.T) {
+// TestFeywildCrossingGraph_Fork1HasFreePath guards the no-soft-lock
+// invariant: fork1 must offer at least one LockNone exit. The original
+// design locked BOTH edges (CHA + Perception) with no fallback — fork
+// rolls are deterministic with no retry, so a character failing both was
+// permanently stranded (D8-f part 2 found this stranded ~60% of runs).
+// Every other zone fork has a free path; fork1 must too.
+func TestFeywildCrossingGraph_Fork1HasFreePath(t *testing.T) {
 	g := zoneFeywildCrossingGraph()
+	free := 0
 	for _, e := range g.outgoingEdges("feywild_crossing.fork1") {
-		if e.Lock == LockNone {
-			t.Errorf("fork1 has unlocked edge to %s — expected all locked", e.To)
+		if e.Lock == LockNone || e.Lock == "" {
+			free++
 		}
+	}
+	if free == 0 {
+		t.Error("fork1 has no free (LockNone) exit — soft-lock: a player failing every skill check is permanently stranded")
 	}
 }
 
@@ -71,5 +88,64 @@ func TestFeywildCrossingGraph_FirstCHALock(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected at least one LockStatCheck CHA edge — Feywild theme")
+	}
+}
+
+// TestFeywildCrossingGraph_TrapAnchor verifies D1-d added the missing
+// Trap node. Original G8f graph had elite/secret but no trap.
+// TestFeywildCrossingGraph_TrapAnchor verifies the preamble trap plus
+// the D10 marsh-branch trap (Mire Steps).
+func TestFeywildCrossingGraph_TrapAnchor(t *testing.T) {
+	g := zoneFeywildCrossingGraph()
+	var trapCount int
+	for _, n := range g.Nodes {
+		if n.Kind == NodeKindTrap {
+			trapCount++
+		}
+	}
+	if trapCount != 2 {
+		t.Errorf("trap nodes = %d, want 2 (cursed_thicket + D10 mire_steps)", trapCount)
+	}
+	if g.Nodes["feywild_crossing.mire_steps"].Kind != NodeKindTrap {
+		t.Error("D10: mire_steps (marsh branch) should be a Trap")
+	}
+}
+
+// TestFeywildCrossingGraph_EliteAnchors verifies the shared hag_circle
+// elite plus the D10 grove-branch elite (Singing Orchard), so the first
+// fork carries a per-branch anchor (grove=elite, marsh=trap).
+func TestFeywildCrossingGraph_EliteAnchors(t *testing.T) {
+	g := zoneFeywildCrossingGraph()
+	var eliteCount int
+	for _, n := range g.Nodes {
+		if n.Kind == NodeKindElite {
+			eliteCount++
+		}
+	}
+	if eliteCount != 2 {
+		t.Errorf("elite nodes = %d, want 2 (hag_circle + D10 singing_orchard)", eliteCount)
+	}
+	if g.Nodes["feywild_crossing.singing_orchard"].Kind != NodeKindElite {
+		t.Error("D10: singing_orchard (grove branch) should be an Elite")
+	}
+}
+
+// TestFeywildCrossingGraph_FaeCourtMerge verifies all three second-
+// stage endings (hag_circle, time_eddy, illusion_garden) converge at
+// the fae_court merge before the final boss approach. D1-d added this
+// merge to avoid triplicating the long pre-boss walk.
+func TestFeywildCrossingGraph_FaeCourtMerge(t *testing.T) {
+	g := zoneFeywildCrossingGraph()
+	for _, ending := range []string{
+		"feywild_crossing.hag_circle",
+		"feywild_crossing.time_eddy",
+		"feywild_crossing.illusion_garden",
+	} {
+		if !reachable(g, ending, "feywild_crossing.fae_court") {
+			t.Errorf("%s does not reach fae_court merge", ending)
+		}
+	}
+	if !reachable(g, "feywild_crossing.fae_court", "feywild_crossing.boss") {
+		t.Error("fae_court → boss path missing")
 	}
 }

@@ -13,8 +13,12 @@ func TestSunkenTempleGraph_Registered(t *testing.T) {
 	if g.Boss != "sunken_temple.boss" {
 		t.Errorf("boss node = %q", g.Boss)
 	}
-	if len(g.Nodes) != 10 {
-		t.Errorf("nodes = %d, want 10", len(g.Nodes))
+	// Long-expedition D1-b widened this zone from 10 → 26 nodes so the
+	// longest entry→boss walk lands in the T2 [16,20] traversal band.
+	// (Sunken Temple is wide by design — no mid-merge means each leaf
+	// owns its own chain to the boss.)
+	if len(g.Nodes) != 26 {
+		t.Errorf("nodes = %d, want 26", len(g.Nodes))
 	}
 }
 

@@ -92,19 +92,52 @@ func TestSupplyAllowsLongRest(t *testing.T) {
 func TestSupplyPurchase_Validate(t *testing.T) {
 	cases := []struct {
 		p       SupplyPurchase
+		tier    ZoneTier
 		wantErr bool
 	}{
-		{SupplyPurchase{StandardPacks: 1}, false},
-		{SupplyPurchase{StandardPacks: 3, DeluxePacks: 1}, false}, // max
-		{SupplyPurchase{StandardPacks: 4}, true},                  // over standard cap
-		{SupplyPurchase{DeluxePacks: 2}, true},                    // over deluxe cap
-		{SupplyPurchase{StandardPacks: -1}, true},
-		{SupplyPurchase{}, true}, // none purchased
+		// T3 is the only tier whose caps are unchanged from the pre-D5
+		// shape (3 standard / 1 deluxe); use it to anchor the
+		// happy-path / over-cap parity assertions.
+		{SupplyPurchase{StandardPacks: 1}, ZoneTierJourneyman, false},
+		{SupplyPurchase{StandardPacks: 3, DeluxePacks: 1}, ZoneTierJourneyman, false},
+		{SupplyPurchase{StandardPacks: 4}, ZoneTierJourneyman, true},
+		{SupplyPurchase{DeluxePacks: 2}, ZoneTierJourneyman, true},
+		{SupplyPurchase{StandardPacks: -1}, ZoneTierJourneyman, true},
+		{SupplyPurchase{}, ZoneTierJourneyman, true}, // none purchased
+
+		// D5-a per-tier caps. T1/T2 tighten to (2,1); T4 widens to (5,1);
+		// T5 widens to (7,2). A T3-legal 3-standard loadout fails on T1.
+		{SupplyPurchase{StandardPacks: 2, DeluxePacks: 1}, ZoneTierBeginner, false},
+		{SupplyPurchase{StandardPacks: 3}, ZoneTierBeginner, true},
+		{SupplyPurchase{StandardPacks: 5, DeluxePacks: 1}, ZoneTierVeteran, false},
+		{SupplyPurchase{StandardPacks: 6}, ZoneTierVeteran, true},
+		{SupplyPurchase{StandardPacks: 7, DeluxePacks: 2}, ZoneTierLegendary, false},
+		{SupplyPurchase{StandardPacks: 7, DeluxePacks: 3}, ZoneTierLegendary, true},
 	}
 	for _, c := range cases {
-		err := c.p.Validate()
+		err := c.p.Validate(c.tier)
 		if (err != nil) != c.wantErr {
-			t.Errorf("%+v: err = %v, wantErr=%v", c.p, err, c.wantErr)
+			t.Errorf("%+v T%d: err = %v, wantErr=%v", c.p, int(c.tier), err, c.wantErr)
+		}
+	}
+}
+
+func TestSupplyPackCaps_PerTier(t *testing.T) {
+	cases := []struct {
+		tier    ZoneTier
+		wantStd int
+		wantDlx int
+	}{
+		{ZoneTierBeginner, 2, 1},
+		{ZoneTierApprentice, 2, 1},
+		{ZoneTierJourneyman, 3, 1},
+		{ZoneTierVeteran, 5, 1},
+		{ZoneTierLegendary, 7, 2},
+	}
+	for _, c := range cases {
+		s, d := supplyPackCaps(c.tier)
+		if s != c.wantStd || d != c.wantDlx {
+			t.Errorf("T%d caps: got (%d,%d), want (%d,%d)", int(c.tier), s, d, c.wantStd, c.wantDlx)
 		}
 	}
 }
@@ -130,6 +163,67 @@ func TestMakeSupplies_FillsFromTier(t *testing.T) {
 	}
 	if s.PacksStandard != 2 {
 		t.Errorf("packs std = %d", s.PacksStandard)
+	}
+}
+
+func TestApplyRangerForage(t *testing.T) {
+	ranger := &DnDCharacter{Class: ClassRanger}
+	fighter := &DnDCharacter{Class: ClassFighter}
+	det := func(n int) int { return n - 1 } // always rolls the max (1d4 = 4)
+
+	// Ranger, fresh day, plenty of headroom: max 1d4 = 4 SU added, flag set.
+	exp := &Expedition{Supplies: ExpeditionSupplies{Current: 10, Max: 50}}
+	if gain := applyRangerForage(exp, ranger, det); gain != 4 {
+		t.Errorf("ranger forage gain = %v, want 4", gain)
+	}
+	if exp.Supplies.Current != 14 {
+		t.Errorf("current after forage = %v, want 14", exp.Supplies.Current)
+	}
+	if !exp.Supplies.ForagedToday {
+		t.Error("ForagedToday should be set after a successful grant")
+	}
+
+	// Same day, second call: no-op (already foraged).
+	if gain := applyRangerForage(exp, ranger, det); gain != 0 {
+		t.Errorf("repeat forage gain = %v, want 0", gain)
+	}
+	if exp.Supplies.Current != 14 {
+		t.Errorf("current after repeat = %v, want 14", exp.Supplies.Current)
+	}
+
+	// Non-Ranger: never grants, never sets the flag.
+	exp2 := &Expedition{Supplies: ExpeditionSupplies{Current: 10, Max: 50}}
+	if gain := applyRangerForage(exp2, fighter, det); gain != 0 {
+		t.Errorf("non-ranger gain = %v, want 0", gain)
+	}
+	if exp2.Supplies.ForagedToday {
+		t.Error("non-ranger should not stamp ForagedToday")
+	}
+
+	// Headroom cap: 2 SU short of Max → grant clamps to 2 even on a max roll.
+	exp3 := &Expedition{Supplies: ExpeditionSupplies{Current: 48, Max: 50}}
+	if gain := applyRangerForage(exp3, ranger, det); gain != 2 {
+		t.Errorf("headroom-capped gain = %v, want 2", gain)
+	}
+	if exp3.Supplies.Current != 50 {
+		t.Errorf("current should clamp to Max, got %v", exp3.Supplies.Current)
+	}
+
+	// Already at Max: no grant, but flag still set so the day's roll is spent.
+	exp4 := &Expedition{Supplies: ExpeditionSupplies{Current: 50, Max: 50}}
+	if gain := applyRangerForage(exp4, ranger, det); gain != 0 {
+		t.Errorf("full-bag gain = %v, want 0", gain)
+	}
+	if !exp4.Supplies.ForagedToday {
+		t.Error("full-bag should still consume the day's forage attempt")
+	}
+
+	// Nil character / nil expedition: never panics, returns 0.
+	if gain := applyRangerForage(exp, nil, det); gain != 0 {
+		t.Errorf("nil char gain = %v, want 0", gain)
+	}
+	if gain := applyRangerForage(nil, ranger, det); gain != 0 {
+		t.Errorf("nil exp gain = %v, want 0", gain)
 	}
 }
 

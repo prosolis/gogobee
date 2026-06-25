@@ -53,6 +53,15 @@ type CampState struct {
 	RoomIndex     int       `json:"room_index"`
 	EstablishedAt time.Time `json:"established_at"`
 	NightEvents   []string  `json:"night_events"`
+	// RestApplied is set when the long-rest effects (HP refill, spell slots,
+	// threat -5 etc.) have already been applied at pitch time. processOvernightCamp
+	// uses it to skip re-applying so the night cycle just breaks the camp.
+	RestApplied bool `json:"rest_applied,omitempty"`
+	// AutoPitched is set when the long-expedition autopilot pitched this
+	// camp. The autorun ticker breaks an auto-pitched camp itself after a
+	// minimum dwell so the walk can keep moving; player-pitched camps stay
+	// up until the player breaks them (or moves on).
+	AutoPitched bool `json:"auto_pitched,omitempty"`
 }
 
 // ThreatEvent — §8.4.
@@ -431,6 +440,34 @@ func appendExpeditionLog(expID string, day int, entryType, summary, flavor strin
 		INSERT INTO dnd_expedition_log (expedition_id, day, entry_type, summary, flavor)
 		VALUES (?, ?, ?, ?, ?)`, expID, day, entryType, summary, flavor)
 	return err
+}
+
+// dayExpeditionLog returns every log entry recorded against the given
+// (expedition, day) pair, oldest first. Used by the D4-a end-of-day
+// digest to bundle a single rollup DM at night-camp pitch.
+func dayExpeditionLog(expID string, day int) ([]ExpeditionEntry, error) {
+	rows, err := db.Get().Query(`
+		SELECT entry_id, expedition_id, day, timestamp, entry_type, summary, flavor
+		  FROM dnd_expedition_log
+		 WHERE expedition_id = ?
+		   AND day = ?
+		 ORDER BY entry_id`, expID, day)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ExpeditionEntry
+	for rows.Next() {
+		var e ExpeditionEntry
+		if err := rows.Scan(
+			&e.EntryID, &e.ExpeditionID, &e.Day, &e.Timestamp,
+			&e.Type, &e.Summary, &e.Flavor,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // recentExpeditionLog returns the last `limit` entries, newest first.

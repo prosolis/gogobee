@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -82,8 +84,11 @@ func (p *ForexPlugin) cgSpotUSD(sym string) (float64, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 
-	url := fmt.Sprintf("%s/simple/price?ids=%s&vs_currencies=usd", coinGeckoBaseURL, info.CoinGeckoID)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	q := url.Values{}
+	q.Set("ids", info.CoinGeckoID)
+	q.Set("vs_currencies", "usd")
+	reqURL := coinGeckoBaseURL + "/simple/price?" + q.Encode()
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -99,7 +104,7 @@ func (p *ForexPlugin) cgSpotUSD(sym string) (float64, error) {
 	}
 
 	var data map[string]map[string]float64
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&data); err != nil {
 		return 0, fmt.Errorf("coingecko decode error: %w", err)
 	}
 	entry, ok := data[info.CoinGeckoID]

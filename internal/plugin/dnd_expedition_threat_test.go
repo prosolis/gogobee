@@ -150,6 +150,7 @@ func TestDeliverBriefing_AppliesThreatDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rewindToLegacyAnchor(t, exp)
 	p := &AdventurePlugin{}
 	if err := p.deliverBriefing(exp, time.Now().UTC()); err != nil {
 		t.Fatal(err)

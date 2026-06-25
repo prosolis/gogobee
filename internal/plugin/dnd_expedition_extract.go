@@ -110,6 +110,89 @@ func forceExtractExpeditionForRunLoss(userID id.UserID, reason string) {
 	}
 }
 
+// finalizeExpeditionOnZoneClear bridges the run-complete seam (boss down,
+// no outgoing edges) into expedition completion — the success-path twin of
+// forceExtractExpeditionForRunLoss. When the cleared run is the active
+// expedition's current run AND the clear finishes the whole zone (a
+// single-region zone, or the zone-boss region of a multi-region zone), it
+// flips the expedition to 'complete', records boss_defeated, and awards
+// completion milestones. Returns the rendered milestone lines for the caller
+// to append to the run-complete message.
+//
+// No-op (nil) for standalone runs and for mid-zone region clears, which
+// leave the expedition active so inter-region travel can continue. Without
+// this, a cleared zone leaves the expedition 'active' forever and the
+// ambient ticker keeps DMing about a dungeon the player already finished.
+func (p *AdventurePlugin) finalizeExpeditionOnZoneClear(userID id.UserID, runID string) []string {
+	exp, err := getActiveExpedition(userID)
+	if err != nil || exp == nil {
+		return nil
+	}
+	if exp.RunID != runID {
+		return nil // the completed run isn't this expedition's current run
+	}
+
+	if IsMultiRegionZone(exp.ZoneID) {
+		region, ok := CurrentRegion(exp)
+		if !ok {
+			return nil
+		}
+		if _, err := MarkRegionBossDefeated(exp, region.ID); err != nil {
+			slog.Warn("expedition: mark region boss defeated",
+				"user", userID, "expedition", exp.ID, "region", region.ID, "err", err)
+		}
+		if !region.IsZoneBoss {
+			return nil // region cleared; expedition continues to the next region
+		}
+	} else {
+		// Single-region zone: there's no region registry to flip through
+		// MarkRegionBossDefeated, so set the zone-level flag directly.
+		exp.BossDefeated = true
+		if _, err := db.Get().Exec(`
+			UPDATE dnd_expedition
+			   SET boss_defeated = 1,
+			       last_activity = CURRENT_TIMESTAMP
+			 WHERE expedition_id = ?`, exp.ID); err != nil {
+			slog.Warn("expedition: set boss defeated on zone clear",
+				"user", userID, "expedition", exp.ID, "err", err)
+		}
+	}
+
+	// completeExpedition must run before AwardCompletionMilestones — the
+	// latter gates on status == 'complete'.
+	if err := completeExpedition(exp.ID, ExpeditionStatusComplete); err != nil {
+		slog.Warn("expedition: complete on zone clear",
+			"user", userID, "expedition", exp.ID, "err", err)
+		return nil
+	}
+	exp.Status = ExpeditionStatusComplete
+	_ = retireAllRegionRuns(exp)
+	return p.AwardCompletionMilestones(exp, false)
+}
+
+// midZoneRegionClear reports whether the just-completed run (runID) is the
+// active expedition's current run AND finishes a non-boss region of a
+// multi-region zone — i.e. a region clear that leaves the expedition active
+// with a next region to cross into. Returns the cleared region, the next
+// region, and true in that case; zero-values + false for a full zone clear,
+// a standalone run, or any read error. Used to word the run-complete message
+// (region-cleared vs zone-cleared) without re-deriving region state inline.
+func midZoneRegionClear(userID id.UserID, runID string) (cur, next ExpeditionRegion, ok bool) {
+	exp, err := getActiveExpedition(userID)
+	if err != nil || exp == nil || exp.RunID != runID || !IsMultiRegionZone(exp.ZoneID) {
+		return ExpeditionRegion{}, ExpeditionRegion{}, false
+	}
+	region, found := CurrentRegion(exp)
+	if !found || region.IsZoneBoss {
+		return ExpeditionRegion{}, ExpeditionRegion{}, false
+	}
+	nxt, found := nextRegion(exp.ZoneID, region.ID)
+	if !found {
+		return ExpeditionRegion{}, ExpeditionRegion{}, false
+	}
+	return region, nxt, true
+}
+
 // getResumableExpedition returns the most recent 'extracting' row for the
 // user, regardless of age (caller checks the 7-day window).
 func getResumableExpedition(userID id.UserID) (*Expedition, error) {
@@ -169,6 +252,7 @@ func (p *AdventurePlugin) handleExtractCmd(ctx MessageContext, _ string) error {
 	line := flavor.Pick(flavor.ExtractionVoluntary)
 	_ = appendExpeditionLog(updated.ID, updated.CurrentDay, "narrative",
 		"voluntary extraction", line)
+	markActedToday(ctx.Sender)
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🚪 **Extraction — %s, Day %d**\n\n",
@@ -179,7 +263,13 @@ func (p *AdventurePlugin) handleExtractCmd(ctx MessageContext, _ string) error {
 	}
 	b.WriteString(fmt.Sprintf("Loot, XP, and coins are kept. The dungeon stays where you left it — `!resume` within 7 days to come back. After %s the expedition expires.",
 		(time.Now().UTC().Add(extractResumeWindow)).Format("2006-01-02 15:04 MST")))
-	return p.SendDM(ctx.Sender, b.String())
+	if err := p.SendDM(ctx.Sender, b.String()); err != nil {
+		return err
+	}
+	// Emergence seam: surfacing from a run is when an animal may have moved
+	// into the empty house.
+	p.maybeRollPetArrivalOnEmerge(ctx.Sender)
+	return nil
 }
 
 // ── !resume command ─────────────────────────────────────────────────────────
@@ -218,11 +308,16 @@ func (p *AdventurePlugin) handleResumeCmd(ctx MessageContext, args string) error
 			"That extraction is past its 7-day resume window — the dungeon has reshaped without you. Start a new expedition.")
 	}
 
-	purchase, err := parseSupplyArgs(strings.TrimSpace(args))
+	resumeZone, _ := getZone(exp.ZoneID)
+	// D5-b: prompt for a preset loadout on empty args.
+	if strings.TrimSpace(args) == "" {
+		return p.SendDM(ctx.Sender, renderLoadoutPrompt(resumeZone, "resume"))
+	}
+	purchase, err := resolveLoadoutOrParse(strings.TrimSpace(args), resumeZone.Tier)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't parse supply packs: "+err.Error())
 	}
-	if err := purchase.Validate(); err != nil {
+	if err := purchase.Validate(resumeZone.Tier); err != nil {
 		return p.SendDM(ctx.Sender, "Invalid pack selection: "+err.Error())
 	}
 	cost := float64(purchase.Cost())

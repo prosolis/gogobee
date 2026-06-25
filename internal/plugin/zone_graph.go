@@ -360,6 +360,45 @@ func roomTypeToNodeKind(rt RoomType) ZoneNodeKind {
 	return NodeKindExploration
 }
 
+// graphLongestPath returns the number of nodes on the longest simple
+// path from Entry to Boss. Used by generateRoomSequence so the
+// "Room X/Y" display tracks the actual graph traversal length rather
+// than a dice-rolled stub. Returns 0 if the graph has no entry/boss.
+func graphLongestPath(g ZoneGraph) int {
+	if g.Entry == "" || g.Boss == "" {
+		return 0
+	}
+	memo := map[string]int{}
+	var dfs func(node string, onPath map[string]bool) int
+	dfs = func(node string, onPath map[string]bool) int {
+		if node == g.Boss {
+			return 1
+		}
+		if v, ok := memo[node]; ok && !onPath[node] {
+			// memo is safe only when the cached subpath doesn't
+			// revisit a node currently on the active path. With DAG
+			// zones (the norm) this is always safe; the onPath guard
+			// keeps us correct if a future zone authors a cycle.
+			return v
+		}
+		best := 0
+		for _, e := range g.Edges[node] {
+			if onPath[e.To] {
+				continue
+			}
+			onPath[e.To] = true
+			sub := dfs(e.To, onPath)
+			delete(onPath, e.To)
+			if sub > 0 && sub+1 > best {
+				best = sub + 1
+			}
+		}
+		memo[node] = best
+		return best
+	}
+	return dfs(g.Entry, map[string]bool{g.Entry: true})
+}
+
 // loadZoneGraph returns the graph for a zone. Registered (hand-authored)
 // graphs take precedence; otherwise the legacy linear compiler is used.
 // Returns ok=false only for unknown zone IDs.

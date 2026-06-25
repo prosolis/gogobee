@@ -65,14 +65,6 @@ type CombatStatuses struct {
 	// combatState, so the flag must survive the commit between them.
 	EnemySkipNext bool `json:"enemy_skip_next,omitempty"`
 
-	// PetProcReady is the per-fight pet-attack outcome. Auto-resolve rolls the
-	// pet proc every round; a manual fight can run many rounds, so the roll is
-	// decided once at fight start (rollCombatSessionPetProc) and parked here.
-	// The pet then lands a single hit on the player's first acting turn, which
-	// clears the flag — persisted so a suspend/resume or reaper auto-play sees
-	// the same outcome.
-	PetProcReady bool `json:"pet_proc_ready,omitempty"`
-
 	// Fight-scoped depleting resources — mirror the combatState charges that
 	// genuinely carry round-to-round. Seeded at fight start (Arcane Ward) or by
 	// a mid-fight !cast / !consume, restored into combatState on every resume,
@@ -84,6 +76,15 @@ type CombatStatuses struct {
 	AutoCritFirst   bool    `json:"auto_crit_first,omitempty"`
 	ArcaneWardHP    int     `json:"arcane_ward_hp,omitempty"`
 	HealChargesLeft int     `json:"heal_charges_left,omitempty"`
+
+	// ConcentrationDmg is the per-round damage of the player's active
+	// concentration AOE (Spirit Guardians, Spike Growth, Call Lightning,
+	// Flaming Sphere…). A one-shot !cast lands its burst the casting round,
+	// then this re-ticks the aura at round_end every round until the fight
+	// ends or another concentration spell overwrites it — the lingering half
+	// of the spell the engine used to drop on the floor, which left clerics
+	// and druids with no sustained DPS once their burst landed.
+	ConcentrationDmg int `json:"concentration_dmg,omitempty"`
 
 	// Once-per-fight class/race/subclass one-shots: the "already used" flags.
 	// Without persistence these reset every round on resume, letting a Halfling
@@ -129,6 +130,8 @@ type CombatStatuses struct {
 	BuffDamageBonus     float64 `json:"buff_damage_bonus,omitempty"`
 	BuffPetProc         float64 `json:"buff_pet_proc,omitempty"`
 	BuffDamageReductMul float64 `json:"buff_damage_reduct_mul,omitempty"`
+	BuffSpiritProc      float64 `json:"buff_spirit_proc,omitempty"`
+	BuffSpiritDmg       int     `json:"buff_spirit_dmg,omitempty"`
 }
 
 // applyBuffDelta folds one resolved buff (the result of a !cast / !consume
@@ -142,6 +145,8 @@ func (s *CombatStatuses) applyBuffDelta(d turnBuffDelta) {
 	s.BuffCritRate += d.dCrit
 	s.BuffDamageBonus += d.dDmgBonus
 	s.BuffPetProc += d.dPetProc
+	s.BuffSpiritProc += d.dSpiritProc
+	s.BuffSpiritDmg += d.dSpiritDmg
 	if d.dReductMul > 0 && d.dReductMul != 1 {
 		if s.BuffDamageReductMul == 0 {
 			s.BuffDamageReductMul = d.dReductMul

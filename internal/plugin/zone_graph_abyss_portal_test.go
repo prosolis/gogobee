@@ -7,8 +7,59 @@ func TestAbyssPortalGraph_Registered(t *testing.T) {
 	if !ok {
 		t.Fatal("zoneAbyssPortalGraph not registered")
 	}
-	if len(g.Nodes) != 13 {
-		t.Errorf("nodes = %d, want 13", len(g.Nodes))
+	// Long-expedition D1-e widened this zone from 13 → 51 nodes so the
+	// longest entry→boss walk lands in the T5 [36,44] traversal band.
+	if len(g.Nodes) != 51 {
+		t.Errorf("nodes = %d, want 51", len(g.Nodes))
+	}
+}
+
+func TestAbyssPortalGraph_LongestPathInBand(t *testing.T) {
+	g := zoneAbyssPortalGraph()
+	got := graphLongestPath(g)
+	if got < 36 || got > 44 {
+		t.Errorf("longest path = %d, want in T5 band [36,44]", got)
+	}
+}
+
+// TestAbyssPortalGraph_AllNodesHaveRegion confirms D1-e backfilled the
+// missing RegionID authoring per dnd_expedition_region.go: every node
+// carries a non-empty RegionID matching the registry.
+func TestAbyssPortalGraph_AllNodesHaveRegion(t *testing.T) {
+	g := zoneAbyssPortalGraph()
+	validRegions := map[string]bool{
+		"abyss_outer_rift":     true,
+		"abyss_demon_assembly": true,
+		"abyss_wardens_post":   true,
+		"abyss_the_tear":       true,
+	}
+	for id, n := range g.Nodes {
+		if n.RegionID == "" {
+			t.Errorf("node %s has empty RegionID — D1-e requires region authoring on every node", id)
+		}
+		if !validRegions[n.RegionID] {
+			t.Errorf("node %s RegionID = %q, not in dnd_expedition_region.go registry", id, n.RegionID)
+		}
+	}
+}
+
+// TestAbyssPortalGraph_AllFourRegionsRepresented confirms each authored
+// region has at least one node.
+func TestAbyssPortalGraph_AllFourRegionsRepresented(t *testing.T) {
+	g := zoneAbyssPortalGraph()
+	regions := map[string]int{}
+	for _, n := range g.Nodes {
+		regions[n.RegionID]++
+	}
+	for _, r := range []string{
+		"abyss_outer_rift",
+		"abyss_demon_assembly",
+		"abyss_wardens_post",
+		"abyss_the_tear",
+	} {
+		if regions[r] == 0 {
+			t.Errorf("region %q has no nodes — multi-region invariant broken", r)
+		}
 	}
 }
 
@@ -66,5 +117,36 @@ func TestAbyssPortalGraph_RealitySeamHighestBias(t *testing.T) {
 	seam := g.Nodes["abyss_portal.reality_seam"]
 	if seam.Content.LootBias < 3.0 {
 		t.Errorf("reality_seam LootBias = %v, want >= 3.0 (Abyss capstone)", seam.Content.LootBias)
+	}
+}
+
+// TestAbyssPortalGraph_D10Anchors verifies the D10 anchor-variety pass.
+// The Abyss shipped with no Trap node and a single fork2 Elite, so D10
+// adds two branch Traps (Hush Corridor, Seam Threshold) and a main-path
+// region-guardian Elite (Warden's Hall). Counts: 2 traps, 2 elites.
+func TestAbyssPortalGraph_D10Anchors(t *testing.T) {
+	g := zoneAbyssPortalGraph()
+	var trapCount, eliteCount int
+	for _, n := range g.Nodes {
+		switch n.Kind {
+		case NodeKindTrap:
+			trapCount++
+		case NodeKindElite:
+			eliteCount++
+		}
+	}
+	if trapCount != 2 {
+		t.Errorf("trap nodes = %d, want 2 (D10 hush_corridor + seam_threshold)", trapCount)
+	}
+	if eliteCount != 2 {
+		t.Errorf("elite nodes = %d, want 2 (vrock_aerie + D10 wardens_hall)", eliteCount)
+	}
+	if g.Nodes["abyss_portal.wardens_hall"].Kind != NodeKindElite {
+		t.Error("D10: wardens_hall (R3 region-guardian) should be an Elite")
+	}
+	for _, id := range []string{"abyss_portal.hush_corridor", "abyss_portal.seam_threshold"} {
+		if g.Nodes[id].Kind != NodeKindTrap {
+			t.Errorf("D10: %s should be a Trap", id)
+		}
 	}
 }

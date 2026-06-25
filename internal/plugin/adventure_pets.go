@@ -206,6 +206,25 @@ func petShouldArrive(pet PetState, house HouseState) bool {
 	return rand.Float64() < 0.30
 }
 
+// maybeRollPetArrivalOnEmerge rolls the pet-arrival check when a player
+// surfaces from an expedition (voluntary extract, abandon, or a survived
+// forced extraction) or revives after death. The arrival roll lives on the
+// emergence seam — not the legacy 08:00 overworld morning DM — because
+// expedition players are almost never in the overworld at the scheduled hour,
+// so the morning roll never reached them. Story beat: while the player was
+// underground, an animal wandered into the empty house looking for food.
+//
+// Safe to call unconditionally on any emergence: petShouldArrive gates on
+// house tier / not-yet-arrived, and petArrivalDM won't clobber an existing
+// pending interaction.
+func (p *AdventurePlugin) maybeRollPetArrivalOnEmerge(userID id.UserID) {
+	pet, _ := loadPetState(userID)
+	house, _ := loadHouseState(userID)
+	if petShouldArrive(pet, house) {
+		p.petArrivalDM(userID)
+	}
+}
+
 // petArrivalDM sends the initial "there's an animal in your house" DM.
 func (p *AdventurePlugin) petArrivalDM(userID id.UserID) {
 	// Don't overwrite an existing pending interaction
@@ -310,8 +329,11 @@ func (p *AdventurePlugin) resolvePetType(ctx MessageContext) error {
 		article, titleCase(petType)))
 }
 
-// resolvePetName handles naming the pet.
-func (p *AdventurePlugin) resolvePetName(ctx MessageContext) error {
+// resolvePetName handles naming the pet. The dispatcher (handlePendingReply)
+// has already deleted the pending interaction and passes it in, so this must
+// NOT re-load from p.pending — doing so previously made every adoption fail
+// silently (the carried PetType was lost and the save never ran).
+func (p *AdventurePlugin) resolvePetName(ctx MessageContext, interaction *advPendingInteraction) error {
 	userMu := p.advUserLock(ctx.Sender)
 	userMu.Lock()
 	defer userMu.Unlock()
@@ -321,20 +343,15 @@ func (p *AdventurePlugin) resolvePetName(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Failed to load your character.")
 	}
 
-	val, ok := p.pending.LoadAndDelete(string(ctx.Sender))
-	if !ok {
-		return nil
-	}
-	pi := val.(*advPendingInteraction)
-	data := pi.Data.(*advPendingPetName)
+	data := interaction.Data.(*advPendingPetName)
 
 	name := strings.TrimSpace(ctx.Body)
 	if len(name) == 0 || len(name) > 30 {
-		p.pending.Store(string(ctx.Sender), pi)
+		p.pending.Store(string(ctx.Sender), interaction)
 		return p.SendDM(ctx.Sender, "Name must be 1-30 characters. Try again.")
 	}
 	if !petNameValid.MatchString(name) {
-		p.pending.Store(string(ctx.Sender), pi)
+		p.pending.Store(string(ctx.Sender), interaction)
 		return p.SendDM(ctx.Sender, "Name can only contain letters, numbers, spaces, hyphens, and apostrophes. Try again.")
 	}
 

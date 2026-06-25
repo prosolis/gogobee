@@ -32,7 +32,145 @@ import (
 const (
 	expeditionBriefingHour = 6
 	expeditionRecapHour    = 21
+
+	// nightSafetyNet — if an event-anchored expedition's last rollover is
+	// older than this, the 06:00 UTC briefing ticker force-fires
+	// processNightCamp itself. Without this, an expedition whose autopilot
+	// stalled (long combat, missed tick, manual halt) would drift forever
+	// without burning supplies or advancing days. 28h gives the autopilot
+	// 4h of slop past a normal day before we step in.
+	nightSafetyNet = 28 * time.Hour
 )
+
+// briefingIdleSkipWindow — D4-b: an event-anchored expedition skips its
+// 06:00 UTC re-engagement DM when the player's last_activity is older than
+// the new day's briefing threshold (i.e. they haven't moved since before
+// the day rolled). The briefing then fires lazily from OnMessage on the
+// next inbound message via maybeDeliverDeferredBriefing. The safety-net
+// force-fire path still wins past nightSafetyNet so stalled autopilots
+// never sit forever waiting on a silent player.
+
+// eventAnchoredCutoff — expeditions started at or after this timestamp
+// use the D2-b event-anchored day-rollover model: day++/burn/threat-drift
+// fire when the autopilot (or a player !camp) pitches a night camp, and
+// the 06:00 UTC briefing becomes a re-engagement DM with a safety-net
+// force. Expeditions started before this stay on the legacy UTC-anchored
+// briefing rollover until they end.
+var eventAnchoredCutoff = time.Date(2026, 5, 27, 18, 0, 0, 0, time.UTC)
+
+// isEventAnchored — true when this expedition uses the D2-b model.
+func isEventAnchored(e *Expedition) bool {
+	if e == nil {
+		return false
+	}
+	return !e.StartDate.Before(eventAnchoredCutoff)
+}
+
+// nightRolloverResult — the side effects processNightCamp produced, so
+// callers (autopilot pitch, manual !camp, safety-net briefing) can render
+// the same numbers into their own DM block.
+type nightRolloverResult struct {
+	Burn           float32
+	TemporalLines  []string
+	MilestoneLines []string
+	Starved        bool
+}
+
+// nightRolloverBurn — stage 1 of the day rollover: zone temporal pre-burn
+// + daily supply burn + current_day++. Returns the burn applied. Callers
+// follow this with applyCampRest (if pitching) and then nightRolloverDrift
+// to finish the rollover; legacy deliverBriefing interleaves processOvernightCamp
+// between the two so a fortified camp's −5 lands before drift's +3.
+func (p *AdventurePlugin) nightRolloverBurn(e *Expedition) (float32, error) {
+	// D5-c: Ranger forage runs before the daily burn so the +SU lands on
+	// today's supplies, not tomorrow's. Logged so the end-of-day digest
+	// can surface the gain; pure no-op for non-Ranger characters.
+	if c, err := LoadDnDCharacter(id.UserID(e.UserID)); err == nil && c != nil {
+		if gain := applyRangerForage(e, c, nil); gain > 0 {
+			_ = appendExpeditionLog(e.ID, e.CurrentDay, "forage",
+				fmt.Sprintf("ranger forage +%g SU", gain),
+				flavor.Pick(flavor.HarvestForageSuccess))
+		}
+	}
+	burnOverride := applyZoneTemporalPreBurn(e, e.CurrentDay+1)
+	var newSupplies ExpeditionSupplies
+	var burn float32
+	if burnOverride.Multiplier > 0 {
+		burn = e.Supplies.DailyBurn * burnOverride.Multiplier * float32(phase5BDailyBurnRatePct) / 100
+		newSupplies = e.Supplies
+		newSupplies.Current -= burn
+		if newSupplies.Current < 0 {
+			newSupplies.Current = 0
+		}
+		newSupplies.ForagedToday = false
+	} else {
+		harsh := e.ThreatLevel > 60 || zoneTemporalHarsh(e)
+		newSupplies, burn = applyDailyBurn(e.Supplies, harsh, e.SiegeMode)
+	}
+	if err := updateSupplies(e.ID, newSupplies); err != nil {
+		return 0, err
+	}
+	if err := advanceExpeditionDay(e.ID); err != nil {
+		return 0, err
+	}
+	e.Supplies = newSupplies
+	e.CurrentDay++
+	return burn, nil
+}
+
+// nightRolloverDrift — stage 2: daily threat drift, zone temporal post-
+// rollover, starvation check, max-threat record, milestones. Stamps
+// last_briefing_at = now so the UTC briefing ticker treats today as
+// already-rolled. `now` is the wallclock to stamp; callers that already
+// did the stamp via a CAS (deliverBriefing) pass time.Time{} to skip.
+func (p *AdventurePlugin) nightRolloverDrift(e *Expedition, now time.Time) nightRolloverResult {
+	var out nightRolloverResult
+	if _, _, err := applyDailyThreatDrift(e); err != nil {
+		slog.Warn("expedition: threat drift", "expedition", e.ID, "err", err)
+	}
+	out.TemporalLines = applyZoneTemporalPostRollover(e)
+
+	if supplyDepletion(e.Supplies) == SupplyStarvation && e.Status == ExpeditionStatusActive {
+		_, _, _ = forcedExtractExpedition(e.ID, "starvation")
+		e.Status = ExpeditionStatusAbandoned
+		line := flavor.Pick(flavor.ExtractionForced)
+		_ = appendExpeditionLog(e.ID, e.CurrentDay, "narrative",
+			"forced extraction: starvation", line)
+		out.Starved = true
+	}
+	if e.Status == ExpeditionStatusAbandoned && p.euro != nil {
+		tax := int(float64(e.CoinsEarned) * forcedExtractCoinTaxFrac)
+		if tax > 0 {
+			p.euro.Debit(id.UserID(e.UserID), float64(tax),
+				"forced extraction tax")
+		}
+	}
+	_ = recordMaxThreat(e)
+	out.MilestoneLines = p.checkDailyMilestones(e)
+
+	if !now.IsZero() {
+		if _, err := db.Get().Exec(`
+			UPDATE dnd_expedition
+			   SET last_briefing_at = ?
+			 WHERE expedition_id = ?`, now, e.ID); err == nil {
+			e.LastBriefingAt = &now
+		}
+	}
+	return out
+}
+
+// processNightCamp — burn + drift in one go, no rest in between. Used by
+// callers (autopilot pitch, manual !camp, event-anchored safety net) that
+// either apply their own rest separately or don't apply one at all.
+func (p *AdventurePlugin) processNightCamp(e *Expedition) (nightRolloverResult, error) {
+	burn, err := p.nightRolloverBurn(e)
+	if err != nil {
+		return nightRolloverResult{}, err
+	}
+	out := p.nightRolloverDrift(e, time.Now().UTC())
+	out.Burn = burn
+	return out, nil
+}
 
 // expeditionBriefingTicker — 06:00 UTC daily briefing.
 func (p *AdventurePlugin) expeditionBriefingTicker() {
@@ -90,6 +228,24 @@ func (p *AdventurePlugin) fireExpeditionBriefings(now time.Time) {
 		if hasActiveCombatSession(id.UserID(e.UserID)) {
 			slog.Info("expedition: briefing deferred — player in combat session", "expedition", e.ID, "user", e.UserID)
 			continue
+		}
+		// D4-b: skip the ticker DM for event-anchored expeditions whose
+		// player has been idle past the new day's threshold. The safety-
+		// net force path (handled inside deliverBriefingEventAnchored)
+		// still has to run when the autopilot stalled past nightSafetyNet,
+		// so only skip when both the player is idle AND we're not in the
+		// safety-net window.
+		if isEventAnchored(e) && e.LastActivity.Before(threshold) {
+			var since time.Duration
+			if e.LastBriefingAt != nil {
+				since = now.Sub(*e.LastBriefingAt)
+			} else {
+				since = now.Sub(e.StartDate)
+			}
+			if since <= nightSafetyNet {
+				slog.Info("expedition: briefing deferred — player idle, awaiting next inbound", "expedition", e.ID, "user", e.UserID)
+				continue
+			}
 		}
 		if err := p.deliverBriefing(e, now); err != nil {
 			slog.Error("expedition: briefing", "expedition", e.ID, "err", err)
@@ -176,14 +332,17 @@ func scanExpeditionRows(rows *sql.Rows) ([]*Expedition, error) {
 	return out, rows.Err()
 }
 
-// deliverBriefing rolls a day forward, applies supply burn, posts the
-// morning briefing DM, appends a log entry, and stamps last_briefing_at.
+// deliverBriefing posts the morning briefing DM. For legacy UTC-anchored
+// expeditions it also drives the day rollover (supply burn, day++, threat
+// drift) via processNightCamp. For event-anchored expeditions (D2-b) the
+// rollover is owned by the autopilot's night-camp pitch; the briefing
+// ticker only re-engages the player and force-fires the rollover after a
+// safety-net window.
 //
-// Idempotency: the first thing we do is an atomic compare-and-set on
-// last_briefing_at. If another invocation (clock skew, restart, double
-// fire) already claimed today's rollover, rowsAffected == 0 and we bail
-// without re-applying supply burn / day++ / threat drift.
+// Idempotency: atomic compare-and-set on last_briefing_at gates the body.
+// A double-fire on the same expedition is a no-op.
 func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
+	priorBriefing := e.LastBriefingAt
 	threshold := time.Date(now.Year(), now.Month(), now.Day(),
 		expeditionBriefingHour, 0, 0, 0, time.UTC)
 	res, err := db.Get().Exec(`
@@ -200,45 +359,24 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil // already delivered for this day
 	}
+	e.LastBriefingAt = &now
 
-	// E3: zone-specific temporal events fire BEFORE applyDailyBurn and
-	// can override the entire burn calculation with a fixed multiplier
-	// (Sunken Temple tidal 2.0×, Feywild half-day 0.5×, etc.).
-	burnOverride := applyZoneTemporalPreBurn(e, e.CurrentDay+1)
-
-	// Advance day + supply burn happen together at the morning rollover.
-	var newSupplies ExpeditionSupplies
-	var burn float32
-	if burnOverride.Multiplier > 0 {
-		// Phase 5-B: temporal overrides bypass applyDailyBurn, so apply
-		// the same global burn-rate multiplier explicitly here. Without
-		// this, tidal/unraveling days would burn at pre-Phase-5-B rates
-		// while normal days burn at half — an inconsistency the user
-		// would feel as "tidal days are now disproportionately harsh."
-		burn = e.Supplies.DailyBurn * burnOverride.Multiplier * float32(phase5BDailyBurnRatePct) / 100
-		newSupplies = e.Supplies
-		newSupplies.Current -= burn
-		if newSupplies.Current < 0 {
-			newSupplies.Current = 0
-		}
-		newSupplies.ForagedToday = false
-	} else {
-		harsh := e.ThreatLevel > 60 || zoneTemporalHarsh(e)
-		newSupplies, burn = applyDailyBurn(e.Supplies, harsh, e.SiegeMode)
+	// D2-b: event-anchored expeditions own the day rollover via the
+	// autopilot night camp. The 06:00 ticker either posts a re-engagement
+	// DM (rollover happened recently) or force-fires processNightCamp
+	// itself (safety net for stalled autopilots).
+	if isEventAnchored(e) {
+		return p.deliverBriefingEventAnchored(e, priorBriefing)
 	}
-	if err := updateSupplies(e.ID, newSupplies); err != nil {
+
+	burn, err := p.nightRolloverBurn(e)
+	if err != nil {
 		return err
 	}
-	if err := advanceExpeditionDay(e.ID); err != nil {
-		return err
-	}
-	e.Supplies = newSupplies
-	e.CurrentDay++
 
-	// E2d: overnight camp rest effects (HP/spells/threat). Auto-breaks
-	// the camp after applying. Run before threat drift so a fortified
-	// camp's −5 lands first and a same-day +3 drift can't push back over
-	// a threshold the rest just dropped.
+	// E2d: overnight camp rest. Runs after burn/day++ but before drift so
+	// a fortified camp's −5 lands first and a same-day +3 drift can't push
+	// back over a threshold the rest just dropped.
 	restSummary := processOvernightCamp(e)
 	if restSummary != "" {
 		if fresh, err := getExpedition(e.ID); err == nil && fresh != nil {
@@ -248,64 +386,178 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 		}
 	}
 
-	// E2a: daily threat drift (+3 base, GM-mood modifier). No-op after
-	// boss kill. May cross a threshold and append a flavor-bearing log.
-	if _, _, err := applyDailyThreatDrift(e); err != nil {
-		slog.Warn("expedition: threat drift", "expedition", e.ID, "err", err)
-	}
-
-	// E3: zone temporal events post-rollover narration (after the day
-	// has advanced, so e.CurrentDay reflects the new day).
-	temporalLines := applyZoneTemporalPostRollover(e)
-
-	// §4.3: starvation triggers forced extraction. With no CON tracking
-	// in this layer, the briefing-time check is the practical equivalent
-	// of "CON reaches 0" — a starvation morning means the player can't
-	// reasonably press on. Apply the §10.2 coin tax and flip status.
-	if supplyDepletion(e.Supplies) == SupplyStarvation && e.Status == ExpeditionStatusActive {
-		_, _, _ = forcedExtractExpedition(e.ID, "starvation")
-		e.Status = ExpeditionStatusAbandoned
-		line := flavor.Pick(flavor.ExtractionForced)
-		_ = appendExpeditionLog(e.ID, e.CurrentDay, "narrative",
-			"forced extraction: starvation", line)
-	}
-
-	// E5b: if a temporal event (or starvation above) forced extraction,
-	// apply the §10.2 coin tax. The temporal layer flips the row to
-	// 'abandoned'; the cycle holds the euro handle to do the debit.
-	if e.Status == ExpeditionStatusAbandoned && p.euro != nil {
-		tax := int(float64(e.CoinsEarned) * forcedExtractCoinTaxFrac)
-		if tax > 0 {
-			p.euro.Debit(id.UserID(e.UserID), float64(tax),
-				"forced extraction tax")
-		}
-	}
-
-	// E6b: sample today's threat into RegionState["max_threat_seen"] before
-	// any milestone check reads it; then award daily milestones reached by
-	// the new day count (First Night day 2, Week One day 8, Two Weeks day 15).
-	_ = recordMaxThreat(e)
-	milestoneLines := p.checkDailyMilestones(e)
+	// Pass time.Time{} — the CAS at the top of deliverBriefing already
+	// stamped last_briefing_at with the synthetic now; don't overwrite it.
+	roll := p.nightRolloverDrift(e, time.Time{})
+	roll.Burn = burn
 
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)
 	if restSummary != "" {
 		body += "\n💤 _" + restSummary + "_\n"
 	}
-	for _, tl := range temporalLines {
+	for _, tl := range roll.TemporalLines {
 		body += "\n🌀 " + tl + "\n"
 	}
-	for _, ml := range milestoneLines {
+	for _, ml := range roll.MilestoneLines {
 		body += "\n" + ml
 	}
 
 	if uid := id.UserID(e.UserID); uid != "" {
+		// The legacy overworld morning DM is skipped while underground, so
+		// its 25% morning pet event fires here instead, granting the one-day
+		// defense buff (reset at midnight via resetAllPetMorningDefense).
+		// Pet *arrival* is handled separately on the emergence seam below —
+		// not queued here — so we only roll the morning event.
+		if pet, perr := loadPetState(uid); perr == nil {
+			if petEvent := petMorningEvent(pet); petEvent != "" {
+				if char, cerr := loadAdvCharacter(uid); cerr == nil {
+					char.PetMorningDefense = true
+					if serr := saveAdvCharacter(char); serr != nil {
+						slog.Warn("expedition: save pet morning defense", "user", uid, "err", serr)
+					}
+				}
+				body = fmt.Sprintf("🐾 *%s*\n\n%s", petEvent, body)
+			}
+		}
 		if err := p.SendDM(uid, body); err != nil {
 			slog.Warn("expedition: send briefing DM", "user", uid, "err", err)
+		}
+		// Emergence seam: a briefing-time forced extraction (starvation /
+		// abyss collapse) surfaces the player alive — roll pet arrival.
+		// Combat/patrol deaths never reach deliverBriefing (the row is
+		// already abandoned), so an abandoned status here means a survived
+		// emergence; those death paths roll on respawn instead.
+		if e.Status == ExpeditionStatusAbandoned {
+			p.maybeRollPetArrivalOnEmerge(uid)
 		}
 	}
 	if err := appendExpeditionLog(e.ID, e.CurrentDay, "briefing",
 		fmt.Sprintf("morning briefing — %.1f SU consumed overnight", burn), line); err != nil {
+		return err
+	}
+	return nil
+}
+
+// maybeDeliverDeferredBriefing — D4-b lazy-delivery hook. When the 06:00
+// UTC ticker skips an event-anchored expedition because the player was
+// idle, the morning DM is posted here on their next inbound message.
+// Cheap fast paths (no expedition, not event-anchored, briefing already
+// stamped past today's threshold) keep the per-message cost to one
+// indexed row lookup. Idempotency rides on deliverBriefing's CAS.
+func (p *AdventurePlugin) maybeDeliverDeferredBriefing(uid id.UserID, now time.Time) {
+	if uid == "" {
+		return
+	}
+	exp, err := getActiveExpedition(uid)
+	if err != nil || exp == nil || !isEventAnchored(exp) {
+		return
+	}
+	// Stamp presence: per-D4-b, any inbound message in any room counts as
+	// "the player is here." The ticker's idle-skip reads last_activity to
+	// decide whether to suppress the 06:00 DM, so we update it on every
+	// message — not just bot commands.
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_expedition SET last_activity = ? WHERE expedition_id = ?`,
+		now, exp.ID); err != nil {
+		slog.Warn("expedition: stamp activity", "user", uid, "err", err)
+	}
+	// Only lazy-deliver when a briefing is actually owed: a previous
+	// briefing exists (so we know the cadence is live) or the autopilot
+	// has rolled past day 1 without one (so a rollover happened in the
+	// player's absence). Day-1 inbounds shouldn't trigger a briefing
+	// before the first night camp has even happened.
+	if exp.LastBriefingAt == nil && exp.CurrentDay <= 1 {
+		return
+	}
+	// Don't lazy-deliver before today's 06:00 UTC threshold. The
+	// deliverBriefing CAS keys off the same threshold, so a pre-06:00
+	// fire would double-emit when the 06:00 ticker sweep arrives.
+	threshold := time.Date(now.Year(), now.Month(), now.Day(),
+		expeditionBriefingHour, 0, 0, 0, time.UTC)
+	if now.Before(threshold) {
+		return
+	}
+	if exp.LastBriefingAt != nil && !exp.LastBriefingAt.Before(threshold) {
+		return
+	}
+	if hasActiveCombatSession(uid) {
+		return
+	}
+	if err := p.deliverBriefing(exp, now); err != nil {
+		slog.Warn("expedition: deferred briefing", "user", uid, "err", err)
+	}
+}
+
+// deliverBriefingEventAnchored — D2-b 06:00 UTC ticker for event-anchored
+// expeditions. The autopilot's night-camp pitch owns day++/burn/threat-
+// drift; the ticker just re-engages the player. If the autopilot has
+// stalled past nightSafetyNet we force-fire processNightCamp ourselves so
+// the expedition doesn't sit frozen.
+//
+// priorBriefing is the last_briefing_at value as of entry into deliverBriefing
+// (before the CAS clobbered it). nil means day-1 or genuinely never rolled.
+func (p *AdventurePlugin) deliverBriefingEventAnchored(e *Expedition, priorBriefing *time.Time) error {
+	now := time.Now().UTC()
+	var since time.Duration
+	if priorBriefing != nil {
+		since = now.Sub(*priorBriefing)
+	} else {
+		since = now.Sub(e.StartDate)
+	}
+	forced := since > nightSafetyNet
+
+	var (
+		burn          float32
+		temporalLines []string
+		mileLines     []string
+	)
+	if forced {
+		roll, err := p.processNightCamp(e)
+		if err != nil {
+			return err
+		}
+		burn = roll.Burn
+		temporalLines = roll.TemporalLines
+		mileLines = roll.MilestoneLines
+	}
+
+	line := pickMorningBriefing(e.CurrentDay)
+	body := renderMorningBriefing(e, line, burn)
+	if forced {
+		body += "\n_The autopilot stalled overnight; the day rolled over without rest._\n"
+	}
+	for _, tl := range temporalLines {
+		body += "\n🌀 " + tl + "\n"
+	}
+	for _, ml := range mileLines {
+		body += "\n" + ml
+	}
+
+	if uid := id.UserID(e.UserID); uid != "" {
+		if pet, perr := loadPetState(uid); perr == nil {
+			if petEvent := petMorningEvent(pet); petEvent != "" {
+				if char, cerr := loadAdvCharacter(uid); cerr == nil {
+					char.PetMorningDefense = true
+					if serr := saveAdvCharacter(char); serr != nil {
+						slog.Warn("expedition: save pet morning defense", "user", uid, "err", serr)
+					}
+				}
+				body = fmt.Sprintf("🐾 *%s*\n\n%s", petEvent, body)
+			}
+		}
+		if err := p.SendDM(uid, body); err != nil {
+			slog.Warn("expedition: send briefing DM", "user", uid, "err", err)
+		}
+		if forced && e.Status == ExpeditionStatusAbandoned {
+			p.maybeRollPetArrivalOnEmerge(uid)
+		}
+	}
+	summary := "morning re-engagement"
+	if forced {
+		summary = fmt.Sprintf("safety-net rollover — %.1f SU consumed overnight", burn)
+	}
+	if err := appendExpeditionLog(e.ID, e.CurrentDay, "briefing", summary, line); err != nil {
 		return err
 	}
 	return nil

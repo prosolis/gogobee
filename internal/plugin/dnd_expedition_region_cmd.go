@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"gogobee/internal/flavor"
+
+	"maunium.net/go/mautrix/id"
 )
 
 // Phase 12 E4c — !region command surface and inter-region travel.
@@ -120,24 +122,41 @@ func (p *AdventurePlugin) regionCmdTravel(ctx MessageContext, exp *Expedition) e
 			"You're already in **%s** — the final region of this zone. Defeat the zone boss to complete the expedition.",
 			cur.Name))
 	}
+	narrative, err := p.advanceToNextRegion(ctx.Sender, exp, cur, next)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Region transit failed: "+err.Error())
+	}
+	return p.SendDM(ctx.Sender, narrative)
+}
+
+// advanceToNextRegion performs an inter-region transition: burns the transit
+// day + supplies, fires the transit wandering check, retires the outgoing
+// region's DungeonRun, bumps CurrentRegion + the visited list, and spawns the
+// incoming region's run (pinning exp.RunID). Returns the rendered transit
+// narrative block. Shared by the manual `!region travel` command and the
+// autopilot walk's mid-zone auto-advance — keeping the transit cost identical
+// on both paths.
+func (p *AdventurePlugin) advanceToNextRegion(userID id.UserID, exp *Expedition, cur, next ExpeditionRegion) (string, error) {
 	// Burn one day of supplies (transit day).
 	siege := exp.SiegeMode
 	harsh := exp.ThreatLevel > 60 || zoneTemporalHarsh(exp)
 	newSupplies, burned := applyDailyBurn(exp.Supplies, harsh, siege)
 	exp.Supplies = newSupplies
 	if err := updateSupplies(exp.ID, exp.Supplies); err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't apply transit supply burn: "+err.Error())
+		return "", fmt.Errorf("apply transit supply burn: %w", err)
 	}
 	if err := advanceExpeditionDay(exp.ID); err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't advance the expedition day: "+err.Error())
+		return "", fmt.Errorf("advance expedition day: %w", err)
 	}
 	exp.CurrentDay++
 
 	// Transit wandering check (no camp protection — campMod = 0).
-	c, _ := LoadDnDCharacter(ctx.Sender)
+	c, _ := LoadDnDCharacter(userID)
 	var charClass DnDClass
+	charLevel := 1
 	if c != nil {
 		charClass = c.Class
+		charLevel = c.Level
 	}
 	tc := resolveTransitWanderingCheck(exp, charClass, nil)
 	_ = processTransitWanderingCheck(exp, tc)
@@ -145,24 +164,20 @@ func (p *AdventurePlugin) regionCmdTravel(ctx MessageContext, exp *Expedition) e
 	// R2 — retire the outgoing region's DungeonRun before mutating
 	// CurrentRegion so retireRegionRun keys the right region.
 	if err := retireRegionRun(exp, cur.ID); err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't retire previous region run: "+err.Error())
+		return "", fmt.Errorf("retire previous region run: %w", err)
 	}
 
 	// Update CurrentRegion + visited list.
 	if err := setCurrentRegion(exp, next.ID); err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't update current region: "+err.Error())
+		return "", fmt.Errorf("update current region: %w", err)
 	}
 	if _, err := MarkRegionVisited(exp, next.ID); err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't mark region visited: "+err.Error())
+		return "", fmt.Errorf("mark region visited: %w", err)
 	}
 
 	// Spawn the new region's DungeonRun and pin exp.RunID.
-	charLevel := 1
-	if c != nil {
-		charLevel = c.Level
-	}
 	if _, err := ensureRegionRun(exp, charLevel); err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't outfit the new region: "+err.Error())
+		return "", fmt.Errorf("outfit the new region: %w", err)
 	}
 
 	// Log + flavor.
@@ -189,7 +204,7 @@ func (p *AdventurePlugin) regionCmdTravel(ctx MessageContext, exp *Expedition) e
 	if next.IsZoneBoss {
 		b.WriteString("\n_★ Final region — the zone boss is here._")
 	}
-	return p.SendDM(ctx.Sender, b.String())
+	return b.String(), nil
 }
 
 // resolveTransitWanderingCheck mirrors resolveWanderingCheck (§6.1) but

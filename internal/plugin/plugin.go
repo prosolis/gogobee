@@ -41,6 +41,13 @@ type MessageContext struct {
 	// routes DM commands to the player's game room). When set, sender-private
 	// replies should go here instead of the rewritten RoomID.
 	OriginRoomID id.RoomID
+	// Silent suppresses player-facing replies for handlers that honor it
+	// (currently the turn-engine combat commands via replyDM). Set by the
+	// background autopilot when it drives a boss/elite fight through the
+	// real !fight/!attack engine for manual parity (long-expedition D8-f) —
+	// the day digest summarizes the outcome, so the per-round narration is
+	// dropped rather than DM'd round-by-round.
+	Silent bool
 }
 
 // ReactionContext holds the context for a reaction event.

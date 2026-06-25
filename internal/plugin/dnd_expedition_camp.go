@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"strings"
 	"time"
@@ -79,12 +80,9 @@ func (p *AdventurePlugin) handleCampCmd(ctx MessageContext, args string) error {
 	case "rough", "standard":
 		// allowed in E1e
 	case "fortified":
-		// E2d: §5.1 — boss-cleared room or cache site. Cache sites
-		// are zone-specific waypoints (E3+), so for now we require the
-		// expedition's boss to have been defeated.
 		if !exp.BossDefeated {
 			return p.SendDM(ctx.Sender,
-				"Fortified camps require a boss-cleared room or cache site. Defeat the zone boss (or find a cache) first.")
+				"Fortified camps require a defeated zone boss. Clear the zone first.")
 		}
 	case "base":
 		// E4d: §11.1 — base camps unlock per region after the region
@@ -119,10 +117,10 @@ func (p *AdventurePlugin) handleCampCmd(ctx MessageContext, args string) error {
 
 func campHelpText(exp *Expedition) string {
 	var b strings.Builder
-	b.WriteString("**!camp <type>** — establish camp during an expedition.\n\n")
+	b.WriteString("**!camp <type>** — _override._ Autopilot pitches camp at night automatically; reach for this only to force a rest right now.\n\n")
 	b.WriteString("`!camp rough` — partial rest (any location, +0.5 SU, high night risk)\n")
 	b.WriteString("`!camp standard` — full long rest (cleared room, +1 SU, medium risk)\n")
-	b.WriteString("`!camp fortified` — long rest + bonus (boss-cleared room, +2 SU, low risk)\n")
+	b.WriteString("`!camp fortified` — long rest + bonus (zone boss defeated, +2 SU, low risk)\n")
 	b.WriteString("`!camp base` — persistent waypoint (region-boss-cleared base-camp site, +3 SU, very low risk)\n")
 	b.WriteString("`!camp break` — break camp\n\n")
 	if exp.Camp != nil && exp.Camp.Active {
@@ -146,10 +144,10 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 		return p.SendDM(ctx.Sender, problem)
 	}
 	if !cleared && kind == CampTypeStandard {
-		// §5.2: non-cleared room forces rough.
-		kind = CampTypeRough
-		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative",
-			"intended standard camp; downgraded to rough (room not cleared)", "")
+		// §5.2: standard camp requires a cleared room. Reject explicitly
+		// rather than silently downgrading — the player should make the call.
+		return p.SendDM(ctx.Sender,
+			"Standard camp needs a cleared room. This room isn't cleared yet — clear it first, or `!camp rough` for a partial rest here.")
 	}
 
 	cost, ok := campSupplyCost[kind]
@@ -160,6 +158,30 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
 			"Not enough supplies for that camp (need **%.1f SU**, have **%.1f SU**). Try `!camp rough` or break camp and conserve.",
 			cost, exp.Supplies.Current))
+	}
+
+	// D2-b: event-anchored manual !camp counts as the night camp if it's
+	// the first camp since the last rollover. Burn supplies *before* the
+	// camp cost so the burn lands against pre-pitch supplies (matches the
+	// legacy morning-burn ordering), then pitch, then drift.
+	nightCamp := false
+	var nightBurn float32
+	var nightRoll nightRolloverResult
+	if isEventAnchored(exp) {
+		var since time.Duration
+		if exp.LastBriefingAt != nil {
+			since = time.Now().UTC().Sub(*exp.LastBriefingAt)
+		} else {
+			since = time.Now().UTC().Sub(exp.StartDate)
+		}
+		if since >= nightCampWindow {
+			nightCamp = true
+			burn, err := p.nightRolloverBurn(exp)
+			if err != nil {
+				return p.SendDM(ctx.Sender, "Couldn't burn night supplies: "+err.Error())
+			}
+			nightBurn = burn
+		}
 	}
 
 	exp.Supplies.Current -= cost
@@ -175,6 +197,20 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 	}
 	if err := updateCamp(exp.ID, camp); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't pitch camp: "+err.Error())
+	}
+	exp.Camp = camp
+
+	// Apply the long-rest effects immediately so the player isn't waiting
+	// until the next 06:00 UTC briefing for HP and spell slots to come
+	// back. The flag tells processOvernightCamp not to re-apply at briefing.
+	restSummary := applyCampRest(exp, kind)
+	if nightCamp {
+		nightRoll = p.nightRolloverDrift(exp, time.Now().UTC())
+		nightRoll.Burn = nightBurn
+	}
+	camp.RestApplied = true
+	if err := updateCamp(exp.ID, camp); err != nil {
+		slog.Warn("camp: mark rest applied", "expedition", exp.ID, "err", err)
 	}
 
 	// E4d: pick the BaseCampEstablished pool for base camps; otherwise
@@ -206,40 +242,33 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 	if line != "" {
 		b.WriteString("\n" + line + "\n")
 	}
+	if restSummary != "" {
+		b.WriteString("\n" + restSummary + "\n")
+	}
 	switch kind {
-	case CampTypeRough:
-		b.WriteString("\n_Rough camp — partial rest. HP recovers to 50%, no spell slots restored._")
-	case CampTypeFortified:
-		b.WriteString("\n_Fortified camp — long rest + 1d6 HP bonus on wake; threat clock −5; wandering rolls −4._")
 	case CampTypeBase:
-		b.WriteString("\n_Base camp — long rest + 1d6 HP bonus; threat clock −5; wandering rolls −6. **Waypoint persisted** — camp here again at no eligibility cost on later returns._")
-	default:
-		b.WriteString("\n_Standard camp — full long rest at the next morning briefing._")
+		b.WriteString("\n_Base camp — **waypoint persisted**. Camp here again at no eligibility cost on later returns._")
+	}
+	if nightCamp {
+		b.WriteString(fmt.Sprintf("\n\n🌙 **Day %d.** _Overnight burn: %.1f SU._\n", exp.CurrentDay, nightRoll.Burn))
+		for _, tl := range nightRoll.TemporalLines {
+			b.WriteString("\n🌀 " + tl + "\n")
+		}
+		for _, ml := range nightRoll.MilestoneLines {
+			b.WriteString("\n" + ml)
+		}
 	}
 	return p.SendDM(ctx.Sender, b.String())
 }
 
-// processOvernightCamp applies the overnight long-rest effects of an
-// active camp at briefing time (§3, §5.1, §8.1). Auto-breaks the camp
-// after the rest. Returns a one-line summary for the briefing body.
-//
-// Effects:
-//   - rough: HP recovered to at least 50% of max.
-//   - standard: HP fully restored, spell slots refreshed, exhaustion -1.
-//   - fortified: standard + 1d6 HP bonus on top, threat -5.
-//   - base: same as fortified for the rest itself; persistent waypoint
-//     mechanics land in E4.
-//
-// Returns "" if the expedition wasn't camped overnight.
-func processOvernightCamp(e *Expedition) string {
-	if e.Camp == nil || !e.Camp.Active {
-		return ""
-	}
+// applyCampRest runs the long-rest effects (HP/spells/threat/heat) for the
+// given camp kind and returns a player-facing summary. Shared by camp pitch
+// (immediate rest) and overnight rollover (legacy deferred path). Does NOT
+// break the camp — callers decide that.
+func applyCampRest(e *Expedition, kind string) string {
 	uid := id.UserID(e.UserID)
 	c, _ := LoadDnDCharacter(uid)
 	if c == nil {
-		// No character to apply HP/spells to; just break the camp.
-		_ = updateCamp(e.ID, nil)
 		return ""
 	}
 	// Babysit safe-rest: an active subscription promotes a Standard camp
@@ -247,7 +276,6 @@ func processOvernightCamp(e *Expedition) string {
 	// Rough/Base are unchanged — Rough still implies no shelter, and Base
 	// already exceeds Fortified.
 	babysitUpgraded := false
-	kind := e.Camp.Type
 	if kind == CampTypeStandard && BabysitSafeRest(uid) {
 		kind = CampTypeFortified
 		babysitUpgraded = true
@@ -299,11 +327,6 @@ func processOvernightCamp(e *Expedition) string {
 		heatReduced = before - after
 	}
 
-	// Auto-break the camp now that the rest has been applied.
-	_ = updateCamp(e.ID, nil)
-	e.Camp = nil
-
-	// Pretty summary for the briefing body.
 	switch kind {
 	case CampTypeRough:
 		if c.HPCurrent > prevHP {
@@ -325,6 +348,24 @@ func processOvernightCamp(e *Expedition) string {
 		return summary
 	}
 	return ""
+}
+
+// processOvernightCamp handles the briefing-time half of the camp lifecycle:
+// auto-breaks the camp, and applies the long rest only if it wasn't already
+// applied at pitch time. Returns a one-line summary for the briefing body, or
+// "" if there was nothing to do.
+func processOvernightCamp(e *Expedition) string {
+	if e.Camp == nil || !e.Camp.Active {
+		return ""
+	}
+	kind := e.Camp.Type
+	alreadyApplied := e.Camp.RestApplied
+	_ = updateCamp(e.ID, nil)
+	e.Camp = nil
+	if alreadyApplied {
+		return ""
+	}
+	return applyCampRest(e, kind)
 }
 
 func (p *AdventurePlugin) campBreak(ctx MessageContext, exp *Expedition) error {
@@ -359,15 +400,66 @@ func campLocationCheck(exp *Expedition) (cleared bool, problem string) {
 	case RoomTrap:
 		return false, "You can't camp in a trap room — even a disarmed one."
 	}
-	// Active-enemy detection requires combat-state lookup; defer to E2.
-	cleared = false
 	for _, idx := range run.RoomsCleared {
 		if idx == run.CurrentRoom {
-			cleared = true
-			break
+			return true, ""
 		}
 	}
-	return cleared, ""
+	// Not yet advanced-past, but the only thing that bars a rest is a live
+	// fight. Forward-only navigation means players pause right after a kill
+	// before advancing, and peaceful/exploration/loot rooms never spawn an
+	// encounter at all — both are safe to rest in. The "cleared" flag would
+	// otherwise reject standard camp here with a misleading "clear it first".
+	encID := encounterIDForRoom(run.CurrentRoom)
+	sess, err := getCombatSessionForEncounter(run.RunID, encID)
+	if err != nil {
+		// Can't read the encounter's combat state. Fail open like the
+		// run-lookup path above rather than blocking standard camp with an
+		// empty (misleading "not cleared") rejection — a DB hiccup shouldn't
+		// strand a player who only wants to rest.
+		slog.Warn("camp: combat session lookup failed; allowing camp",
+			"run", run.RunID, "encounter", encID, "err", err)
+		return true, ""
+	}
+	if sess != nil && sess.Status == CombatStatusActive {
+		return false, "You can't camp mid-fight — finish the encounter first."
+	}
+	return true, ""
+}
+
+// autoBreakCampOnMove strikes an active camp when the player has moved
+// to a different room than the one camp was pitched in. Camp is a
+// stationary intent (long-rest at this spot until the next briefing);
+// once the party walks on — whether by autopilot, manual !advance, or
+// fork pick — the tent stops mattering. Overnight rest effects are not
+// applied here (those only land at briefing time via
+// processOvernightCamp). Returns the camp type that was struck, or ""
+// if no break happened. Safe to call when there's no expedition.
+func autoBreakCampOnMove(userID id.UserID) string {
+	exp, err := getActiveExpedition(userID)
+	if err != nil || exp == nil {
+		return ""
+	}
+	if exp.Camp == nil || !exp.Camp.Active {
+		return ""
+	}
+	if exp.RunID == "" {
+		return ""
+	}
+	run, err := getZoneRun(exp.RunID)
+	if err != nil || run == nil {
+		return ""
+	}
+	if run.CurrentRoom == exp.Camp.RoomIndex {
+		return ""
+	}
+	kind := exp.Camp.Type
+	if err := updateCamp(exp.ID, nil); err != nil {
+		slog.Warn("camp: auto-break on move failed", "expedition", exp.ID, "err", err)
+		return ""
+	}
+	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative", "camp struck (party moved on)", "")
+	return kind
 }
 
 // campCurrentRoomIndex returns 0 (entry) when no room context exists.

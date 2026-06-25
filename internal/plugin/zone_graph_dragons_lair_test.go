@@ -7,19 +7,70 @@ func TestDragonsLairGraph_Registered(t *testing.T) {
 	if !ok {
 		t.Fatal("zoneDragonsLairGraph not registered")
 	}
-	if len(g.Nodes) != 12 {
-		t.Errorf("nodes = %d, want 12", len(g.Nodes))
+	// Long-expedition D1-e widened this zone from 12 → 47 nodes so the
+	// longest entry→boss walk lands in the T5 [36,44] traversal band.
+	if len(g.Nodes) != 47 {
+		t.Errorf("nodes = %d, want 47", len(g.Nodes))
 	}
 }
 
-// TestDragonsLairGraph_Fork1Converges verifies the binary mid-fork
-// converges at wyrmlings_nest.
+func TestDragonsLairGraph_LongestPathInBand(t *testing.T) {
+	g := zoneDragonsLairGraph()
+	got := graphLongestPath(g)
+	if got < 36 || got > 44 {
+		t.Errorf("longest path = %d, want in T5 band [36,44]", got)
+	}
+}
+
+// TestDragonsLairGraph_AllNodesHaveRegion confirms D1-e backfilled the
+// missing RegionID authoring per dnd_expedition_region.go: every node
+// carries a non-empty RegionID matching the registry.
+func TestDragonsLairGraph_AllNodesHaveRegion(t *testing.T) {
+	g := zoneDragonsLairGraph()
+	validRegions := map[string]bool{
+		"dragons_lair_kobold_warrens":   true,
+		"dragons_lair_drake_pens":       true,
+		"dragons_lair_the_vault":        true,
+		"dragons_lair_infernax_chamber": true,
+	}
+	for id, n := range g.Nodes {
+		if n.RegionID == "" {
+			t.Errorf("node %s has empty RegionID — D1-e requires region authoring on every node", id)
+		}
+		if !validRegions[n.RegionID] {
+			t.Errorf("node %s RegionID = %q, not in dnd_expedition_region.go registry", id, n.RegionID)
+		}
+	}
+}
+
+// TestDragonsLairGraph_AllFourRegionsRepresented confirms each authored
+// region has at least one node.
+func TestDragonsLairGraph_AllFourRegionsRepresented(t *testing.T) {
+	g := zoneDragonsLairGraph()
+	regions := map[string]int{}
+	for _, n := range g.Nodes {
+		regions[n.RegionID]++
+	}
+	for _, r := range []string{
+		"dragons_lair_kobold_warrens",
+		"dragons_lair_drake_pens",
+		"dragons_lair_the_vault",
+		"dragons_lair_infernax_chamber",
+	} {
+		if regions[r] == 0 {
+			t.Errorf("region %q has no nodes — multi-region invariant broken", r)
+		}
+	}
+}
+
+// TestDragonsLairGraph_Fork1Converges verifies the binary mid-fork's
+// two spurs both converge at wyrmlings_nest (R3 boundary).
 func TestDragonsLairGraph_Fork1Converges(t *testing.T) {
 	g := zoneDragonsLairGraph()
-	for _, mid := range []string{"dragons_lair.ash_bridge", "dragons_lair.treasure_vault"} {
-		outs := g.outgoingEdges(mid)
+	for _, spurTail := range []string{"dragons_lair.cinder_walk", "dragons_lair.vault_passage"} {
+		outs := g.outgoingEdges(spurTail)
 		if len(outs) != 1 || outs[0].To != "dragons_lair.wyrmlings_nest" {
-			t.Errorf("%s outs = %+v, want single edge to wyrmlings_nest", mid, outs)
+			t.Errorf("%s outs = %+v, want single edge to wyrmlings_nest", spurTail, outs)
 		}
 	}
 }
@@ -43,9 +94,9 @@ func TestDragonsLairGraph_Fork2Capstone(t *testing.T) {
 	}
 	// Locks escalate: open / CHA 16 / Perception 17 (T5 secret bias).
 	for _, e := range outs {
-		if e.To == "dragons_lair.hoard_pillar" {
+		if e.To == "dragons_lair.hidden_passage" {
 			if dc := lockDataInt(e.LockData, "dc", 0); dc < 17 {
-				t.Errorf("hoard_pillar DC = %d, want >= 17 (T5)", dc)
+				t.Errorf("hoard_pillar spur DC = %d, want >= 17 (T5)", dc)
 			}
 		}
 	}
@@ -58,5 +109,34 @@ func TestDragonsLairGraph_LootBiasEscalation(t *testing.T) {
 	hoard := g.Nodes["dragons_lair.hoard_pillar"]
 	if hoard.Content.LootBias < 2.5 {
 		t.Errorf("hoard_pillar LootBias = %v, want >= 2.5 (T5 secret)", hoard.Content.LootBias)
+	}
+}
+
+// TestDragonsLairGraph_D10Anchors verifies the D10 anchor-variety pass:
+// the treasure_vault spur gains a guarding Elite (Coin-Strewn Hall) to
+// mirror the ash_bridge spur's Trap, and the hoard_pillar SECRET capstone
+// spur gains a Trap (Hidden Passage). Counts: 2 traps, 2 elites.
+func TestDragonsLairGraph_D10Anchors(t *testing.T) {
+	g := zoneDragonsLairGraph()
+	var trapCount, eliteCount int
+	for _, n := range g.Nodes {
+		switch n.Kind {
+		case NodeKindTrap:
+			trapCount++
+		case NodeKindElite:
+			eliteCount++
+		}
+	}
+	if trapCount != 2 {
+		t.Errorf("trap nodes = %d, want 2 (ash_bridge + D10 hidden_passage)", trapCount)
+	}
+	if eliteCount != 2 {
+		t.Errorf("elite nodes = %d, want 2 (wyrmlings_nest + D10 coin_strewn_hall)", eliteCount)
+	}
+	if g.Nodes["dragons_lair.coin_strewn_hall"].Kind != NodeKindElite {
+		t.Error("D10: coin_strewn_hall (treasure_vault spur) should be an Elite")
+	}
+	if g.Nodes["dragons_lair.hidden_passage"].Kind != NodeKindTrap {
+		t.Error("D10: hidden_passage (hoard_pillar spur) should be a Trap")
 	}
 }

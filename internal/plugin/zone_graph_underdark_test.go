@@ -7,8 +7,18 @@ func TestUnderdarkGraph_Registered(t *testing.T) {
 	if !ok {
 		t.Fatal("zoneUnderdarkGraph not registered")
 	}
-	if len(g.Nodes) != 10 {
-		t.Errorf("nodes = %d, want 10", len(g.Nodes))
+	// Long-expedition D1-d widened this zone from 10 → 46 nodes so the
+	// longest entry→boss walk lands in the T4 [28,34] traversal band.
+	if len(g.Nodes) != 46 {
+		t.Errorf("nodes = %d, want 46", len(g.Nodes))
+	}
+}
+
+func TestUnderdarkGraph_LongestPathInBand(t *testing.T) {
+	g := zoneUnderdarkGraph()
+	got := graphLongestPath(g)
+	if got < 28 || got > 34 {
+		t.Errorf("longest path = %d, want in T4 band [28,34]", got)
 	}
 }
 
@@ -18,10 +28,10 @@ func TestUnderdarkGraph_Registered(t *testing.T) {
 func TestUnderdarkGraph_AllNodesHaveRegion(t *testing.T) {
 	g := zoneUnderdarkGraph()
 	validRegions := map[string]bool{
-		"underdark_surface_tunnels":  true,
-		"underdark_drow_outpost":     true,
-		"underdark_illithid_warren":  true,
-		"underdark_deep_throne":      true,
+		"underdark_surface_tunnels": true,
+		"underdark_drow_outpost":    true,
+		"underdark_illithid_warren": true,
+		"underdark_deep_throne":     true,
 	}
 	for id, n := range g.Nodes {
 		if n.RegionID == "" {
@@ -93,5 +103,43 @@ func TestUnderdarkGraph_AllArmsReachBoss(t *testing.T) {
 		if !reachable(g, leaf, "underdark.boss") {
 			t.Errorf("%s unreachable to boss", leaf)
 		}
+	}
+}
+
+// TestUnderdarkGraph_TrapAnchor verifies D1-d added the missing R1 Trap
+// (collapsed_arch) and D10 added the illithid-arm Trap (silenced_chamber).
+func TestUnderdarkGraph_TrapAnchor(t *testing.T) {
+	g := zoneUnderdarkGraph()
+	var trapCount int
+	for _, n := range g.Nodes {
+		if n.Kind == NodeKindTrap {
+			trapCount++
+		}
+	}
+	if trapCount != 2 {
+		t.Errorf("trap nodes = %d, want 2 (collapsed_arch + D10 silenced_chamber)", trapCount)
+	}
+	if g.Nodes["underdark.silenced_chamber"].Kind != NodeKindTrap {
+		t.Error("D10: silenced_chamber (illithid arm) should be a Trap")
+	}
+}
+
+// TestUnderdarkGraph_EliteAnchors verifies the per-arm elites (drow
+// Captain, illithid Mind Flayer) plus the D10 region-guardian elite at
+// the drow→throne boundary (drow_gate), so the drow arm carries two
+// elites while the chasm spur stays anchor-light.
+func TestUnderdarkGraph_EliteAnchors(t *testing.T) {
+	g := zoneUnderdarkGraph()
+	var eliteCount int
+	for _, n := range g.Nodes {
+		if n.Kind == NodeKindElite {
+			eliteCount++
+		}
+	}
+	if eliteCount != 3 {
+		t.Errorf("elite nodes = %d, want 3 (drow_captain + mind_flayer + D10 drow_gate)", eliteCount)
+	}
+	if g.Nodes["underdark.drow_gate"].Kind != NodeKindElite {
+		t.Error("D10: drow_gate (R2→R4 boundary) should be a region-guardian Elite")
 	}
 }

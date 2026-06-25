@@ -13,12 +13,16 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"gogobee/internal/plugin"
 
@@ -32,6 +36,7 @@ func main() {
 		zone    = flag.String("zone", "goblin_warrens", "zone id (single-run mode)")
 		bank    = flag.Float64("bank", 1000, "starting coin balance — must cover outfitting")
 		cap     = flag.Int("cap", 50, "max autopilot bursts per expedition (each = up to autopilotRoomCap rooms)")
+		days    = flag.Int("days", 0, "stop after N synthetic day rollovers (0 = unbounded; the -cap safety net still applies)")
 		dataDir = flag.String("data", "", "data dir for the temp sqlite db (default: OS tempdir; ignored in matrix mode)")
 		userTag = flag.String("user", "@sim:expedition", "synthetic user id (single-run mode)")
 		logFlag = flag.Bool("log", true, "include per-row expedition log in output (single-run default true; matrix default false)")
@@ -43,10 +48,19 @@ func main() {
 		runs    = flag.Int("runs", 1, "replicates per (class,level,zone) cell (matrix mode)")
 
 		trace = flag.Bool("trace", false, "include raw per-round CombatEvent stream on the LAST combat of each expedition (boss room) — for J2 diagnostic sweeps")
+
+		petLevel = flag.Int("pet-level", 0, "attach a base housing pet at this level (1-10) to every sim character; 0 = no pet (default, matches prod char-creation)")
+
+		jobs = flag.Int("jobs", 0, "matrix mode — concurrent worker count (each worker is a subprocess so it gets its own sqlite). 0 = runtime.NumCPU()")
 	)
 	flag.Parse()
 
+	if *petLevel < 0 || *petLevel > 10 {
+		fail("pet-level must be 0-10, got", *petLevel)
+	}
+
 	plugin.SetSimIncludeTrace(*trace)
+	plugin.SetSimPetLevel(*petLevel)
 
 	if *matrix {
 		// Matrix default: drop log to keep stdout manageable; explicit
@@ -58,14 +72,14 @@ func main() {
 				includeLog = *logFlag
 			}
 		})
-		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, includeLog)
+		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, *days, includeLog, *jobs, *trace, *petLevel)
 		return
 	}
 
-	runSingle(*class, *level, *zone, *userTag, *dataDir, *bank, *cap, *logFlag)
+	runSingle(*class, *level, *zone, *userTag, *dataDir, *bank, *cap, *days, *logFlag)
 }
 
-func runSingle(class string, level int, zone, userTag, dataDir string, bank float64, cap int, includeLog bool) {
+func runSingle(class string, level int, zone, userTag, dataDir string, bank float64, cap, days int, includeLog bool) {
 	dir := dataDir
 	if dir == "" {
 		var err error
@@ -76,7 +90,7 @@ func runSingle(class string, level int, zone, userTag, dataDir string, bank floa
 		defer os.RemoveAll(dir)
 	}
 
-	res, err := runOne(dir, id.UserID(userTag), plugin.DnDClass(class), level, plugin.ZoneID(zone), bank, cap)
+	res, err := runOne(dir, id.UserID(userTag), plugin.DnDClass(class), level, plugin.ZoneID(zone), bank, cap, days)
 	if err != nil {
 		if res != nil {
 			if !includeLog {
@@ -92,47 +106,129 @@ func runSingle(class string, level int, zone, userTag, dataDir string, bank floa
 	emitIndented(res)
 }
 
-func runMatrix(classes, levels, zones string, runs int, bank float64, cap int, includeLog bool) {
+// matrixJob is one (class, level, zone, replicate-index) cell of the
+// matrix sweep. Each job is run by a worker as a single-run subprocess so
+// it gets its own SQLite handle — the plugin package's db.* globals
+// preclude in-process parallelism.
+type matrixJob struct {
+	class string
+	level int
+	zone  string
+	rep   int
+}
+
+func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days int, includeLog bool, jobs int, trace bool, petLevel int) {
 	cs := splitNonEmpty(classes)
 	ls := parseLevels(levels)
 	zs := splitNonEmpty(zones)
 	if len(cs) == 0 || len(ls) == 0 || len(zs) == 0 || runs <= 0 {
 		fail("matrix mode requires non-empty -classes, -levels, -zones and runs > 0")
 	}
-	enc := json.NewEncoder(os.Stdout)
+	if jobs <= 0 {
+		jobs = runtime.NumCPU()
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		fail("os.Executable:", err)
+	}
+
+	work := make([]matrixJob, 0, len(cs)*len(ls)*len(zs)*runs)
 	for _, c := range cs {
 		for _, lv := range ls {
 			for _, z := range zs {
 				for r := 0; r < runs; r++ {
-					dir, err := os.MkdirTemp("", "expedition-sim-")
-					if err != nil {
-						fail("mkdir temp:", err)
-					}
-					uid := id.UserID(fmt.Sprintf("@sim:%s-l%d-%s-%d", c, lv, z, r))
-					res, runErr := runOne(dir, uid, plugin.DnDClass(c), lv, plugin.ZoneID(z), bank, cap)
-					if res != nil && !includeLog {
-						res.Log = nil
-					}
-					if runErr != nil && res == nil {
-						// Synthesize a row so the corpus has one line per
-						// cell regardless of init failures.
-						res = &plugin.SimResult{
-							UserID:  string(uid),
-							Class:   c,
-							Level:   lv,
-							Zone:    z,
-							Outcome: "halted",
-						}
-					}
-					_ = enc.Encode(res)
-					_ = os.RemoveAll(dir)
+					work = append(work, matrixJob{class: c, level: lv, zone: z, rep: r})
 				}
 			}
 		}
 	}
+
+	workCh := make(chan matrixJob)
+	resCh := make(chan *plugin.SimResult, len(work))
+	var wg sync.WaitGroup
+	for i := 0; i < jobs; i++ {
+		wg.Add(1)
+		go matrixWorker(exe, workCh, resCh, &wg, bank, cap, days, includeLog, trace, petLevel)
+	}
+	go func() {
+		for _, j := range work {
+			workCh <- j
+		}
+		close(workCh)
+	}()
+	go func() {
+		wg.Wait()
+		close(resCh)
+	}()
+
+	enc := json.NewEncoder(os.Stdout)
+	for r := range resCh {
+		_ = enc.Encode(r)
+	}
 }
 
-func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zone plugin.ZoneID, bank float64, cap int) (*plugin.SimResult, error) {
+func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult, wg *sync.WaitGroup, bank float64, cap, days int, includeLog, trace bool, petLevel int) {
+	defer wg.Done()
+	for j := range in {
+		uid := fmt.Sprintf("@sim:%s-l%d-%s-%d", j.class, j.level, j.zone, j.rep)
+		dir, err := os.MkdirTemp("", "expedition-sim-")
+		if err != nil {
+			out <- &plugin.SimResult{UserID: uid, Class: j.class, Level: j.level, Zone: j.zone, Outcome: "halted"}
+			continue
+		}
+		args := []string{
+			"-class", j.class,
+			"-level", strconv.Itoa(j.level),
+			"-zone", j.zone,
+			"-bank", strconv.FormatFloat(bank, 'f', -1, 64),
+			"-cap", strconv.Itoa(cap),
+			"-days", strconv.Itoa(days),
+			"-data", dir,
+			"-user", uid,
+			fmt.Sprintf("-log=%t", includeLog),
+			fmt.Sprintf("-pet-level=%d", petLevel),
+		}
+		if trace {
+			args = append(args, "-trace")
+		}
+		cmd := exec.Command(exe, args...)
+		var stderrBuf bytes.Buffer
+		cmd.Stderr = &stderrBuf
+		stdout, runErr := cmd.Output()
+		var res plugin.SimResult
+		jerr := json.Unmarshal(stdout, &res)
+		if jerr != nil {
+			res = plugin.SimResult{UserID: uid, Class: j.class, Level: j.level, Zone: j.zone, Outcome: "halted"}
+		}
+		if runErr != nil && res.Outcome == "" {
+			res.Outcome = "halted"
+		}
+		// Surface subprocess failures: parse error with non-empty stdout
+		// (corrupted JSON) and non-zero exits both get a stderr dump so the
+		// user sees the underlying cause instead of just a halted row.
+		if jerr != nil || runErr != nil {
+			fmt.Fprintf(os.Stderr, "sim cell %s halted: runErr=%v jerr=%v\n", uid, runErr, jerr)
+			if stderrBuf.Len() > 0 {
+				fmt.Fprintf(os.Stderr, "  child stderr:\n%s\n", stderrBuf.String())
+			}
+			if jerr != nil && len(stdout) > 0 {
+				snip := stdout
+				if len(snip) > 200 {
+					snip = snip[:200]
+				}
+				fmt.Fprintf(os.Stderr, "  child stdout (first 200B): %q\n", snip)
+			}
+		}
+		if !includeLog {
+			res.Log = nil
+		}
+		out <- &res
+		_ = os.RemoveAll(dir)
+	}
+}
+
+
+func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zone plugin.ZoneID, bank float64, cap, days int) (*plugin.SimResult, error) {
 	runner, err := plugin.NewSimRunner(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("init runner: %w", err)
@@ -143,7 +239,7 @@ func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zon
 		return nil, fmt.Errorf("build character: %w", err)
 	}
 	runner.Euro.Credit(uid, bank, "expedition-sim bankroll")
-	return runner.RunExpedition(uid, zone, cap)
+	return runner.RunExpedition(uid, zone, cap, days)
 }
 
 func emitIndented(res *plugin.SimResult) {

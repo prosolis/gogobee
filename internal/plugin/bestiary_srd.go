@@ -83,18 +83,19 @@ var srdProfiles = map[string]SRDProfile{
 		{Name: "Scourge", AttackBonus: 9, Damage: 13},
 		{Name: "Scourge", AttackBonus: 9, Damage: 12},
 	}},
-	"boss_thornmother": {Attacks: []SRDAttack{ // Attack 18 → ~23
-		{Name: "Thorned Lash", AttackBonus: 8, Damage: 12},
-		{Name: "Thorned Lash", AttackBonus: 8, Damage: 11},
+	"boss_thornmother": {Attacks: []SRDAttack{ // D8-f #2: 2→3 lashes, ~23→~36 (faceroll → band)
+		{Name: "Thorned Lash", AttackBonus: 9, Damage: 13},
+		{Name: "Thorned Lash", AttackBonus: 9, Damage: 12},
+		{Name: "Thorned Lash", AttackBonus: 9, Damage: 11},
 	}},
-	"boss_infernax": {Attacks: []SRDAttack{ // Attack 38 → ~49
-		{Name: "Bite", AttackBonus: 11, Damage: 19},
-		{Name: "Claw", AttackBonus: 11, Damage: 15},
-		{Name: "Claw", AttackBonus: 11, Damage: 15},
+	"boss_infernax": {Attacks: []SRDAttack{ // D11 T5 lift: 49 → ~42 (nerf; was an impossible wall at L15-16)
+		{Name: "Bite", AttackBonus: 11, Damage: 16},
+		{Name: "Claw", AttackBonus: 11, Damage: 13},
+		{Name: "Claw", AttackBonus: 11, Damage: 13},
 	}},
-	"boss_belaxath": {Attacks: []SRDAttack{ // Attack 31 → ~40
+	"boss_belaxath": {Attacks: []SRDAttack{ // D11 T5 lift: 40 → ~41 (buff; was a leader faceroll)
 		{Name: "Longsword", AttackBonus: 11, Damage: 24},
-		{Name: "Whip", AttackBonus: 11, Damage: 16},
+		{Name: "Whip", AttackBonus: 11, Damage: 17},
 	}},
 
 	// ── Multiattack elites ───────────────────────────────────────────────
@@ -168,6 +169,24 @@ var srdProfiles = map[string]SRDProfile{
 	"vampire_spawn": {Attacks: []SRDAttack{ // Attack 8 → ~10
 		{Name: "Unarmed Strike", AttackBonus: 6, Damage: 6},
 		{Name: "Bite", AttackBonus: 6, Damage: 4},
+	}},
+
+	// ── Feywild elites (D8-f #2) ─────────────────────────────────────────
+	// Feywild martials facerolled at 97–100% even after an HP/AC raise: the
+	// roster was single-attack and low-damage, so tankier monsters just took
+	// longer to kill. Multiattack is the lever that actually pulls leaders
+	// into band (mirrors underdark's drow_elite). Casters trail (by design).
+	"fomorian": {Attacks: []SRDAttack{ // Attack 13 → ~21 (2 big fists)
+		{Name: "Greatclub", AttackBonus: 9, Damage: 11},
+		{Name: "Greatclub", AttackBonus: 9, Damage: 10},
+	}},
+	"night_hag": {Attacks: []SRDAttack{ // Attack 8 → ~12 (claw flurry)
+		{Name: "Claws", AttackBonus: 7, Damage: 6},
+		{Name: "Claws", AttackBonus: 7, Damage: 6},
+	}},
+	"green_hag": {Attacks: []SRDAttack{ // Attack 6 → ~10 (claw flurry)
+		{Name: "Claws", AttackBonus: 6, Damage: 5},
+		{Name: "Claws", AttackBonus: 6, Damage: 5},
 	}},
 }
 

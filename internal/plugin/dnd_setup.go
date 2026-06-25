@@ -258,7 +258,13 @@ func (p *AdventurePlugin) dndSetupConfirm(ctx MessageContext) error {
 
 	// Initial D&D level seeded from existing combat_level (v1.1 §4.1).
 	// combat_level "freezes" thereafter — dnd_level is canonical.
-	advChar, _ := loadAdvCharacter(ctx.Sender)
+	//
+	// ensureCharacter (not a bare loadAdvCharacter) so the canonical
+	// player_meta seed row + tier-0 equipment exist for D&D-only players
+	// who reach !setup confirm without ever touching the legacy adventure
+	// path. Without this seed, loadAdvCharacter returns "sql: no rows in
+	// result set" on every legacy-layer command (arena, npcs, events, …).
+	advChar, _, _ := p.ensureCharacter(ctx.Sender)
 	startLevel := 1
 	if advChar != nil {
 		startLevel = dndLevelFromCombatLevel(advChar.CombatLevel)

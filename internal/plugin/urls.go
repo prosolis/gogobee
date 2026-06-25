@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/safehttp"
 
 	"github.com/PuerkitoBio/goquery"
 	"maunium.net/go/mautrix"
@@ -40,9 +41,10 @@ func NewURLsPlugin(client *mautrix.Client) *URLsPlugin {
 		Base:        NewBase(client),
 		enabled:     enabled,
 		ignoreUsers: ignore,
-		httpClient: &http.Client{
-			Timeout: 3 * time.Second,
-		},
+		// Route page scrapes through safehttp so a posted link can't steer the
+		// fetch at loopback / RFC1918 / cloud-metadata IPs (re-checked on every
+		// redirect), and can't OOM the parser by streaming an unbounded body.
+		httpClient: safehttp.NewClient(8 * time.Second),
 	}
 }
 
@@ -90,10 +92,21 @@ func (p *URLsPlugin) OnMessage(ctx MessageContext) error {
 }
 
 func (p *URLsPlugin) previewURL(ctx MessageContext, targetURL string) {
-	title, desc, err := p.fetchPreview(targetURL)
+	title, desc, image, err := p.fetchPreview(targetURL)
 	if err != nil {
 		slog.Debug("urls: fetch preview failed", "url", targetURL, "err", err)
 		return
+	}
+
+	if title == "" && desc == "" && image == "" {
+		return
+	}
+
+	// Post the thumbnail first (best-effort), so it renders above the text.
+	if image != "" && validateImageURL(image) {
+		if err := p.SendImageFromURL(ctx.RoomID, image); err != nil {
+			slog.Debug("urls: thumbnail post failed", "url", targetURL, "image", image, "err", err)
+		}
 	}
 
 	if title == "" && desc == "" {
@@ -120,63 +133,69 @@ func (p *URLsPlugin) previewURL(ctx MessageContext, targetURL string) {
 	}
 }
 
-// fetchPreview retrieves og:title and og:description, checking cache first.
-func (p *URLsPlugin) fetchPreview(rawURL string) (string, string, error) {
+// fetchPreview retrieves og:title, og:description and og:image, checking cache first.
+func (p *URLsPlugin) fetchPreview(rawURL string) (title, desc, image string, err error) {
 	d := db.Get()
 	now := time.Now().UTC().Unix()
 	cacheTTL := int64(24 * 60 * 60)
 
 	// Check cache
-	var title, desc string
 	var cachedAt int64
-	err := d.QueryRow(
-		`SELECT title, description, cached_at FROM url_cache WHERE url = ?`, rawURL,
-	).Scan(&title, &desc, &cachedAt)
+	err = d.QueryRow(
+		`SELECT title, description, image_url, cached_at FROM url_cache WHERE url = ?`, rawURL,
+	).Scan(&title, &desc, &image, &cachedAt)
 	if err == nil && now-cachedAt < cacheTTL {
-		return title, desc, nil
+		return title, desc, image, nil
 	}
 
 	// Fetch from web
-	title, desc, err = p.scrapeOG(rawURL)
+	title, desc, image, err = p.scrapeOG(rawURL)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	// Cache the result
 	db.Exec("urls: cache write",
-		`INSERT INTO url_cache (url, title, description, cached_at) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(url) DO UPDATE SET title = ?, description = ?, cached_at = ?`,
-		rawURL, title, desc, now, title, desc, now,
+		`INSERT INTO url_cache (url, title, description, image_url, cached_at) VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(url) DO UPDATE SET title = ?, description = ?, image_url = ?, cached_at = ?`,
+		rawURL, title, desc, image, now, title, desc, image, now,
 	)
 
-	return title, desc, nil
+	return title, desc, image, nil
 }
 
-// scrapeOG fetches a URL and extracts og:title and og:description.
-func (p *URLsPlugin) scrapeOG(rawURL string) (string, string, error) {
+// scrapeOG fetches a URL and extracts og:title, og:description and og:image.
+func (p *URLsPlugin) scrapeOG(rawURL string) (string, string, string, error) {
+	if err := safehttp.ValidateURL(rawURL); err != nil {
+		return "", "", "", err
+	}
+
 	req, err := http.NewRequest("GET", rawURL, nil)
 	if err != nil {
-		return "", "", fmt.Errorf("create request: %w", err)
+		return "", "", "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("User-Agent", "GogoBee Bot/1.0")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("fetch: %w", err)
+		return "", "", "", fmt.Errorf("fetch: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("status %d", resp.StatusCode)
+		return "", "", "", fmt.Errorf("status %d", resp.StatusCode)
 	}
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	// Cap the parsed body at 2 MiB — og: tags live in <head>, near the top.
+	doc, err := goquery.NewDocumentFromReader(safehttp.LimitedBody(resp.Body, 2*1024*1024))
 	if err != nil {
-		return "", "", fmt.Errorf("parse HTML: %w", err)
+		return "", "", "", fmt.Errorf("parse HTML: %w", err)
 	}
 
 	title := ""
 	desc := ""
+	image := ""
 
 	doc.Find("meta").Each(func(_ int, s *goquery.Selection) {
 		prop, _ := s.Attr("property")
@@ -186,6 +205,10 @@ func (p *URLsPlugin) scrapeOG(rawURL string) (string, string, error) {
 			title = content
 		case "og:description":
 			desc = content
+		case "og:image:secure_url", "og:image:url", "og:image":
+			if image == "" && strings.TrimSpace(content) != "" {
+				image = content
+			}
 		}
 	})
 
@@ -205,5 +228,9 @@ func (p *URLsPlugin) scrapeOG(rawURL string) (string, string, error) {
 		})
 	}
 
-	return strings.TrimSpace(title), strings.TrimSpace(desc), nil
+	if image != "" {
+		image = normalizeImageURL(resolveURL(rawURL, strings.TrimSpace(image)))
+	}
+
+	return strings.TrimSpace(title), strings.TrimSpace(desc), image, nil
 }
