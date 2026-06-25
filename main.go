@@ -406,8 +406,8 @@ func setupScheduledJobs(
 		}
 	})
 
-	// WOTD post at 08:00
-	if strings.ToLower(os.Getenv("DISABLE_WOTD_POST")) != "true" {
+	// WOTD post at 08:00 (disabled by default; opt in via ENABLE_WOTD_POST=true)
+	if strings.ToLower(os.Getenv("ENABLE_WOTD_POST")) == "true" {
 		c.AddFunc("0 8 * * *", func() {
 			slog.Info("scheduler: posting WOTD")
 			for _, r := range rooms {
@@ -415,7 +415,7 @@ func setupScheduledJobs(
 			}
 		})
 	} else {
-		slog.Info("scheduler: WOTD daily post disabled via DISABLE_WOTD_POST")
+		slog.Info("scheduler: WOTD daily post disabled (set ENABLE_WOTD_POST=true to enable)")
 	}
 
 	// Game releases Monday 09:00
