@@ -195,6 +195,9 @@ func main() {
 	spaceInviter := plugin.NewSpaceInviterPlugin(client)
 	registry.Register(spaceInviter)
 
+	// Email nag (DM users missing an Authentik email; verify + write it back)
+	registry.Register(plugin.NewEmailNagPlugin(client))
+
 	// Initialize all plugins
 	if err := registry.Init(); err != nil {
 		slog.Error("plugin init failed", "err", err)

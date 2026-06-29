@@ -2001,6 +2001,24 @@ CREATE TABLE IF NOT EXISTS space_inviter_prompts (
 );
 CREATE INDEX IF NOT EXISTS idx_space_inviter_user ON space_inviter_prompts(user_id);
 
+-- ── Email nag — collect+verify missing Authentik emails over Matrix DM ─────
+-- One row per target user (MXID). Verified state survives restarts so the
+-- startup sweep never re-nags someone already done or mid-flow.
+CREATE TABLE IF NOT EXISTS email_nag_prompts (
+    user_id        TEXT PRIMARY KEY,   -- full MXID
+    username       TEXT NOT NULL,      -- Authentik username == Matrix localpart
+    dm_room_id     TEXT NOT NULL,
+    stage          TEXT NOT NULL,      -- awaiting_email | awaiting_code | done
+    pending_email  TEXT,
+    code           TEXT,
+    code_expires   INTEGER,
+    attempts       INTEGER NOT NULL DEFAULT 0,
+    prompt_sent_at INTEGER NOT NULL,
+    verified_email TEXT,
+    verified_at    INTEGER,
+    updated_at     INTEGER NOT NULL
+);
+
 -- ── Turn-based combat — persistent per-fight session ───────────────────────
 -- One row per manual elite/boss fight. Persists across bot restarts and
 -- player away-from-keyboard so a fight can resume (or be auto-finished by
