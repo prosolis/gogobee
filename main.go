@@ -59,7 +59,7 @@ func main() {
 	cfg := bot.Config{
 		Homeserver:  os.Getenv("HOMESERVER_URL"),
 		UserID:      os.Getenv("BOT_USER_ID"),
-		Password:    os.Getenv("BOT_PASSWORD"),
+		ASToken:     os.Getenv("AS_TOKEN"),
 		DataDir:     dataDir,
 		DisplayName: envOr("BOT_DISPLAY_NAME", "GogoBee"),
 	}
