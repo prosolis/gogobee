@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/crypto/cryptohelper"
@@ -15,133 +16,172 @@ import (
 // Config holds the bot's startup configuration.
 type Config struct {
 	Homeserver  string
-	UserID      string // Bot's full Matrix user ID, e.g. @gogobee:example.com
-	ASToken     string // Appservice as_token from registration.yaml
+	UserID      string // Bot's full Matrix user ID, e.g. @twinbee:parodia.dev
 	DataDir     string
 	DisplayName string
+
+	// AuthMode selects how the bot connects to Matrix:
+	//   "masdevice" (default) — MAS OAuth 2.0 device grant + /sync (masauth.go).
+	//   "appservice"          — Matrix appservice: as_token auth + Synapse→bot
+	//                           transaction push (appservice.go). MAS-durable:
+	//                           no login, no MFA, no token expiry ever.
+	// The device-grant path is retained as an instant rollback: flip AUTH_MODE
+	// back to masdevice and restart, no rebuild.
+	AuthMode string
+
+	// ---- appservice mode only ----
+	// RegistrationPath points at the appservice registration YAML (id, as_token,
+	// hs_token, sender_localpart, namespaces). Synapse and the bot share it.
+	RegistrationPath string
+	// ListenHost/ListenPort is where the bot's HTTP listener binds to receive
+	// Synapse's transaction pushes (Synapse reaches it via the registration url).
+	ListenHost string
+	ListenPort uint16
+	// HomeserverDomain is the server_name (e.g. parodia.dev), needed to derive
+	// the bot's MXID from sender_localpart.
+	HomeserverDomain string
 }
 
-// NewClient creates and configures a mautrix client authenticated as an
-// application service, with E2EE via the cryptohelper.
+// NewClient creates and configures a mautrix client authenticated against
+// Matrix Authentication Service (MAS) via the OAuth 2.0 device grant, with
+// E2EE via the cryptohelper.
 //
-// Why appservice instead of password login:
+// Auth flow (see masauth.go for detail):
+//   - Discover MAS OAuth endpoints from the homeserver's well-known + OIDC docs.
+//   - If we have a persisted refresh token, refresh it for a fresh access token.
+//   - Otherwise run the device-authorization grant: print a URL + code for a
+//     human to approve ONCE in a browser (as the bot's user), then store the
+//     resulting access + refresh tokens.
+//   - A background goroutine refreshes the access token before it expires and
+//     updates the live client, so the bot runs indefinitely without re-auth.
 //
-// Under Matrix Authentication Service (MAS), the legacy password login
-// (m.login.password) and User-Interactive Auth (UIA) flows are being removed —
-// auth moves to OAuth2/OIDC. A bot built on password login + password-UIA
-// cross-signing (the old code) breaks in a MAS world: short-lived tokens with
-// no refresh, and UIA-gated key uploads that simply fail.
-//
-// The appservice model sidesteps MAS entirely. The as_token is a Synapse-level
-// trust relationship declared in registration.yaml — Synapse validates it
-// directly, not via MAS — so it never expires and needs no login flow. Device
-// creation uses MSC4190 (PUT /devices), which replaces the UIA-gated device
-// dance for appservice users. This is the MAS-durable path.
-//
-// The cryptohelper still handles everything E2EE:
-//   - Persistent crypto store in SQLite (device keys, sessions, cross-signing)
-//   - Megolm session sharing / key exchange, Olm device-to-device sessions
-//   - The bot trusts all users' devices by default (appropriate for a bot)
-//   - No interactive emoji/SAS verification needed
+// The bot stays a normal Matrix user (not an appservice), so /sync works — an
+// appservice user is forbidden from /sync by Synapse. E2EE is unchanged: the
+// cryptohelper persists device keys, olm/megolm sessions and cross-signing in
+// its own SQLite store, and the bot trusts all users' devices by default.
 func NewClient(cfg Config) (*mautrix.Client, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
-	}
-	if cfg.ASToken == "" {
-		return nil, fmt.Errorf("AS_TOKEN is required (appservice registration as_token)")
 	}
 	if cfg.UserID == "" {
 		return nil, fmt.Errorf("BOT_USER_ID is required")
 	}
 
 	ctx := context.Background()
-	userID := id.UserID(cfg.UserID)
 
-	// The as_token IS the access token. No login flow, no refresh — Synapse
-	// trusts it for any user in the registration's namespace.
-	client, err := mautrix.NewClient(cfg.Homeserver, userID, cfg.ASToken)
+	// ---- MAS OAuth device-grant authentication ----
+	auth := newMASAuth(cfg.DataDir)
+	auth.load()
+	if err := auth.discover(cfg.Homeserver); err != nil {
+		return nil, fmt.Errorf("MAS discovery: %w", err)
+	}
+
+	if auth.refreshToken != "" {
+		// Returning start: refresh the stored token.
+		if err := auth.refresh(); err != nil {
+			return nil, fmt.Errorf("MAS token refresh failed (delete %s to re-authorize): %w",
+				filepath.Join(cfg.DataDir, "mas_auth.json"), err)
+		}
+		slog.Info("MAS auth: refreshed access token from stored session", "device_id", auth.deviceID)
+	} else {
+		// First run: register a client and run the interactive device grant.
+		if err := auth.ensureClient(cfg.DisplayName); err != nil {
+			return nil, fmt.Errorf("MAS client registration: %w", err)
+		}
+		if err := auth.deviceFlow(ctx); err != nil {
+			return nil, fmt.Errorf("MAS device authorization: %w", err)
+		}
+	}
+
+	userID := id.UserID(cfg.UserID)
+	client, err := mautrix.NewClient(cfg.Homeserver, userID, auth.token())
 	if err != nil {
 		return nil, fmt.Errorf("create client: %w", err)
 	}
+	client.DeviceID = id.DeviceID(auth.deviceID)
 
-	// Assert our own user ID on every request (appservice identity assertion,
-	// ?user_id=). Required so Synapse knows which namespaced user we're acting
-	// as — including on /sync and the MSC4190 device creation below.
-	client.SetAppServiceUserID = true
-
-	// Validate the token + homeserver reachability up front with a clear error.
+	// Validate the token + identity before proceeding.
 	whoami, err := client.Whoami(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("appservice token validation failed (whoami): %w", err)
+		return nil, fmt.Errorf("token validation failed (whoami): %w", err)
 	}
 	if whoami.UserID != userID {
-		return nil, fmt.Errorf("appservice identity mismatch: token resolves to %s but BOT_USER_ID is %s", whoami.UserID, userID)
+		return nil, fmt.Errorf("identity mismatch: token resolves to %s but BOT_USER_ID is %s", whoami.UserID, userID)
 	}
-	slog.Info("appservice token valid", "user_id", whoami.UserID)
+	slog.Info("MAS auth: token valid", "user_id", whoami.UserID, "device_id", client.DeviceID)
 
-	// Set up E2EE. The cryptohelper persists all crypto state in its own SQLite
-	// DB (device keys, olm/megolm sessions, cross-signing keys, device trust),
-	// separate from the main app database. The device ID is persisted there too,
-	// so restarts reuse the same device — no device.json needed.
+	// ---- E2EE via cryptohelper ----
+	// The crypto store persists device keys, olm/megolm sessions, cross-signing
+	// and device trust in its own SQLite DB. The stored device ID must match the
+	// one bound to our OAuth token (device: scope); a fresh mas_auth.json is
+	// paired with a fresh crypto.db.
 	cryptoDBPath := filepath.Join(cfg.DataDir, "crypto.db")
 	ch, err := cryptohelper.NewCryptoHelper(client, []byte("gogobee_pickle_key"), cryptoDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("init crypto helper: %w", err)
 	}
-
-	// MSC4190: create/refresh the bot's device via PUT /devices instead of the
-	// UIA-gated login dance. On first run the crypto store has no device ID, so
-	// a fresh one is generated and persisted; on restart the stored ID is
-	// reused (the PUT is idempotent). LoginAs carries only the display name —
-	// in MSC4190 mode the cryptohelper never calls /login.
-	ch.MSC4190 = true
-	ch.LoginAs = &mautrix.ReqLogin{
-		InitialDeviceDisplayName: cfg.DisplayName,
-	}
-
+	// No LoginAs: we already have a token + device ID; the cryptohelper just
+	// attaches E2EE to the existing session.
 	if err := ch.Init(ctx); err != nil {
-		return nil, fmt.Errorf("crypto helper init (MSC4190 device create): %w", err)
+		return nil, fmt.Errorf("crypto helper init: %w", err)
 	}
 	client.Crypto = ch
 
-	// Best-effort cross-signing bootstrap. This makes the bot's device show as
-	// "verified" to users who have verified the bot's master key. It is NOT
-	// required for E2EE to function — the bot already trusts all devices and
-	// shares keys — so any failure is logged and ignored.
-	//
-	// Under MSC3202 (appservice device assertion) Synapse may accept the key
-	// upload without UIA, in which case the callback below is never invoked. If
-	// the homeserver still demands UIA, we have no password credential to
-	// satisfy it (that's the whole point of going MAS-native), so it fails soft.
+	// Best-effort cross-signing bootstrap (makes the bot's device show as
+	// verified to users who trust its master key). Not required for E2EE to
+	// function; under MAS the key upload may be refused, which we ignore.
 	mach := ch.Machine()
-	recoveryKey, _, err := mach.GenerateAndUploadCrossSigningKeys(ctx, func(ui *mautrix.RespUserInteractive) interface{} {
-		slog.Warn("cross-signing: homeserver requested UIA, but appservice auth has no password credential to satisfy it — skipping verified-shield bootstrap")
+	if recoveryKey, _, err := mach.GenerateAndUploadCrossSigningKeys(ctx, func(ui *mautrix.RespUserInteractive) interface{} {
 		return map[string]interface{}{"session": ui.Session}
-	}, "")
-	if err != nil {
-		slog.Warn("cross-signing: key upload skipped (may already exist or UIA required)", "err", err)
+	}, ""); err != nil {
+		slog.Warn("cross-signing: key upload skipped (may already exist or need UIA)", "err", err)
 	} else {
 		slog.Info("cross-signing: keys uploaded", "recovery_key", recoveryKey)
 	}
-
 	if err := mach.SignOwnDevice(ctx, mach.OwnIdentity()); err != nil {
 		slog.Warn("cross-signing: sign own device failed", "err", err)
-	} else {
-		slog.Info("cross-signing: own device signed")
 	}
-
 	if err := mach.SignOwnMasterKey(ctx); err != nil {
 		slog.Warn("cross-signing: sign master key failed", "err", err)
-	} else {
-		slog.Info("cross-signing: master key signed")
 	}
+
+	// ---- Background token refresher ----
+	// Refresh ~60s before expiry and push the new token into the live client so
+	// in-flight /sync and API calls keep authenticating.
+	go refreshLoop(context.Background(), auth, client)
 
 	slog.Info("E2EE initialized",
 		"user_id", client.UserID,
 		"device_id", client.DeviceID,
 		"crypto_store", "sqlite-persistent",
-		"auth", "appservice+msc4190",
+		"auth", "mas-oauth-device-grant",
 	)
 
 	return client, nil
+}
+
+// refreshLoop keeps the client's access token fresh for the life of the process.
+func refreshLoop(ctx context.Context, auth *masAuth, client *mautrix.Client) {
+	for {
+		wait := time.Until(auth.expiry()) - 60*time.Second
+		if wait < 10*time.Second {
+			wait = 10 * time.Second
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		if err := auth.refresh(); err != nil {
+			slog.Error("MAS token refresh failed; retrying in 30s", "err", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(30 * time.Second):
+			}
+			continue
+		}
+		client.AccessToken = auth.token()
+		slog.Debug("MAS token refreshed", "expires_at", auth.expiry().Format(time.RFC3339))
+	}
 }

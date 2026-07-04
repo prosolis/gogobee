@@ -91,14 +91,14 @@ Everything is configured through environment variables or a `.env` file.
 |----------|-------------|
 | `HOMESERVER_URL` | Matrix homeserver URL, e.g. `https://matrix.org` |
 | `BOT_USER_ID` | Bot's Matrix user ID, e.g. `@gogobee:matrix.org` |
-| `AS_TOKEN` | Appservice `as_token` from `registration.yaml` (see below) |
 
-GogoBee authenticates as a Matrix **application service** rather than with a
-password. The `as_token` is a homeserver-level credential that never expires and
-is unaffected by Matrix Authentication Service (MAS) removing password login and
-UIA. Device E2EE keys are created via MSC4190. See
-[`registration.yaml.example`](registration.yaml.example) for the homeserver-side
-setup (register the appservice, enable `msc4190_enabled`, then set `AS_TOKEN`).
+GogoBee authenticates via the **Matrix Authentication Service (MAS) OAuth 2.0
+device grant** — no password or token in the environment. On first run it prints
+a verification URL and user code; approve it once in a browser while logged in
+as `BOT_USER_ID`. The bot then stores a refresh token in `DATA_DIR/mas_auth.json`
+and refreshes its access token silently for the life of the deployment. Delete
+`data/mas_auth.json` to force re-authorization. Requires a homeserver with MAS
+enabled (advertised via the `org.matrix.msc2965.authentication` well-known).
 
 ### Core (optional)
 

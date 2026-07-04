@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"gogobee/internal/bot"
 	"gogobee/internal/db"
@@ -55,20 +55,27 @@ func main() {
 	}
 	db.RecordStartup(version.Version, version.Commit)
 
-	// Create Matrix client
+	// Create Matrix session. AUTH_MODE selects the transport:
+	//   masdevice (default) — MAS OAuth device grant over /sync.
+	//   appservice          — as_token auth over Synapse transaction push.
 	cfg := bot.Config{
-		Homeserver:  os.Getenv("HOMESERVER_URL"),
-		UserID:      os.Getenv("BOT_USER_ID"),
-		ASToken:     os.Getenv("AS_TOKEN"),
-		DataDir:     dataDir,
-		DisplayName: envOr("BOT_DISPLAY_NAME", "GogoBee"),
+		Homeserver:       os.Getenv("HOMESERVER_URL"),
+		UserID:           os.Getenv("BOT_USER_ID"),
+		DataDir:          dataDir,
+		DisplayName:      envOr("BOT_DISPLAY_NAME", "GogoBee"),
+		AuthMode:         os.Getenv("AUTH_MODE"),
+		RegistrationPath: os.Getenv("AS_REGISTRATION"),
+		ListenHost:       os.Getenv("AS_LISTEN_HOST"),
+		ListenPort:       uint16(envInt("AS_LISTEN_PORT", 0)),
+		HomeserverDomain: os.Getenv("HOMESERVER_DOMAIN"),
 	}
 
-	client, err := bot.NewClient(cfg)
+	sess, err := bot.NewSession(cfg)
 	if err != nil {
-		slog.Error("client init failed", "err", err)
+		slog.Error("session init failed", "err", err)
 		os.Exit(1)
 	}
+	client := sess.Client
 
 	// Create plugin registry
 	registry := bot.NewRegistry()
@@ -209,10 +216,8 @@ func main() {
 
 	// ---- Set up event handlers ----
 
-	syncer := client.Syncer.(*mautrix.DefaultSyncer)
-
 	// Auto-join on invite + moderation member tracking
-	syncer.OnEventType(event.StateMember, func(ctx context.Context, evt *event.Event) {
+	sess.OnEventType(event.StateMember, func(ctx context.Context, evt *event.Event) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				slog.Error("member event handler panic", "panic", rec, "room", evt.RoomID)
@@ -249,7 +254,7 @@ func main() {
 	})
 
 	// Message handler
-	syncer.OnEventType(event.EventMessage, func(ctx context.Context, evt *event.Event) {
+	sess.OnEventType(event.EventMessage, func(ctx context.Context, evt *event.Event) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				slog.Error("message event handler panic", "panic", rec,
@@ -294,7 +299,7 @@ func main() {
 	})
 
 	// Reaction handler
-	syncer.OnEventType(event.EventReaction, func(ctx context.Context, evt *event.Event) {
+	sess.OnEventType(event.EventReaction, func(ctx context.Context, evt *event.Event) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				slog.Error("reaction event handler panic", "panic", rec,
@@ -332,8 +337,8 @@ func main() {
 	// ---- Initial archetype calculation ----
 	go plugin.RefreshAllArchetypes()
 
-	// ---- Start syncing ----
-	slog.Info("GogoBee starting sync...")
+	// ---- Start receiving events ----
+	slog.Info("GogoBee starting", "auth_mode", envOr("AUTH_MODE", "masdevice"))
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -344,26 +349,12 @@ func main() {
 		sig := <-sigCh
 		slog.Info("shutting down", "signal", sig)
 		scheduler.Stop()
-		client.StopSync()
+		sess.Stop()
 		cancel()
 	}()
 
-syncLoop:
-	for {
-		err := client.SyncWithContext(ctx)
-		if ctx.Err() != nil {
-			break // shutdown requested
-		}
-		if err != nil {
-			slog.Error("sync stopped, restarting in 5s", "err", err)
-		} else {
-			slog.Warn("sync returned without error, restarting in 5s")
-		}
-		select {
-		case <-time.After(5 * time.Second):
-		case <-ctx.Done():
-			break syncLoop
-		}
+	if err := sess.Run(ctx); err != nil {
+		slog.Error("event loop stopped", "err", err)
 	}
 
 	db.Close()
@@ -587,6 +578,20 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+// envInt reads an integer env var, returning fallback if unset or unparseable.
+func envInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		slog.Warn("invalid integer env var; using fallback", "key", key, "value", v, "fallback", fallback)
+		return fallback
+	}
+	return n
 }
 
 // cronLogger adapts slog to the cron.Logger interface for panic recovery logging.
