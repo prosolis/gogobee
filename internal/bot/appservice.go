@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix"
@@ -15,6 +16,14 @@ import (
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
+
+// presenceHeartbeatInterval is how often the appservice re-asserts its online
+// presence. In masdevice mode the /sync long-poll refreshed presence implicitly
+// (~30s); appservice mode has no /sync, so we push presence explicitly. Synapse
+// decays an "online" user to unavailable after ~5min of no update, so a 1min tick
+// keeps the bot reliably green while running — and lets it decay to offline on its
+// own if the process dies without a graceful shutdown.
+const presenceHeartbeatInterval = time.Minute
 
 // cryptoToDeviceTypes are the to-device event types the crypto machine must see
 // to establish Olm/Megolm sessions and share/receive room keys. In /sync mode
@@ -85,6 +94,12 @@ func newAppserviceSession(cfg Config) (*Session, error) {
 	}
 
 	client := as.BotClient() // as_token auth + SetAppServiceUserID (?user_id=) assertion
+	// Assert the device via ?org.matrix.msc3202.device_id= on E2EE requests, and
+	// satisfy cryptohelper.Init's syncer check: with this set, Init permits a nil
+	// Syncer (we drive the crypto machine from transactions, not /sync). The param
+	// is only emitted once DeviceID is non-empty (url.go), so setting it now is a
+	// no-op for the whoami/device-create calls below; CreateDeviceMSC4190 re-sets it.
+	client.SetAppServiceDeviceID = true
 
 	// Validate the token + identity before we start listening.
 	whoami, err := client.Whoami(ctx)
@@ -118,6 +133,25 @@ func newAppserviceSession(cfg Config) (*Session, error) {
 	// the appservice transaction channels ----
 	ep := appservice.NewEventProcessor(as)
 	mach := ch.Machine()
+
+	// Best-effort cross-signing bootstrap so the bot's device shows as verified to
+	// users who trust its master key. Mirrors the masdevice path (client.go); the
+	// appservice path historically omitted it, so a fresh crypto.db has no
+	// cross-signing identity and the device shows unverified. Best-effort: under MAS
+	// the key upload may be refused, which we log and ignore — E2EE still functions.
+	if recoveryKey, _, err := mach.GenerateAndUploadCrossSigningKeys(ctx, func(ui *mautrix.RespUserInteractive) interface{} {
+		return map[string]interface{}{"session": ui.Session}
+	}, ""); err != nil {
+		slog.Warn("cross-signing: key upload skipped (may already exist or need UIA)", "err", err)
+	} else {
+		slog.Info("cross-signing: keys uploaded", "recovery_key", recoveryKey)
+	}
+	if err := mach.SignOwnDevice(ctx, mach.OwnIdentity()); err != nil {
+		slog.Warn("cross-signing: sign own device failed", "err", err)
+	}
+	if err := mach.SignOwnMasterKey(ctx); err != nil {
+		slog.Warn("cross-signing: sign master key failed", "err", err)
+	}
 
 	// Crypto plumbing that /sync would otherwise carry:
 	ep.OnOTK(mach.HandleOTKCounts)
@@ -193,6 +227,8 @@ func (s *Session) runAppservice(ctx context.Context) error {
 		close(errCh)
 	}()
 
+	go s.runPresenceHeartbeat(ctx)
+
 	slog.Info("appservice listener started", "address", s.as.Host.Address())
 
 	select {
@@ -200,5 +236,35 @@ func (s *Session) runAppservice(ctx context.Context) error {
 		return nil
 	case <-errCh:
 		return fmt.Errorf("appservice HTTP listener exited unexpectedly")
+	}
+}
+
+// runPresenceHeartbeat keeps the bot's Matrix presence "online" while the
+// appservice runs. Without /sync, nothing else refreshes presence, so it would
+// otherwise freeze at its last value. On graceful shutdown it best-effort sets
+// presence "offline"; on a hard crash the heartbeat simply stops and Synapse
+// decays the stale "online" state on its own.
+func (s *Session) runPresenceHeartbeat(ctx context.Context) {
+	setPresence := func(ctx context.Context, presence event.Presence) {
+		if err := s.Client.SetPresence(ctx, mautrix.ReqPresence{Presence: presence}); err != nil {
+			slog.Warn("appservice: set presence failed", "presence", presence, "err", err)
+		}
+	}
+
+	setPresence(ctx, event.PresenceOnline)
+
+	ticker := time.NewTicker(presenceHeartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			// Detach from the cancelled ctx so the final PUT still goes out.
+			offCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			setPresence(offCtx, event.PresenceOffline)
+			cancel()
+			return
+		case <-ticker.C:
+			setPresence(ctx, event.PresenceOnline)
+		}
 	}
 }
