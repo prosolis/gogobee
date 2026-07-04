@@ -227,8 +227,6 @@ func (s *Session) runAppservice(ctx context.Context) error {
 		close(errCh)
 	}()
 
-	go s.runPresenceHeartbeat(ctx)
-
 	slog.Info("appservice listener started", "address", s.as.Host.Address())
 
 	select {

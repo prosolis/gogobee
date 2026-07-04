@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"maunium.net/go/mautrix"
@@ -30,8 +31,9 @@ type Session struct {
 	syncer *mautrix.DefaultSyncer
 
 	// appservice
-	as *appservice.AppService
-	ep *appservice.EventProcessor
+	as           *appservice.AppService
+	ep           *appservice.EventProcessor
+	presenceOnce sync.Once
 }
 
 // EventHandler matches both DefaultSyncer.OnEventType and EventProcessor.On.
@@ -73,6 +75,22 @@ func (s *Session) OnEventType(evtType event.Type, fn EventHandler) {
 	default:
 		s.syncer.OnEventType(evtType, fn)
 	}
+}
+
+// StartPresence begins actively maintaining the bot's Matrix presence, tied to
+// ctx. In appservice mode it launches the online heartbeat (runPresenceHeartbeat);
+// masdevice mode relies on the /sync long-poll's implicit presence refresh, so it
+// is a no-op there. Call this early — before the slow plugin init — so the bot
+// shows online from boot rather than only once the transaction listener starts
+// (~2min later). The presence PUT is outbound-only and needs no event handlers, so
+// starting it ahead of the listener is safe. Idempotent: extra calls do nothing.
+func (s *Session) StartPresence(ctx context.Context) {
+	if s.mode != "appservice" {
+		return
+	}
+	s.presenceOnce.Do(func() {
+		go s.runPresenceHeartbeat(ctx)
+	})
 }
 
 // Run blocks, delivering events to registered handlers, until ctx is cancelled.

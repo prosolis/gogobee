@@ -77,6 +77,30 @@ func main() {
 	}
 	client := sess.Client
 
+	// ---- Process lifecycle + graceful shutdown ----
+	// Set up the run context and signal handling before the (slow ~2min) plugin
+	// init so the presence heartbeat can start immediately. scheduler is wired
+	// later; the signal handler nil-checks it.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var scheduler *cron.Cron
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		slog.Info("shutting down", "signal", sig)
+		if scheduler != nil {
+			scheduler.Stop()
+		}
+		sess.Stop()
+		cancel()
+	}()
+
+	// Show the bot online from boot (appservice mode; no-op under masdevice, where
+	// /sync refreshes presence implicitly). Safe before the listener — outbound only.
+	sess.StartPresence(ctx)
+
 	// Create plugin registry
 	registry := bot.NewRegistry()
 
@@ -330,7 +354,7 @@ func main() {
 	})
 
 	// ---- Set up cron scheduler ----
-	scheduler := cron.New(cron.WithChain(cron.Recover(cronLogger{})))
+	scheduler = cron.New(cron.WithChain(cron.Recover(cronLogger{})))
 	setupScheduledJobs(scheduler, client, wotdPlugin, holidaysPlugin, gamingPlugin, birthdayPlugin, animePlugin, moviesPlugin, concertsPlugin, esteemedPlugin, forexPlugin, minifluxPlugin, marketPlugin)
 	scheduler.Start()
 
@@ -339,19 +363,6 @@ func main() {
 
 	// ---- Start receiving events ----
 	slog.Info("GogoBee starting", "auth_mode", envOr("AUTH_MODE", "masdevice"))
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigCh
-		slog.Info("shutting down", "signal", sig)
-		scheduler.Stop()
-		sess.Stop()
-		cancel()
-	}()
 
 	if err := sess.Run(ctx); err != nil {
 		slog.Error("event loop stopped", "err", err)
