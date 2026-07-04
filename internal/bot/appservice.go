@@ -18,12 +18,14 @@ import (
 )
 
 // presenceHeartbeatInterval is how often the appservice re-asserts its online
-// presence. In masdevice mode the /sync long-poll refreshed presence implicitly
-// (~30s); appservice mode has no /sync, so we push presence explicitly. Synapse
-// decays an "online" user to unavailable after ~5min of no update, so a 1min tick
-// keeps the bot reliably green while running — and lets it decay to offline on its
-// own if the process dies without a graceful shutdown.
-const presenceHeartbeatInterval = time.Minute
+// presence. In masdevice mode the /sync long-poll refreshed presence implicitly;
+// appservice mode has no /sync, so we push presence explicitly. Synapse ties
+// "online" to recent activity and force-offlines a non-syncing user ~30s after its
+// last update (SYNC_ONLINE_TIMEOUT). A slower tick makes the bot FLAP (green right
+// after each PUT, then offline until the next) — empirically observed at 60s. So we
+// tick well under 30s to hold it continuously green. A hard crash stops the
+// heartbeat and Synapse offlines the bot within ~30s on its own.
+const presenceHeartbeatInterval = 20 * time.Second
 
 // cryptoToDeviceTypes are the to-device event types the crypto machine must see
 // to establish Olm/Megolm sessions and share/receive room keys. In /sync mode
