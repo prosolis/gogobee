@@ -34,6 +34,10 @@ const (
 // to 2–3 players; the combat roster and the supply pool are both sized off this.
 const expeditionPartyMax = 3
 
+// ExpeditionPartyMax exports the ceiling for cmd/expedition-sim's -party flag,
+// so the harness cannot ask for a roster the seating layer will refuse.
+const ExpeditionPartyMax = expeditionPartyMax
+
 // Errors returned by the party layer.
 var (
 	ErrPartyFull           = errors.New("expedition party is full")

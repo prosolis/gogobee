@@ -64,6 +64,13 @@ func (s *SimRunner) Close() {
 // up so handleDnDExpeditionCmd accepts them. Stats are class-flavored
 // but otherwise vanilla (no race/subclass perks, no equipment).
 func (s *SimRunner) BuildCharacter(uid id.UserID, class DnDClass, level int) (*DnDCharacter, error) {
+	// An unknown class is not an error anywhere downstream: applyClassBaselineStats
+	// and computeMaxHP both fall through to a default, and the run walks off with a
+	// 1-HP character that dies on turn one. A typo in -class or -party-classes then
+	// reports a normal outcome for a character nobody asked to simulate.
+	if _, ok := classInfo(class); !ok {
+		return nil, fmt.Errorf("unknown class %q", class)
+	}
 	if err := createAdvCharacter(uid, "sim_"+string(class)); err != nil {
 		return nil, fmt.Errorf("createAdvCharacter: %w", err)
 	}
@@ -263,7 +270,7 @@ type SimResult struct {
 	Class     string
 	Level     int
 	Zone      string
-	Outcome   string // "extracted" | "cleared" | "tpk" | "boss_doorway" | "fork" | "halted" | "ongoing"
+	Outcome   string // "extracted" | "cleared" | "tpk" | "leader_down" | "fled" | "boss_doorway" | "fork" | "halted" | "ongoing"
 	StopCode  string // sim-stopReason label of the last autopilot walk
 	Rooms     int    // total rooms walked across all autopilot bursts
 	Walks     int    // autopilot walk invocations (each = up to autopilotRoomCap rooms)
@@ -289,6 +296,14 @@ type SimResult struct {
 	// without re-running the matrix. Populated from combat_sessions
 	// rows + their TurnLog at end-of-run.
 	Combats []SimCombatSummary
+	// PartySize is the seated roster (1 for a solo run). Members carries a
+	// per-seat projection for the followers; the leader's own numbers stay
+	// on the top-level fields so a solo row is byte-shaped as it always was.
+	PartySize int
+	// LeaderAlive is read off the AdventureCharacter death flag, not HP — the
+	// close-out after a loss leaves HP in no particular state.
+	LeaderAlive bool
+	Members     []SimMemberStat `json:",omitempty"`
 	// DaySnapshots traces HP/SU/threat/rooms at every day rollover
 	// (Night camp) plus the start (Day 0) and the final state. Used by
 	// D7-c long-expedition baselining to see how the trajectory bends
@@ -308,6 +323,19 @@ type SimDaySnapshot struct {
 	Supplies  float32
 	Threat    int
 	Rooms     int // cumulative autopilot rooms walked at snapshot time
+}
+
+// SimMemberStat is one follower's slice of a party run. The leader is not
+// listed here — their numbers are the SimResult's own top-level fields.
+// Alive is what a T5 band reading actually turns on: a party "clears" when
+// the boss dies, but a member who died on the way still paid for it.
+type SimMemberStat struct {
+	UserID  string
+	Class   string
+	Level   int
+	StartHP int
+	EndHP   int
+	Alive   bool
 }
 
 // SimCombatSummary is a compact per-fight trace: the entry stats, the
@@ -399,6 +427,21 @@ const simWalkInterval = autoRunCooldown
 // Pre-state: uid must own a synthetic character via BuildCharacter and
 // have a coin balance sufficient for outfitting (caller's responsibility).
 func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays int) (*SimResult, error) {
+	return s.RunPartyExpedition(uid, nil, zoneID, walkCap, maxDays)
+}
+
+// RunPartyExpedition is RunExpedition with followers. uid leads; every id in
+// members is invited and accepts on Day 1, through the same
+// `!expedition invite` / `!expedition accept` commands a player types — so the
+// sim measures the seating rules (tier gate, busy guard, supply pooling) rather
+// than a hand-built roster that cannot fail. Each member must already own a
+// character and a bankroll.
+//
+// A nil members list is the solo path, unchanged and bit-identical: no invite is
+// sent, no roster row is written, and `sess.IsParty()` stays false all the way
+// down into the turn engine. That is what keeps the d8prereq_corpus baselines
+// replayable.
+func (s *SimRunner) RunPartyExpedition(uid id.UserID, members []id.UserID, zoneID ZoneID, walkCap, maxDays int) (*SimResult, error) {
 	c, err := LoadDnDCharacter(uid)
 	if err != nil || c == nil {
 		return nil, fmt.Errorf("LoadDnDCharacter: %w", err)
@@ -423,6 +466,28 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays
 	if exp == nil {
 		res.Outcome = "halted"
 		return res, fmt.Errorf("expedition did not persist after start")
+	}
+	// Seat the followers before the first walk — the invite window is Day 1,
+	// and their packs have to reach the pool before SUStart is read.
+	if len(members) > 0 {
+		if err := s.seatParty(uid, members); err != nil {
+			res.Outcome = "halted"
+			res.StopCode = "party:" + err.Error()
+			return res, err
+		}
+		if exp, _ = getActiveExpedition(uid); exp == nil {
+			res.Outcome = "halted"
+			return res, fmt.Errorf("expedition vanished while seating the party")
+		}
+	}
+	roster := append([]id.UserID{uid}, members...)
+	res.PartySize = len(roster)
+	for _, m := range members {
+		stat := SimMemberStat{UserID: string(m)}
+		if mc, _ := LoadDnDCharacter(m); mc != nil {
+			stat.Class, stat.Level, stat.StartHP = string(mc.Class), mc.Level, mc.HPCurrent
+		}
+		res.Members = append(res.Members, stat)
 	}
 	res.SUStart = exp.Supplies.Current
 	// Day-0 baseline so the snapshot stream always opens with a known
@@ -449,7 +514,11 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays
 		// Hard exits: walk says we're done.
 		switch walk.reason {
 		case stopEnded:
-			res.Outcome = "tpk"
+			// stopEnded means "the run is over", which is not the same as
+			// "everyone died": resolveCombatRoom ends the run on a *timeout*
+			// loss too, and deliberately does not mark that player dead (it is
+			// mechanically a retreat). Ask the death flags rather than assume.
+			res.Outcome = simRunEndOutcome(roster)
 			i = walkCap // exit
 		case stopComplete:
 			// A stopComplete that reaches the sim is normally a full zone
@@ -488,20 +557,27 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays
 				break
 			}
 			if !killed {
-				// Player lost or fled — autopilot can't continue past the
-				// gate. Record outcome and stop.
-				if c2, _ := LoadDnDCharacter(uid); c2 == nil || c2.HPCurrent <= 0 {
-					res.Outcome = "tpk"
-				} else {
-					res.Outcome = "fled"
-				}
+				// The party lost or fled — autopilot can't continue past the
+				// gate.
+				res.Outcome = simRunEndOutcome(roster)
 				i = walkCap
 			} else {
 				// Combat won — a competent prod player would short-rest
 				// between fights when wounded or down on slots (H5 added
 				// the partial slot refresh). Without this the sim
-				// under-counts caster mid-expedition staying power.
-				s.maybeShortRest(ctx, uid)
+				// under-counts caster mid-expedition staying power. Every
+				// seat rests: charges and slots are character-scoped, and a
+				// member who never rested would drag the party's numbers. A seat
+				// that died in the fight the party just won is skipped:
+				// handleDnDShortRest does not gate on the death flag, so resting
+				// a corpse heals it back above 0 and the casualty disappears
+				// from res.Members[i].EndHP.
+				for _, m := range roster {
+					if !simSeatAlive(m) {
+						continue
+					}
+					s.maybeShortRest(MessageContext{Sender: m}, m)
+				}
 			}
 			// Boss kill closes the run via combat resolution → continue
 			// the loop so the next walk picks up the cleared-run state.
@@ -608,6 +684,13 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays
 	if c2, _ := LoadDnDCharacter(uid); c2 != nil {
 		res.EndHP = c2.HPCurrent
 	}
+	for i, m := range members {
+		if mc, _ := LoadDnDCharacter(m); mc != nil {
+			res.Members[i].EndHP = mc.HPCurrent
+		}
+		res.Members[i].Alive = simSeatAlive(m)
+	}
+	res.LeaderAlive = simSeatAlive(uid)
 	res.EndCoin = s.Euro.GetBalance(uid)
 	if exp2, _ := getActiveExpedition(uid); exp2 != nil {
 		res.SUEnd = exp2.Supplies.Current
@@ -637,6 +720,86 @@ func (s *SimRunner) RunExpedition(uid id.UserID, zoneID ZoneID, walkCap, maxDays
 		}
 	}
 	return res, nil
+}
+
+// seatParty walks each follower through `!expedition invite` → `!expedition
+// accept heavy`, as the leader and then as themselves. Both commands answer a
+// refusal with a DM and a nil error — a no-op against the sim's nil client — so
+// the seat is verified against the roster afterwards rather than the return
+// value. A follower who cannot sit down (tier gate, empty purse, a run of their
+// own) is a halted run, not a quietly smaller party: a two-player T5 reading
+// taken from a solo walk is worse than no reading.
+func (s *SimRunner) seatParty(leader id.UserID, members []id.UserID) error {
+	exp, err := getActiveExpedition(leader)
+	if err != nil || exp == nil {
+		return fmt.Errorf("no expedition to seat: %w", err)
+	}
+	for _, m := range members {
+		if err := s.P.handleDnDExpeditionCmd(MessageContext{Sender: leader},
+			"invite "+string(m)); err != nil {
+			return fmt.Errorf("invite %s: %w", m, err)
+		}
+		if err := s.P.handleDnDExpeditionCmd(MessageContext{Sender: m},
+			"accept "+simPartyLoadout); err != nil {
+			return fmt.Errorf("accept %s: %w", m, err)
+		}
+	}
+	size, err := partySize(exp.ID)
+	if err != nil {
+		return fmt.Errorf("read roster: %w", err)
+	}
+	if want := len(members) + 1; size != want {
+		return fmt.Errorf("roster seated %d of %d — a follower was refused", size, want)
+	}
+	return nil
+}
+
+// simPartyLoadout mirrors the leader's own "heavy" purchase in RunExpedition:
+// each member buys the tier-max pack, and the pool is their sum. Anything less
+// and the party starves before the boss, which would read as a difficulty
+// finding rather than the supply-budget artifact it is.
+const simPartyLoadout = "heavy"
+
+// simSeatAlive reports whether a seat is still standing. Death is recorded on
+// the AdventureCharacter (markAdventureDead → Kill), not as HPCurrent <= 0: the
+// close-out that follows a loss can leave HP anywhere, and a player who merely
+// fled at 0 HP is not dead. Reading the death flag is the only honest answer.
+func simSeatAlive(uid id.UserID) bool {
+	c, err := loadAdvCharacter(uid)
+	if err != nil || c == nil {
+		return false
+	}
+	return c.Alive
+}
+
+// simRunEndOutcome names how a run ended once the walk says it is over. The
+// three cases are distinct and the distinction is the whole point of a party
+// reading:
+//
+//	tpk         — every seat is dead. The turn engine only reports Lost once
+//	              anyAlive() goes false, so a real party loss marks the roster.
+//	leader_down — the leader died and members are still standing. Only the
+//	              leader owns the run and expedition rows, so their death tears
+//	              both down; inline room/patrol combat is fought by the leader
+//	              alone, which is how a party reaches this state with untouched
+//	              members (N3/P7 finding).
+//	fled        — the run ended with the leader alive: a timeout loss (a
+//	              mechanical retreat, deliberately not a death) or a forced
+//	              extract.
+//
+// For a solo roster leader-dead and all-dead are the same predicate, so a solo
+// run still scores exactly "tpk" or "fled" as it always did.
+func simRunEndOutcome(roster []id.UserID) string {
+	leaderAlive := simSeatAlive(roster[0])
+	if leaderAlive {
+		return "fled"
+	}
+	for _, m := range roster[1:] {
+		if simSeatAlive(m) {
+			return "leader_down"
+		}
+	}
+	return "tpk"
 }
 
 // firstUnlockedForkChoice returns the 1-based index of the first

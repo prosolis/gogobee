@@ -6,6 +6,10 @@
 //   expedition-sim [-class fighter] [-level 5] [-zone goblin_warrens]
 //                  [-bank 1000] [-cap 50] [-log] [-data DIR]
 //
+// Party run (N3/P7 — the leader is -class; followers clone it unless named):
+//   expedition-sim -party 3 -level 15 -zone dragons_lair
+//   expedition-sim -party 2 -class cleric -party-classes fighter -level 16 ...
+//
 // Matrix mode (cartesian sweep over classes × levels × zones × N runs,
 // one JSON object per stdout line, log suppressed by default):
 //   expedition-sim -matrix -classes fighter,mage -levels 5,10 \
@@ -51,6 +55,9 @@ func main() {
 
 		petLevel = flag.Int("pet-level", 0, "attach a base housing pet at this level (1-10) to every sim character; 0 = no pet (default, matches prod char-creation)")
 
+		party        = flag.Int("party", 1, "seat a party of N (1 = solo, the historical path). Followers are invited on Day 1 and buy their own supplies")
+		partyClasses = flag.String("party-classes", "", "comma-separated classes for the N-1 followers (default: clones of -class)")
+
 		jobs = flag.Int("jobs", 0, "matrix mode — concurrent worker count (each worker is a subprocess so it gets its own sqlite). 0 = runtime.NumCPU()")
 	)
 	flag.Parse()
@@ -58,6 +65,10 @@ func main() {
 	if *petLevel < 0 || *petLevel > 10 {
 		fail("pet-level must be 0-10, got", *petLevel)
 	}
+	if *party < 1 || *party > plugin.ExpeditionPartyMax {
+		fail("party must be 1-", plugin.ExpeditionPartyMax, ", got", *party)
+	}
+	followers := followerClasses(*class, *party, *partyClasses)
 
 	plugin.SetSimIncludeTrace(*trace)
 	plugin.SetSimPetLevel(*petLevel)
@@ -72,14 +83,40 @@ func main() {
 				includeLog = *logFlag
 			}
 		})
-		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, *days, includeLog, *jobs, *trace, *petLevel)
+		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, *days, includeLog, *jobs, *trace, *petLevel, *party, *partyClasses)
 		return
 	}
 
-	runSingle(*class, *level, *zone, *userTag, *dataDir, *bank, *cap, *days, *logFlag)
+	runSingle(*class, *level, *zone, *userTag, *dataDir, *bank, *cap, *days, *logFlag, followers)
 }
 
-func runSingle(class string, level int, zone, userTag, dataDir string, bank float64, cap, days int, includeLog bool) {
+// followerClasses expands -party / -party-classes into the class of each
+// follower seat. An explicit list must name every seat: a party of 3 whose
+// second follower silently defaulted to the leader's class would quietly
+// answer a different question than the one asked.
+func followerClasses(leaderClass string, party int, spec string) []string {
+	n := party - 1
+	if n == 0 {
+		if strings.TrimSpace(spec) != "" {
+			fail("-party-classes given but -party is 1")
+		}
+		return nil
+	}
+	if strings.TrimSpace(spec) == "" {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = leaderClass
+		}
+		return out
+	}
+	out := splitNonEmpty(spec)
+	if len(out) != n {
+		fail(fmt.Sprintf("-party %d needs %d follower classes, got %d", party, n, len(out)))
+	}
+	return out
+}
+
+func runSingle(class string, level int, zone, userTag, dataDir string, bank float64, cap, days int, includeLog bool, followers []string) {
 	dir := dataDir
 	if dir == "" {
 		var err error
@@ -90,7 +127,7 @@ func runSingle(class string, level int, zone, userTag, dataDir string, bank floa
 		defer os.RemoveAll(dir)
 	}
 
-	res, err := runOne(dir, id.UserID(userTag), plugin.DnDClass(class), level, plugin.ZoneID(zone), bank, cap, days)
+	res, err := runOne(dir, id.UserID(userTag), plugin.DnDClass(class), level, plugin.ZoneID(zone), bank, cap, days, followers)
 	if err != nil {
 		if res != nil {
 			if !includeLog {
@@ -117,7 +154,7 @@ type matrixJob struct {
 	rep   int
 }
 
-func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days int, includeLog bool, jobs int, trace bool, petLevel int) {
+func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days int, includeLog bool, jobs int, trace bool, petLevel, party int, partyClasses string) {
 	cs := splitNonEmpty(classes)
 	ls := parseLevels(levels)
 	zs := splitNonEmpty(zones)
@@ -148,7 +185,7 @@ func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days 
 	var wg sync.WaitGroup
 	for i := 0; i < jobs; i++ {
 		wg.Add(1)
-		go matrixWorker(exe, workCh, resCh, &wg, bank, cap, days, includeLog, trace, petLevel)
+		go matrixWorker(exe, workCh, resCh, &wg, bank, cap, days, includeLog, trace, petLevel, party, partyClasses)
 	}
 	go func() {
 		for _, j := range work {
@@ -167,7 +204,7 @@ func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days 
 	}
 }
 
-func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult, wg *sync.WaitGroup, bank float64, cap, days int, includeLog, trace bool, petLevel int) {
+func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult, wg *sync.WaitGroup, bank float64, cap, days int, includeLog, trace bool, petLevel, party int, partyClasses string) {
 	defer wg.Done()
 	for j := range in {
 		uid := fmt.Sprintf("@sim:%s-l%d-%s-%d", j.class, j.level, j.zone, j.rep)
@@ -187,6 +224,11 @@ func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult,
 			"-user", uid,
 			fmt.Sprintf("-log=%t", includeLog),
 			fmt.Sprintf("-pet-level=%d", petLevel),
+			fmt.Sprintf("-party=%d", party),
+		}
+		// Left empty, each cell's followers clone that cell's own -class.
+		if partyClasses != "" {
+			args = append(args, "-party-classes", partyClasses)
 		}
 		if trace {
 			args = append(args, "-trace")
@@ -228,7 +270,7 @@ func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult,
 }
 
 
-func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zone plugin.ZoneID, bank float64, cap, days int) (*plugin.SimResult, error) {
+func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zone plugin.ZoneID, bank float64, cap, days int, followers []string) (*plugin.SimResult, error) {
 	runner, err := plugin.NewSimRunner(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("init runner: %w", err)
@@ -239,7 +281,32 @@ func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zon
 		return nil, fmt.Errorf("build character: %w", err)
 	}
 	runner.Euro.Credit(uid, bank, "expedition-sim bankroll")
-	return runner.RunExpedition(uid, zone, cap, days)
+
+	// Followers share the leader's level — a party is not a carry (the tier
+	// gate refuses an under-levelled invitee anyway) — and each buys their own
+	// loadout, so each needs their own bankroll.
+	var members []id.UserID
+	for i, fc := range followers {
+		muid := followerUserID(uid, i)
+		if _, err := runner.BuildCharacter(muid, plugin.DnDClass(fc), level); err != nil {
+			return nil, fmt.Errorf("build follower %d (%s): %w", i+1, fc, err)
+		}
+		runner.Euro.Credit(muid, bank, "expedition-sim bankroll")
+		members = append(members, muid)
+	}
+	return runner.RunPartyExpedition(uid, members, zone, cap, days)
+}
+
+// followerUserID derives a follower's Matrix id from the leader's. It must keep
+// the ":" — ResolveUser treats a colon as "this is already a full mxid" and
+// short-circuits the room-membership lookup the sim has no client for.
+func followerUserID(leader id.UserID, i int) id.UserID {
+	s := string(leader)
+	local, server, ok := strings.Cut(strings.TrimPrefix(s, "@"), ":")
+	if !ok {
+		local, server = strings.TrimPrefix(s, "@"), "sim"
+	}
+	return id.UserID(fmt.Sprintf("@%s-m%d:%s", local, i+1, server))
 }
 
 func emitIndented(res *plugin.SimResult) {

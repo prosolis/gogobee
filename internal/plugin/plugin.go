@@ -126,13 +126,20 @@ func (b *Base) IsAdmin(userID id.UserID) bool {
 // DisplayName returns the Matrix display name for a user, falling back
 // to the localpart extracted from the user ID (e.g., "@alice:server" -> "alice").
 func (b *Base) DisplayName(userID id.UserID) string {
-	resp, err := b.Client.GetDisplayName(context.Background(), userID)
-	if err != nil || resp.DisplayName == "" {
+	localpart := func() string {
 		s := string(userID)
 		if idx := strings.Index(s, ":"); idx > 0 {
 			s = s[1:idx]
 		}
 		return s
+	}
+	// The headless sim and unit tests construct plugins without a client.
+	if b == nil || b.Client == nil {
+		return localpart()
+	}
+	resp, err := b.Client.GetDisplayName(context.Background(), userID)
+	if err != nil || resp.DisplayName == "" {
+		return localpart()
 	}
 	return resp.DisplayName
 }
