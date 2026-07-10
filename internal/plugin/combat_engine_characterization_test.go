@@ -202,7 +202,136 @@ func characterizationScenarios() []charScenario {
 			return e
 		}(), defaultCombatPhases},
 		{"weapon_profile", weaponPlayer(), baseEnemy(), defaultCombatPhases},
+
+		// --- Class-identity mods (2026-05-16 audit + J1). ExtraAttacks is the
+		// lever J1 moved, so it needs a pin before the roster refactor.
+		{"extra_attacks_1", modPlayer(func(m *CombatModifiers) { m.ExtraAttacks = 1 }), tankyEnemy(), defaultCombatPhases},
+		{"extra_attacks_3", modPlayer(func(m *CombatModifiers) { m.ExtraAttacks = 3 }), tankyEnemy(), defaultCombatPhases},
+		{"sneak_attack", modPlayer(func(m *CombatModifiers) { m.SneakAttackDie = 4 }), tankyEnemy(), defaultCombatPhases},
+		{"hunters_mark", modPlayer(func(m *CombatModifiers) { m.HuntersMarkDie = 3 }), tankyEnemy(), defaultCombatPhases},
+		{"divine_strike", weaponMods(func(m *CombatModifiers) { m.DivineStrikePerHit = 4 }), tankyEnemy(), defaultCombatPhases},
+		{"thorn_lash", modPlayer(func(m *CombatModifiers) { m.ThornLashDmg = 3 }), hardHitEnemy(), defaultCombatPhases},
+		{"crit_threshold_19", modPlayer(func(m *CombatModifiers) { m.CritThreshold = 19 }), tankyEnemy(), defaultCombatPhases},
+		{"first_attack_bonus", modPlayer(func(m *CombatModifiers) { m.FirstAttackBonus = 8 }), tankyEnemy(), defaultCombatPhases},
+		{"assassinate", modPlayer(func(m *CombatModifiers) {
+			m.AssassinateAdvantage = true
+			m.AssassinateBonusDmg = 12
+		}), tankyEnemy(), defaultCombatPhases},
+		{"berserker_rage", modPlayer(func(m *CombatModifiers) {
+			m.BerserkerRage = true
+			m.RageMeleeDmg = 2
+			m.PhysicalResistRage = true
+			m.FrenzyDmgBonus = 0.25
+		}), hardHitEnemy(), defaultCombatPhases},
+		{"spirit_weapon", modPlayer(func(m *CombatModifiers) {
+			m.SpiritWeaponProc = 1.0
+			m.SpiritWeaponDmg = 8
+		}), tankyEnemy(), defaultCombatPhases},
+		{"arcane_ward", modPlayer(func(m *CombatModifiers) { m.ArcaneWardHP = 25 }), hardHitEnemy(), defaultCombatPhases},
+		{"heal_charges_3", modPlayer(func(m *CombatModifiers) {
+			m.HealItem = 20
+			m.HealItemCharges = 3
+		}), hardHitEnemy(), defaultCombatPhases},
+		{"crowd_revenge", modPlayer(func(m *CombatModifiers) {
+			m.CrowdRevengeProc = 1.0
+			m.CrowdRevengeDmg = 4
+		}), baseEnemy(), defaultCombatPhases},
+
+		// --- Race passives.
+		{"lucky_reroll", modPlayer(func(m *CombatModifiers) { m.LuckyReroll = true }), tankyEnemy(), defaultCombatPhases},
+		{"orc_rage", modPlayer(func(m *CombatModifiers) { m.RageReady = true }), hardHitEnemy(), defaultCombatPhases},
+		{"poison_resist", modPlayer(func(m *CombatModifiers) { m.PoisonResist = true }), abilityEnemy("Venom", "poison", "any"), defaultCombatPhases},
+		{"fire_resist_aoe", modPlayer(func(m *CombatModifiers) { m.FireResist = true }), abilityEnemy("Flame Breath", "aoe_fire", "any"), defaultCombatPhases},
+
+		// --- Phase 13 bestiary slices 3 + 4. None of these were pinned.
+		{"ability_bonus_damage", basePlayer(), abilityEnemy("Smash", "bonus_damage", "any"), defaultCombatPhases},
+		{"ability_aoe", basePlayer(), abilityEnemy("Blast", "aoe", "any"), defaultCombatPhases},
+		{"ability_death_aoe", basePlayer(), abilityEnemy("Last Breath", "death_aoe", "any"), defaultCombatPhases},
+		{"ability_execute", func() Combatant {
+			p := basePlayer()
+			p.Stats.MaxHP = 40
+			return p
+		}(), abilityEnemy("Finisher", "execute", "any"), defaultCombatPhases},
+		{"ability_self_heal", basePlayer(), abilityEnemy("Mend", "self_heal", "any"), defaultCombatPhases},
+		{"ability_evade", basePlayer(), abilityEnemy("Blink", "evade", "any"), defaultCombatPhases},
+		{"ability_block", basePlayer(), abilityEnemy("Parry", "block", "any"), defaultCombatPhases},
+		{"ability_advantage", basePlayer(), abilityEnemy("Focus", "advantage", "any"), defaultCombatPhases},
+		{"ability_retaliate", basePlayer(), abilityEnemy("Spines", "retaliate", "any"), defaultCombatPhases},
+		{"ability_regenerate", basePlayer(), abilityEnemy("Regrow", "regenerate", "any"), defaultCombatPhases},
+		{"ability_survive_at_1", basePlayer(), func() Combatant {
+			e := abilityEnemy("Undying", "survive_at_1", "any")
+			e.Stats.MaxHP = 40
+			return e
+		}(), defaultCombatPhases},
+		{"ability_stat_drain", basePlayer(), abilityEnemy("Sap", "stat_drain", "any"), defaultCombatPhases},
+		{"ability_debuff", basePlayer(), abilityEnemy("Curse", "debuff", "any"), defaultCombatPhases},
+		{"ability_max_hp_drain", basePlayer(), abilityEnemy("Wither", "max_hp_drain", "any"), defaultCombatPhases},
+		{"ability_spell_resist", func() Combatant {
+			p := basePlayer()
+			p.Mods.SpellPreDamage = 30
+			p.Mods.SpellPreDamageDesc = "Fireball"
+			return p
+		}(), abilityEnemy("Warded", "spell_resist", "any"), defaultCombatPhases},
+		{"ability_reveal_action", basePlayer(), abilityEnemy("Expose", "reveal_action", "any"), defaultCombatPhases},
+		{"ability_fear_immune", func() Combatant {
+			p := basePlayer()
+			p.Mods.SpellPreDamage = 5
+			p.Mods.SpellPreDamageDesc = "Hold Person"
+			p.Mods.SpellEnemySkipFirst = true
+			return p
+		}(), abilityEnemy("Fearless", "fear_immune", "any"), defaultCombatPhases},
+		{"ability_ally_buff", basePlayer(), abilityEnemy("Warcry", "ally_buff", "any"), defaultCombatPhases},
+
+		// --- Phase-scoped ability gating + environment hazard.
+		{"ability_opening_phase", basePlayer(), abilityEnemy("Ambush", "bonus_damage", "opening"), defaultCombatPhases},
+		{"environment_heavy", basePlayer(), baseEnemy(), []CombatPhase{
+			{"Opening", 2, 0.6, 0.8, 1.5, 1.0},
+			{"Clash", 3, 1.2, 1.0, 0.8, 1.0},
+		}},
 	}
+}
+
+// modPlayer returns basePlayer with a mutation applied to its modifiers.
+func modPlayer(f func(*CombatModifiers)) Combatant {
+	p := basePlayer()
+	f(&p.Mods)
+	return p
+}
+
+// weaponMods is modPlayer for effects that only fire on the weapon-dice
+// damage path (Divine Strike has no effect without a Weapon).
+func weaponMods(f func(*CombatModifiers)) Combatant {
+	p := basePlayer()
+	p.Stats.Weapon = weaponByID("wpn_longsword")
+	f(&p.Mods)
+	return p
+}
+
+// tankyEnemy survives long enough for per-hit and per-swing riders to
+// accumulate across several rounds instead of dying in the opening.
+func tankyEnemy() Combatant {
+	e := baseEnemy()
+	e.Stats.MaxHP = 300
+	e.Stats.Defense = 10
+	return e
+}
+
+// hardHitEnemy hits hard enough to exercise damage-taken paths (wards,
+// resists, retaliation, heal triggers) before the fight resolves.
+func hardHitEnemy() Combatant {
+	e := baseEnemy()
+	e.Stats.MaxHP = 150
+	e.Stats.Attack = 28
+	return e
+}
+
+// abilityEnemy is baseEnemy carrying an always-proccing ability, so the
+// golden pins the effect rather than the proc roll.
+func abilityEnemy(name, effect, phase string) Combatant {
+	e := baseEnemy()
+	e.Stats.MaxHP = 120
+	e.Ability = &MonsterAbility{Name: name, Phase: phase, ProcChance: 1.0, Effect: effect}
+	return e
 }
 
 // charSeeds drives each scenario. Multiple seeds widen RNG-branch coverage
