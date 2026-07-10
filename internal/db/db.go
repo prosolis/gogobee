@@ -1383,6 +1383,21 @@ CREATE TABLE IF NOT EXISTS adventure_activity_log (
 );
 CREATE INDEX IF NOT EXISTS idx_adv_log_user ON adventure_activity_log(user_id, logged_at);
 
+-- N4/E2 item gifting. One row per gift; the sender's row count for the current
+-- UTC day enforces the daily cap (twink-funnel guard), and the full log is an
+-- audit trail. gift_day is the UTC date string the cap counts against, kept
+-- alongside given_at so the count is a plain equality match, not a range scan.
+CREATE TABLE IF NOT EXISTS adventure_gift_log (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	sender     TEXT NOT NULL,
+	recipient  TEXT NOT NULL,
+	item_name  TEXT NOT NULL,
+	value      INTEGER NOT NULL DEFAULT 0,
+	gift_day   TEXT NOT NULL,
+	given_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_adv_gift_sender_day ON adventure_gift_log(sender, gift_day);
+
 CREATE TABLE IF NOT EXISTS adventure_treasures (
 	id           INTEGER PRIMARY KEY AUTOINCREMENT,
 	user_id      TEXT NOT NULL,

@@ -179,6 +179,7 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "sell", Description: "Sell your hauled materials, fish, and items to Thom Krooke after an expedition (a smooth pitch can land a better price)", Usage: "!sell [list|all|<item>]", Category: "Games"},
 		{Name: "craft", Description: "Craft a discovered recipe at Thom Krooke (consumes ingredients)", Usage: "!craft [list|<recipe>]", Category: "Games"},
 		{Name: "lore", Description: "Dig through Thom Krooke's lore stacks for a new recipe (sharp minds turn up more)", Usage: "!lore", Category: "Games"},
+		{Name: "give", Description: "Gift a consumable or non-magic item to another adventurer (5% handling fee to the community pot; 3/day)", Usage: "!give <item> @user", Category: "Games"},
 	}
 }
 
@@ -415,6 +416,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	}
 	if p.IsCommand(ctx.Body, "lore") {
 		return p.handleLoreCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "give") {
+		return p.handleGiveCmd(ctx)
 	}
 
 	// 1. Arena commands (work in rooms and DMs)
