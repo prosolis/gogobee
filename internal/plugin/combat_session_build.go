@@ -208,21 +208,38 @@ func seatFightStartMods(sess *CombatSession, seat int, c *DnDCharacter) CombatMo
 // engine never builds a CombatResult — it persists a session and a shared event
 // log — so the close-out has to assemble one.
 //
-// SniperKilled and MistyHealed stay false because the turn engine has no Arina
-// or Misty proc to set them: those two live only in the auto-resolve engine.
+// MistyHealed is read back off the seat's event log rather than off a flag: the
+// turn engine's CombatResult is a scratch value it discards between steps, and
+// the log is the only thing that survives to the close-out. This is how
+// combat_pet_save has always been detected.
+//
+// SniperKilled stays false. Arina's proc is a pre-combat one-shot, not a
+// round-end effect, so seatEndOfRound does not carry it and the turn engine
+// still has no place to fire it — combat_sniper_kill remains unreachable from a
+// manual kill.
+//
 // NearDeath mirrors the auto-resolve engine's win threshold (below 15% of max);
 // its loss-side meaning is unused here, since the only hook that reads it gates
 // on PlayerWon.
 func seatCombatResult(sess *CombatSession, seat int) CombatResult {
 	hp, hpMax := sess.seatHP(seat), sess.seatHPMax(seat)
 	won := sess.Status == CombatStatusWon
+	events := eventsForSeat(sess.TurnLog, seat)
+	misty := false
+	for _, ev := range events {
+		if ev.Action == "misty_heal" {
+			misty = true
+			break
+		}
+	}
 	return CombatResult{
 		PlayerWon:   won,
-		Events:      eventsForSeat(sess.TurnLog, seat),
+		Events:      events,
 		PlayerEndHP: hp,
 		EnemyEndHP:  sess.EnemyHP,
 		TotalRounds: sess.Round,
 		NearDeath:   won && hp > 0 && float64(hp) < float64(max(1, hpMax))*0.15,
+		MistyHealed: misty,
 	}
 }
 

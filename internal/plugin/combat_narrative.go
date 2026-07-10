@@ -979,6 +979,12 @@ func renderAllySeatEvent(e CombatEvent, name, enemyName string) string {
 		return down(fmt.Sprintf("☠️ %s takes %d from poison.", who, e.Damage))
 	case "environmental":
 		return down(fmt.Sprintf("%s takes %d from the room.", who, e.Damage))
+	case "crowd_revenge":
+		// Deliberately unattributed. An ally sees the damage land — silence
+		// would read as HP vanishing — but Misty's grudge is the owner's own
+		// discovery, and naming her here would spoil it for the whole party.
+		// Same reason misty_heal below reads as a plain recovery.
+		return down(fmt.Sprintf("%s takes %d.", who, e.Damage))
 	case "flat_damage":
 		return fmt.Sprintf("%s deals %d.", who, e.Damage)
 	case "heal_item", "misty_heal":

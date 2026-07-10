@@ -448,6 +448,78 @@ func simulatePartyRound(st *combatState, enemy *Combatant, phase *CombatPhase, s
 	return false
 }
 
+// ── Misty's pair, shared by both engines ─────────────────────────────────────
+//
+// These two are the only round-end effects the turn engine did not have its own
+// copy of. Everything else in endOfRoundForSeat either exists there already (the
+// pet, the spiritual weapon — fired after a player action rather than at round
+// end), is deliberately absent (the environmental hazard: turnCombatPhase is a
+// single flat "Duel" phase with EnvironmentProc at 0), or is replaced by an
+// explicit player command (the consumable auto-heal, which is `!consume`).
+//
+// So they are hoisted rather than re-implemented. A parallel sibling is what let
+// the two win close-outs drift apart (deferred item D); this pair is now one
+// list of effects with two callers, and cannot.
+//
+// Neither draws from the RNG unless its proc is armed, so a character with no
+// Misty history rolls exactly the dice it rolled before — the sim corpus and
+// combat_characterization.golden do not move.
+
+// mistyCrowdRevenge is the debuff for declining Misty: her crowd takes a swing
+// at the end of the round. Returns true when it decided the fight — that is,
+// when it dropped this character, the death save failed, and nobody else is
+// standing. A downed character in a still-live party returns false.
+func mistyCrowdRevenge(st *combatState, player *Combatant, phaseName string) bool {
+	if player.Mods.CrowdRevengeProc <= 0 || st.randFloat() >= player.Mods.CrowdRevengeProc {
+		return false
+	}
+	dmg := player.Mods.CrowdRevengeDmg
+	st.playerHP = max(0, st.playerHP-dmg)
+	st.events = append(st.events, CombatEvent{
+		Round: st.round, Phase: phaseName, Actor: "environment", Action: "crowd_revenge",
+		Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		Desc: "Misty's crowd",
+	})
+	return st.playerHP <= 0 && !trySave(st, player, phaseName) && !st.anyAlive()
+}
+
+// mistyHeal is the buff's payout. It cannot decide the fight, so it returns
+// nothing. result may be a scratch value the caller discards (the turn engine's
+// is) — the durable record is the misty_heal event on the log, which is what
+// seatCombatResult reads to award combat_misty_clutch.
+func mistyHeal(st *combatState, player *Combatant, phaseName string, result *CombatResult) {
+	if player.Mods.MistyHealProc <= 0 || st.randFloat() >= player.Mods.MistyHealProc {
+		return
+	}
+	healAmt := player.Mods.MistyHealAmt
+	st.playerHP = min(effPlayerMaxHP(player, st), st.playerHP+healAmt)
+	result.MistyHealed = true
+	st.events = append(st.events, CombatEvent{
+		Round: st.round, Phase: phaseName, Actor: "npc", Action: "misty_heal",
+		Damage: healAmt, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		Desc: "Misty",
+	})
+}
+
+// seatEndOfRound runs the round-end effects the turn engine owes one seat, in
+// the order endOfRoundForSeat runs them: the crowd's swing, then — if the seat
+// survived it — Misty's heal. Returns true when the fight is over.
+//
+// It exists because the turn engine's stepRoundEnd never ran either one. A
+// player carrying Misty's buff lost it by fighting manually; worse, a player
+// carrying her debuff *escaped* it by doing the same, which needed no discovery
+// to exploit — just press !attack.
+func seatEndOfRound(st *combatState, player *Combatant, phaseName string, result *CombatResult) bool {
+	if over := mistyCrowdRevenge(st, player, phaseName); over {
+		return true
+	}
+	if st.playerHP <= 0 {
+		return false
+	}
+	mistyHeal(st, player, phaseName, result)
+	return false
+}
+
 // endOfRoundForSeat runs the per-character close of a round against the seat the
 // cursor already points at: environment, Misty's crowd, the pet, the spiritual
 // weapon, Misty's heal, and the consumable auto-heal — in that order, which is
@@ -470,17 +542,8 @@ func endOfRoundForSeat(st *combatState, phase *CombatPhase, result *CombatResult
 	}
 
 	// Misty crowd revenge (debuff for declining Misty)
-	if player.Mods.CrowdRevengeProc > 0 && st.randFloat() < player.Mods.CrowdRevengeProc {
-		dmg := player.Mods.CrowdRevengeDmg
-		st.playerHP = max(0, st.playerHP-dmg)
-		st.events = append(st.events, CombatEvent{
-			Round: st.round, Phase: phaseName, Actor: "environment", Action: "crowd_revenge",
-			Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
-			Desc: "Misty's crowd",
-		})
-		if st.playerHP <= 0 && !trySave(st, player, phaseName) && !st.anyAlive() {
-			return true
-		}
+	if over := mistyCrowdRevenge(st, player, phaseName); over {
+		return true
 	}
 
 	// A character the round just killed stops acting, but the fight goes on if
@@ -517,16 +580,7 @@ func endOfRoundForSeat(st *combatState, phase *CombatPhase, result *CombatResult
 	}
 
 	// Misty heal
-	if player.Mods.MistyHealProc > 0 && st.randFloat() < player.Mods.MistyHealProc {
-		healAmt := player.Mods.MistyHealAmt
-		st.playerHP = min(effPlayerMaxHP(player, st), st.playerHP+healAmt)
-		result.MistyHealed = true
-		st.events = append(st.events, CombatEvent{
-			Round: st.round, Phase: phaseName, Actor: "npc", Action: "misty_heal",
-			Damage: healAmt, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
-			Desc: "Misty",
-		})
-	}
+	mistyHeal(st, player, phaseName, result)
 
 	// Consumable heal: triggers when the character drops below 60% HP. Fires up
 	// to HealItemCharges times per fight (1 = legacy one-shot; bosses can

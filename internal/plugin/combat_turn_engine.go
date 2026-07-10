@@ -753,6 +753,23 @@ func (te *turnEngine) stepRoundEnd() {
 		}
 		te.stampSeat(mark, i)
 	}
+	// Misty's crowd, then Misty's heal — per seat, after the round's other
+	// damage has landed so the heal can answer it, which is the order
+	// endOfRoundForSeat uses. Both no-op (and draw no RNG) for a character with
+	// no Misty history, which is every simulated one.
+	for i := range st.actors {
+		st.seat(i)
+		if st.playerHP <= 0 {
+			continue
+		}
+		mark := len(st.events)
+		over := seatEndOfRound(st, st.c, CombatPhaseRoundEnd, te.result)
+		te.stampSeat(mark, i)
+		if over {
+			te.finish(CombatStatusLost)
+			return
+		}
+	}
 	// Concentration aura (Spirit Guardians et al.): the lingering spell bites
 	// the enemy each round it stays up. Concentration is per-caster, so every
 	// seat holding one pulses. Ticks before enemy regen so a lethal pulse
