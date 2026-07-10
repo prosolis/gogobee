@@ -180,6 +180,9 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "craft", Description: "Craft a discovered recipe at Thom Krooke (consumes ingredients)", Usage: "!craft [list|<recipe>]", Category: "Games"},
 		{Name: "lore", Description: "Dig through Thom Krooke's lore stacks for a new recipe (sharp minds turn up more)", Usage: "!lore", Category: "Games"},
 		{Name: "give", Description: "Gift a consumable or non-magic item to another adventurer (5% handling fee to the community pot; 3/day)", Usage: "!give <item> @user", Category: "Games"},
+		{Name: "town", Description: "Town registry — civic pride, housing street, and the pet showcase", Usage: "!town", Category: "Games"},
+		{Name: "graveyard", Description: "Recent deaths across the guild", Usage: "!graveyard", Category: "Games"},
+		{Name: "rivals", Description: "Your rival duel record, or `!rivals board` for room-wide standings", Usage: "!rivals [board]", Category: "Games"},
 	}
 }
 
@@ -419,6 +422,17 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	}
 	if p.IsCommand(ctx.Body, "give") {
 		return p.handleGiveCmd(ctx)
+	}
+
+	// 0b. Town registries (E3) — read-only social boards (rooms and DMs)
+	if p.IsCommand(ctx.Body, "town") {
+		return p.handleTownCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "graveyard") {
+		return p.handleGraveyardCmd(ctx)
+	}
+	if p.IsCommand(ctx.Body, "rivals") {
+		return p.handleRivalsTopCmd(ctx, p.GetArgs(ctx.Body, "rivals"))
 	}
 
 	// 1. Arena commands (work in rooms and DMs)
