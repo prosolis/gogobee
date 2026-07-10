@@ -24,6 +24,31 @@ var mistyAcceptLines = []string{
 
 const mistyDeclineLine = "She nods once and walks away. She doesn't look back."
 
+// ── Misty — Arc Beats (D2) ─────────────────────────────────────────────────
+//
+// Three deepening dialogue beats keyed to MistyEncounterCount (5 / 15 / 30),
+// prepended to the encounter opening the one time the counter lands on a
+// threshold. Fiction only: nothing here connects a donation to a combat
+// outcome — the arena effects are a hidden discovery mechanic and stay hidden.
+var mistyArcBeats = map[int]string{
+	5: "It's you again. I was hoping it would be. I know your face now -- you're one of the few who ever stops. " +
+		"Most people look right through me. You never have.",
+
+	15: "Can I tell you something? I wasn't always out here asking strangers on the road. " +
+		"I had a home once. A garden that got away from me every summer. Someone who used to wait up. " +
+		"It's gone now, all of it. But you keep reminding me there are still kind people in the world. That's not nothing.",
+
+	30: "I don't think of you as a stranger anymore. Is it strange to say that? " +
+		"I catch myself watching the road for you now -- not for the gold, though I won't pretend it doesn't help. " +
+		"Just to see you're still standing. Whatever's out there, I hope it knows better than to take you from me too.",
+}
+
+// mistyArcBeat returns the deepening dialogue for the exact encounter count at
+// which a Misty stage lands, or "" for every other encounter.
+func mistyArcBeat(encounterCount int) string {
+	return mistyArcBeats[encounterCount]
+}
+
 // ── Arina — Opening Lines ──────────────────────────────────────────────────
 
 var arinaOpenings = []string{

@@ -164,16 +164,25 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 		gaveCard = true
 	}
 
-	// Update visit count
+	// Update visit count, and every 10th visit leave a small consumable
+	// "for the trouble" (D2 NPC arc).
+	var leftGift *AdvItem
 	char, err := loadAdvCharacter(userID)
 	if err == nil {
 		char.RobbieVisitCount++
+		if char.RobbieVisitCount%robbieGiftEveryNVisits == 0 {
+			if gifts := consumableCache(robbieGiftTier(char.CombatLevel), 1); len(gifts) > 0 {
+				if err := addAdvInventoryItem(userID, gifts[0]); err == nil {
+					leftGift = &gifts[0]
+				}
+			}
+		}
 		_ = saveAdvCharacter(char)
 		_ = upsertPlayerMetaNPCState(userID, npcStateFromAdvChar(char))
 	}
 
 	// Send DM
-	dm := renderRobbieDM(userID, takenItems, totalPayout, masterworkTaken, gaveCard)
+	dm := renderRobbieDM(userID, takenItems, totalPayout, masterworkTaken, gaveCard, leftGift)
 	if err := p.SendDM(userID, dm); err != nil {
 		slog.Error("adventure: robbie: failed to send DM", "user", userID, "err", err)
 	}
@@ -243,7 +252,27 @@ func robbiePlayerHasCard(userID id.UserID) bool {
 
 // ── DM Rendering ─────────────────────────────────────────────────────────────
 
-func renderRobbieDM(userID id.UserID, items []AdvItem, total int64, mwTaken, gaveCard bool) string {
+// robbieGiftEveryNVisits is how often Robbie leaves a consumable behind.
+const robbieGiftEveryNVisits = 10
+
+// robbieGiftTier maps a player's combat level to a consumable tier, matching
+// the arena tier bands (1–3 / 4–7 / 8–12 / 13–17 / 18+).
+func robbieGiftTier(level int) int {
+	switch {
+	case level >= 18:
+		return 5
+	case level >= 13:
+		return 4
+	case level >= 8:
+		return 3
+	case level >= 4:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func renderRobbieDM(userID id.UserID, items []AdvItem, total int64, mwTaken, gaveCard bool, leftGift *AdvItem) string {
 	var sb strings.Builder
 
 	// Opening
@@ -289,6 +318,12 @@ func renderRobbieDM(userID id.UserID, items []AdvItem, total int64, mwTaken, gav
 		sb.WriteString(fmt.Sprintf(robbieAllShopGear, total))
 	}
 	sb.WriteString("\n\n")
+
+	// Every-10th-visit consumable (D2).
+	if leftGift != nil {
+		sb.WriteString(fmt.Sprintf(robbieLeftConsumable, leftGift.Name))
+		sb.WriteString("\n\n")
+	}
 
 	// Closing
 	closing, _ := advPickFlavor(robbieClosings, userID, "robbie_closing")

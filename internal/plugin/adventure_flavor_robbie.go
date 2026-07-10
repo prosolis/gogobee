@@ -40,6 +40,11 @@ var robbieMasterworkAlreadyHas = "Oh. I see you already have one of these. Excel
 var robbieAllShopGear = "Nothing fancy today but that's alright. Clean inventory is its own reward. " +
 	"Well. The €%d is the reward. The clean inventory is a bonus. Cheerio!"
 
+// robbieLeftConsumable is appended when Robbie leaves a little something on his
+// every-10th-visit (D2). Takes the item name.
+var robbieLeftConsumable = "Oh -- one more thing. I tucked a %s into your bag on the way out. " +
+	"You've had me round enough times now that it felt rude not to. For the trouble, eh? _winks_"
+
 // ── Room Announcements ───────────────────────────────────────────────────────
 
 var robbieRoomStandard = "🎩 Robbie paid %s a visit and collected %d item(s) from their inventory. " +

@@ -141,6 +141,12 @@ func (p *AdventurePlugin) npcFireEncounter(userID id.UserID, npc string) {
 		// Pool union: legacy mistyOpenings + D&D MistyGreeting flavor.
 		mistyPool := dndMistyGreetingPool()
 		opening = mistyPool[rand.IntN(len(mistyPool))]
+		// D2 arc: a deepening beat lands the one time the counter hits a
+		// threshold (5/15/30). MistyEncounterCount only ever increments by one
+		// above, so each beat is delivered exactly once.
+		if beat := mistyArcBeat(char.MistyEncounterCount); beat != "" {
+			opening = beat + "\n\n" + opening
+		}
 		prompt = fmt.Sprintf("👤 A woman approaches you.\n\n_%s_\n\n"+
 			"Reply `yes` to give €%d, or `no` to walk away.", opening, mistyCost)
 	case "arina":

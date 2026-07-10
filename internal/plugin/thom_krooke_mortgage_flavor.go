@@ -120,6 +120,23 @@ var ThomRateDecreasePet = []string{
 		"You can draw your own conclusions.",
 }
 
+// ── FINAL PAYOFF — THE LAST HOUSE (D2 NPC ARC) ────────────────────────────────
+//
+// Sent once, when the Tier-4 "Established" mortgage hits zero — the last house
+// Thom has to sell. There is no next tier, so this is the last time Thom has
+// business with the player. A letter, and (if they keep a pet) a treat left in
+// the bag. Substitute {pet} with strings.ReplaceAll at the call site.
+
+var thomFinalLetterNoPet = "Paid off. All of it. There is no next tier -- you've bought the last house I had to sell you.\n\n" +
+	"I've closed a great many mortgages. Thirty-one years, Krooke Realty. Most people I stop thinking about the hour the balance hits zero, and I have never once considered that a loss. I am writing to tell you that you appear to be an exception. I have not decided how I feel about that. I am telling you anyway, which should indicate something.\n\n" +
+	"The door is yours, the roof is yours, the ground it stands on is yours. Nobody sends you a bill for it ever again. Walk through it whenever you like.\n\n" +
+	"-- Thom Krooke, Krooke Realty"
+
+var thomFinalLetterPet = "Paid off. All of it. There is no next tier -- you own it outright now, walls and roof and the ground it sits on.\n\n" +
+	"I've enclosed something for {pet}. A treat. The good kind -- not the sort they sell by the sack, I had it sent from a place I trust. Give it to {pet} tonight and don't you dare ration it, and don't 'save it for a special occasion' either. Tonight IS the occasion. {pet} has spent this entire mortgage living in a house that wasn't finished being paid for, and now it is, and {pet} should know the difference even if {pet} can't be told in words.\n\n" +
+	"You did a fine thing, getting {pet} a home that is truly yours. I won't say it a second time.\n\n" +
+	"-- Thom Krooke, Krooke Realty"
+
 // ── NO CHANGE (NEVER SENT) ────────────────────────────────────────────────────
 // Thom does not send neutral news.
 // If rate is unchanged week over week: no DM. No notification. Nothing.

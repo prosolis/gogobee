@@ -146,6 +146,18 @@ var thomFreezePet = "Ten missed payments. I've stopped trying for now. The house
 var thomPaidOffNoPet = "Paid off. Noted. The next tier is available when you're ready. I'll be here."
 var thomPaidOffPet = "Paid off. Good. Come in when you're ready for the next tier. I've been thinking about what %s would need in a better space. I have thoughts."
 
+// thomPetTreatItem is the keepsake Thom leaves for the pet on the final
+// mortgage payoff. Inert (Type "card" like the medical-debt card): not a
+// consumable, not gear, and Robbie's sweep skips it.
+func thomPetTreatItem() AdvItem {
+	return AdvItem{
+		Name:  "Krooke's Finest Pet Treat",
+		Type:  "card",
+		Tier:  0,
+		Value: 0,
+	}
+}
+
 // thomGreeting returns an appropriate greeting based on pet state.
 func thomGreeting(char *AdventureCharacter) string {
 	if char.HasPet() && char.PetLevel >= 10 {
@@ -553,11 +565,22 @@ func (p *AdventurePlugin) processMortgagePayments() {
 				freshChar.HouseLoanBalance = 0
 				freshChar.HouseMissedPayments = 0
 				_ = saveAdvCharacter(freshChar)
+				// The last house: no next tier means Thom is done with this
+				// player. A letter, and a treat in the bag if they keep a pet.
+				finalPayoff := houseNextTier(freshChar.HouseTier) == nil
+				if finalPayoff && freshChar.HasPet() {
+					_ = addAdvInventoryItem(freshChar.UserID, thomPetTreatItem())
+				}
 				userMu.Unlock()
-				// Paid off!
-				if freshChar.HasPet() {
+				switch {
+				case finalPayoff && freshChar.HasPet():
+					letter := strings.ReplaceAll(thomFinalLetterPet, "{pet}", freshChar.PetName)
+					_ = p.SendDM(freshChar.UserID, "🏠 "+letter)
+				case finalPayoff:
+					_ = p.SendDM(freshChar.UserID, "🏠 "+thomFinalLetterNoPet)
+				case freshChar.HasPet():
 					_ = p.SendDM(freshChar.UserID, fmt.Sprintf("🏠 %s", fmt.Sprintf(thomPaidOffPet, freshChar.PetName)))
-				} else {
+				default:
 					_ = p.SendDM(freshChar.UserID, fmt.Sprintf("🏠 %s", thomPaidOffNoPet))
 				}
 				continue
