@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -26,6 +27,17 @@ import (
 // tick well under 30s to hold it continuously green. A hard crash stops the
 // heartbeat and Synapse offlines the bot within ~30s on its own.
 const presenceHeartbeatInterval = 20 * time.Second
+
+// Waits applied when an inbound event arrives before its megolm session does.
+// The short wait covers the common race (keys moments behind the event); only
+// after it lapses do we spend an m.room_key_request and wait the long one. The
+// budget bounds the whole recovery so a permanently-unreadable event can't pin a
+// goroutine forever. Mirrors cryptohelper's own 3s/22s ladder.
+const (
+	initialSessionWait    = 3 * time.Second
+	extendedSessionWait   = 22 * time.Second
+	sessionRecoveryBudget = initialSessionWait + extendedSessionWait + 30*time.Second
+)
 
 // cryptoToDeviceTypes are the to-device event types the crypto machine must see
 // to establish Olm/Megolm sessions and share/receive room keys. In /sync mode
@@ -183,12 +195,54 @@ func newAppserviceSession(cfg Config) (*Session, error) {
 		}
 	}
 
+	// recoverSession handles an event whose megolm session we don't have yet. The
+	// keys are often merely in flight (a to-device m.room_key racing the room
+	// event), so wait briefly; if they never land, ask the sender to re-share and
+	// wait longer. Only once that fails is the event genuinely unreadable.
+	//
+	// This duplicates cryptohelper.HandleEncrypted's wait/request ladder on
+	// purpose: that path is gated on a /sync token being present in the context
+	// (mautrix.SyncTokenContextKey), which appservice transactions never carry, so
+	// wiring ch.ASEventProcessor would still leave us dropping these events.
+	//
+	// Runs detached from the transaction context, which is cancelled as soon as we
+	// ACK the transaction — long before the keys could arrive.
+	recoverSession := func(evt *event.Event) {
+		ctx, cancel := context.WithTimeout(context.Background(), sessionRecoveryBudget)
+		defer cancel()
+
+		content := evt.Content.AsEncrypted()
+		got := ch.WaitForSession(ctx, evt.RoomID, content.SenderKey, content.SessionID, initialSessionWait)
+		if !got {
+			ch.RequestSession(ctx, evt.RoomID, content.SenderKey, content.SessionID, evt.Sender, content.DeviceID)
+			got = ch.WaitForSession(ctx, evt.RoomID, content.SenderKey, content.SessionID, extendedSessionWait)
+		}
+		if !got {
+			slog.Warn("appservice: gave up decrypting event, no room key",
+				"room", evt.RoomID, "event", evt.ID, "session", content.SessionID)
+			return
+		}
+
+		decrypted, err := ch.Decrypt(ctx, evt)
+		if err != nil {
+			slog.Warn("appservice: failed to decrypt event after key request",
+				"room", evt.RoomID, "event", evt.ID, "err", err)
+			return
+		}
+		slog.Debug("appservice: recovered event after key request", "room", evt.RoomID, "event", evt.ID)
+		ep.Dispatch(ctx, decrypted)
+	}
+
 	// Decrypt inbound encrypted room events and re-dispatch the plaintext so the
 	// normal message/reaction handlers fire (mirrors cryptohelper.HandleEncrypted).
 	ep.On(event.EventEncrypted, func(ctx context.Context, evt *event.Event) {
 		resolveRoom(ctx, evt.RoomID)
 		decrypted, err := ch.Decrypt(ctx, evt)
 		if err != nil {
+			if errors.Is(err, cryptohelper.NoSessionFound) {
+				go recoverSession(evt)
+				return
+			}
 			slog.Warn("appservice: failed to decrypt event", "room", evt.RoomID, "event", evt.ID, "err", err)
 			return
 		}
