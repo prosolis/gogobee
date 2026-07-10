@@ -187,7 +187,14 @@ func (p *URLsPlugin) scrapeOG(rawURL string) (string, string, string, error) {
 		return "", "", "", fmt.Errorf("status %d", resp.StatusCode)
 	}
 
-	// Cap the parsed body at 2 MiB — og: tags live in <head>, near the top.
+	// Cap the parsed body at 2 MiB: big enough that <head> always fits, small
+	// enough to bound memory against an origin streaming an endless body. Reaching
+	// the cap truncates rather than failing, so an oversized tail costs nothing.
+	//
+	// Sized against the pages actually posted here (2026-07-09, n=14): og:title
+	// landed within the first 7 KiB on twelve of them, worst case ~600 KiB, on
+	// pages up to 1.44 MiB. Note failed scrapes never reach url_cache, so that
+	// sample can't tell you how big the pages that *blew* the old cap were.
 	doc, err := goquery.NewDocumentFromReader(safehttp.LimitedBody(resp.Body, 2*1024*1024))
 	if err != nil {
 		return "", "", "", fmt.Errorf("parse HTML: %w", err)

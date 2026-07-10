@@ -72,36 +72,92 @@ func normalizeImageURL(raw string) string {
 	return u.String()
 }
 
-// validateImageURL HEAD-probes an image URL: it must be http(s), return 200,
-// have an image/* content type, and (if a length is declared) exceed 5 KiB so
-// tracking pixels are filtered. Returns false with no error on any failure.
+// trackingPixelBytes is the size at or below which a declared image is assumed
+// to be a tracking pixel rather than a real preview thumbnail.
+const trackingPixelBytes = 5120
+
+// declaredSize reports the full size of the resource a probe response describes,
+// or -1 when the origin declares none. A ranged probe answers 206 with a
+// Content-Length covering only the requested slice, so the total comes from
+// Content-Range's "bytes 0-1023/119070" suffix instead.
+func declaredSize(resp *http.Response) int64 {
+	if resp.StatusCode == http.StatusPartialContent {
+		cr := resp.Header.Get("Content-Range")
+		i := strings.LastIndexByte(cr, '/')
+		if i < 0 {
+			return -1
+		}
+		total, err := strconv.ParseInt(strings.TrimSpace(cr[i+1:]), 10, 64)
+		if err != nil {
+			return -1 // "*" or malformed: unknown, not empty
+		}
+		return total
+	}
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		if size, err := strconv.ParseInt(cl, 10, 64); err == nil {
+			return size
+		}
+	}
+	return -1
+}
+
+// probeImage asks the origin about rawURL using method and reports its content
+// type and full size. GET probes request only the first KiB, so falling back to
+// one stays about as cheap as the HEAD it replaces.
+func probeImage(method, rawURL string) (contentType string, size int64, ok bool) {
+	req, err := http.NewRequest(method, rawURL, nil)
+	if err != nil {
+		return "", -1, false
+	}
+	req.Header.Set("User-Agent", thumbnailUserAgent)
+	if method == http.MethodGet {
+		req.Header.Set("Range", "bytes=0-1023")
+	}
+
+	resp, err := thumbnailClient.Do(req)
+	if err != nil {
+		slog.Debug("thumbnail: image probe failed", "method", method, "url", rawURL, "err", err)
+		return "", -1, false
+	}
+	defer resp.Body.Close()
+	// Drain the sipped bytes so the connection can be reused.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		slog.Debug("thumbnail: image probe rejected", "method", method, "url", rawURL, "status", resp.StatusCode)
+		return "", -1, false
+	}
+	return resp.Header.Get("Content-Type"), declaredSize(resp), true
+}
+
+// validateImageURL probes an image URL: it must be http(s), answer a probe, have
+// an image/* content type, and (if a size is declared) exceed trackingPixelBytes.
+// Returns false with no error on any failure.
+//
+// The probe is a HEAD first, falling back to a ranged GET: CDNs in front of some
+// publishers (apnews's dims.apnews.com among them) answer HEAD with 403 while
+// serving the very same URL over GET, and a HEAD-only check silently drops those
+// thumbnails.
 func validateImageURL(rawURL string) bool {
 	if rawURL == "" || safehttp.ValidateURL(rawURL) != nil {
 		return false
 	}
-	req, err := http.NewRequest("HEAD", rawURL, nil)
-	if err != nil {
-		return false
-	}
-	req.Header.Set("User-Agent", thumbnailUserAgent)
 
-	resp, err := thumbnailClient.Do(req)
-	if err != nil {
-		slog.Debug("thumbnail: image HEAD failed", "url", rawURL, "err", err)
+	contentType, size, ok := probeImage(http.MethodHead, rawURL)
+	if !ok {
+		contentType, size, ok = probeImage(http.MethodGet, rawURL)
+	}
+	if !ok {
 		return false
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if !strings.HasPrefix(contentType, "image/") {
+		slog.Debug("thumbnail: not an image", "url", rawURL, "content_type", contentType)
 		return false
 	}
-	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "image/") {
+	if size >= 0 && size <= trackingPixelBytes {
+		slog.Debug("thumbnail: image too small, treating as tracking pixel", "url", rawURL, "size", size)
 		return false
-	}
-	if cl := resp.Header.Get("Content-Length"); cl != "" {
-		if size, err := strconv.ParseInt(cl, 10, 64); err == nil && size <= 5120 {
-			return false // tracking pixel
-		}
 	}
 	return true
 }

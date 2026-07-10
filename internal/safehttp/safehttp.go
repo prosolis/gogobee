@@ -120,10 +120,16 @@ func NewClient(timeout time.Duration) *http.Client {
 	}
 }
 
-// LimitedBody wraps r in a reader that errors once more than max bytes have
-// been read. Use to cap how much of a response body downstream parsers
-// (goquery, image.Decode) will ever see — a hostile origin streaming an
-// endless body otherwise OOMs the process.
+// LimitedBody wraps r in a reader that reports EOF once max bytes have been
+// read. Use to cap how much of a response body downstream parsers (goquery,
+// image.Decode) will ever see — a hostile origin streaming an endless body
+// otherwise OOMs the process.
+//
+// Hitting the cap is a truncation, not an error: parsers get a short-but-valid
+// body and decide for themselves whether they found what they needed. Returning
+// an error here instead would fail the whole parse on any oversized page, even
+// when the interesting bytes (an HTML <head>, an image header) sit well inside
+// the cap.
 func LimitedBody(r io.Reader, max int64) io.Reader {
 	return &limitedReader{R: r, N: max}
 }
@@ -135,7 +141,7 @@ type limitedReader struct {
 
 func (l *limitedReader) Read(p []byte) (int, error) {
 	if l.N <= 0 {
-		return 0, fmt.Errorf("safehttp: response body exceeded cap")
+		return 0, io.EOF
 	}
 	if int64(len(p)) > l.N {
 		p = p[:l.N]

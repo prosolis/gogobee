@@ -1,6 +1,9 @@
 package plugin
 
-import "testing"
+import (
+	"net/http"
+	"testing"
+)
 
 func TestResolveURL(t *testing.T) {
 	cases := []struct {
@@ -36,5 +39,53 @@ func TestNormalizeImageURL(t *testing.T) {
 	// Unsigned Guardian thumbnail gets bumped to width=1200.
 	if got := normalizeImageURL("https://i.guim.co.uk/x.jpg?width=140"); got != "https://i.guim.co.uk/x.jpg?width=1200" {
 		t.Errorf("normalizeImageURL unsigned = %q, want width=1200", got)
+	}
+}
+
+func TestDeclaredSize(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		header map[string]string
+		want   int64
+	}{
+		{"content-length on a full response", http.StatusOK,
+			map[string]string{"Content-Length": "119070"}, 119070},
+		// A ranged probe's Content-Length covers only the slice we asked for, so
+		// the resource's real size has to come from Content-Range's total.
+		{"content-range total on a partial response", http.StatusPartialContent,
+			map[string]string{"Content-Length": "1024", "Content-Range": "bytes 0-1023/119070"}, 119070},
+		{"unknown total in content-range", http.StatusPartialContent,
+			map[string]string{"Content-Range": "bytes 0-1023/*"}, -1},
+		{"partial response missing content-range", http.StatusPartialContent,
+			map[string]string{"Content-Length": "1024"}, -1},
+		{"no size declared", http.StatusOK, map[string]string{}, -1},
+		{"malformed content-length", http.StatusOK,
+			map[string]string{"Content-Length": "banana"}, -1},
+	}
+	for _, c := range cases {
+		resp := &http.Response{StatusCode: c.status, Header: http.Header{}}
+		for k, v := range c.header {
+			resp.Header.Set(k, v)
+		}
+		if got := declaredSize(resp); got != c.want {
+			t.Errorf("%s: declaredSize() = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// An undeclared size (-1) must not be mistaken for a zero-byte image and dropped
+// as a tracking pixel — plenty of CDNs omit the length entirely.
+func TestTrackingPixelFilterSkipsUnknownSize(t *testing.T) {
+	rejected := func(size int64) bool { return size >= 0 && size <= trackingPixelBytes }
+	for _, size := range []int64{-1, trackingPixelBytes + 1, 119070} {
+		if rejected(size) {
+			t.Errorf("size %d was rejected as a tracking pixel, want kept", size)
+		}
+	}
+	for _, size := range []int64{0, 1, trackingPixelBytes} {
+		if !rejected(size) {
+			t.Errorf("size %d was kept, want rejected as a tracking pixel", size)
+		}
 	}
 }
