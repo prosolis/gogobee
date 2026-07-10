@@ -471,6 +471,12 @@ type advanceResult struct {
 	// harvest ran (Entry/Trap/Elite/Boss rooms, forks, stops).
 	harvest       autoHarvestResult
 	harvestFooter string
+	// zoneCleared is true only when this step was a *full* zone clear
+	// (reason == stopComplete and not a mid-zone region clear). The K
+	// event anchor reads it so a foreground `!zone advance` clear can roll
+	// the grind-loop player's mid-day event — a mid-zone region clear does
+	// not, since the run continues and it would fire per region.
+	zoneCleared bool
 }
 
 // zoneCmdAdvance resolves the room the player is currently standing in,
@@ -495,7 +501,16 @@ func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
 	if err != nil {
 		return p.SendDM(ctx.Sender, err.Error())
 	}
-	return p.streamOrSend(ctx.Sender, res.preStream, res.intro, res.phases, res.final)
+	sendErr := p.streamOrSend(ctx.Sender, res.preStream, res.intro, res.phases, res.final)
+	// K fourth event anchor: a foreground single-day zone clear is a presence
+	// moment for the grind-loop player the other three anchors miss. Rolled
+	// after the clear DM so any triggered event lands behind it, and only here
+	// — zoneCmdAdvance is the foreground path; autopilot walks go through
+	// runAutopilotWalk and never reach this.
+	if res.zoneCleared {
+		p.maybeFireAnchoredEvent(ctx.Sender, advEventChanceZoneClear)
+	}
+	return sendErr
 }
 
 // advanceOnce runs the single-room advance pipeline and returns a
@@ -737,7 +752,8 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact, inlin
 		// and point at the next one — "Cleared {zone}. Run complete." reads
 		// wrong right before the auto-advance transit block (and is shared with
 		// manual `!region travel`, which advances next).
-		if region, next, midZone := midZoneRegionClear(ctx.Sender, run.RunID); midZone {
+		region, next, midZone := midZoneRegionClear(ctx.Sender, run.RunID)
+		if midZone {
 			b.WriteString(fmt.Sprintf("🏁 **Cleared %s.** The way to %s opens ahead.\n\n", region.Name, next.Name))
 		} else {
 			b.WriteString(fmt.Sprintf("🏆 **Cleared %s.** Run complete.\n\n", zone.Display))
@@ -763,11 +779,12 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact, inlin
 			}
 		}
 		return advanceResult{
-			preStream: preStream,
-			intro:     intro,
-			phases:    phases,
-			final:     b.String(),
-			reason:    stopComplete,
+			preStream:   preStream,
+			intro:       intro,
+			phases:      phases,
+			final:       b.String(),
+			reason:      stopComplete,
+			zoneCleared: !midZone,
 		}, nil
 	}
 	if forkMsg != "" {

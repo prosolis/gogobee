@@ -44,6 +44,43 @@ func TestAnchoredEventWeeklyRate(t *testing.T) {
 	}
 }
 
+// TestZoneClearAnchorRate pins item K's fourth anchor for the population the
+// other three miss: a grind-loop player who never sells, never enters the
+// arena, and never runs a multi-day expedition, but clears single-day zones.
+// Modelled at two foreground clears per active day (a plausible dungeon
+// session) they should land in the same ~1 event/week band as the fully-
+// engaged player — that is the whole point of adding the anchor. The clears/day
+// assumption and advEventChanceZoneClear are the two tuning knobs; see the K
+// note in adventure_events.go.
+func TestZoneClearAnchorRate(t *testing.T) {
+	const clearsPerDay = 2
+
+	const weeks = 20000
+	rng := rand.New(rand.NewPCG(0x5EED, 0x2C)) // "ZC"
+	events := 0
+	for range weeks {
+		for range 7 {
+			firedToday := false
+			for range clearsPerDay {
+				if firedToday {
+					break // one event per player per UTC day
+				}
+				if rng.Float64() < advEventChanceZoneClear {
+					firedToday = true
+				}
+			}
+			if firedToday {
+				events++
+			}
+		}
+	}
+
+	perWeek := float64(events) / weeks
+	if perWeek < 0.8 || perWeek > 1.5 {
+		t.Errorf("zone-clear anchor = %.3f/week, want ~1 (0.8–1.5)", perWeek)
+	}
+}
+
 // TestClaimDailyEventSlot_OnePerDay guards the cap the rate test assumes.
 func TestClaimDailyEventSlot_OnePerDay(t *testing.T) {
 	uid := id.UserID("@events-slot:example")

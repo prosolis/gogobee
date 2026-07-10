@@ -32,10 +32,23 @@ type advActiveEvent struct {
 //
 // The per-anchor chances below put a player who hits all three at ~1 event
 // per week; see TestAnchoredEventWeeklyRate.
+//
+// K — the three social/economic anchors miss the pure grind loop: a player who
+// only mines/forages/fishes (now automatic, done by walking) and clears
+// single-day dungeons, but never sells, never enters the arena, and never runs
+// a multi-day expedition to a Night camp, would roll for zero events. The
+// fourth anchor, ZoneClear, fires on a foreground single-day zone clear — the
+// climax DM that player *is* reading — so they get the same rough cadence.
+// Autopilot walks and mid-zone region clears deliberately do not fire it (see
+// zoneCmdAdvance / the full-clear branch of advanceOnceWithOpts). The per-day
+// slot still caps everyone at one event, so a player who happens to hit two
+// anchors in a day can't double up. This rate is the tuning knob for item K —
+// bump it if telemetry shows the grind-loop player still sees too few.
 const (
-	advEventChanceDigest = 0.08
-	advEventChanceSell   = 0.05
-	advEventChanceArena  = 0.05
+	advEventChanceDigest    = 0.08
+	advEventChanceSell      = 0.05
+	advEventChanceArena     = 0.05
+	advEventChanceZoneClear = 0.08
 )
 
 var (
