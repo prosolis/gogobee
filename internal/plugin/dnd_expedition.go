@@ -193,21 +193,29 @@ func startExpedition(userID id.UserID, zoneID ZoneID, runID string, supplies Exp
 	return exp, nil
 }
 
+// expeditionSelectCols is the column list scanExpedition reads, in the order it
+// reads them. scanExpedition's Scan is positional, so every query that feeds it
+// must project exactly this — hence one constant rather than a copy per query.
+// The `e.` alias means a query can JOIN expedition_party without ambiguity; a
+// query with no JOIN just aliases dnd_expedition to e.
+const expeditionSelectCols = `
+		e.expedition_id, e.user_id, e.zone_id, e.run_id, e.status,
+		e.start_date, e.current_day, e.current_region, e.boss_defeated,
+		e.supplies_json, e.camp_json, e.threat_level, e.threat_siege,
+		e.threat_events, e.temporal_stack, e.region_state,
+		e.xp_earned, e.coins_earned, e.gm_mood,
+		e.last_briefing_at, e.last_recap_at, e.last_ambient_kind,
+		e.last_activity, e.completed_at`
+
 // getActiveExpedition returns the player's in-flight expedition, or (nil, nil).
 // 'extracting' rows are post-extraction (resumable) — see getResumableExpedition.
 func getActiveExpedition(userID id.UserID) (*Expedition, error) {
 	row := db.Get().QueryRow(`
-		SELECT expedition_id, user_id, zone_id, run_id, status,
-		       start_date, current_day, current_region, boss_defeated,
-		       supplies_json, camp_json, threat_level, threat_siege,
-		       threat_events, temporal_stack, region_state,
-		       xp_earned, coins_earned, gm_mood,
-		       last_briefing_at, last_recap_at, last_ambient_kind,
-		       last_activity, completed_at
-		  FROM dnd_expedition
-		 WHERE user_id = ?
-		   AND status = 'active'
-		 ORDER BY start_date DESC
+		SELECT`+expeditionSelectCols+`
+		  FROM dnd_expedition e
+		 WHERE e.user_id = ?
+		   AND e.status = 'active'
+		 ORDER BY e.start_date DESC
 		 LIMIT 1`, string(userID))
 	e, err := scanExpedition(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -219,14 +227,8 @@ func getActiveExpedition(userID id.UserID) (*Expedition, error) {
 // getExpedition fetches by ID regardless of status. Test/admin use.
 func getExpedition(id string) (*Expedition, error) {
 	row := db.Get().QueryRow(`
-		SELECT expedition_id, user_id, zone_id, run_id, status,
-		       start_date, current_day, current_region, boss_defeated,
-		       supplies_json, camp_json, threat_level, threat_siege,
-		       threat_events, temporal_stack, region_state,
-		       xp_earned, coins_earned, gm_mood,
-		       last_briefing_at, last_recap_at, last_ambient_kind,
-		       last_activity, completed_at
-		  FROM dnd_expedition WHERE expedition_id = ?`, id)
+		SELECT`+expeditionSelectCols+`
+		  FROM dnd_expedition e WHERE e.expedition_id = ?`, id)
 	e, err := scanExpedition(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

@@ -333,6 +333,9 @@ func addSupplyPurchase(s ExpeditionSupplies, p SupplyPurchase) ExpeditionSupplie
 // (re-validated under HP buff, shipped).
 const phase5BDailyBurnRatePct = 50
 
+// applyDailyBurn is the solo-rate burn. Since P6b folded the roster in, the live
+// callers all go through applyExpeditionDailyBurn instead; this survives as the
+// fixture the supply tests pin the solo rate against.
 func applyDailyBurn(s ExpeditionSupplies, harshActive, siege bool) (ExpeditionSupplies, float32) {
 	return applyDailyBurnP(s, harshActive, siege, phase5BDailyBurnRatePct)
 }
@@ -379,7 +382,8 @@ func expeditionBurnRatePct(expeditionID string) int {
 // applyDailyBurnP is the rate-parameterized form used by the Phase 3-B
 // sim harness lever sweep. burnRatePct == 0 means "use live" (100%);
 // any positive value scales the final per-day burn by that percent
-// (e.g. 50 = half burn). Live callers always go through applyDailyBurn.
+// (e.g. 50 = half burn). Live callers reach it through applyExpeditionDailyBurn,
+// which supplies the roster-scaled rate.
 // See gogobee_expedition_difficulty.md Phase 3-B.
 func applyDailyBurnP(s ExpeditionSupplies, harshActive, siege bool, burnRatePct int) (ExpeditionSupplies, float32) {
 	burn := s.DailyBurn

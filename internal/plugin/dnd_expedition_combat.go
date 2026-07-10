@@ -149,7 +149,7 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 	// P6e: the party fights the interrupt. The surprise nick above stays on the
 	// leader — it is one free swing at whoever is walking point.
 	pres, seated, err := p.runZoneCombatRoster(
-		zoneCombatRoster(userID), monster, int(zone.Tier), nil, run.DMMood)
+		fightRoster(userID), monster, int(zone.Tier), nil, run.DMMood)
 	if err != nil {
 		return fmt.Sprintf("_(Interrupt combat error: %v.)_", err), false
 	}
@@ -221,7 +221,7 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 	}
 	b.WriteString(fmt.Sprintf("✅ **%s** down (HP %d→%d / %d).",
 		monster.Name, preCombatHP, postHP, maxHP))
-	drop, downed := p.closeOutZoneWin(pres, seated, zone, monster, false, false, "expedition")
+	drop, downed := p.closeOutZoneWin(pres, seated, zone, monster, false, elite, "expedition")
 	if drop != "" {
 		b.WriteString("\n")
 		b.WriteString(drop)
@@ -492,7 +492,7 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 		return
 	}
 	pres, seated, rerr := p.runZoneCombatRoster(
-		zoneCombatRoster(userID), monster, int(zone.Tier), nil, run.DMMood)
+		fightRoster(userID), monster, int(zone.Tier), nil, run.DMMood)
 	if rerr != nil {
 		err = rerr
 		return

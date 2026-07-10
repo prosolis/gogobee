@@ -3,8 +3,6 @@ package plugin
 import (
 	"math/rand/v2"
 	"testing"
-
-	"maunium.net/go/mautrix/id"
 )
 
 // seededRNG gives each test its own deterministic stream, so none of these can
@@ -197,8 +195,8 @@ func TestEventsForSeat_PartitionsTheLog(t *testing.T) {
 }
 
 // A party that wins with a casualty is a win, and the casualty is still a
-// casualty. partySurvivors is what the close-out splits on.
-func TestPartySurvivors_SplitsOnHPNotOnOutcome(t *testing.T) {
+// casualty: survival is read per seat off HP, never off the fight's outcome.
+func TestAnySurvivor_ReadsHPNotOutcome(t *testing.T) {
 	res := PartyCombatResult{
 		PlayerWon: true,
 		Seats: []CombatResult{
@@ -207,14 +205,13 @@ func TestPartySurvivors_SplitsOnHPNotOnOutcome(t *testing.T) {
 			{PlayerEndHP: 3},
 		},
 	}
-	up, down := partySurvivors(res, []id.UserID{"@a:x", "@b:x", "@c:x"})
-	if len(up) != 2 || len(down) != 1 {
-		t.Fatalf("split %d up / %d down, want 2/1", len(up), len(down))
-	}
-	if down[0].String() != "@b:x" {
-		t.Fatalf("wrong casualty: %s", down[0])
-	}
 	if !res.AnySurvivor() {
 		t.Fatal("AnySurvivor said nobody lived")
+	}
+
+	// A won fight nobody walked away from is still nobody walking away.
+	wiped := PartyCombatResult{PlayerWon: true, Seats: []CombatResult{{PlayerEndHP: 0}}}
+	if wiped.AnySurvivor() {
+		t.Fatal("AnySurvivor counted a downed seat as standing")
 	}
 }

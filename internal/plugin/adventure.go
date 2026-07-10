@@ -28,6 +28,7 @@ type AdventurePlugin struct {
 	dmToPlayer     map[id.RoomID]id.UserID
 	pending        sync.Map // userID string -> *advPendingInteraction
 	userLocks      sync.Map // userID string -> *sync.Mutex
+	expLocks       sync.Map // expedition ID string -> *sync.Mutex
 	dmRemindedDate sync.Map // userID string -> "2006-01-02" date string
 	dmMenuSentAt   sync.Map // userID string -> time.Time (last time actionable menu was DM'd)
 	arenaDeadlines sync.Map // userID string -> time.Time (auto-cashout deadline)
@@ -67,6 +68,16 @@ func (p *AdventurePlugin) Stop() {
 // advUserLock returns a per-user mutex to prevent concurrent action resolution.
 func (p *AdventurePlugin) advUserLock(userID id.UserID) *sync.Mutex {
 	val, _ := p.userLocks.LoadOrStore(string(userID), &sync.Mutex{})
+	return val.(*sync.Mutex)
+}
+
+// advExpeditionLock returns a per-expedition mutex, for state a whole party
+// shares rather than one player. advUserLock cannot stand in: it is keyed by
+// sender, so two members racing the same expedition row take two different
+// mutexes and exclude nobody. Handlers run one goroutine per event, so any
+// read-modify-write of the shared supply pool needs this.
+func (p *AdventurePlugin) advExpeditionLock(expID string) *sync.Mutex {
+	val, _ := p.expLocks.LoadOrStore(expID, &sync.Mutex{})
 	return val.(*sync.Mutex)
 }
 

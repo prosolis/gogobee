@@ -34,7 +34,9 @@ func encounterIDForRoom(roomIdx int) string {
 // state mutations (HP, XP, threat, run-clear) still happen; only the
 // narration is dropped. Non-silent callers (manual !fight) are unchanged.
 func (p *AdventurePlugin) replyDM(ctx MessageContext, text string) error {
-	if ctx.Silent {
+	// An empty body means the caller already answered the player another way —
+	// a party fan-out, say. Sending it would post a blank DM.
+	if ctx.Silent || text == "" {
 		return nil
 	}
 	return p.SendDM(ctx.Sender, text)

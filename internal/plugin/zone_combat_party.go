@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
-	"strings"
 	"time"
 
 	"maunium.net/go/mautrix/id"
@@ -163,19 +162,6 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 // the same rule, for the same reason.
 func zoneCombatRoster(walker id.UserID) []id.UserID { return fightRoster(walker) }
 
-// partySurvivors splits a resolved roster into who is still standing and who
-// went down, in seating order.
-func partySurvivors(res PartyCombatResult, seated []id.UserID) (up, down []id.UserID) {
-	for i, uid := range seated {
-		if res.Seats[i].PlayerEndHP > 0 {
-			up = append(up, uid)
-		} else {
-			down = append(down, uid)
-		}
-	}
-	return up, down
-}
-
 // closeOutZoneWin hands loot to every seat still standing and the hospital to
 // every seat that isn't. It returns the leader's own loot line — the only one
 // that belongs in the leader's room narration — and who went down.
@@ -242,8 +228,5 @@ func partyCasualtyLine(downed []id.UserID) string {
 		}
 		names = append(names, "**"+name+"**")
 	}
-	if len(names) == 1 {
-		return "💀 " + names[0] + " went down."
-	}
-	return "💀 " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1] + " went down."
+	return "💀 " + joinNames(names) + " went down."
 }

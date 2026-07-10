@@ -186,6 +186,7 @@ func (p *AdventurePlugin) arenaSeasonRollover(now time.Time) {
 	}
 
 	var lines []string
+	failed := false
 	for _, kind := range []string{arenaTitleEarnings, arenaTitleStreak} {
 		uid, value, ok := arenaSeasonChampion(kind, start, end)
 		if !ok {
@@ -193,6 +194,7 @@ func (p *AdventurePlugin) arenaSeasonRollover(now time.Time) {
 		}
 		if err := recordArenaSeasonTitle(season, kind, uid, value, now); err != nil {
 			slog.Error("arena season: record title failed", "season", season, "kind", kind, "err", err)
+			failed = true
 			continue // don't announce a crown we failed to persist
 		}
 		name, _ := loadDisplayName(uid)
@@ -206,6 +208,14 @@ func (p *AdventurePlugin) arenaSeasonRollover(now time.Time) {
 		}
 	}
 
+	// Marking the job done is what stops the next midnight from retrying, so a
+	// crown we failed to persist must not mark it. recordArenaSeasonTitle is
+	// idempotent on (season, kind), and a past season's data is frozen, so the
+	// retry re-derives the same champions and no-ops the ones already stored.
+	if failed {
+		slog.Warn("arena season: deferring completion after title failure", "season", season)
+		return
+	}
 	db.MarkJobCompleted(jobName, season)
 	if len(lines) == 0 {
 		slog.Info("arena season: closed with no entrants", "season", season)

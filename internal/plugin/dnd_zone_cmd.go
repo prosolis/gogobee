@@ -1047,7 +1047,7 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	// Seats[0] is the leader — their view drives this narration, which is the
 	// leader's stream. The mood scan reads the whole fight's log.
 	pres, seated, rerr := p.runZoneCombatRoster(
-		zoneCombatRoster(userID), monster, int(zone.Tier), nil, run.DMMood)
+		fightRoster(userID), monster, int(zone.Tier), nil, run.DMMood)
 	if rerr != nil {
 		err = rerr
 		return

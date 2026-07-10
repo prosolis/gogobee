@@ -178,8 +178,22 @@ func (p *AdventurePlugin) expeditionCmdAccept(ctx MessageContext, c *DnDCharacte
 	if isHol, _ := isHolidayToday(); isHol {
 		suppliesPurchase.StandardPacks++
 	}
-	pooled := addSupplyPurchase(exp.Supplies, suppliesPurchase)
-	if err := updateSupplies(exp.ID, pooled); err != nil {
+	// updateSupplies overwrites supplies_json wholesale, so the pool has to be
+	// re-read under the expedition's own lock: `exp` was fetched before the coin
+	// debit, and a second invitee accepting — or the leader's day-burn tick —
+	// may have rewritten the row since. Folding onto that stale snapshot would
+	// silently drop their packs or resurrect spent SU.
+	expMu := p.advExpeditionLock(exp.ID)
+	expMu.Lock()
+	fresh, err := getExpedition(exp.ID)
+	if err != nil || fresh == nil {
+		expMu.Unlock()
+		return p.SendDM(ctx.Sender, "You're in, but your supplies didn't reach the pool.")
+	}
+	pooled := addSupplyPurchase(fresh.Supplies, suppliesPurchase)
+	err = updateSupplies(exp.ID, pooled)
+	expMu.Unlock()
+	if err != nil {
 		return p.SendDM(ctx.Sender, "You're in, but your supplies didn't reach the pool: "+err.Error())
 	}
 
@@ -261,6 +275,20 @@ func (p *AdventurePlugin) expeditionCmdParty(ctx MessageContext) error {
 // expeditionCmdLeave walks a member out. The leader cannot leave — their row is
 // the expedition — so they are pointed at `!extract`, which ends it for all.
 func (p *AdventurePlugin) expeditionCmdLeave(ctx MessageContext) error {
+	// Resolve the seat the way the guards that trap them do. seatedExpeditionFor
+	// spans `extracting`, which activeExpeditionFor does not: a leader who
+	// extracts and never resumes would otherwise leave their members seated —
+	// refused a new adventure by the guard, and told "no active expedition" by
+	// the very command the guard points them at. The exit has to see every state
+	// the gate sees. It already excludes leaders, so they fall through below.
+	seated, err := seatedExpeditionFor(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+	}
+	if seated != nil {
+		return p.leaveSeatedParty(ctx, seated)
+	}
+
 	exp, isLeader, err := activeExpeditionFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
@@ -272,6 +300,12 @@ func (p *AdventurePlugin) expeditionCmdLeave(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender,
 			"You're leading this one — `!extract` ends it for everyone, or `!expedition abandon` to walk away from it.")
 	}
+	return p.leaveSeatedParty(ctx, exp)
+}
+
+// leaveSeatedParty unseats a member and tells both ends. Shared by the two ways
+// a member's seat resolves: the `extracting` limbo and the plain active party.
+func (p *AdventurePlugin) leaveSeatedParty(ctx MessageContext, exp *Expedition) error {
 	if err := leaveParty(exp.ID, ctx.Sender); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't leave: "+err.Error())
 	}

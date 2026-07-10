@@ -147,7 +147,18 @@ func (p *AdventurePlugin) beginCombatTurn(sender id.UserID, noFightMsg string) (
 		return fail("Couldn't resolve the round: " + serr.Error())
 	}
 	if !sess.IsActive() {
-		return fail(noFightMsg)
+		// The owed phase was lethal: the settle above ended the fight. The
+		// terminal status is already persisted, and the reaper only scans for
+		// active sessions, so this is the last chance anyone has to pay the
+		// party out. Close it here rather than answering "you're not in a
+		// fight" over a win nobody was credited for.
+		ct := &combatTurn{sess: sess, players: players, enemy: enemy, seat: seat, uid: sender}
+		outcomes := p.closePartyRound(ct)
+		if !ct.isParty() {
+			return fail(outcomes[0])
+		}
+		p.announcePartyRound(ct, nil, "", outcomes)
+		return fail("")
 	}
 
 	acting, waiting := actingSeat(sess, players, enemy)

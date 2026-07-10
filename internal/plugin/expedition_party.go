@@ -253,13 +253,7 @@ func disbandParty(expeditionID string) error {
 // activeExpeditionFor provides.
 func expeditionForMember(userID id.UserID) (*Expedition, error) {
 	row := db.Get().QueryRow(`
-		SELECT e.expedition_id, e.user_id, e.zone_id, e.run_id, e.status,
-		       e.start_date, e.current_day, e.current_region, e.boss_defeated,
-		       e.supplies_json, e.camp_json, e.threat_level, e.threat_siege,
-		       e.threat_events, e.temporal_stack, e.region_state,
-		       e.xp_earned, e.coins_earned, e.gm_mood,
-		       e.last_briefing_at, e.last_recap_at, e.last_ambient_kind,
-		       e.last_activity, e.completed_at
+		SELECT`+expeditionSelectCols+`
 		  FROM dnd_expedition e
 		  JOIN expedition_party p ON p.expedition_id = e.expedition_id
 		 WHERE p.user_id = ? AND p.role <> 'leader' AND e.status = 'active'
