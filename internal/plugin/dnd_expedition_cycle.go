@@ -403,32 +403,14 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 		body += "\n" + ml
 	}
 
-	if uid := id.UserID(e.UserID); uid != "" {
-		// The legacy overworld morning DM is skipped while underground, so
-		// its 25% morning pet event fires here instead, granting the one-day
-		// defense buff (reset at midnight via resetAllPetMorningDefense).
-		// Pet *arrival* is handled separately on the emergence seam below —
-		// not queued here — so we only roll the morning event.
-		if pet, perr := loadPetState(uid); perr == nil {
-			if petEvent := petMorningEvent(pet); petEvent != "" {
-				if char, cerr := loadAdvCharacter(uid); cerr == nil {
-					char.PetMorningDefense = true
-					if serr := saveAdvCharacter(char); serr != nil {
-						slog.Warn("expedition: save pet morning defense", "user", uid, "err", serr)
-					}
-				}
-				body = fmt.Sprintf("🐾 *%s*\n\n%s", petEvent, body)
-			}
-		}
-		if err := p.SendDM(uid, body); err != nil {
-			slog.Warn("expedition: send briefing DM", "user", uid, "err", err)
-		}
-		// Emergence seam: a briefing-time forced extraction (starvation /
-		// abyss collapse) surfaces the player alive — roll pet arrival.
-		// Combat/patrol deaths never reach deliverBriefing (the row is
-		// already abandoned), so an abandoned status here means a survived
-		// emergence; those death paths roll on respawn instead.
-		if e.Status == ExpeditionStatusAbandoned {
+	p.fanOutExpeditionDM(e, body, p.briefingPetPrefix)
+	// Emergence seam: a briefing-time forced extraction (starvation / abyss
+	// collapse) surfaces the players alive — roll pet arrival. Combat/patrol
+	// deaths never reach deliverBriefing (the row is already abandoned), so an
+	// abandoned status here means a survived emergence; those death paths roll
+	// on respawn instead. Every member emerges, so every member rolls.
+	if e.Status == ExpeditionStatusAbandoned {
+		for _, uid := range expeditionAudience(e) {
 			p.maybeRollPetArrivalOnEmerge(uid)
 		}
 	}
@@ -534,22 +516,9 @@ func (p *AdventurePlugin) deliverBriefingEventAnchored(e *Expedition, priorBrief
 		body += "\n" + ml
 	}
 
-	if uid := id.UserID(e.UserID); uid != "" {
-		if pet, perr := loadPetState(uid); perr == nil {
-			if petEvent := petMorningEvent(pet); petEvent != "" {
-				if char, cerr := loadAdvCharacter(uid); cerr == nil {
-					char.PetMorningDefense = true
-					if serr := saveAdvCharacter(char); serr != nil {
-						slog.Warn("expedition: save pet morning defense", "user", uid, "err", serr)
-					}
-				}
-				body = fmt.Sprintf("🐾 *%s*\n\n%s", petEvent, body)
-			}
-		}
-		if err := p.SendDM(uid, body); err != nil {
-			slog.Warn("expedition: send briefing DM", "user", uid, "err", err)
-		}
-		if forced && e.Status == ExpeditionStatusAbandoned {
+	p.fanOutExpeditionDM(e, body, p.briefingPetPrefix)
+	if forced && e.Status == ExpeditionStatusAbandoned {
+		for _, uid := range expeditionAudience(e) {
 			p.maybeRollPetArrivalOnEmerge(uid)
 		}
 	}
@@ -624,16 +593,37 @@ func (p *AdventurePlugin) deliverRecap(e *Expedition, now time.Time) error {
 		body += "\n" + renderNightCheck(*night)
 	}
 
-	if uid := id.UserID(e.UserID); uid != "" {
-		if err := p.SendDM(uid, body); err != nil {
-			slog.Warn("expedition: send recap DM", "user", uid, "err", err)
-		}
-	}
+	p.fanOutExpeditionDM(e, body, nil)
 	if err := appendExpeditionLog(e.ID, e.CurrentDay, "recap",
 		fmt.Sprintf("evening recap — %d log entries today", len(dayEntries)), line); err != nil {
 		return err
 	}
 	return nil
+}
+
+// briefingPetPrefix folds the reader's own 25% morning pet event onto the front
+// of a briefing and grants the resulting one-day defense buff (reset at midnight
+// by resetAllPetMorningDefense). The legacy overworld morning DM is skipped
+// while underground, so this is where that roll lives.
+//
+// It is per-reader rather than per-expedition: each member of a party keeps
+// their own pet, and the buff lands on their own character sheet.
+func (p *AdventurePlugin) briefingPetPrefix(uid id.UserID, body string) string {
+	pet, err := loadPetState(uid)
+	if err != nil {
+		return body
+	}
+	petEvent := petMorningEvent(pet)
+	if petEvent == "" {
+		return body
+	}
+	if char, cerr := loadAdvCharacter(uid); cerr == nil {
+		char.PetMorningDefense = true
+		if serr := saveAdvCharacter(char); serr != nil {
+			slog.Warn("expedition: save pet morning defense", "user", uid, "err", serr)
+		}
+	}
+	return fmt.Sprintf("🐾 *%s*\n\n%s", petEvent, body)
 }
 
 // pickMorningBriefing returns a flavor line based on day-band: Day 1, 3, 7,

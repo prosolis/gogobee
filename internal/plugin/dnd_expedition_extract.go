@@ -90,6 +90,7 @@ func forcedExtractExpedition(expID, reason string) (*Expedition, int, error) {
 	}
 	e.Status = ExpeditionStatusAbandoned
 	_ = retireAllRegionRuns(e)
+	releaseParty(e.ID)
 	return e, tax, nil
 }
 

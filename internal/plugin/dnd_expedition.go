@@ -356,24 +356,49 @@ func abandonExpedition(userID id.UserID) error {
 	if e == nil {
 		return ErrNoActiveExpedition
 	}
-	_, err = db.Get().Exec(`
+	if _, err = db.Get().Exec(`
 		UPDATE dnd_expedition
 		   SET status = 'abandoned',
 		       completed_at = CURRENT_TIMESTAMP,
 		       last_activity = CURRENT_TIMESTAMP
-		 WHERE expedition_id = ?`, e.ID)
-	return err
+		 WHERE expedition_id = ?`, e.ID); err != nil {
+		return err
+	}
+	releaseParty(e.ID)
+	return nil
 }
 
 // completeExpedition marks the expedition complete (boss defeated or extracted).
 func completeExpedition(expID string, status string) error {
-	_, err := db.Get().Exec(`
+	if _, err := db.Get().Exec(`
 		UPDATE dnd_expedition
 		   SET status = ?,
 		       completed_at = CURRENT_TIMESTAMP,
 		       last_activity = CURRENT_TIMESTAMP
-		 WHERE expedition_id = ?`, status, expID)
-	return err
+		 WHERE expedition_id = ?`, status, expID); err != nil {
+		return err
+	}
+	releaseParty(expID)
+	return nil
+}
+
+// releaseParty clears the roster of an expedition that has reached a terminal
+// status, freeing every member to start a run of their own. A member is barred
+// from adventuring anywhere else while seated (assertNotAdventuring), so a
+// roster that outlives its expedition strands the whole party.
+//
+// It is deliberately *not* called on the 'extracting' status: that is a
+// seven-day resumable limbo, and `!resume` must bring the party back with it.
+// The roster is cleared when the resume window lapses and the row flips to
+// 'failed' — which routes through completeExpedition like everything else.
+//
+// A failure here is logged, not returned: the expedition is already terminal by
+// the time we get here, and refusing to finish it over a stale roster row would
+// leave the leader stuck instead of the members.
+func releaseParty(expID string) {
+	if err := disbandParty(expID); err != nil {
+		slog.Warn("expedition: disband party", "expedition", expID, "err", err)
+	}
 }
 
 // applyThreatDelta clamps the threat level to [0,100], records the event,

@@ -295,12 +295,14 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 	// mode: a Night-camp pitch flushes the accumulated day as a digest;
 	// every other quiet path stays silent until something interactive fires.
 	if body, ok := buildAutoRunDM(e.ID, r, campBlock, campDecision); ok {
-		if err := p.SendDM(uid, body); err != nil {
-			slog.Warn("expedition: autorun DM", "user", uid, "err", err)
-		}
+		p.fanOutExpeditionDM(e, body, nil)
 		// N1/A6 — the end-of-day digest is the primary mid-day event anchor.
+		// The anchor is a per-player roll against a per-player daily slot, so
+		// each member rolls their own; a party does not share one event.
 		if campDecision.Night {
-			p.maybeFireAnchoredEvent(uid, advEventChanceDigest)
+			for _, member := range expeditionAudience(e) {
+				p.maybeFireAnchoredEvent(member, advEventChanceDigest)
+			}
 		}
 	}
 
