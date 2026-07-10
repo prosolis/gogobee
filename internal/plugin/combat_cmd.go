@@ -287,7 +287,7 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 		}
 		b.WriteString(fmt.Sprintf("%s **%s** down. You finished at **%d/%d HP**.\n",
 			emoji, enemy.Name, sess.PlayerHP, sess.PlayerHPMax))
-		if drop := p.dropZoneLoot(userID, zone.ID, monster, !elite); drop != "" {
+		if drop := p.dropZoneLoot(userID, zone.ID, monster, !elite, elite); drop != "" {
 			b.WriteString(drop + "\n")
 		}
 		if bossOnExpedition {

@@ -167,6 +167,7 @@ func (p *AdventurePlugin) finalizeExpeditionOnZoneClear(userID id.UserID, runID 
 	}
 	exp.Status = ExpeditionStatusComplete
 	_ = retireAllRegionRuns(exp)
+	p.rollZoneTreasure(userID, exp.ZoneID, advTreasureWeightZoneClear)
 	return p.AwardCompletionMilestones(exp, false)
 }
 

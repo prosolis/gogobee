@@ -115,10 +115,37 @@ func masterworkDefFor(activity AdvActivityType, tier int) *MasterworkDef {
 	return nil
 }
 
+// masterworkSlotActivities are the three activity lines the catalog covers,
+// one equipment slot each: mining→weapon, fishing→armor, foraging→boots.
+var masterworkSlotActivities = []AdvActivityType{
+	AdvActivityMining, AdvActivityFishing, AdvActivityForaging,
+}
+
+// masterworkDefForZone picks a masterwork for a dungeon kill. The catalog is
+// keyed by gathering activity — there is no dungeon line — so a zone drop
+// rolls across all three slots and hands back that line's item at the zone's
+// tier. The item keeps its own SkillSource: a masterwork blade found in a
+// crypt still helps you mine.
+func masterworkDefForZone(tier int) *MasterworkDef {
+	act := masterworkSlotActivities[rand.IntN(len(masterworkSlotActivities))]
+	return masterworkDefFor(act, tier)
+}
+
 // ── Drop Flavor Text (DM) ─────────────────────────────────────────────────
 
 func masterworkDropFlavorText(activity AdvActivityType, tier int) string {
 	switch activity {
+	case AdvActivityDungeon:
+		switch {
+		case tier <= 2:
+			return "The thing you killed was carrying it, which raises the question of where it got it. You check the body for a maker's mark and find none. You check the body for anything else and find nothing. You take the gear and you do not think about the question."
+		case tier == 3:
+			return "It's propped against the wall behind the corpse, upright, deliberate. Not dropped. Placed. Someone came down here, set this down carefully, and did not come back for it. You pick it up. It fits your hand better than anything you paid for."
+		case tier == 4:
+			return "There's a pile of gear in the corner, most of it ruined, all of it belonging to people who came this far and no further. One piece is untouched. The rust stopped at its edge, as if the rust knew better. You add it to your kit and you leave the rest as you found it."
+		default:
+			return "It is the only thing in the room that isn't broken. Whatever lived here kept it, and kept it well, and cleaned it, and did not use it. You take it because you won. That is the arrangement. On the way out you do not turn around, and you tell yourself that is a choice."
+		}
 	case AdvActivityMining:
 		switch {
 		case tier <= 2:
@@ -164,9 +191,15 @@ func (p *AdventurePlugin) checkMasterworkDrop(userID id.UserID, equip map[Equipm
 		return
 	}
 
-	def := masterworkDefFor(loc.Activity, loc.Tier)
+	// Dungeons have no catalog line of their own; they roll across all three.
+	var def *MasterworkDef
+	if loc.Activity == AdvActivityDungeon {
+		def = masterworkDefForZone(loc.Tier)
+	} else {
+		def = masterworkDefFor(loc.Activity, loc.Tier)
+	}
 	if def == nil {
-		return // no masterwork available for this activity+tier (e.g. dungeon)
+		return // no masterwork available for this activity+tier
 	}
 
 	// Roll for drop (chat level rare bonus applied additively)
@@ -250,8 +283,9 @@ func (p *AdventurePlugin) checkMasterworkDrop(userID id.UserID, equip map[Equipm
 		sb.WriteString("_This doesn't come from the shop._\n\n")
 	}
 
-	// Flavor text
-	flavor := masterworkDropFlavorText(def.Activity, def.Tier)
+	// Flavor follows where the item was found, not which catalog line it came
+	// from — a dungeon drop must not open with a pickaxe.
+	flavor := masterworkDropFlavorText(loc.Activity, def.Tier)
 	if flavor != "" {
 		sb.WriteString(fmt.Sprintf("_%s_\n\n", flavor))
 	}

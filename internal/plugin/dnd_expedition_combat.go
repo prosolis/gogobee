@@ -206,7 +206,7 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 	}
 	b.WriteString(fmt.Sprintf("✅ **%s** down (HP %d→%d / %d).",
 		monster.Name, preCombatHP, postHP, maxHP))
-	if drop := p.dropZoneLoot(userID, zone.ID, monster, false); drop != "" {
+	if drop := p.dropZoneLoot(userID, zone.ID, monster, false, false); drop != "" {
 		b.WriteString("\n")
 		b.WriteString(drop)
 	}
@@ -536,7 +536,7 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 		ob.WriteString("\n")
 		ob.WriteString(rollLine)
 	}
-	if drop := p.dropZoneLoot(userID, zone.ID, monster, false); drop != "" {
+	if drop := p.dropZoneLoot(userID, zone.ID, monster, false, false); drop != "" {
 		ob.WriteString("\n")
 		ob.WriteString(drop)
 	}

@@ -1072,13 +1072,19 @@ func (p *AdventurePlugin) resolveRest(ctx MessageContext, char *AdventureCharact
 
 // ── Treasure Drop Check ─────────────────────────────────────────────────────
 
-func (p *AdventurePlugin) checkTreasureDrop(userID id.UserID, char *AdventureCharacter, loc *AdvLocation) {
-	drop, roll, rate := rollAdvTreasureDropDetailed(loc.Tier, userID, p.chatLevel(userID))
+// checkTreasureDrop rolls the treasure table for one earned moment. weight
+// scales the drop rate by how big that moment was (see advTreasureWeight*).
+func (p *AdventurePlugin) checkTreasureDrop(userID id.UserID, char *AdventureCharacter, loc *AdvLocation, weight float64) {
+	drop, roll, rate := rollAdvTreasureDropDetailed(loc.Tier, userID, p.chatLevel(userID), weight)
 	if drop == nil {
 		// Near-miss feedback: when the roll was within 2× of the drop rate,
 		// tell the player they almost got it. Treasure rates are 0.15–1.5%
 		// so without this signal the system feels invisible.
-		if rate > 0 && roll < rate*2 {
+		//
+		// Only for weighted moments (boss/elite/zone clear). A standard kill
+		// fires dozens of times a day on autopilot, and a near-miss DM on 3%
+		// of them turns the signal into noise.
+		if weight > 1 && rate > 0 && roll < rate*2 {
 			p.SendDM(userID, fmt.Sprintf("🎁 *Treasure: just missed* — rolled %.2f%% against %.2f%% drop chance.",
 				roll*100, rate*100))
 		}

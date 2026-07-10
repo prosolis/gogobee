@@ -246,12 +246,17 @@ var advAllTreasures = map[int][]AdvTreasureDef{
 // and the effective drop rate, so callers can surface near-miss feedback
 // ("rolled 1.8% vs 1.5% chance — just missed"). Players never see treasure
 // math otherwise, which makes rare drops feel mythical.
-func rollAdvTreasureDropDetailed(tier int, userID id.UserID, chatLevel int) (drop *AdvTreasureDrop, roll, rate float64) {
+//
+// weight scales the base rate for the moment that produced the roll: a boss
+// kill is worth more than a corridor skirmish. The chat-level bonus is added
+// after scaling so it stays a flat contribution rather than being multiplied
+// up alongside it.
+func rollAdvTreasureDropDetailed(tier int, userID id.UserID, chatLevel int, weight float64) (drop *AdvTreasureDrop, roll, rate float64) {
 	r, ok := advTreasureDropRates[tier]
 	if !ok {
 		return nil, 0, 0
 	}
-	rate = r + chatLevelRareBonus(chatLevel)
+	rate = r*weight + chatLevelRareBonus(chatLevel)
 	roll = rand.Float64()
 
 	if roll >= rate {
@@ -283,7 +288,7 @@ func rollAdvTreasureDropDetailed(tier int, userID id.UserID, chatLevel int) (dro
 // rollAdvTreasureDrop is the legacy single-return variant used by call sites
 // that don't surface near-miss feedback (auto-babysit, twinbee shares).
 func rollAdvTreasureDrop(tier int, userID id.UserID, chatLevel int) *AdvTreasureDrop {
-	d, _, _ := rollAdvTreasureDropDetailed(tier, userID, chatLevel)
+	d, _, _ := rollAdvTreasureDropDetailed(tier, userID, chatLevel, 1)
 	return d
 }
 

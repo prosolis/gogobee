@@ -1016,7 +1016,7 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		ob.WriteString(".")
 		recordZoneKillForUser(userID, monster.ID)
 		applyRoomCombatThreatForUser(userID, elite || isBoss)
-		if drop := p.dropZoneLoot(userID, zone.ID, monster, isBoss); drop != "" {
+		if drop := p.dropZoneLoot(userID, zone.ID, monster, isBoss, elite); drop != "" {
 			ob.WriteString(" ")
 			ob.WriteString(drop)
 		}
@@ -1121,7 +1121,7 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	}
 	recordZoneKillForUser(userID, monster.ID)
 	applyRoomCombatThreatForUser(userID, elite)
-	if drop := p.dropZoneLoot(userID, zone.ID, monster, false); drop != "" {
+	if drop := p.dropZoneLoot(userID, zone.ID, monster, false, elite); drop != "" {
 		ob.WriteString("\n")
 		ob.WriteString(drop)
 	}

@@ -382,31 +382,166 @@ func rngIntN(rng *rand.Rand, n int) int {
 // the biome slate item. Keeps magic items a treat, not the norm.
 const magicItemDropChance = 0.15
 
-func (p *AdventurePlugin) dropZoneLoot(userID id.UserID, zoneID ZoneID, monster DnDMonsterTemplate, isBoss bool) string {
+// Treasure-roll weights by the kind of fight that earned the roll. The base
+// rates (advTreasureDropRates, 1.5%→0.15%) are tuned for one roll per day of
+// legacy activity; expedition combat rolls far more often, so standard kills
+// stay at ×1 and the weight goes to the moments a player remembers.
+const (
+	advTreasureWeightStandard  = 1.0
+	advTreasureWeightElite     = 2.0
+	advTreasureWeightBoss      = 4.0
+	advTreasureWeightZoneClear = 1.0
+)
+
+// advLocForZone adapts a zone into the AdvLocation shape the treasure and
+// masterwork systems were written against, back when every drop came from a
+// legacy daily activity. Zones are dungeons.
+func advLocForZone(zoneID ZoneID) *AdvLocation {
+	name := string(zoneID)
+	if z, ok := getZone(zoneID); ok {
+		name = z.Display
+	}
+	return &AdvLocation{
+		Name:     name,
+		Activity: AdvActivityDungeon,
+		Tier:     zoneTierFromID(zoneID),
+	}
+}
+
+// rollZoneTreasure gives the treasure table a shot at a zone moment. Silent
+// on the overwhelmingly common no-drop path; checkTreasureDrop owns all
+// player-facing output (discovery DM, auto-swap, T5 room announce).
+func (p *AdventurePlugin) rollZoneTreasure(userID id.UserID, zoneID ZoneID, weight float64) {
+	char, err := loadAdvCharacter(userID)
+	if err != nil || char == nil {
+		return
+	}
+	p.checkTreasureDrop(userID, char, advLocForZone(zoneID), weight)
+}
+
+// rollZoneMasterwork gives the masterwork catalog a shot at an elite or boss
+// kill. Arena gear stays the premium line (×1.5 effective tier vs ×1.25), so
+// this competes with the shop, not with the arena.
+func (p *AdventurePlugin) rollZoneMasterwork(userID id.UserID, zoneID ZoneID, isBoss bool) {
+	equip, err := loadAdvEquipment(userID)
+	if err != nil {
+		return
+	}
+	outcome := AdvOutcomeSuccess
+	if isBoss {
+		outcome = AdvOutcomeExceptional
+	}
+	p.checkMasterworkDrop(userID, equip, advLocForZone(zoneID), outcome)
+}
+
+// advIngredientDropChance — per-win chance a crafting ingredient drops.
+//
+// Every recipe ingredient in adventure_consumables.go lives in the legacy
+// gathering tables (advDungeonLoot/advMiningLoot/advForagingLoot/
+// advFishingLoot), which the Phase R transition left with no live caller:
+// generateAdvLoot is only reachable from resolveDungeonAction, and nothing
+// calls that. Rather than re-key 24 ingredients into the per-zone slates,
+// zone combat draws from the legacy tables directly at the zone's tier —
+// their values are already tuned, and every recipe becomes craftable again.
+const advIngredientDropChance = 0.15
+
+// advIngredientActivities are the four legacy tables a zone kill can draw an
+// ingredient from. Zone tier indexes the table tier directly.
+var advIngredientActivities = []AdvActivityType{
+	AdvActivityDungeon, AdvActivityMining, AdvActivityForaging, AdvActivityFishing,
+}
+
+// rollZoneIngredient draws one crafting ingredient from a random legacy
+// gathering table at the zone's tier. Returns nil on the common no-drop path.
+func rollZoneIngredient(zoneTier int) *AdvItem {
+	if rand.Float64() >= advIngredientDropChance {
+		return nil
+	}
+	act := advIngredientActivities[rand.IntN(len(advIngredientActivities))]
+	defs := advLootTable(act)[zoneTier]
+	if len(defs) == 0 {
+		return nil
+	}
+	d := defs[rand.IntN(len(defs))]
+	value := d.MinValue
+	if d.MaxValue > d.MinValue {
+		value += rand.Int64N(d.MaxValue - d.MinValue + 1)
+	}
+	return &AdvItem{
+		Name:        d.Name,
+		Type:        d.Type,
+		Tier:        zoneTier,
+		Value:       value,
+		SkillSource: "zone_ingredient:" + string(act),
+	}
+}
+
+// grantZoneItem deposits a rolled item and returns its narration line.
+func (p *AdventurePlugin) grantZoneItem(userID id.UserID, item *AdvItem, icon string) string {
+	if err := addAdvInventoryItem(userID, *item); err != nil {
+		slog.Error("zone loot: failed to add item", "user", userID, "item", item.Name, "err", err)
+		return ""
+	}
+	return fmt.Sprintf("%s **%s** — %d coin baseline.", icon, item.Name, item.Value)
+}
+
+func (p *AdventurePlugin) dropZoneLoot(userID id.UserID, zoneID ZoneID, monster DnDMonsterTemplate, isBoss, isElite bool) string {
+	// Treasure rolls on every win, independent of whether the zone loot
+	// table produced an item — the two systems are separate rewards.
+	weight := advTreasureWeightStandard
+	switch {
+	case isBoss:
+		weight = advTreasureWeightBoss
+	case isElite:
+		weight = advTreasureWeightElite
+	}
+	p.rollZoneTreasure(userID, zoneID, weight)
+
+	// Masterwork is an elite/boss reward only — it's a permanent gear
+	// upgrade, not a per-kill trinket.
+	if isBoss || isElite {
+		p.rollZoneMasterwork(userID, zoneID, isBoss)
+	}
+
+	// Consumables and ingredients roll on any win, and independently of the
+	// zone slate below — a dry slate roll shouldn't cost the player these.
+	zTier := zoneTierFromID(zoneID)
+	var extra []string
+	if item := RollConsumableDrop(AdvActivityDungeon, zTier); item != nil {
+		if line := p.grantZoneItem(userID, item, "🧪"); line != "" {
+			extra = append(extra, line)
+		}
+	}
+	if item := rollZoneIngredient(zTier); item != nil {
+		if line := p.grantZoneItem(userID, item, "🌿"); line != "" {
+			extra = append(extra, line)
+		}
+	}
+	trailer := strings.Join(extra, "\n")
+
 	entry, tier, ok := rollZoneLoot(zoneID, monster.CR, isBoss, nil)
 	if !ok {
-		return ""
+		return trailer
 	}
 
 	// Magic-item substitution: swap the biome slate item for a registry
 	// magic item of the same rarity tier (see magic_items_gameplay.go).
 	if rngFloat(nil) < magicItemDropChance {
 		if mi, miOK := pickMagicItemForRarity(tier.rarity(), nil); miOK {
-			return p.dropMagicItemLoot(userID, mi, tier)
+			return joinLootLines(p.dropMagicItemLoot(userID, mi, tier), trailer)
 		}
 	}
 
 	tierVal := tier
-	zoneTier := zoneTierFromID(zoneID)
 	item := AdvItem{
 		Name:        entry.Name,
 		Type:        entry.ItemType,
-		Tier:        zoneTier,
+		Tier:        zTier,
 		Value:       int64(entry.BaseValue),
 		SkillSource: fmt.Sprintf("zone_loot:%s:%s", zoneID, tierVal),
 	}
 	if err := addAdvInventoryItem(userID, item); err != nil {
-		return fmt.Sprintf("_(Loot drop persistence error: %v.)_", err)
+		return joinLootLines(fmt.Sprintf("_(Loot drop persistence error: %v.)_", err), trailer)
 	}
 	var b strings.Builder
 	if line := lootFlavorLine(tierVal); line != "" {
@@ -422,7 +557,19 @@ func (p *AdventurePlugin) dropZoneLoot(userID id.UserID, zoneID ZoneID, monster 
 		b.WriteString(fmt.Sprintf("%s **%s** (%s) — %d coin baseline.",
 			icon, entry.Name, tierVal, entry.BaseValue))
 	}
-	return b.String()
+	return joinLootLines(b.String(), trailer)
+}
+
+// joinLootLines stitches the zone-slate narration together with the
+// consumable/ingredient trailer, tolerating either being empty.
+func joinLootLines(parts ...string) string {
+	var kept []string
+	for _, s := range parts {
+		if s != "" {
+			kept = append(kept, s)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 // dropMagicItemLoot deposits a registry magic item as a combat-victory drop
@@ -519,28 +666,28 @@ func zoneItemDescription(zoneID ZoneID, itemName string) string {
 // exemplar — short, in-character, biome-distinctive.
 var zoneItemFlavor = map[ZoneID]map[string]string{
 	ZoneGoblinWarrens: {
-		"Goblin Field Ration":           "Wrapped in burlap. Smells like onions, fear, and someone's last meal.",
-		"Stolen Coin Pouch":             "Mismatched currency, three different empires represented. The goblins didn't discriminate.",
-		"Worg-Tooth Trinket":            "Strung on sinew. Still has bone fragments embedded in the gum-line.",
-		"Hobgoblin Captain's Insignia":  "Bronze, dented, and unmistakably stolen from somewhere it mattered.",
-		"Crude Alchemy Vial":            "The label is in goblin shorthand. The contents fizz when you tilt it.",
-		"Goblin-Forged Shortblade":      "Edge holds. Balance is wrong. Built by hand, not by a smith.",
-		"War Standard Banner":           "Heraldry of three warbands stitched over each other. The bottom layer is older than the empire.",
-		"Shaman's Carved Stave":         "Knotwood, rune-burned. Hums faintly when you stop paying attention to it.",
-		"Hobgoblin General's Cuirass":   "Plate-and-leather, embossed with a sigil that's been scraped halfway off and re-stamped.",
-		"King Grobnar's Iron Crown":     "Three sizes too large for any goblin who ever lived. Whatever wore this first wasn't a goblin.",
+		"Goblin Field Ration":          "Wrapped in burlap. Smells like onions, fear, and someone's last meal.",
+		"Stolen Coin Pouch":            "Mismatched currency, three different empires represented. The goblins didn't discriminate.",
+		"Worg-Tooth Trinket":           "Strung on sinew. Still has bone fragments embedded in the gum-line.",
+		"Hobgoblin Captain's Insignia": "Bronze, dented, and unmistakably stolen from somewhere it mattered.",
+		"Crude Alchemy Vial":           "The label is in goblin shorthand. The contents fizz when you tilt it.",
+		"Goblin-Forged Shortblade":     "Edge holds. Balance is wrong. Built by hand, not by a smith.",
+		"War Standard Banner":          "Heraldry of three warbands stitched over each other. The bottom layer is older than the empire.",
+		"Shaman's Carved Stave":        "Knotwood, rune-burned. Hums faintly when you stop paying attention to it.",
+		"Hobgoblin General's Cuirass":  "Plate-and-leather, embossed with a sigil that's been scraped halfway off and re-stamped.",
+		"King Grobnar's Iron Crown":    "Three sizes too large for any goblin who ever lived. Whatever wore this first wasn't a goblin.",
 	},
 	ZoneCryptValdris: {
-		"Tarnished Burial Coin":         "Stamped with a face nobody alive remembers. Heavier than it should be.",
-		"Cracked Bone Charm":            "Wrist-strung. Whoever wore it didn't make it out.",
-		"Funeral-Wrap Linen":            "Brittle, brown, and still smelling faintly of myrrh.",
-		"Pre-Empire Signet Ring":        "The crest pre-dates any standing kingdom. The metal is still warm somehow.",
-		"Necrotic-Etched Dagger":        "Black-veined steel. Cold to hold, colder to put down.",
-		"Sealed Funerary Vial":          "Wax-stoppered. Whatever's inside has had centuries to think about itself.",
-		"Valdris Scriptorium Tablet":    "Stone, carved in a script that splits opinion among the few scholars who can read it.",
-		"Silver-Inlaid Reliquary":       "Empty now. Someone took whatever was inside and didn't replace it.",
-		"Crypt-Lord's Burial Mantle":    "Heavy embroidery. The threads aren't thread.",
-		"Valdris's Sealing Sigil":       "It hums. The Crypt is older than the empire. This is older than the Crypt.",
+		"Tarnished Burial Coin":      "Stamped with a face nobody alive remembers. Heavier than it should be.",
+		"Cracked Bone Charm":         "Wrist-strung. Whoever wore it didn't make it out.",
+		"Funeral-Wrap Linen":         "Brittle, brown, and still smelling faintly of myrrh.",
+		"Pre-Empire Signet Ring":     "The crest pre-dates any standing kingdom. The metal is still warm somehow.",
+		"Necrotic-Etched Dagger":     "Black-veined steel. Cold to hold, colder to put down.",
+		"Sealed Funerary Vial":       "Wax-stoppered. Whatever's inside has had centuries to think about itself.",
+		"Valdris Scriptorium Tablet": "Stone, carved in a script that splits opinion among the few scholars who can read it.",
+		"Silver-Inlaid Reliquary":    "Empty now. Someone took whatever was inside and didn't replace it.",
+		"Crypt-Lord's Burial Mantle": "Heavy embroidery. The threads aren't thread.",
+		"Valdris's Sealing Sigil":    "It hums. The Crypt is older than the empire. This is older than the Crypt.",
 	},
 	ZoneForestShadows: {
 		"Foraged Trail Loaf":            "Dense, dark, and faintly bitter. Travelers' bread, baked under a canopy that doesn't quite let light through.",
@@ -555,87 +702,87 @@ var zoneItemFlavor = map[ZoneID]map[string]string{
 		"Heart-Wood of the First Grove": "A palm-sized chunk of something that pulses if you hold it long enough. Don't.",
 	},
 	ZoneSunkenTemple: {
-		"Salt-Crusted Coin":             "The denomination is unreadable but the metal is real silver. Bring it to Thom Krooke; he knows the era.",
-		"Pearl Sliver":                  "Fragment, not a whole pearl. Something cracked it open trying to eat what was inside.",
-		"Pressure-Sealed Vial":          "Cold to touch. Pop the seal and it whistles air for a full second before it stops.",
-		"Kuo-toa Spear-Head":            "Bone-and-shell composite. Wickedly barbed. Still smells like the deep.",
-		"Coral-Set Pendant":              "The coral is bleached except where it touched the wearer's skin.",
-		"Tide-Blessed Censer":           "Brass, pitted. Still holds a faint trace of incense and old prayer.",
-		"Drowned Acolyte's Tome":        "Pages stuck together. The ones that separate cleanly are the ones you should read carefully.",
-		"Aboleth-Glass Lens":            "Looks ordinary. Look through it and you see things ten feet to the left of where they actually are.",
-		"Tide-Caller's Trident Head":    "The barbs are folded inward. Whoever forged this didn't want it pulled out clean.",
-		"Dar'eth's Drowned Crown":       "Coral-encrusted gold. Fits no human skull comfortably.",
+		"Salt-Crusted Coin":          "The denomination is unreadable but the metal is real silver. Bring it to Thom Krooke; he knows the era.",
+		"Pearl Sliver":               "Fragment, not a whole pearl. Something cracked it open trying to eat what was inside.",
+		"Pressure-Sealed Vial":       "Cold to touch. Pop the seal and it whistles air for a full second before it stops.",
+		"Kuo-toa Spear-Head":         "Bone-and-shell composite. Wickedly barbed. Still smells like the deep.",
+		"Coral-Set Pendant":          "The coral is bleached except where it touched the wearer's skin.",
+		"Tide-Blessed Censer":        "Brass, pitted. Still holds a faint trace of incense and old prayer.",
+		"Drowned Acolyte's Tome":     "Pages stuck together. The ones that separate cleanly are the ones you should read carefully.",
+		"Aboleth-Glass Lens":         "Looks ordinary. Look through it and you see things ten feet to the left of where they actually are.",
+		"Tide-Caller's Trident Head": "The barbs are folded inward. Whoever forged this didn't want it pulled out clean.",
+		"Dar'eth's Drowned Crown":    "Coral-encrusted gold. Fits no human skull comfortably.",
 	},
 	ZoneManorBlackspire: {
-		"Tarnished Silver Spoon":        "Estate-marked. The set it belonged to is presumably still in a drawer somewhere upstairs.",
-		"Forty-Year-Old Tincture":       "Label dated 1486. Still potent. The Blackspires kept good apothecaries.",
-		"Mourner's Cameo":               "A widow's profile, ivory-on-jet. Likeness unknown; mood unmistakable.",
-		"Vampire-Hunter's Stake Set":    "Three stakes, one mallet, all hawthorn. The mallet has been used.",
-		"Cursed Family Locket":          "Don't open it. (You'll open it. They always do.)",
-		"Estate-Sealed Wine Bottle":     "Wax intact. The label's faded but the vintage is legible — and good.",
-		"Blackspire Family Diary":       "Penmanship is neat for the first hundred pages and then becomes other things.",
-		"Ghost-Iron Candelabrum":        "Cold even when lit. The flames lean toward you regardless of where you stand.",
-		"Manor-Lord's Funeral Coat":     "Tailored. Mourning-black. Smells faintly of formaldehyde and rosewater.",
+		"Tarnished Silver Spoon":            "Estate-marked. The set it belonged to is presumably still in a drawer somewhere upstairs.",
+		"Forty-Year-Old Tincture":           "Label dated 1486. Still potent. The Blackspires kept good apothecaries.",
+		"Mourner's Cameo":                   "A widow's profile, ivory-on-jet. Likeness unknown; mood unmistakable.",
+		"Vampire-Hunter's Stake Set":        "Three stakes, one mallet, all hawthorn. The mallet has been used.",
+		"Cursed Family Locket":              "Don't open it. (You'll open it. They always do.)",
+		"Estate-Sealed Wine Bottle":         "Wax intact. The label's faded but the vintage is legible — and good.",
+		"Blackspire Family Diary":           "Penmanship is neat for the first hundred pages and then becomes other things.",
+		"Ghost-Iron Candelabrum":            "Cold even when lit. The flames lean toward you regardless of where you stand.",
+		"Manor-Lord's Funeral Coat":         "Tailored. Mourning-black. Smells faintly of formaldehyde and rosewater.",
 		"Blackspire Patriarch's Death Mask": "Plaster, eyes closed. The expression is wrong for someone who died in their sleep.",
 	},
 	ZoneUnderforge: {
-		"Forge-Slag Trinket":            "A cooled drip of something that used to be molten. Dwarves keep these. Nobody knows why.",
-		"Iron-Filing Pouch":             "Heavy for its size. Magnetic. Useful, somehow, to someone, eventually.",
-		"Dwarven Hardtack":              "You could break a tooth on this. The dwarves who made it would consider that a feature.",
-		"Azer-Forged Hammer Head":       "Still warm. Will be warm tomorrow. Will be warm a hundred years from now.",
-		"Heat-Etched Sigil Plate":       "The runes were burned in by hand. The hand that did it was not a hand that minded heat.",
-		"Salamander-Oil Flask":          "Sealed in glass. The oil ripples even when nothing else does.",
-		"Master-Smith's Ledger Page":    "Old dwarven shorthand. Inventory of a forge that stopped recording entries the year the elementals woke up.",
-		"Mithral-Thread Gauntlet":       "Light enough to be wrong. Sharper than it has any right to be along the knuckles.",
-		"Forge-Marshal's Anvil-Charm":   "A miniature anvil on a chain. Heavy enough to be impractical. Worn anyway.",
+		"Forge-Slag Trinket":               "A cooled drip of something that used to be molten. Dwarves keep these. Nobody knows why.",
+		"Iron-Filing Pouch":                "Heavy for its size. Magnetic. Useful, somehow, to someone, eventually.",
+		"Dwarven Hardtack":                 "You could break a tooth on this. The dwarves who made it would consider that a feature.",
+		"Azer-Forged Hammer Head":          "Still warm. Will be warm tomorrow. Will be warm a hundred years from now.",
+		"Heat-Etched Sigil Plate":          "The runes were burned in by hand. The hand that did it was not a hand that minded heat.",
+		"Salamander-Oil Flask":             "Sealed in glass. The oil ripples even when nothing else does.",
+		"Master-Smith's Ledger Page":       "Old dwarven shorthand. Inventory of a forge that stopped recording entries the year the elementals woke up.",
+		"Mithral-Thread Gauntlet":          "Light enough to be wrong. Sharper than it has any right to be along the knuckles.",
+		"Forge-Marshal's Anvil-Charm":      "A miniature anvil on a chain. Heavy enough to be impractical. Worn anyway.",
 		"The First Hammer's Striking Head": "The dwarven creation-myths name this. They don't agree on which dwarf swung it.",
 	},
 	ZoneUnderdark: {
-		"Cave-Spider Silk Skein":        "Wound on a bone-spool. Tensile strength embarrassing to surface looms.",
-		"Dim-Glow Mushroom Bundle":      "Tied with hair. Edible. Slightly hallucinogenic. Drow eat them as a snack.",
-		"Drow-Worked Coin":              "Etched on both sides. The faces are not faces.",
-		"Drow Hand-Crossbow Bolt Case":  "Six bolts. Two are tipped with something dark. Two are tipped with something darker. Two are bare.",
-		"Faerzress-Etched Charm":        "Magic-disrupting. Useful as a hex-breaker; useless inside an active wardline.",
-		"Diluted Drow Sleep Vial":       "House-watered for trade with the surface. Still drops a person flat in twenty seconds.",
-		"Mind Flayer Codex Page":        "The script reads itself into your head if you stare too long. Don't.",
-		"Drow-Adamantine Bracer":        "Forged in fae-fire. Black with a violet undersheen. Doesn't tarnish.",
-		"Matron's House-Sigil Brooch":   "Eight-legged crest. The matron who wore it is presumably no longer wearing it.",
-		"Eyeless King's Skull-Crown":    "Bone-set, with sockets where stones should go. Worn smooth by something patient.",
+		"Cave-Spider Silk Skein":       "Wound on a bone-spool. Tensile strength embarrassing to surface looms.",
+		"Dim-Glow Mushroom Bundle":     "Tied with hair. Edible. Slightly hallucinogenic. Drow eat them as a snack.",
+		"Drow-Worked Coin":             "Etched on both sides. The faces are not faces.",
+		"Drow Hand-Crossbow Bolt Case": "Six bolts. Two are tipped with something dark. Two are tipped with something darker. Two are bare.",
+		"Faerzress-Etched Charm":       "Magic-disrupting. Useful as a hex-breaker; useless inside an active wardline.",
+		"Diluted Drow Sleep Vial":      "House-watered for trade with the surface. Still drops a person flat in twenty seconds.",
+		"Mind Flayer Codex Page":       "The script reads itself into your head if you stare too long. Don't.",
+		"Drow-Adamantine Bracer":       "Forged in fae-fire. Black with a violet undersheen. Doesn't tarnish.",
+		"Matron's House-Sigil Brooch":  "Eight-legged crest. The matron who wore it is presumably no longer wearing it.",
+		"Eyeless King's Skull-Crown":   "Bone-set, with sockets where stones should go. Worn smooth by something patient.",
 	},
 	ZoneFeywildCrossing: {
-		"Pressed Fey Petal":             "Color shifts when you blink. Smells like a season you don't have a name for.",
-		"Honey-Wax Candle":              "Burns blue. The wax pools upward.",
-		"Dream-Spun Thread":             "Spider silk except it sings if you pluck it.",
-		"Pixie-Wing Glassine":           "Pressed wing-membrane between two slips of glass. Iridescence depends on who is watching.",
-		"Wisp-Lantern Charm":            "Glows softly when held; goes dark when set down. Doesn't ask permission to do either.",
-		"Hag-Brewed Bitter Cordial":     "Black, syrupy, and tastes exactly like one specific regret.",
-		"Time-Locked Music Box":         "Plays a tune that's three notes longer than the box should physically be able to hold.",
-		"Fey Court Invitation Scroll":   "Sealed in honeycomb wax. The invitation is for a party that hasn't happened yet, or already did.",
-		"Summer-Knight's Thorn Buckler": "Thorn-bossed, briar-rimmed. The thorns flex when struck and then re-form.",
+		"Pressed Fey Petal":                   "Color shifts when you blink. Smells like a season you don't have a name for.",
+		"Honey-Wax Candle":                    "Burns blue. The wax pools upward.",
+		"Dream-Spun Thread":                   "Spider silk except it sings if you pluck it.",
+		"Pixie-Wing Glassine":                 "Pressed wing-membrane between two slips of glass. Iridescence depends on who is watching.",
+		"Wisp-Lantern Charm":                  "Glows softly when held; goes dark when set down. Doesn't ask permission to do either.",
+		"Hag-Brewed Bitter Cordial":           "Black, syrupy, and tastes exactly like one specific regret.",
+		"Time-Locked Music Box":               "Plays a tune that's three notes longer than the box should physically be able to hold.",
+		"Fey Court Invitation Scroll":         "Sealed in honeycomb wax. The invitation is for a party that hasn't happened yet, or already did.",
+		"Summer-Knight's Thorn Buckler":       "Thorn-bossed, briar-rimmed. The thorns flex when struck and then re-form.",
 		"Thornmother's Heart-Thorn Reliquary": "Sealed bronze, briar-wrapped. The thorn inside still pulses on a slow rhythm.",
 	},
 	ZoneDragonsLair: {
-		"Half-Melted Gold Coin":         "Slumped flat by heat. Still gold. Still legal tender if Thom Krooke can read the year.",
-		"Volcanic Glass Sliver":         "Sharper than steel and a quarter the weight. Edges chip on impact.",
-		"Kobold Field Pouch":            "Trail rations, a fire-starter, two prayer-beads to a god named Kurtulmak.",
-		"Drake-Scale Bracer":            "Overlapping scales, still attached to a strip of original drake-hide. Heat-resistant.",
-		"Kobold Trap-Mechanism":         "Pre-built, single-use, and surprisingly clever. Read the inscribed instructions before activating.",
-		"Drake-Blood Cordial":           "Distilled fire. Burns going down. Fire-resistance for an hour and a hangover for a day.",
-		"Hoard-Inventory Page":          "An accountant's record of items the dragon owns. The dragon does not know it lost this page.",
-		"Dragonfire-Forged Spike":       "Blackened steel, never cools. Driven into stone with the hilt-end first.",
+		"Half-Melted Gold Coin":          "Slumped flat by heat. Still gold. Still legal tender if Thom Krooke can read the year.",
+		"Volcanic Glass Sliver":          "Sharper than steel and a quarter the weight. Edges chip on impact.",
+		"Kobold Field Pouch":             "Trail rations, a fire-starter, two prayer-beads to a god named Kurtulmak.",
+		"Drake-Scale Bracer":             "Overlapping scales, still attached to a strip of original drake-hide. Heat-resistant.",
+		"Kobold Trap-Mechanism":          "Pre-built, single-use, and surprisingly clever. Read the inscribed instructions before activating.",
+		"Drake-Blood Cordial":            "Distilled fire. Burns going down. Fire-resistance for an hour and a hangover for a day.",
+		"Hoard-Inventory Page":           "An accountant's record of items the dragon owns. The dragon does not know it lost this page.",
+		"Dragonfire-Forged Spike":        "Blackened steel, never cools. Driven into stone with the hilt-end first.",
 		"Wyrmguard's Cinder-Cloak Clasp": "Brass-and-obsidian. The clasp is dragonshape. The wearer was, briefly, a problem.",
-		"Infernax's Tooth-Reliquary":    "A single tooth, mounted in gold-and-bone. The dragon is younger by exactly this tooth.",
+		"Infernax's Tooth-Reliquary":     "A single tooth, mounted in gold-and-bone. The dragon is younger by exactly this tooth.",
 	},
 	ZoneAbyssPortal: {
-		"Brimstone-Caked Coin":          "Sulfur-yellow at the edges. Burns the nose if you sniff it. (You won't sniff it twice.)",
-		"Sulfur-Wax Stub":               "Half-burned demon-tallow. Doesn't smell like tallow.",
-		"Demon-Ichor Smear-Vial":        "Stoppered tight. The contents move on their own when you turn away.",
-		"Quasit-Bound Ring":             "Tiny, plain, and humming. Don't put it on. There's something in there.",
-		"Corrupted-Metal Buckle":        "Was steel once. Is something else now. The shape held; the metal didn't.",
-		"Planar-Shard Pendant":          "Looks like a fragment of a much larger reality. Held wrong, it cuts where there's nothing to cut.",
-		"Abyssal-Marked Codex Sheet":    "Vellum, demon-scribed. The script reads in a voice that isn't yours.",
-		"Marilith-Steel Edge":           "Six-bladed weapon-fragment, broken from a longer edge. The break is centuries old. The edge is sharp.",
-		"Nalfeshnee's Honor-Sigil":      "A demon's idea of dignity. Brass, blood-stained, embossed with a name you can't pronounce.",
+		"Brimstone-Caked Coin":             "Sulfur-yellow at the edges. Burns the nose if you sniff it. (You won't sniff it twice.)",
+		"Sulfur-Wax Stub":                  "Half-burned demon-tallow. Doesn't smell like tallow.",
+		"Demon-Ichor Smear-Vial":           "Stoppered tight. The contents move on their own when you turn away.",
+		"Quasit-Bound Ring":                "Tiny, plain, and humming. Don't put it on. There's something in there.",
+		"Corrupted-Metal Buckle":           "Was steel once. Is something else now. The shape held; the metal didn't.",
+		"Planar-Shard Pendant":             "Looks like a fragment of a much larger reality. Held wrong, it cuts where there's nothing to cut.",
+		"Abyssal-Marked Codex Sheet":       "Vellum, demon-scribed. The script reads in a voice that isn't yours.",
+		"Marilith-Steel Edge":              "Six-bladed weapon-fragment, broken from a longer edge. The break is centuries old. The edge is sharp.",
+		"Nalfeshnee's Honor-Sigil":         "A demon's idea of dignity. Brass, blood-stained, embossed with a name you can't pronounce.",
 		"Belaxath's Bound Truename Tablet": "Stone, demon-runed. The truename is bound by inscription. Read it and the binding holds. Speak it and it doesn't.",
 	},
 }
