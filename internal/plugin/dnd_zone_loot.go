@@ -517,6 +517,13 @@ func (p *AdventurePlugin) dropZoneLoot(userID id.UserID, zoneID ZoneID, monster 
 			extra = append(extra, line)
 		}
 	}
+	// The Hollow King campaign (N5/D1). Elites carry the scattered pages; the
+	// gating boss gets an epilogue instead (D1b), not a page.
+	if isElite {
+		if line := p.maybeDropJournalPage(userID, nil); line != "" {
+			extra = append(extra, line)
+		}
+	}
 	trailer := strings.Join(extra, "\n")
 
 	entry, tier, ok := rollZoneLoot(zoneID, monster.CR, isBoss, nil)

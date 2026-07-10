@@ -111,6 +111,10 @@ type AdventureCharacter struct {
 	CraftsSucceeded  int
 	DeathSource      string // "adventure" | "arena" | "" (legacy/unknown — treated as adventure)
 	DeathLocation    string // human-readable location of last death; cleared on revive is not required
+	// N5/D1 the Hollow King campaign. Bitmask of discovered journal pages (bit i
+	// == page i+1). Read-only overlay from player_meta.journal_pages; writes go
+	// through the atomic grantJournalPageDB, never the bulk character save.
+	JournalPages int64
 }
 
 type AdvEquipment struct {

@@ -378,6 +378,14 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE player_meta ADD COLUMN pet2_armor_tier INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN pet2_flags_json TEXT NOT NULL DEFAULT '{}'`,
 		`ALTER TABLE player_meta ADD COLUMN pet2_level_10_date TEXT NOT NULL DEFAULT ''`,
+		// N5/D1 the Hollow King campaign (gogobee_engagement_plan.md §D1). Found
+		// journal pages are a bitmask (bit i == page i+1 discovered), granted one at
+		// a time from elite kills and secret rooms. A single INTEGER rather than a
+		// rows table: pages are static content, only found/not-found is per-player,
+		// and grants are an atomic bitwise-OR so a page can't be lost to a stale
+		// character save. DEFAULT 0 == "no pages found", correct for every
+		// pre-existing row, so no bootstrap backfill.
+		`ALTER TABLE player_meta ADD COLUMN journal_pages INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

@@ -386,6 +386,41 @@ func upsertPlayerMetaPet2State(userID id.UserID, s PetState) error {
 	return err
 }
 
+// loadJournalPages reads the Hollow King campaign page bitmask (N5/D1). A
+// missing row means no pages found yet.
+func loadJournalPages(userID id.UserID) (int64, error) {
+	var mask int64
+	err := db.Get().QueryRow(
+		`SELECT journal_pages FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&mask)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return mask, nil
+}
+
+// grantJournalPageDB sets the bit for one page atomically. The OR against the
+// stored value (not a read-modify-write of the in-memory character) means a
+// page granted mid-expedition survives a concurrent character save, and the
+// call is idempotent — re-granting a found page is a no-op.
+func grantJournalPageDB(userID id.UserID, page int) error {
+	if page < 1 {
+		return nil
+	}
+	bit := int64(1) << (page - 1)
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (user_id, journal_pages) VALUES (?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   journal_pages = journal_pages | excluded.journal_pages`,
+		string(userID), bit,
+	)
+	return err
+}
+
 // HouseState is the in-memory mirror of player_meta's house_* columns. Phase
 // L4e ports housing/mortgage off AdvCharacter (gogobee_legacy_migration.md
 // §6.5). All six fields mutate together at known sites (purchase, payoff,
@@ -1280,6 +1315,9 @@ func applyPlayerMetaOverlay(c *AdventureCharacter) {
 		c.Pet2Arrived = s.Arrived
 		c.Pet2ChasedAway = s.ChasedAway
 		c.Pet2Reactivated = s.Reactivated
+	}
+	if mask, err := loadJournalPages(uid); err == nil {
+		c.JournalPages = mask
 	}
 	if s, err := loadHouseState(uid); err == nil {
 		c.HouseTier = s.Tier

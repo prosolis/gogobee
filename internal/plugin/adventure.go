@@ -533,6 +533,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleTreasuresCmd(ctx, strings.TrimSpace(strings.TrimPrefix(lower, "treasures")))
 	case lower == "vault" || strings.HasPrefix(lower, "vault "):
 		return p.handleVaultCmd(ctx, strings.TrimSpace(args[len("vault"):]))
+	case lower == "journal":
+		return p.handleJournalCmd(ctx)
 	}
 
 	return p.SendDM(ctx.Sender, "Unknown command. Type `!adventure help` to see available commands.")
@@ -564,6 +566,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure recipes`" + ` — List crafting recipes known at your current Foraging level
 ` + "`!adventure mastery`" + ` — Per-slot equipment mastery progress and active bonus
 ` + "`!adventure treasures`" + ` — List your treasures · ` + "`treasures lock`" + ` to refuse swaps
+` + "`!adventure journal`" + ` — Read the campaign pages you've recovered
 ` + "`!hospital`" + ` — Visit St. Guildmore's Memorial Hospital (same-day revival when dead)
 ` + "`!thom`" + ` — Visit Thom Krooke (housing and loans)
 ` + "`!adventure help`" + ` — This message
