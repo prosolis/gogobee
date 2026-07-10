@@ -36,22 +36,15 @@ func (p *AdventurePlugin) runBabysitDailyTrickle(char *AdventureCharacter) {
 	if !char.BabysitActive {
 		return
 	}
+	// Both companions share the sitter's attention and gain the flat trickle.
+	// (Combat only ever reads their *averaged* procs, so leveling both is not a
+	// power spike.)
 	leveled := false
-	if char.HasPet() && char.PetLevel < 10 {
-		// Bypass petGrantXP's per-action constant — we want a flat trickle.
-		char.PetXP += petXPPerBabysitDay * 100
-		for char.PetLevel < 10 {
-			needed := petXPToNextLevel(char.PetLevel) * 100
-			if char.PetXP < needed {
-				break
-			}
-			char.PetXP -= needed
-			char.PetLevel++
-			leveled = true
-		}
-		if char.PetLevel >= 10 && char.PetLevel10Date == "" {
-			char.PetLevel10Date = time.Now().UTC().Format("2006-01-02")
-		}
+	if char.HasPet() {
+		leveled = advancePetLevelsFromXP(&char.PetXP, &char.PetLevel, &char.PetLevel10Date, petXPPerBabysitDay*100) || leveled
+	}
+	if char.HasPet2() {
+		leveled = advancePetLevelsFromXP(&char.Pet2XP, &char.Pet2Level, &char.Pet2Level10Date, petXPPerBabysitDay*100) || leveled
 	}
 	outcome := "pet_care"
 	if leveled {

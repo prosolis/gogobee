@@ -285,8 +285,7 @@ func TestPetArmorDefs_BothTypes(t *testing.T) {
 }
 
 func TestPetArmorShopView_HasUpgrades(t *testing.T) {
-	char := &AdventureCharacter{PetType: "dog", PetName: "Rex", PetArrived: true, PetArmorTier: 0}
-	text := petArmorShopView(char)
+	text := petArmorShopView("dog", 0, "petbuy")
 
 	if !strings.Contains(text, "⬆️") {
 		t.Error("should show upgrade indicators")
@@ -297,8 +296,7 @@ func TestPetArmorShopView_HasUpgrades(t *testing.T) {
 }
 
 func TestPetArmorShopView_MaxTier(t *testing.T) {
-	char := &AdventureCharacter{PetType: "cat", PetName: "Luna", PetArrived: true, PetArmorTier: 5}
-	text := petArmorShopView(char)
+	text := petArmorShopView("cat", 5, "petbuy")
 
 	if !strings.Contains(text, "Max pet armor") {
 		t.Error("should show max tier message")

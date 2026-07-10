@@ -915,9 +915,9 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 	case "npc_encounter":
 		return p.resolveNPCEncounter(ctx, interaction)
 	case "pet_arrival":
-		return p.resolvePetArrival(ctx)
+		return p.resolvePetArrival(ctx, interaction)
 	case "pet_type":
-		return p.resolvePetType(ctx)
+		return p.resolvePetType(ctx, interaction)
 	case "pet_name":
 		return p.resolvePetName(ctx, interaction)
 	}

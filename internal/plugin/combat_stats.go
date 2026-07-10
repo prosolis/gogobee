@@ -157,12 +157,33 @@ func DerivePlayerStats(
 		}
 	}
 
-	// Pet modifiers
+	// Pet modifiers. Two pets each contribute at half weight — the combat mods
+	// are an average over the active pets, so a pair reads as roughly one full
+	// pet (flavor-forward, not a stat spike). A lone pet averages over one
+	// element, so x/1==x and 0.0+x==x reproduce the former values exactly,
+	// keeping the single-pet combat golden byte-identical. The engines roll one
+	// attack/deflect/whiff off these mods per round regardless of pet count, so
+	// the RNG draw order is unchanged too.
+	pets := make([]struct{ level, armor int }, 0, 2)
 	if char.HasPet() {
-		mods.PetAttackProc = petAttackChance(char.PetLevel)
-		mods.PetAttackDmg = 3 + char.PetLevel // per-attack variance added in engine
-		mods.PetDeflectProc = petDeflectChance(char.PetLevel, char.PetArmorTier)
-		mods.PetWhiffProc = 0.01 + float64(char.PetLevel)*0.005
+		pets = append(pets, struct{ level, armor int }{char.PetLevel, char.PetArmorTier})
+	}
+	if char.HasPet2() {
+		pets = append(pets, struct{ level, armor int }{char.Pet2Level, char.Pet2ArmorTier})
+	}
+	if n := len(pets); n > 0 {
+		var atk, defl, whiff float64
+		levelSum := 0
+		for _, pt := range pets {
+			atk += petAttackChance(pt.level)
+			defl += petDeflectChance(pt.level, pt.armor)
+			whiff += 0.01 + float64(pt.level)*0.005
+			levelSum += pt.level
+		}
+		mods.PetAttackProc = atk / float64(n)
+		mods.PetDeflectProc = defl / float64(n)
+		mods.PetWhiffProc = whiff / float64(n)
+		mods.PetAttackDmg = 3 + (levelSum*2+n)/(2*n) // 3 + rounded average level
 	}
 	if char.PetMorningDefense {
 		mods.DamageReduct *= 0.95 // 5% less damage

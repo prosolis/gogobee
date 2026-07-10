@@ -364,6 +364,20 @@ func runMigrations(d *sql.DB) error {
 		// item drops out of sell/craft/combat readers as one flag change. DEFAULT 0
 		// = "in play", correct for every pre-existing row, so no bootstrap backfill.
 		`ALTER TABLE adventure_inventory ADD COLUMN in_vault INTEGER NOT NULL DEFAULT 0`,
+		// N4/E1 second pet slot (gogobee_engagement_plan.md §E1). A Tier-4 Estate
+		// unlocks a second companion. It lives in a parallel pet2_* column set
+		// rather than a rows table so the single-pet path (and its combat golden)
+		// is untouched: absent pet2_type == "no second pet", DEFAULT '' is correct
+		// for every pre-existing row, so no bootstrap backfill. Pet 2 carries only
+		// what it needs — identity, level, barding — and deliberately skips the
+		// supply-shop unlock (a pet-1 mechanic) and morning-defense flag.
+		`ALTER TABLE player_meta ADD COLUMN pet2_type TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE player_meta ADD COLUMN pet2_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE player_meta ADD COLUMN pet2_xp INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN pet2_level INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN pet2_armor_tier INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE player_meta ADD COLUMN pet2_flags_json TEXT NOT NULL DEFAULT '{}'`,
+		`ALTER TABLE player_meta ADD COLUMN pet2_level_10_date TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

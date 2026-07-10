@@ -99,12 +99,16 @@ type advPendingHouseDownPayment struct {
 
 type advPendingHouseAutopay struct{}
 
-type advPendingPetArrival struct{}
+// Slot is the pet slot the arrival conversation is filling: 1 (the first pet)
+// or 2 (the Tier-4 Estate's second companion). Zero-value 1 keeps every
+// existing single-pet interaction unchanged.
+type advPendingPetArrival struct{ Slot int }
 
-type advPendingPetType struct{}
+type advPendingPetType struct{ Slot int }
 
 type advPendingPetName struct {
 	PetType string
+	Slot    int
 }
 
 // ── Thom Krooke Greeting ───────────────────────────────────────────────────
@@ -221,11 +225,19 @@ func thomShopView(char *AdventureCharacter, balance float64) string {
 		}
 	}
 
-	// Pet supply shop (unlocks 1 week after pet level 10)
-	if char.PetSupplyShopUnlocked && char.HasPet() {
+	// Pet supply shop (unlocks 1 week after pet level 10). The unlock is a
+	// pet-1 mechanic but covers barding for both companions. Each pet's block is
+	// gated on its own presence so a chased-away pet-1 doesn't hide pet-2's shop.
+	if char.PetSupplyShopUnlocked && (char.HasPet() || char.HasPet2()) {
 		sb.WriteString("\n---\n")
-		sb.WriteString(fmt.Sprintf("🐾 **Pet Supplies** — for %s\n\n", char.PetName))
-		sb.WriteString(petArmorShopView(char))
+		if char.HasPet() {
+			sb.WriteString(fmt.Sprintf("🐾 **Pet Supplies** — for %s\n\n", char.PetName))
+			sb.WriteString(petArmorShopView(char.PetType, char.PetArmorTier, "petbuy"))
+		}
+		if char.HasPet2() {
+			sb.WriteString(fmt.Sprintf("\n🐾 **Pet Supplies** — for %s\n\n", char.Pet2Name))
+			sb.WriteString(petArmorShopView(char.Pet2Type, char.Pet2ArmorTier, "pet2buy"))
+		}
 	}
 
 	return sb.String()
@@ -269,8 +281,11 @@ func (p *AdventurePlugin) handleThomCmd(ctx MessageContext) error {
 	case lower == "buy" || strings.HasPrefix(lower, "buy "):
 		return p.handleThomBuy(ctx, char, balance, strings.TrimSpace(strings.TrimPrefix(lower, "buy")))
 
+	case strings.HasPrefix(lower, "pet2buy "):
+		return p.petArmorBuyForSlot(ctx, strings.TrimSpace(args[8:]), 2)
+
 	case strings.HasPrefix(lower, "petbuy "):
-		return p.handlePetArmorBuy(ctx, char, strings.TrimSpace(args[7:]))
+		return p.petArmorBuyForSlot(ctx, strings.TrimSpace(args[7:]), 1)
 
 	default:
 		return p.SendDM(ctx.Sender, "Unknown command. Type `!thom` to visit Krooke Realty.")
@@ -673,18 +688,18 @@ func petArmorDefs(petType string) []PetArmorDef {
 	return petCatArmor
 }
 
-func petArmorShopView(char *AdventureCharacter) string {
+func petArmorShopView(petType string, armorTier int, buyCmd string) string {
 	var sb strings.Builder
-	defs := petArmorDefs(char.PetType)
+	defs := petArmorDefs(petType)
 
-	if char.PetArmorTier >= 5 {
+	if armorTier >= 5 {
 		sb.WriteString("✨ Max pet armor tier reached. There is nothing left to buy.\n")
 		return sb.String()
 	}
 
 	for _, def := range defs {
-		if def.Tier <= char.PetArmorTier {
-			if def.Tier == char.PetArmorTier {
+		if def.Tier <= armorTier {
+			if def.Tier == armorTier {
 				sb.WriteString(fmt.Sprintf("🟢 %s (T%d) — Currently equipped\n", def.Name, def.Tier))
 			}
 			continue
@@ -692,11 +707,14 @@ func petArmorShopView(char *AdventureCharacter) string {
 		indicator := "⬆️"
 		sb.WriteString(fmt.Sprintf("%s %s (T%d) — €%d — +%.1f%% deflect\n", indicator, def.Name, def.Tier, def.Price, def.DeflectBonus*100))
 	}
-	sb.WriteString(fmt.Sprintf("\nTo buy: `!thom petbuy <tier>` (e.g., `!thom petbuy %d`)", char.PetArmorTier+1))
+	sb.WriteString(fmt.Sprintf("\nTo buy: `!thom %s <tier>` (e.g., `!thom %s %d`)", buyCmd, buyCmd, armorTier+1))
 	return sb.String()
 }
 
-func (p *AdventurePlugin) handlePetArmorBuy(ctx MessageContext, char *AdventureCharacter, tierStr string) error {
+// petArmorBuyForSlot buys the next barding tier for the given pet slot. The
+// supply-shop unlock is shared (a pet-1 mechanic), but each pet's armor tier is
+// tracked and purchased independently.
+func (p *AdventurePlugin) petArmorBuyForSlot(ctx MessageContext, tierStr string, slot int) error {
 	userMu := p.advUserLock(ctx.Sender)
 	userMu.Lock()
 	defer userMu.Unlock()
@@ -706,8 +724,16 @@ func (p *AdventurePlugin) handlePetArmorBuy(ctx MessageContext, char *AdventureC
 		return p.SendDM(ctx.Sender, "Failed to load your character.")
 	}
 
-	if !char.HasPet() {
-		return p.SendDM(ctx.Sender, "You don't have a pet.")
+	// Slot accessors keep the pet-1 and pet-2 field sets isolated.
+	hasPet, petType, petName, curTier := char.HasPet(), char.PetType, char.PetName, char.PetArmorTier
+	buyCmd := "petbuy"
+	if slot == 2 {
+		hasPet, petType, petName, curTier = char.HasPet2(), char.Pet2Type, char.Pet2Name, char.Pet2ArmorTier
+		buyCmd = "pet2buy"
+	}
+
+	if !hasPet {
+		return p.SendDM(ctx.Sender, "You don't have that pet.")
 	}
 	if !char.PetSupplyShopUnlocked {
 		return p.SendDM(ctx.Sender, "Pet supplies aren't available yet.")
@@ -716,19 +742,19 @@ func (p *AdventurePlugin) handlePetArmorBuy(ctx MessageContext, char *AdventureC
 	tier := 0
 	for _, c := range tierStr {
 		if c < '0' || c > '9' {
-			return p.SendDM(ctx.Sender, "Usage: `!thom petbuy <tier>`")
+			return p.SendDM(ctx.Sender, fmt.Sprintf("Usage: `!thom %s <tier>`", buyCmd))
 		}
 		tier = tier*10 + int(c-'0')
 	}
 
-	if tier != char.PetArmorTier+1 {
-		if tier <= char.PetArmorTier {
+	if tier != curTier+1 {
+		if tier <= curTier {
 			return p.SendDM(ctx.Sender, "That's not an upgrade.")
 		}
-		return p.SendDM(ctx.Sender, fmt.Sprintf("You need to buy tier %d first.", char.PetArmorTier+1))
+		return p.SendDM(ctx.Sender, fmt.Sprintf("You need to buy tier %d first.", curTier+1))
 	}
 
-	defs := petArmorDefs(char.PetType)
+	defs := petArmorDefs(petType)
 	var def *PetArmorDef
 	for i := range defs {
 		if defs[i].Tier == tier {
@@ -742,18 +768,26 @@ func (p *AdventurePlugin) handlePetArmorBuy(ctx MessageContext, char *AdventureC
 
 	balance := p.euro.GetBalance(ctx.Sender)
 	if balance < float64(def.Price) {
-		return p.SendDM(ctx.Sender, fmt.Sprintf("%s deserves better, but you can't afford €%d. Balance: €%.0f.", char.PetName, def.Price, balance))
+		return p.SendDM(ctx.Sender, fmt.Sprintf("%s deserves better, but you can't afford €%d. Balance: €%.0f.", petName, def.Price, balance))
 	}
 
-	if !p.euro.Debit(ctx.Sender, float64(def.Price), "pet_armor_"+tierStr) {
+	reason := "pet_armor_" + tierStr
+	if slot == 2 {
+		reason = "pet2_armor_" + tierStr
+	}
+	if !p.euro.Debit(ctx.Sender, float64(def.Price), reason) {
 		return p.SendDM(ctx.Sender, "Transaction failed.")
 	}
 
-	char.PetArmorTier = tier
+	if slot == 2 {
+		char.Pet2ArmorTier = tier
+	} else {
+		char.PetArmorTier = tier
+	}
 	if err := saveAdvCharacter(char); err != nil {
 		p.euro.Credit(ctx.Sender, float64(def.Price), "pet_armor_refund")
 		return p.SendDM(ctx.Sender, "Failed to save. Refunded.")
 	}
 
-	return p.SendDM(ctx.Sender, fmt.Sprintf("🐾 **%s** equipped on %s.\n\n+%.1f%% deflect bonus. %s looks... objectively better than you.", def.Name, char.PetName, def.DeflectBonus*100, char.PetName))
+	return p.SendDM(ctx.Sender, fmt.Sprintf("🐾 **%s** equipped on %s.\n\n+%.1f%% deflect bonus. %s looks... objectively better than you.", def.Name, petName, def.DeflectBonus*100, petName))
 }

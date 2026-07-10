@@ -212,6 +212,9 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, 
 		if adv.PetName != "" {
 			b.WriteString(fmt.Sprintf("  Pet: %s the %s (lv %d)\n", adv.PetName, adv.PetType, adv.PetLevel))
 		}
+		if adv.Pet2Name != "" {
+			b.WriteString(fmt.Sprintf("  Pet: %s the %s (lv %d)\n", adv.Pet2Name, adv.Pet2Type, adv.Pet2Level))
+		}
 		if house.Tier > 0 {
 			b.WriteString(fmt.Sprintf("  Housing: tier %d\n", house.Tier))
 		}

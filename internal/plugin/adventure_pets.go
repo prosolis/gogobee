@@ -31,28 +31,37 @@ func petXPToNextLevel(level int) int {
 	}
 }
 
-// petGrantXP adds XP to the pet and handles level-ups. Returns true if leveled up.
+// petGrantXP adds a per-action XP grant to the pet and handles level-ups.
+// Returns true if leveled up. Shares the level-up loop with the babysit trickle
+// via advancePetLevelsFromXP.
 func petGrantXP(pet *PetState) bool {
-	if !pet.HasPet() || pet.Level >= 10 {
+	if !pet.HasPet() {
 		return false
 	}
+	return advancePetLevelsFromXP(&pet.XP, &pet.Level, &pet.Level10Date, int(petXPPerAction*100))
+}
 
-	pet.XP += int(petXPPerAction * 100) // store as centixp for precision
+// advancePetLevelsFromXP adds centi-XP to a pet and applies any level-ups, up
+// to the level-10 cap, stamping the level-10 date on first reaching it. Shared
+// by both pet slots (the babysit trickle). Returns true if the pet leveled.
+func advancePetLevelsFromXP(xp, level *int, level10Date *string, addCentiXP int) bool {
+	if *level >= 10 {
+		return false
+	}
+	*xp += addCentiXP
 	leveled := false
-	for pet.Level < 10 {
-		needed := petXPToNextLevel(pet.Level) * 100
-		if pet.XP < needed {
+	for *level < 10 {
+		needed := petXPToNextLevel(*level) * 100
+		if *xp < needed {
 			break
 		}
-		pet.XP -= needed
-		pet.Level++
+		*xp -= needed
+		*level++
 		leveled = true
 	}
-
-	if pet.Level >= 10 && pet.Level10Date == "" {
-		pet.Level10Date = time.Now().UTC().Format("2006-01-02")
+	if *level >= 10 && *level10Date == "" {
+		*level10Date = time.Now().UTC().Format("2006-01-02")
 	}
-
 	return leveled
 }
 
@@ -206,6 +215,23 @@ func petShouldArrive(pet PetState, house HouseState) bool {
 	return rand.Float64() < 0.30
 }
 
+// petShouldArrive2 gates the SECOND companion (N4/E1). It needs a Tier-4 Estate
+// and an established first pet — the second animal wanders in to join the first,
+// not an empty house. A chased-away second pet does not re-arrive (Misty's
+// reactivation is a pet-1 mechanic).
+func petShouldArrive2(pet1, pet2 PetState, house HouseState) bool {
+	if pet2.Arrived || pet2.ChasedAway {
+		return false
+	}
+	if house.Tier < 4 {
+		return false
+	}
+	if !pet1.HasPet() {
+		return false
+	}
+	return rand.Float64() < 0.30
+}
+
 // maybeRollPetArrivalOnEmerge rolls the pet-arrival check when a player
 // surfaces from an expedition (voluntary extract, abandon, or a survived
 // forced extraction) or revives after death. The arrival roll lives on the
@@ -221,32 +247,52 @@ func (p *AdventurePlugin) maybeRollPetArrivalOnEmerge(userID id.UserID) {
 	pet, _ := loadPetState(userID)
 	house, _ := loadHouseState(userID)
 	if petShouldArrive(pet, house) {
-		p.petArrivalDM(userID)
+		p.petArrivalDM(userID, 1)
+		return
+	}
+	// A Tier-4 Estate can draw a second companion once the first is settled.
+	pet2, _ := loadPet2State(userID)
+	if petShouldArrive2(pet, pet2, house) {
+		p.petArrivalDM(userID, 2)
 	}
 }
 
-// petArrivalDM sends the initial "there's an animal in your house" DM.
-func (p *AdventurePlugin) petArrivalDM(userID id.UserID) {
+// petArrivalDM sends the initial "there's an animal in your house" DM for the
+// given slot (1 or 2).
+func (p *AdventurePlugin) petArrivalDM(userID id.UserID, slot int) {
 	// Don't overwrite an existing pending interaction
 	if _, exists := p.pending.Load(string(userID)); exists {
 		return
 	}
 
-	text := "There's an animal in your house. It looks like a...\n\n" +
+	intro := "There's an animal in your house. It looks like a..."
+	if slot == 2 {
+		intro = "There's *another* animal in your house. Your first pet seems unbothered. It looks like a..."
+	}
+	text := intro + "\n\n" +
 		"🚪 Chase it away\n" +
 		"🍖 Feed it\n\n" +
 		"Reply with `chase` or `feed`."
 
 	p.pending.Store(string(userID), &advPendingInteraction{
 		Type:      "pet_arrival",
-		Data:      &advPendingPetArrival{},
+		Data:      &advPendingPetArrival{Slot: slot},
 		ExpiresAt: time.Now().Add(advDMResponseWindowLow),
 	})
 	_ = p.SendDM(userID, text)
 }
 
+// petSlotFromData reads a Slot off any pending-pet payload, defaulting to slot 1
+// for the zero value so older/first-pet interactions are unaffected.
+func petSlotFromData(slot int) int {
+	if slot == 2 {
+		return 2
+	}
+	return 1
+}
+
 // resolvePetArrival handles the chase/feed response.
-func (p *AdventurePlugin) resolvePetArrival(ctx MessageContext) error {
+func (p *AdventurePlugin) resolvePetArrival(ctx MessageContext, interaction *advPendingInteraction) error {
 	userMu := p.advUserLock(ctx.Sender)
 	userMu.Lock()
 	defer userMu.Unlock()
@@ -256,13 +302,18 @@ func (p *AdventurePlugin) resolvePetArrival(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Failed to load your character.")
 	}
 
+	slot := petSlotFromData(interaction.Data.(*advPendingPetArrival).Slot)
 	reply := strings.ToLower(strings.TrimSpace(ctx.Body))
 
 	if reply == "chase" || reply == "🚪" {
-		char.PetChasedAway = true
-		char.PetReactivated = false
+		if slot == 2 {
+			char.Pet2ChasedAway = true
+			char.Pet2Reactivated = false
+		} else {
+			char.PetChasedAway = true
+			char.PetReactivated = false
+		}
 		_ = saveAdvCharacter(char)
-		_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(char))
 		return p.SendDM(ctx.Sender, "You chased it away. It disappeared around the corner and didn't come back.\n\nThe house is quiet again.")
 	}
 
@@ -276,7 +327,7 @@ func (p *AdventurePlugin) resolvePetArrival(ctx MessageContext) error {
 
 		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 			Type:      "pet_type",
-			Data:      &advPendingPetType{},
+			Data:      &advPendingPetType{Slot: slot},
 			ExpiresAt: time.Now().Add(advDMResponseWindowLow),
 		})
 		return p.SendDM(ctx.Sender, text)
@@ -285,18 +336,19 @@ func (p *AdventurePlugin) resolvePetArrival(ctx MessageContext) error {
 	// Invalid response — re-prompt
 	p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 		Type:      "pet_arrival",
-		Data:      &advPendingPetArrival{},
+		Data:      &advPendingPetArrival{Slot: slot},
 		ExpiresAt: time.Now().Add(advDMResponseWindowLow),
 	})
 	return p.SendDM(ctx.Sender, "Reply with `chase` or `feed`.")
 }
 
 // resolvePetType handles dog/cat selection.
-func (p *AdventurePlugin) resolvePetType(ctx MessageContext) error {
+func (p *AdventurePlugin) resolvePetType(ctx MessageContext, interaction *advPendingInteraction) error {
 	userMu := p.advUserLock(ctx.Sender)
 	userMu.Lock()
 	defer userMu.Unlock()
 
+	slot := petSlotFromData(interaction.Data.(*advPendingPetType).Slot)
 	reply := strings.ToLower(strings.TrimSpace(ctx.Body))
 
 	petType := ""
@@ -309,7 +361,7 @@ func (p *AdventurePlugin) resolvePetType(ctx MessageContext) error {
 	if petType == "" {
 		p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 			Type:      "pet_type",
-			Data:      &advPendingPetType{},
+			Data:      &advPendingPetType{Slot: slot},
 			ExpiresAt: time.Now().Add(advDMResponseWindowLow),
 		})
 		return p.SendDM(ctx.Sender, "Reply with `dog` or `cat`.")
@@ -317,7 +369,7 @@ func (p *AdventurePlugin) resolvePetType(ctx MessageContext) error {
 
 	p.pending.Store(string(ctx.Sender), &advPendingInteraction{
 		Type:      "pet_name",
-		Data:      &advPendingPetName{PetType: petType},
+		Data:      &advPendingPetName{PetType: petType, Slot: slot},
 		ExpiresAt: time.Now().Add(advDMResponseWindowLow),
 	})
 
@@ -355,24 +407,36 @@ func (p *AdventurePlugin) resolvePetName(ctx MessageContext, interaction *advPen
 		return p.SendDM(ctx.Sender, "Name can only contain letters, numbers, spaces, hyphens, and apostrophes. Try again.")
 	}
 
-	char.PetType = data.PetType
-	char.PetName = name
-	char.PetArrived = true
-	char.PetChasedAway = false
-	char.PetLevel = 1
-	char.PetXP = 0
+	if petSlotFromData(data.Slot) == 2 {
+		char.Pet2Type = data.PetType
+		char.Pet2Name = name
+		char.Pet2Arrived = true
+		char.Pet2ChasedAway = false
+		char.Pet2Level = 1
+		char.Pet2XP = 0
+	} else {
+		char.PetType = data.PetType
+		char.PetName = name
+		char.PetArrived = true
+		char.PetChasedAway = false
+		char.PetLevel = 1
+		char.PetXP = 0
+	}
 
 	if err := saveAdvCharacter(char); err != nil {
 		return p.SendDM(ctx.Sender, "Failed to save.")
 	}
-	_ = upsertPlayerMetaPetState(char.UserID, petStateFromAdvChar(char))
 
 	emoji := "🐶"
 	if data.PetType == "cat" {
 		emoji = "🐱"
 	}
-	return p.SendDM(ctx.Sender, fmt.Sprintf("%s **%s** has moved in.\n\nBreed: Massive %s.\nLevel: 1\n\n%s will join you in combat. %s will not explain their decisions.",
-		emoji, name, titleCase(data.PetType), name, name))
+	tail := fmt.Sprintf("%s will join you in combat. %s will not explain their decisions.", name, name)
+	if petSlotFromData(data.Slot) == 2 {
+		tail = fmt.Sprintf("%s fights alongside your first companion — the two share the spotlight, so together they're about as much help in a scrap as one seasoned pet. %s will not explain their decisions.", name, name)
+	}
+	return p.SendDM(ctx.Sender, fmt.Sprintf("%s **%s** has moved in.\n\nBreed: Massive %s.\nLevel: 1\n\n%s",
+		emoji, name, titleCase(data.PetType), tail))
 }
 
 // ── Morning Pet Events ─────────────────────────────────────────────────────

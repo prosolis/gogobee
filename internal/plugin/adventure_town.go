@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -105,16 +106,16 @@ type petShowcaseEntry struct {
 	ArmorName string
 }
 
-// loadPetShowcase returns every active pet (arrived, not chased away). The
-// arrived/chased flags live in pet_flags_json, so they're decoded in Go rather
-// than in SQL.
+// loadPetShowcase returns every active pet — both slots — across all players,
+// highest level first. The arrived/chased flags live in the *_flags_json
+// columns, so they're decoded in Go rather than in SQL.
 func loadPetShowcase(limit int) ([]petShowcaseEntry, error) {
 	rows, err := db.Get().Query(
 		`SELECT COALESCE(NULLIF(display_name, ''), user_id),
-		        pet_name, pet_type, pet_level, pet_armor_tier, pet_flags_json
+		        pet_name, pet_type, pet_level, pet_armor_tier, pet_flags_json,
+		        pet2_name, pet2_type, pet2_level, pet2_armor_tier, pet2_flags_json
 		   FROM player_meta
-		  WHERE pet_type != ''
-		  ORDER BY pet_level DESC, pet_name`)
+		  WHERE pet_type != '' OR pet2_type != ''`)
 	if err != nil {
 		return nil, err
 	}
@@ -123,30 +124,58 @@ func loadPetShowcase(limit int) ([]petShowcaseEntry, error) {
 	var out []petShowcaseEntry
 	for rows.Next() {
 		var (
-			owner, petName, petType, flagsRaw string
-			level, armorTier                  int
+			owner                         string
+			petName, petType, flagsRaw    string
+			level, armorTier              int
+			pet2Name, pet2Type, flags2Raw string
+			pet2Level, pet2Armor          int
 		)
-		if err := rows.Scan(&owner, &petName, &petType, &level, &armorTier, &flagsRaw); err != nil {
+		if err := rows.Scan(&owner, &petName, &petType, &level, &armorTier, &flagsRaw,
+			&pet2Name, &pet2Type, &pet2Level, &pet2Armor, &flags2Raw); err != nil {
 			return nil, err
 		}
-		var flags petFlagsJSON
-		if flagsRaw != "" {
-			_ = json.Unmarshal([]byte(flagsRaw), &flags)
+		if e, ok := showcaseEntryFor(owner, petName, petType, level, armorTier, flagsRaw); ok {
+			out = append(out, e)
 		}
-		if !flags.Arrived || flags.ChasedAway {
-			continue
-		}
-		out = append(out, petShowcaseEntry{
-			Name:      firstNonEmpty(petName, "an unnamed companion") + " (" + owner + ")",
-			Type:      petType,
-			Level:     level,
-			ArmorName: petArmorName(petType, armorTier),
-		})
-		if len(out) >= limit {
-			break
+		if e, ok := showcaseEntryFor(owner, pet2Name, pet2Type, pet2Level, pet2Armor, flags2Raw); ok {
+			out = append(out, e)
 		}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Level != out[j].Level {
+			return out[i].Level > out[j].Level
+		}
+		return out[i].Name < out[j].Name
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// showcaseEntryFor builds a showcase entry for one pet slot, returning ok=false
+// if the slot is empty or its pet was chased away.
+func showcaseEntryFor(owner, petName, petType string, level, armorTier int, flagsRaw string) (petShowcaseEntry, bool) {
+	if petType == "" {
+		return petShowcaseEntry{}, false
+	}
+	var flags petFlagsJSON
+	if flagsRaw != "" {
+		_ = json.Unmarshal([]byte(flagsRaw), &flags)
+	}
+	if !flags.Arrived || flags.ChasedAway {
+		return petShowcaseEntry{}, false
+	}
+	return petShowcaseEntry{
+		Name:      firstNonEmpty(petName, "an unnamed companion") + " (" + owner + ")",
+		Type:      petType,
+		Level:     level,
+		ArmorName: petArmorName(petType, armorTier),
+	}, true
 }
 
 // petArmorName maps a pet's armor tier to its barding name, or "" for none.

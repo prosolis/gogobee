@@ -310,6 +310,82 @@ func petStateFromAdvChar(c *AdventureCharacter) PetState {
 	}
 }
 
+// pet2StateFromAdvChar projects the second pet's fields off an
+// AdventureCharacter. SupplyShopUnlocked / MorningDefense are always zero for
+// slot 2 — those mechanics stay pet-1-only (see AdventureCharacter.Pet2*).
+func pet2StateFromAdvChar(c *AdventureCharacter) PetState {
+	return PetState{
+		Type:        c.Pet2Type,
+		Name:        c.Pet2Name,
+		XP:          c.Pet2XP,
+		Level:       c.Pet2Level,
+		ArmorTier:   c.Pet2ArmorTier,
+		Level10Date: c.Pet2Level10Date,
+		Arrived:     c.Pet2Arrived,
+		ChasedAway:  c.Pet2ChasedAway,
+		Reactivated: c.Pet2Reactivated,
+	}
+}
+
+// loadPet2State returns the player's second pet from the pet2_* columns. Empty
+// PetState{} if the user has no row or no second pet.
+func loadPet2State(userID id.UserID) (PetState, error) {
+	var (
+		s        PetState
+		flagsRaw string
+	)
+	err := db.Get().QueryRow(
+		`SELECT pet2_type, pet2_name, pet2_xp, pet2_level, pet2_armor_tier,
+		        pet2_flags_json, pet2_level_10_date
+		   FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&s.Type, &s.Name, &s.XP, &s.Level, &s.ArmorTier,
+		&flagsRaw, &s.Level10Date)
+	if err == sql.ErrNoRows {
+		return PetState{}, nil
+	}
+	if err != nil {
+		return PetState{}, err
+	}
+	var f petFlagsJSON
+	if flagsRaw != "" {
+		_ = json.Unmarshal([]byte(flagsRaw), &f)
+	}
+	s.Arrived = f.Arrived
+	s.ChasedAway = f.ChasedAway
+	s.Reactivated = f.Reactivated
+	return s, nil
+}
+
+// upsertPlayerMetaPet2State writes the second pet's column set.
+func upsertPlayerMetaPet2State(userID id.UserID, s PetState) error {
+	flags, err := json.Marshal(petFlagsJSON{
+		Arrived:     s.Arrived,
+		ChasedAway:  s.ChasedAway,
+		Reactivated: s.Reactivated,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = db.Get().Exec(
+		`INSERT INTO player_meta (
+		   user_id, pet2_type, pet2_name, pet2_xp, pet2_level, pet2_armor_tier,
+		   pet2_flags_json, pet2_level_10_date
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET
+		   pet2_type = excluded.pet2_type,
+		   pet2_name = excluded.pet2_name,
+		   pet2_xp = excluded.pet2_xp,
+		   pet2_level = excluded.pet2_level,
+		   pet2_armor_tier = excluded.pet2_armor_tier,
+		   pet2_flags_json = excluded.pet2_flags_json,
+		   pet2_level_10_date = excluded.pet2_level_10_date`,
+		string(userID), s.Type, s.Name, s.XP, s.Level, s.ArmorTier,
+		string(flags), s.Level10Date,
+	)
+	return err
+}
+
 // HouseState is the in-memory mirror of player_meta's house_* columns. Phase
 // L4e ports housing/mortgage off AdvCharacter (gogobee_legacy_migration.md
 // §6.5). All six fields mutate together at known sites (purchase, payoff,
@@ -1194,6 +1270,17 @@ func applyPlayerMetaOverlay(c *AdventureCharacter) {
 		c.PetReactivated = s.Reactivated
 		c.PetMorningDefense = s.MorningDefense
 	}
+	if s, err := loadPet2State(uid); err == nil {
+		c.Pet2Type = s.Type
+		c.Pet2Name = s.Name
+		c.Pet2XP = s.XP
+		c.Pet2Level = s.Level
+		c.Pet2ArmorTier = s.ArmorTier
+		c.Pet2Level10Date = s.Level10Date
+		c.Pet2Arrived = s.Arrived
+		c.Pet2ChasedAway = s.ChasedAway
+		c.Pet2Reactivated = s.Reactivated
+	}
 	if s, err := loadHouseState(uid); err == nil {
 		c.HouseTier = s.Tier
 		c.HouseLoanBalance = s.LoanBalance
@@ -1246,6 +1333,9 @@ func upsertAllPlayerMetaFromAdvChar(c *AdventureCharacter) error {
 		return err
 	}
 	if err := upsertPlayerMetaPetState(uid, petStateFromAdvChar(c)); err != nil {
+		return err
+	}
+	if err := upsertPlayerMetaPet2State(uid, pet2StateFromAdvChar(c)); err != nil {
 		return err
 	}
 	if err := upsertPlayerMetaHouseState(uid, houseStateFromAdvChar(c)); err != nil {

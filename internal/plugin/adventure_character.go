@@ -92,13 +92,25 @@ type AdventureCharacter struct {
 	PetSupplyShopUnlocked bool
 	PetLevel10Date        string
 	PetMorningDefense     bool
-	AutoBabysit           bool
-	AutoBabysitFocus      string // mining|fishing|foraging — preferred skill for auto-babysit; "" defaults to weakest
-	TreasuresLocked       bool   // when true, treasure drops at cap are refused instead of auto-swapping
-	StreakDecayed         bool
-	CraftsSucceeded       int
-	DeathSource           string // "adventure" | "arena" | "" (legacy/unknown — treated as adventure)
-	DeathLocation         string // human-readable location of last death; cleared on revive is not required
+	// Second pet (N4/E1, Tier-4 Estate). A parallel slot, not a rewrite of the
+	// pet-1 fields above — see HasPet2. Carries only identity/level/barding; the
+	// morning-defense, ditch-recovery and supply-shop mechanics stay pet-1-only.
+	Pet2Type         string
+	Pet2Name         string
+	Pet2XP           int
+	Pet2Level        int
+	Pet2ArmorTier    int
+	Pet2ChasedAway   bool
+	Pet2Reactivated  bool
+	Pet2Arrived      bool
+	Pet2Level10Date  string
+	AutoBabysit      bool
+	AutoBabysitFocus string // mining|fishing|foraging — preferred skill for auto-babysit; "" defaults to weakest
+	TreasuresLocked  bool   // when true, treasure drops at cap are refused instead of auto-swapping
+	StreakDecayed    bool
+	CraftsSucceeded  int
+	DeathSource      string // "adventure" | "arena" | "" (legacy/unknown — treated as adventure)
+	DeathLocation    string // human-readable location of last death; cleared on revive is not required
 }
 
 type AdvEquipment struct {
@@ -268,6 +280,11 @@ func (c *AdventureCharacter) Kill(source, location string) {
 // HasPet returns true if the player has an active pet (not chased away).
 func (c *AdventureCharacter) HasPet() bool {
 	return c.PetType != "" && c.PetArrived && !c.PetChasedAway
+}
+
+// HasPet2 returns true if the player has an active second pet.
+func (c *AdventureCharacter) HasPet2() bool {
+	return c.Pet2Type != "" && c.Pet2Arrived && !c.Pet2ChasedAway
 }
 
 // HasHouse returns true if the player has purchased at least a base house.
