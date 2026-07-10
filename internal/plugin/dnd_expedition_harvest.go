@@ -492,7 +492,7 @@ func zoneTierFromID(zoneID ZoneID) int {
 
 // handleResourcesCmd lists active nodes in the current room.
 func (p *AdventurePlugin) handleResourcesCmd(ctx MessageContext) error {
-	exp, err := getActiveExpedition(ctx.Sender)
+	exp, isLeader, err := activeExpeditionFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't load expedition state.")
 	}
@@ -512,7 +512,15 @@ func (p *AdventurePlugin) handleResourcesCmd(ctx MessageContext) error {
 	}
 	nodeID := harvestNodeIDFor(run)
 	nodes := loadHarvestNodes(exp, nodeID)
-	_ = saveHarvestNodes(exp, nodeID, nodes) // persist seed if first touch
+	// Seed-persist only for the owner. saveHarvestNodes rewrites the whole
+	// region_state blob (persistRegionState is a last-write-wins UPDATE), and a
+	// member holds neither the expedition row nor the leader's lock — their
+	// `!resources` would clobber whatever the leader's walk wrote since the
+	// snapshot this command read. loadHarvestNodes re-derives the same nodes
+	// from the seed, so a member simply reads without persisting.
+	if isLeader {
+		_ = saveHarvestNodes(exp, nodeID, nodes) // persist seed if first touch
+	}
 
 	zone, _ := getZone(exp.ZoneID)
 	regionLabel := exp.CurrentRegion

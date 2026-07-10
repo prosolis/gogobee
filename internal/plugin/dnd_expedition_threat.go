@@ -191,7 +191,7 @@ func appendThreatTransitionLog(e *Expedition, band ThreatBand) error {
 // handleThreatCmd surfaces the current threat clock state — level, band,
 // per-band combat effects, and the last few ThreatEvent log entries.
 func (p *AdventurePlugin) handleThreatCmd(ctx MessageContext) error {
-	exp, err := getActiveExpedition(ctx.Sender)
+	exp, _, err := activeExpeditionFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
 	}

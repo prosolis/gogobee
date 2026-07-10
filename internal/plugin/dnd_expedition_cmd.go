@@ -154,10 +154,14 @@ func (p *AdventurePlugin) expeditionCmdList(ctx MessageContext, c *DnDCharacter)
 			i+1, z.Display, int(z.Tier), z.LevelMin, z.LevelMax, z.ID, suffix))
 		b.WriteString(fmt.Sprintf("    %s\n", z.Atmosphere))
 	}
-	if exp, _ := getActiveExpedition(ctx.Sender); exp != nil {
+	if exp, isLeader, _ := activeExpeditionFor(ctx.Sender); exp != nil {
 		zone := zoneOrFallback(exp.ZoneID)
-		b.WriteString(fmt.Sprintf("\n_⚠ Active expedition: **%s**, day %d. Use `!expedition status` or `!expedition abandon`._",
-			zone.Display, exp.CurrentDay))
+		tail := "Use `!expedition status` or `!expedition abandon`."
+		if !isLeader {
+			tail = "Use `!expedition status` or `!expedition leave`."
+		}
+		b.WriteString(fmt.Sprintf("\n_⚠ Active expedition: **%s**, day %d. %s_",
+			zone.Display, exp.CurrentDay, tail))
 	}
 	return p.SendDM(ctx.Sender, b.String())
 }
@@ -298,6 +302,27 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	if err := purchase.Validate(zoneForCaps.Tier); err != nil {
 		return p.SendDM(ctx.Sender, "Invalid pack selection: "+err.Error())
 	}
+	// Reject if any expedition or zone run already active. This runs before the
+	// price quote: a player who cannot leave doesn't need to hear what leaving
+	// would have cost.
+	//
+	// The seat check spans `extracting` as well as `active` — a member of an
+	// extracting party is still seated for the seven-day resume window, and
+	// letting them outfit a rival expedition double-books them the moment their
+	// leader types `!resume`.
+	if seated, _ := seatedExpeditionFor(ctx.Sender); seated != nil {
+		zone, _ := getZone(seated.ZoneID)
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"You're riding a party expedition in **%s** (Day %d). `!expedition leave` before starting your own.",
+			zone.Display, seated.CurrentDay))
+	}
+	if existing, _ := getActiveExpedition(ctx.Sender); existing != nil {
+		zone, _ := getZone(existing.ZoneID)
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"You're already on expedition in **%s** (Day %d). Finish it or `!expedition abandon` first.",
+			zone.Display, existing.CurrentDay))
+	}
+
 	cost := float64(purchase.Cost())
 	if p.euro == nil {
 		return p.SendDM(ctx.Sender, "Coin system unavailable — try again later.")
@@ -306,14 +331,6 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
 			"Not enough coins. Outfitting costs **%d** but you have **%.0f**.",
 			int(cost), balance))
-	}
-
-	// Reject if any expedition or zone run already active.
-	if existing, _ := getActiveExpedition(ctx.Sender); existing != nil {
-		zone, _ := getZone(existing.ZoneID)
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"You're already on expedition in **%s** (Day %d). Finish it or `!expedition abandon` first.",
-			zone.Display, existing.CurrentDay))
 	}
 	if existing, _ := getActiveZoneRun(ctx.Sender); existing != nil {
 		zone, _ := getZone(existing.ZoneID)
@@ -553,7 +570,7 @@ func depletionLabel(s SupplyDepletionState) string {
 // ── log ─────────────────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) expeditionCmdLog(ctx MessageContext) error {
-	exp, err := getActiveExpedition(ctx.Sender)
+	exp, _, err := activeExpeditionFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
 	}
@@ -589,12 +606,17 @@ func formatLogTimestamp(t time.Time) string {
 // ── abandon ─────────────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
-	exp, err := getActiveExpedition(ctx.Sender)
+	exp, isLeader, err := activeExpeditionFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
 	}
 	if exp == nil {
 		return p.SendDM(ctx.Sender, "No active expedition to abandon.")
+	}
+	if !isLeader {
+		// Abandoning throws away everyone's day. A member leaves alone.
+		return p.SendDM(ctx.Sender,
+			"Only your party leader can abandon the expedition. `!expedition leave` to walk out alone.")
 	}
 	zone, _ := getZone(exp.ZoneID)
 	if err := abandonExpedition(ctx.Sender); err != nil {
@@ -667,6 +689,13 @@ type autopilotWalkResult struct {
 // combat already auto-resolves inside resolveCombatRoom; elite/boss
 // doorways stop here so the player can choose !fight on their own terms.
 func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
+	// runAutopilotWalk resolves through getActiveExpedition, so a member would
+	// be told they are not on an expedition at all. Same refusal `!zone advance`
+	// gives — this is the same walk, reached by its other name.
+	if isPartyMember(ctx.Sender) {
+		return p.SendDM(ctx.Sender,
+			"Your party leader sets the pace. `!map` to see where you're standing.")
+	}
 	r := p.runAutopilotWalk(ctx, autopilotRoomCap, false, false)
 	if r.initErr != "" {
 		return p.SendDM(ctx.Sender, r.initErr)

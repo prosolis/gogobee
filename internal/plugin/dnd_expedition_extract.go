@@ -304,8 +304,13 @@ func (p *AdventurePlugin) handleResumeCmd(ctx MessageContext, args string) error
 		return p.SendDM(ctx.Sender, "No Adv 2.0 character yet — run `!setup` first.")
 	}
 
-	if existing, _ := getActiveExpedition(ctx.Sender); existing != nil {
+	if existing, isLeader, _ := activeExpeditionFor(ctx.Sender); existing != nil {
 		zone, _ := getZone(existing.ZoneID)
+		if !isLeader {
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"You're riding a party expedition in **%s** (Day %d). Only its leader can `!resume`.",
+				zone.Display, existing.CurrentDay))
+		}
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
 			"You already have an active expedition in **%s** (Day %d). Finish it or `!expedition abandon` first.",
 			zone.Display, existing.CurrentDay))

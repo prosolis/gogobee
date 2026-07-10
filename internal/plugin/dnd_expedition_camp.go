@@ -59,7 +59,7 @@ func (p *AdventurePlugin) handleCampCmd(ctx MessageContext, args string) error {
 			"No Adv 2.0 character yet — run `!setup` first.")
 	}
 
-	exp, err := getActiveExpedition(ctx.Sender)
+	exp, isLeader, err := activeExpeditionFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
 	}
@@ -72,6 +72,12 @@ func (p *AdventurePlugin) handleCampCmd(ctx MessageContext, args string) error {
 	requested, rest := splitFirstWord(args)
 	if requested == "" {
 		return p.SendDM(ctx.Sender, campHelpText(exp))
+	}
+	// Bare `!camp` reads the party's tent; pitching and striking it are the
+	// leader's, since the camp is a property of the expedition everyone rides.
+	if !isLeader {
+		return p.SendDM(ctx.Sender,
+			"Your party leader pitches the camp. `!camp` on its own shows what's already up.")
 	}
 	if requested == "break" || requested == "down" || requested == "leave" {
 		return p.campBreak(ctx, exp)

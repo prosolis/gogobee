@@ -118,10 +118,14 @@ func (p *AdventurePlugin) zoneCmdList(ctx MessageContext, c *DnDCharacter) error
 			i+1, z.Display, int(z.Tier), z.LevelMin, z.LevelMax, z.ID))
 		b.WriteString(fmt.Sprintf("    %s\n", z.Atmosphere))
 	}
-	if active, _ := getActiveZoneRun(ctx.Sender); active != nil {
+	if active, isLeader, _ := activeZoneRunFor(ctx.Sender); active != nil {
 		zone := zoneOrFallback(active.ZoneID)
-		b.WriteString(fmt.Sprintf("\n_⚠ Active run: **%s**, room %d/%d. Use `!zone status` or `!zone abandon`._",
-			zone.Display, active.CurrentRoom+1, active.TotalRooms))
+		tail := "Use `!zone status` or `!zone abandon`."
+		if !isLeader {
+			tail = "Use `!zone status`; your leader ends it."
+		}
+		b.WriteString(fmt.Sprintf("\n_⚠ Active run: **%s**, room %d/%d. %s_",
+			zone.Display, active.CurrentRoom+1, active.TotalRooms, tail))
 	}
 	return p.SendDM(ctx.Sender, b.String())
 }
@@ -174,8 +178,18 @@ func atoiSafe(s string) int {
 }
 
 func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest string) error {
-	if cs, _ := getActiveCombatSession(ctx.Sender); cs != nil {
+	if cs, _ := activeCombatSessionFor(ctx.Sender); cs != nil {
 		return p.SendDM(ctx.Sender, "⚔️ Finish your fight first — `!attack` or `!flee`.")
+	}
+	// startZoneRun only refuses a player who owns an active run. A seated party
+	// member owns neither run nor expedition row, so without this they could
+	// open a private dungeon while riding the leader's — and activeZoneRunFor
+	// would then hand every party read their solo run instead of the party's.
+	// seatedExpeditionFor, not activeExpeditionFor: the seat outlives an
+	// `extracting` expedition, and so must the refusal.
+	if seated, _ := seatedExpeditionFor(ctx.Sender); seated != nil {
+		return p.SendDM(ctx.Sender,
+			"You're already in your party's dungeon. `!expedition leave` to strike out on your own.")
 	}
 	if rest == "" {
 		return p.SendDM(ctx.Sender,
@@ -238,14 +252,14 @@ func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest
 // ── status ──────────────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) zoneCmdStatus(ctx MessageContext) error {
-	run, err := getActiveZoneRun(ctx.Sender)
+	run, isLeader, err := activeZoneRunFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read run state: "+err.Error())
 	}
 	if run == nil {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone list` then `!zone enter <id>`.")
 	}
-	_ = applyMoodDecayIfStale(run)
+	_ = applyMoodDecayIfStale(run, isLeader)
 	zone := zoneOrFallback(run.ZoneID)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("**%s** — room %d/%d (%s)\n",
@@ -297,7 +311,7 @@ func prettyRoomType(rt RoomType) string {
 // ── map ─────────────────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) zoneCmdMap(ctx MessageContext) error {
-	run, err := getActiveZoneRun(ctx.Sender)
+	run, isLeader, err := activeZoneRunFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read run state: "+err.Error())
 	}
@@ -314,7 +328,10 @@ func (p *AdventurePlugin) zoneCmdMap(ctx MessageContext) error {
 		if path := renderVisitedPath(g, run); path != "" {
 			b.WriteString("\n**Path:** " + path)
 		}
-		if targets := revisitTargets(g, run); len(targets) > 0 {
+		// A member reads the same map but can't walk it — `!revisit` is the
+		// leader's call, like the fork. Offering them the numbers would only
+		// earn a refusal.
+		if targets := revisitTargets(g, run); len(targets) > 0 && isLeader {
 			nums := make([]string, len(targets))
 			for i, n := range targets {
 				nums[i] = fmt.Sprintf("`!revisit %d`", n)
@@ -464,6 +481,16 @@ type advanceResult struct {
 // aborts the run with a mood penalty and player-death flavor; boss win
 // drops the zone Loot table.
 func (p *AdventurePlugin) zoneCmdAdvance(ctx MessageContext) error {
+	// The party walks on the leader's row. advanceOnce would tell a member they
+	// have no run at all — right outcome, wrong story. Ask membership directly
+	// rather than `run != nil && !isLeader`: that spelling misses the window
+	// where the leader has an expedition but has not taken the first step (no
+	// run row yet), and it would re-resolve the run advanceOnce is about to
+	// resolve anyway, firing the §4.3 idle reap twice per keystroke.
+	if isPartyMember(ctx.Sender) {
+		return p.SendDM(ctx.Sender,
+			"Your party leader sets the pace. `!map` to see where you're standing.")
+	}
 	res, err := p.advanceOnce(ctx)
 	if err != nil {
 		return p.SendDM(ctx.Sender, err.Error())
@@ -508,7 +535,9 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact, inlin
 			reason: stopBlocked,
 		}, nil
 	}
-	_ = applyMoodDecayIfStale(run)
+	// getActiveZoneRun above resolves the sender's own row, so the walker is
+	// always this run's owner.
+	_ = applyMoodDecayIfStale(run, true)
 	zone := zoneOrFallback(run.ZoneID)
 	// A pending fork means advanceTransitionGraph already cleared the
 	// current room and stopped — re-running resolveRoom would re-fire
@@ -1245,14 +1274,19 @@ func (p *AdventurePlugin) zoneMoodInteraction(
 	render func(runID string, roomIdx int) string,
 	icon string,
 ) error {
-	run, err := getActiveZoneRun(ctx.Sender)
+	// Mood is a property of the run, not of the player who typed at TwinBee — so
+	// a member's taunt or compliment moves the party's gauge. That is only safe
+	// because applyMoodEvent lands an atomic `gm_mood + delta`; the decay write
+	// it sits next to is absolute, and applyMoodDecayIfStale refuses it for a
+	// non-owner for exactly that reason.
+	run, isLeader, err := activeZoneRunFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read run state: "+err.Error())
 	}
 	if run == nil {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
-	_ = applyMoodDecayIfStale(run)
+	_ = applyMoodDecayIfStale(run, isLeader)
 	newMood, err := applyMoodEvent(run.RunID, ev)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't apply mood event: "+err.Error())
@@ -1282,7 +1316,7 @@ func (p *AdventurePlugin) zoneMoodInteraction(
 // repeated `!zone lore` in the same room returns the same prose, but
 // cross-room calls vary.
 func (p *AdventurePlugin) zoneCmdLore(ctx MessageContext) error {
-	run, err := getActiveZoneRun(ctx.Sender)
+	run, _, err := activeZoneRunFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read run state: "+err.Error())
 	}
@@ -1300,6 +1334,10 @@ func (p *AdventurePlugin) zoneCmdLore(ctx MessageContext) error {
 // ── abandon ─────────────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) zoneCmdAbandon(ctx MessageContext) error {
+	if isPartyMember(ctx.Sender) {
+		return p.SendDM(ctx.Sender,
+			"Only your party leader can call off the run. `!expedition leave` to walk out alone.")
+	}
 	run, _ := getActiveZoneRun(ctx.Sender)
 	if err := abandonZoneRun(ctx.Sender); err != nil {
 		if err == ErrNoActiveRun {

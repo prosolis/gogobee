@@ -163,7 +163,7 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 	}
 	if !isLeader {
 		// The fork is one choice for one party, and the run is the leader's row.
-		return p.SendDM(ctx.Sender, "Your party leader picks the path. `!map` to see where you're standing.")
+		return p.SendDM(ctx.Sender, msgLeaderPicksPath)
 	}
 	if cs, _ := activeCombatSessionFor(ctx.Sender); cs != nil {
 		return p.SendDM(ctx.Sender, "⚔️ Finish your fight first — `!attack` or `!flee`.")

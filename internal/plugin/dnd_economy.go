@@ -213,8 +213,9 @@ func (p *AdventurePlugin) handleResourceSellCmd(ctx MessageContext, args string)
 	args = strings.TrimSpace(args)
 	lower := strings.ToLower(args)
 
-	// Post-expedition gate.
-	exp, err := getActiveExpedition(ctx.Sender)
+	// Post-expedition gate. A seated member is mid-expedition too — reading
+	// only their own row would let them run a shop from inside the dungeon.
+	exp, _, err := activeExpeditionFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't check expedition status.")
 	}

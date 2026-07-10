@@ -561,8 +561,17 @@ func dmMoodCombatTilt(mood int) DMMoodCombatTilt {
 
 // applyMoodDecayIfStale persists a passive-decay correction when the
 // run has been idle long enough to drift. Cheap no-op on fresh runs.
-func applyMoodDecayIfStale(r *DungeonRun) error {
-	if r == nil {
+//
+// N3/P6d: owner-only, and the `owner` argument is not a convenience — the
+// UPDATE below writes gm_mood as an *absolute* value derived from the snapshot
+// the caller read, while adjustGMMood writes an atomic `gm_mood + delta`. Every
+// command in the module takes the *sender's* advUserLock, so a party member
+// running this against the leader's run holds the wrong mutex and would drop
+// whatever the leader's concurrent walk banked between the read and this write.
+// Decay is time-based maintenance: skipping it on a member's read loses nothing,
+// because the owner's next command applies exactly the same correction.
+func applyMoodDecayIfStale(r *DungeonRun, owner bool) error {
+	if r == nil || !owner {
 		return nil
 	}
 	newMood := passiveDecayMood(r.DMMood, r.LastActionAt, time.Now().UTC())

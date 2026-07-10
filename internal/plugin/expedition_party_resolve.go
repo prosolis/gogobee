@@ -1,8 +1,11 @@
 package plugin
 
 import (
+	"database/sql"
+	"errors"
 	"log/slog"
 
+	"gogobee/internal/db"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -50,6 +53,57 @@ func activeZoneRunFor(userID id.UserID) (run *DungeonRun, isLeader bool, err err
 		return nil, false, err
 	}
 	return r, false, nil
+}
+
+// N3/P6d — the two seams the read-rewire needed.
+
+// msgLeaderPicksPath is the refusal a member gets from every command that would
+// move the party through the dungeon graph — `!zone go`, `!revisit`. One string,
+// because they are one decision from the player's side.
+const msgLeaderPicksPath = "Your party leader picks the path. `!map` to see where you're standing."
+
+// isPartyMember reports whether this player rides someone else's *active*
+// expedition. It is the question the leader-only copy gates actually ask, and
+// it asks it without touching getActiveZoneRun — whose §4.3 idle reap must
+// never fire on a member's behalf (see activeZoneRunFor).
+//
+// Prefer this over `run != nil && !isLeader`: activeZoneRunFor reports
+// isLeader=false for a player with no run *anywhere*, so a bare !isLeader test
+// tells a solo player with nothing in flight to go ask their leader.
+func isPartyMember(userID id.UserID) bool {
+	e, isLeader, err := activeExpeditionFor(userID)
+	return err == nil && e != nil && !isLeader
+}
+
+// seatedExpeditionFor answers "is this player committed to somebody else's
+// expedition right now" for the guards that refuse a second adventure.
+//
+// It deliberately spans `extracting` as well as `active`, which
+// activeExpeditionFor does not. `extracting` is a seven-day resumable limbo:
+// releaseParty is *not* called on it, so the roster survives and `!resume`
+// brings the party back. A member is still seated for that whole window, and a
+// guard that only sees 'active' would let them open a private run which then
+// wins every activeZoneRunFor lookup once the leader resumes.
+func seatedExpeditionFor(userID id.UserID) (*Expedition, error) {
+	row := db.Get().QueryRow(`
+		SELECT e.expedition_id, e.user_id, e.zone_id, e.run_id, e.status,
+		       e.start_date, e.current_day, e.current_region, e.boss_defeated,
+		       e.supplies_json, e.camp_json, e.threat_level, e.threat_siege,
+		       e.threat_events, e.temporal_stack, e.region_state,
+		       e.xp_earned, e.coins_earned, e.gm_mood,
+		       e.last_briefing_at, e.last_recap_at, e.last_ambient_kind,
+		       e.last_activity, e.completed_at
+		  FROM dnd_expedition e
+		  JOIN expedition_party p ON p.expedition_id = e.expedition_id
+		 WHERE p.user_id = ? AND p.role <> 'leader'
+		   AND e.status IN ('active', 'extracting')
+		 ORDER BY e.start_date DESC
+		 LIMIT 1`, string(userID))
+	e, err := scanExpedition(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return e, err
 }
 
 // expeditionAudience is every player an expedition-scoped DM must reach: the

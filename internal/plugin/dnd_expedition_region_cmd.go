@@ -33,7 +33,7 @@ func (p *AdventurePlugin) handleRegionCmd(ctx MessageContext, args string) error
 	userMu.Lock()
 	defer userMu.Unlock()
 
-	exp, err := getActiveExpedition(ctx.Sender)
+	exp, isLeader, err := activeExpeditionFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
 	}
@@ -52,6 +52,11 @@ func (p *AdventurePlugin) handleRegionCmd(ctx MessageContext, args string) error
 	case "", "list", "ls", "status":
 		return p.SendDM(ctx.Sender, renderRegionList(exp))
 	case "travel", "advance", "go", "next":
+		if !isLeader {
+			// Transit burns the shared supply pool and moves everyone.
+			return p.SendDM(ctx.Sender,
+				"Your party leader calls the march. `!region` to see where you are.")
+		}
 		return p.regionCmdTravel(ctx, exp)
 	case "help", "?":
 		return p.SendDM(ctx.Sender, regionHelpText())

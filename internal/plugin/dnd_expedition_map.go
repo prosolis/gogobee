@@ -89,7 +89,7 @@ func renderRegionLegend(e *Expedition) string {
 // ── !map command ────────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) handleExpeditionMapCmd(ctx MessageContext, _ string) error {
-	exp, err := getActiveExpedition(ctx.Sender)
+	exp, _, err := activeExpeditionFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
 	}
@@ -112,7 +112,7 @@ func (p *AdventurePlugin) handleExpeditionMapCmd(ctx MessageContext, _ string) e
 
 	// Per-run room map. The expedition's zone run is the per-region
 	// dungeon instance; for single-region zones it's the only run.
-	run, _ := getActiveZoneRun(ctx.Sender)
+	run, _, _ := activeZoneRunFor(ctx.Sender)
 	if run != nil {
 		if g, ok := loadZoneGraph(run.ZoneID); ok {
 			b.WriteString("```\n")

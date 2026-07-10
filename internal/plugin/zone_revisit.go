@@ -76,15 +76,22 @@ func revisitZoneRun(runID, targetNode string, visited []string) (int, error) {
 // `!zone revisit <N>`). N is the 1-indexed room number from `!map`'s Path
 // strip.
 func (p *AdventurePlugin) handleRevisitCmd(ctx MessageContext, rest string) error {
-	run, err := getActiveZoneRun(ctx.Sender)
+	run, isLeader, err := activeZoneRunFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read run state: "+err.Error())
 	}
 	if run == nil {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
-	if cs, _ := getActiveCombatSession(ctx.Sender); cs != nil {
+	// The fight outranks the path: a member swinging at a monster should hear
+	// about the monster, not about who picks the route.
+	if cs, _ := activeCombatSessionFor(ctx.Sender); cs != nil {
 		return p.SendDM(ctx.Sender, "⚔️ Finish the fight first — `!attack` or `!flee`.")
+	}
+	if !isLeader {
+		// Backtracking moves the whole party and costs the whole party a point
+		// of threat. Same call as the fork: the leader's.
+		return p.SendDM(ctx.Sender, msgLeaderPicksPath)
 	}
 	// A pending fork lives at the node the player is standing on, and both
 	// `!zone advance` and `!zone go` resolve it without checking where that
