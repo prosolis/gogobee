@@ -92,6 +92,30 @@ var (
 type Base struct {
 	Client *mautrix.Client
 	Prefix string
+
+	// Sink, when non-nil, receives every outbound message (DM or room) the
+	// plugin would otherwise hand to the Matrix client, and the client is
+	// never touched. It is the test seam for handlers whose only observable
+	// output is a DM — beginCombatTurn's terminal close-out,
+	// expeditionCmdLeave, the arena season announcement. Production leaves it
+	// nil, so behaviour is unchanged. See captureSink in the test files.
+	Sink MessageSink
+}
+
+// outboundMessage is one message a handler tried to send. Exactly one of
+// ToUser (a DM) or ToRoom (a room message) is set.
+type outboundMessage struct {
+	ToUser id.UserID
+	ToRoom id.RoomID
+	Text   string
+}
+
+// MessageSink captures a plugin's outbound messages in place of the live
+// client. Capture returns the event ID to report back to the caller, so the
+// *ID send variants keep working. Unexported param by design: only in-package
+// tests implement it.
+type MessageSink interface {
+	Capture(outboundMessage) (id.EventID, error)
 }
 
 // NewBase creates a Base with default prefix "!".
@@ -560,6 +584,10 @@ func textContent(text string) *event.MessageEventContent {
 
 // SendMessage sends a message to a room, auto-formatting Markdown as HTML.
 func (b *Base) SendMessage(roomID id.RoomID, text string) error {
+	if b != nil && b.Sink != nil {
+		_, err := b.Sink.Capture(outboundMessage{ToRoom: roomID, Text: text})
+		return err
+	}
 	content := textContent(text)
 	_, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
 	if err != nil {
@@ -570,6 +598,9 @@ func (b *Base) SendMessage(roomID id.RoomID, text string) error {
 
 // SendMessageID sends a message and returns the event ID.
 func (b *Base) SendMessageID(roomID id.RoomID, text string) (id.EventID, error) {
+	if b != nil && b.Sink != nil {
+		return b.Sink.Capture(outboundMessage{ToRoom: roomID, Text: text})
+	}
 	content := textContent(text)
 	resp, err := b.Client.SendMessageEvent(context.Background(), roomID, event.EventMessage, content)
 	if err != nil {
@@ -707,6 +738,10 @@ func IsDMRoom(roomID id.RoomID, userID id.UserID) bool {
 // No-op when the Matrix client is nil (which happens in unit tests that
 // construct plugins without a real client).
 func (b *Base) SendDM(userID id.UserID, text string) error {
+	if b != nil && b.Sink != nil {
+		_, err := b.Sink.Capture(outboundMessage{ToUser: userID, Text: text})
+		return err
+	}
 	if b == nil || b.Client == nil {
 		return nil
 	}
@@ -719,6 +754,9 @@ func (b *Base) SendDM(userID id.UserID, text string) error {
 
 // SendDMID sends a direct message and returns the event ID (for later editing).
 func (b *Base) SendDMID(userID id.UserID, text string) (id.EventID, error) {
+	if b != nil && b.Sink != nil {
+		return b.Sink.Capture(outboundMessage{ToUser: userID, Text: text})
+	}
 	roomID, err := b.GetDMRoom(userID)
 	if err != nil {
 		return "", err
