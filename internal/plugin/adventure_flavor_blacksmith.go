@@ -49,6 +49,22 @@ var blacksmithArena = []string{
 	"The Arena gear gets the good tools. I don't use these for everything. Just for things that matter.",
 }
 
+var blacksmithTemperGreetings = []string{
+	"_sets aside the repair work_ You want me to make something _more_ than it is. That's different. That's the good work.",
+	"Tempering. _rolls his shoulders_ I don't repair it. I take it apart and I convince it to come back stronger. It doesn't always want to.",
+	"_wipes the counter clean with one sweep_ Put it down. Right there. Let me see what it could be instead of what it is.",
+	"Anything can be pushed further. Anything. It's just a question of what you're willing to spend and how much heat it can take before it gives in.",
+	"_eyes light up_ Oh, you've come for the real thing. Not a patch. A _change_. Show me. Show me everything you've got.",
+}
+
+var blacksmithTemperCompletion = []string{
+	"_lifts it from the quench, steam everywhere_ Feel the weight of it now. It's not the same thing you handed me. It never will be again.",
+	"_breathing hard_ It fought me. Right to the end it fought me. And now look at it. Look what it became.",
+	"There. _sets it down with enormous care_ I pushed it further than it wanted to go, and it thanked me for it. They always do.",
+	"_holds it up, turning it slowly_ I've been doing this a long time and this one still surprised me. Take it before I change my mind about giving it back.",
+	"It's still hot. It'll be hot for a while. That's what happens when you ask something to become more than it was.",
+}
+
 var blacksmithFullCondition = []string{
 	"_looks it over_ There's nothing to do here. It doesn't need me. _sounds slightly disappointed_ Come back when it does.",
 	"Full condition. You've been taking care of it. Good. I appreciate that in a person.",

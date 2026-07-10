@@ -161,9 +161,14 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, 
 					status = " — **(inactive)** _unbonded_"
 				}
 			}
-			b.WriteString(fmt.Sprintf("  %s %-9s %s _(%s)_%s\n    %s\n",
-				rarityIcon(e.Item.Rarity), string(ds), e.Item.Name, e.Item.Rarity,
-				status, magicItemEffectSummary(e.Item)))
+			mi := e.Effective()
+			temperMark := ""
+			if e.Temper > 0 {
+				temperMark = " 🔨"
+			}
+			b.WriteString(fmt.Sprintf("  %s %-9s %s%s _(%s)_%s\n    %s\n",
+				rarityIcon(mi.Rarity), string(ds), mi.Name, temperMark, mi.Rarity,
+				status, magicItemEffectSummary(mi)))
 		}
 	}
 

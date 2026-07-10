@@ -72,16 +72,23 @@ func pickMagicItemForRarity(r DnDRarity, rng *rand.Rand) (MagicItem, bool) {
 // magicItemSell builds the AdvItem an inventory deposit uses for a magic item.
 // Potions and scrolls land as "consumable" so the combat pipeline picks them
 // up (see magicItemConsumableDefByName); everything else is a "magic_item".
-func magicItemSell(mi MagicItem) AdvItem {
+func magicItemSell(mi MagicItem) AdvItem { return magicItemSellAt(mi, 0) }
+
+// magicItemSellAt is magicItemSell for an instance carrying temper steps: the
+// row it produces is priced and tiered at the item's effective rarity, and
+// remembers the temper so equipping it again restores the upgrade.
+func magicItemSellAt(mi MagicItem, temper int) AdvItem {
 	typ := "magic_item"
 	if mi.Kind == MagicItemPotion || mi.Kind == MagicItemScroll {
 		typ = "consumable"
 	}
+	eff := temperedItem(mi, temper)
 	return AdvItem{
-		Name:  mi.Name,
-		Type:  typ,
-		Tier:  rarityLootTierNum(mi.Rarity),
-		Value: int64(mi.Value),
+		Name:   eff.Name,
+		Type:   typ,
+		Tier:   rarityLootTierNum(eff.Rarity),
+		Value:  int64(eff.Value),
+		Temper: temper,
 	}
 }
 
@@ -101,6 +108,66 @@ func rarityLootTierNum(r DnDRarity) int {
 		return 5
 	}
 	return 1
+}
+
+// ── Tempering: per-instance rarity above the definition's base ──────────────
+
+// temperLadder is the rarity ladder tempering walks. VeryRare is absent by
+// design: it collapses onto Epic in both rarityLootTierNum and
+// rarityPowerScalar, so treating it as a distinct rung would sell the player
+// a step that changes no number.
+var temperLadder = []DnDRarity{RarityCommon, RarityUncommon, RarityRare, RarityEpic, RarityLegendary}
+
+// temperRung locates a rarity on temperLadder, folding VeryRare onto Epic.
+func temperRung(r DnDRarity) int {
+	if r == RarityVeryRare {
+		r = RarityEpic
+	}
+	for i, lr := range temperLadder {
+		if lr == r {
+			return i
+		}
+	}
+	return 0
+}
+
+// temperedRarity applies steps rungs of tempering to a base rarity, clamped at
+// Legendary. Callers derive this on read — the base rarity on the registry
+// definition stays authoritative, so an item can never double-bump across a
+// load/save round-trip.
+func temperedRarity(base DnDRarity, steps int) DnDRarity {
+	if steps <= 0 {
+		return base
+	}
+	rung := temperRung(base) + steps
+	if rung >= len(temperLadder) {
+		rung = len(temperLadder) - 1
+	}
+	return temperLadder[rung]
+}
+
+// temperStepsToLegendary reports how many tempers an item at this base rarity
+// and temper count still has ahead of it.
+func temperStepsToLegendary(base DnDRarity, steps int) int {
+	return (len(temperLadder) - 1) - temperRung(temperedRarity(base, steps))
+}
+
+// temperedItem returns a copy of mi at its effective rarity. Everything that
+// reads rarity for gameplay — effects, sell value, display — goes through here.
+func temperedItem(mi MagicItem, steps int) MagicItem {
+	if steps <= 0 {
+		return mi
+	}
+	eff := temperedRarity(mi.Rarity, steps)
+	if eff == mi.Rarity {
+		return mi
+	}
+	// Value tracks the power axis, so a tempered item is worth what an item
+	// of its effective rarity is worth.
+	scaled := float64(mi.Value) * (rarityPowerScalar(eff) / rarityPowerScalar(mi.Rarity))
+	mi.Value = int(scaled)
+	mi.Rarity = eff
+	return mi
 }
 
 // ── Codified combat-effect formula ──────────────────────────────────────────
@@ -172,9 +239,15 @@ func magicItemEffectFor(mi MagicItem) magicItemEffect {
 // registry. Item is the registry entry; Attuned mirrors the DB column.
 type EquippedMagicItem struct {
 	Slot    DnDSlot
-	Item    MagicItem
+	Item    MagicItem // registry definition, at its BASE rarity
 	Attuned bool
+	Temper  int
 }
+
+// Effective is the item as the game should see it: base definition plus any
+// tempering the player has paid for. Item stays at base rarity so re-saving an
+// equipped row can't compound the bump.
+func (e EquippedMagicItem) Effective() MagicItem { return temperedItem(e.Item, e.Temper) }
 
 // dndMagicItemAttuneLimit — 5e's three-attunement cap. Items that require
 // attunement only grant their effect while attuned, and a player may hold at
@@ -183,7 +256,7 @@ const dndMagicItemAttuneLimit = 3
 
 func loadEquippedMagicItems(userID id.UserID) (map[DnDSlot]EquippedMagicItem, error) {
 	d := db.Get()
-	rows, err := d.Query(`SELECT slot, item_id, attuned FROM magic_item_equipped WHERE user_id = ?`,
+	rows, err := d.Query(`SELECT slot, item_id, attuned, temper FROM magic_item_equipped WHERE user_id = ?`,
 		string(userID))
 	if err != nil {
 		return nil, err
@@ -193,8 +266,8 @@ func loadEquippedMagicItems(userID id.UserID) (map[DnDSlot]EquippedMagicItem, er
 	out := make(map[DnDSlot]EquippedMagicItem)
 	for rows.Next() {
 		var slot, itemID string
-		var attuned int
-		if err := rows.Scan(&slot, &itemID, &attuned); err != nil {
+		var attuned, temper int
+		if err := rows.Scan(&slot, &itemID, &attuned, &temper); err != nil {
 			return nil, err
 		}
 		mi, ok := magicItemRegistry[itemID]
@@ -205,24 +278,34 @@ func loadEquippedMagicItems(userID id.UserID) (map[DnDSlot]EquippedMagicItem, er
 			Slot:    DnDSlot(slot),
 			Item:    mi,
 			Attuned: attuned == 1,
+			Temper:  temper,
 		}
 	}
 	return out, rows.Err()
 }
 
 // equipMagicItem writes (or replaces) the item in its slot. attuned is only
-// honoured when the item requires attunement.
-func equipMagicItem(userID id.UserID, slot DnDSlot, itemID string, attuned bool) error {
+// honoured when the item requires attunement. temper rides along from the
+// inventory row so tempering survives being worn.
+func equipMagicItem(userID id.UserID, slot DnDSlot, itemID string, attuned bool, temper int) error {
 	d := db.Get()
 	a := 0
 	if attuned {
 		a = 1
 	}
 	_, err := d.Exec(`
-		INSERT INTO magic_item_equipped (user_id, slot, item_id, attuned)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(user_id, slot) DO UPDATE SET item_id = excluded.item_id, attuned = excluded.attuned`,
-		string(userID), string(slot), itemID, a)
+		INSERT INTO magic_item_equipped (user_id, slot, item_id, attuned, temper)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(user_id, slot) DO UPDATE SET
+			item_id = excluded.item_id, attuned = excluded.attuned, temper = excluded.temper`,
+		string(userID), string(slot), itemID, a, temper)
+	return err
+}
+
+// temperEquippedItem bumps the temper on a worn item in place.
+func temperEquippedItem(userID id.UserID, slot DnDSlot, temper int) error {
+	_, err := db.Get().Exec(`UPDATE magic_item_equipped SET temper = ? WHERE user_id = ? AND slot = ?`,
+		temper, string(userID), string(slot))
 	return err
 }
 
@@ -262,7 +345,7 @@ func applyMagicItemEffects(stats *CombatStats, mods *CombatModifiers, userID id.
 		if e.Item.Attunement && !e.Attuned {
 			continue // unattuned attunement item is inert
 		}
-		eff := magicItemEffectFor(e.Item)
+		eff := magicItemEffectFor(e.Effective())
 		mods.DamageBonus += eff.DamageBonus
 		if eff.DamageReductMult != 0 && eff.DamageReductMult != 1.0 {
 			mods.DamageReduct *= eff.DamageReductMult
@@ -464,7 +547,8 @@ func (p *AdventurePlugin) handleEquipMagicCmd(ctx MessageContext) error {
 	var sb strings.Builder
 	sb.WriteString("🔮 **Equippable magic items:**\n\n")
 	for i, it := range magic {
-		mi, _ := magicItemFromAdvItem(it)
+		base, _ := magicItemFromAdvItem(it)
+		mi := temperedItem(base, it.Temper)
 		curDesc := "empty"
 		if cur, ok := equipped[mi.Slot]; ok && cur.Item.ID != "" {
 			curDesc = cur.Item.Name
@@ -528,7 +612,7 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 	// can re-open a slot the prior occupant was holding.
 	var swappedBackName string
 	if prev, exists := equipped[mi.Slot]; exists && prev.Item.ID != "" {
-		back := magicItemSell(prev.Item)
+		back := magicItemSellAt(prev.Item, prev.Temper)
 		back.SkillSource = "magic_item:" + prev.Item.ID
 		if err := addAdvInventoryItem(ctx.Sender, back); err != nil {
 			return p.SendDM(ctx.Sender, "Failed to return your currently-equipped item to inventory.")
@@ -557,10 +641,10 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 			"user", ctx.Sender, "item", mi.ID, "err", err)
 		return p.SendDM(ctx.Sender, "Failed to equip that item.")
 	}
-	if err := equipMagicItem(ctx.Sender, mi.Slot, mi.ID, attune); err != nil {
+	if err := equipMagicItem(ctx.Sender, mi.Slot, mi.ID, attune, it.Temper); err != nil {
 		// Roll back: try to put the item back in inventory so the player
 		// doesn't lose it. Best-effort; log if the rollback also fails.
-		restored := magicItemSell(mi)
+		restored := magicItemSellAt(mi, it.Temper)
 		restored.Value = it.Value
 		restored.SkillSource = "magic_item:" + mi.ID
 		if rbErr := addAdvInventoryItem(ctx.Sender, restored); rbErr != nil {
@@ -570,9 +654,10 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 		return p.SendDM(ctx.Sender, "Failed to equip that item.")
 	}
 
+	eqMI := temperedItem(mi, it.Temper)
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("✨ **%s** equipped in your %s slot — %s.",
-		mi.Name, mi.Slot, magicItemEffectSummary(mi)))
+		eqMI.Name, eqMI.Slot, magicItemEffectSummary(eqMI)))
 	if swappedBackName != "" {
 		sb.WriteString(fmt.Sprintf("\n📦 **%s** moved back to inventory.", swappedBackName))
 	}

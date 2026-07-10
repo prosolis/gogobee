@@ -304,13 +304,17 @@ func (p *AdventurePlugin) handleArenaStats(ctx MessageContext) error {
 	return p.SendDM(ctx.Sender, renderArenaPersonalStats(displayName, wins, losses, stats))
 }
 
+// handleArenaLeaderboard shows the current season's standings (C4). Lifetime
+// totals stay reachable via `!arena stats`.
 func (p *AdventurePlugin) handleArenaLeaderboard(ctx MessageContext) error {
-	entries, err := loadArenaLeaderboard()
+	now := time.Now().UTC()
+	start, end := arenaSeasonBounds(now)
+	entries, err := loadArenaSeasonLeaderboard(start, end)
 	if err != nil {
-		slog.Error("arena: failed to load leaderboard", "err", err)
+		slog.Error("arena: failed to load season leaderboard", "err", err)
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load arena leaderboard.")
 	}
-	return p.SendReply(ctx.RoomID, ctx.EventID, renderArenaLeaderboard(entries))
+	return p.SendReply(ctx.RoomID, ctx.EventID, renderArenaLeaderboard(arenaSeasonKey(now), entries))
 }
 
 // ── Combat Resolution ───────────────────────────────────────────────────────

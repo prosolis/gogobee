@@ -121,6 +121,7 @@ type AdvItem struct {
 	Value       int64
 	Slot        EquipmentSlot // non-empty for MasterworkGear
 	SkillSource string        // non-empty for MasterworkGear
+	Temper      int           // rarity steps above base; magic_item rows only
 }
 
 type AdvBuff struct {
@@ -560,7 +561,7 @@ func saveAdvEquipment(userID id.UserID, eq *AdvEquipment) error {
 func loadAdvInventory(userID id.UserID) ([]AdvItem, error) {
 	d := db.Get()
 	rows, err := d.Query(`
-		SELECT id, name, item_type, tier, value, slot, skill_source
+		SELECT id, name, item_type, tier, value, slot, skill_source, temper
 		FROM adventure_inventory WHERE user_id = ?
 		ORDER BY tier DESC, value DESC`, string(userID))
 	if err != nil {
@@ -572,7 +573,7 @@ func loadAdvInventory(userID id.UserID) ([]AdvItem, error) {
 	for rows.Next() {
 		var it AdvItem
 		var slot string
-		if err := rows.Scan(&it.ID, &it.Name, &it.Type, &it.Tier, &it.Value, &slot, &it.SkillSource); err != nil {
+		if err := rows.Scan(&it.ID, &it.Name, &it.Type, &it.Tier, &it.Value, &slot, &it.SkillSource, &it.Temper); err != nil {
 			return nil, err
 		}
 		it.Slot = EquipmentSlot(slot)
@@ -584,9 +585,19 @@ func loadAdvInventory(userID id.UserID) ([]AdvItem, error) {
 func addAdvInventoryItem(userID id.UserID, item AdvItem) error {
 	d := db.Get()
 	_, err := d.Exec(`
-		INSERT INTO adventure_inventory (user_id, name, item_type, tier, value, slot, skill_source)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		string(userID), item.Name, item.Type, item.Tier, item.Value, string(item.Slot), item.SkillSource)
+		INSERT INTO adventure_inventory (user_id, name, item_type, tier, value, slot, skill_source, temper)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		string(userID), item.Name, item.Type, item.Tier, item.Value, string(item.Slot), item.SkillSource, item.Temper)
+	return err
+}
+
+// temperInventoryItem records a tempering step on an un-equipped magic item.
+// Tier and value move with the item's new effective rarity so it keeps sorting
+// and selling correctly.
+func temperInventoryItem(itemID int64, temper, tier int, value int64) error {
+	_, err := db.Get().Exec(
+		`UPDATE adventure_inventory SET temper = ?, tier = ?, value = ? WHERE id = ?`,
+		temper, tier, value, itemID)
 	return err
 }
 

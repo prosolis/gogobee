@@ -336,6 +336,15 @@ func runMigrations(d *sql.DB) error {
 		// URL link previews now post the page's og:image/twitter:image
 		// thumbnail; cache it alongside the title/description.
 		`ALTER TABLE url_cache ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`,
+		// Tempering (gogobee_engagement_plan.md B1). A magic item's rarity
+		// lives on its registry definition, so an upgraded instance needs
+		// somewhere of its own to record how far it has been pushed. temper
+		// counts rarity steps above the definition's base; effective rarity
+		// is derived at the effect/render/sell boundary, never written back.
+		// DEFAULT 0 is the correct value for every pre-existing row, so this
+		// needs no bootstrap backfill.
+		`ALTER TABLE adventure_inventory ADD COLUMN temper INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE magic_item_equipped ADD COLUMN temper INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1499,6 +1508,21 @@ CREATE TABLE IF NOT EXISTS arena_stats (
 	tier5_completions   INTEGER NOT NULL DEFAULT 0,
 	updated_at          INTEGER NOT NULL
 );
+
+-- Arena seasons (gogobee_engagement_plan.md C4). Season standings are DERIVED
+-- from arena_history.created_at, so arena_stats stays lifetime and no
+-- quarterly wipe ever runs. Only the awarded titles are archived here, one row
+-- per (season, kind) — the champion for that quarter, frozen.
+CREATE TABLE IF NOT EXISTS arena_season_titles (
+	season     TEXT NOT NULL,
+	kind       TEXT NOT NULL,          -- 'earnings' | 'streak'
+	user_id    TEXT NOT NULL,
+	value      INTEGER NOT NULL,
+	awarded_at INTEGER NOT NULL,
+	PRIMARY KEY (season, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_arena_season_titles_user ON arena_season_titles(user_id);
+CREATE INDEX IF NOT EXISTS idx_arena_history_created ON arena_history(created_at);
 
 -- Rival System
 CREATE TABLE IF NOT EXISTS adventure_rival_records (

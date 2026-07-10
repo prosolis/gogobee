@@ -229,7 +229,7 @@ func TestSwapBackReturnsFullValue(t *testing.T) {
 	}
 
 	// Pre-occupy the slot with `a`, then drop `b` into inventory and equip it.
-	if err := equipMagicItem(user, a.Slot, a.ID, false); err != nil {
+	if err := equipMagicItem(user, a.Slot, a.ID, false, 0); err != nil {
 		t.Fatalf("seed equip: %v", err)
 	}
 	bInv := magicItemSell(b)
@@ -281,7 +281,7 @@ func TestEquippedMagicItemRoundTrip(t *testing.T) {
 		t.Skip("registry lacks both an attunement and a non-attunement slotted item")
 	}
 
-	if err := equipMagicItem(user, attItem.Slot, attItem.ID, true); err != nil {
+	if err := equipMagicItem(user, attItem.Slot, attItem.ID, true, 0); err != nil {
 		t.Fatalf("equip attunement item: %v", err)
 	}
 	// Equip the plain item into a distinct slot so it doesn't overwrite the
@@ -290,7 +290,7 @@ func TestEquippedMagicItemRoundTrip(t *testing.T) {
 	if plainSlot == attItem.Slot {
 		plainSlot = DnDSlotRing2
 	}
-	if err := equipMagicItem(user, plainSlot, plainItem.ID, false); err != nil {
+	if err := equipMagicItem(user, plainSlot, plainItem.ID, false, 0); err != nil {
 		t.Fatalf("equip plain item: %v", err)
 	}
 

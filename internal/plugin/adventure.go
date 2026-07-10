@@ -484,6 +484,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleRepairAllCmd(ctx)
 	case strings.HasPrefix(lower, "repair "):
 		return p.handleRepairSlotCmd(ctx, strings.TrimSpace(args[7:]))
+	case lower == "temper":
+		return p.handleTemperCmd(ctx)
 	case lower == "boost":
 		return p.handleBoostCmd(ctx)
 	case lower == "recipes":
@@ -518,6 +520,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure blacksmith`" + ` — Visit the blacksmith (view repair costs)
 ` + "`!adventure repair all`" + ` — Repair all damaged equipment
 ` + "`!adventure repair <slot>`" + ` — Repair a specific slot
+` + "`!adventure temper`" + ` — Push a magic item one rarity step higher (blacksmith)
 ` + "`!adventure recipes`" + ` — List crafting recipes known at your current Foraging level
 ` + "`!adventure mastery`" + ` — Per-slot equipment mastery progress and active bonus
 ` + "`!adventure treasures`" + ` — List your treasures · ` + "`treasures lock`" + ` to refuse swaps
@@ -853,6 +856,10 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.resolveBlacksmithSlotChoice(ctx, interaction)
 	case "blacksmith_confirm":
 		return p.resolveBlacksmithConfirm(ctx, interaction)
+	case "temper_pick":
+		return p.resolveTemperPick(ctx, interaction)
+	case "temper_confirm":
+		return p.resolveTemperConfirm(ctx, interaction)
 	case "shop_category":
 		return p.resolveShopCategoryChoice(ctx, interaction)
 	case "shop_item":

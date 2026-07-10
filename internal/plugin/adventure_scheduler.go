@@ -389,6 +389,9 @@ func (p *AdventurePlugin) midnightTicker() {
 				slog.Error("adventure: midnight reset failed, will retry next tick", "err", err)
 				continue
 			}
+			// Close out the arena season if one just ended. Self-dedups on the
+			// season key, so this is a cheap no-op on every other night.
+			p.arenaSeasonRollover(time.Now().UTC())
 			db.MarkJobCompleted(jobName, dateKey)
 			lastRanDate = dateKey
 		}

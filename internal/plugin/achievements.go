@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -1137,7 +1138,158 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 				return false
 			},
 		},
+
+		// ── Expeditions ──
+		// All passive: they read the expedition rows the extract path already
+		// writes. Tier comes from the zone registry, not a column, so the
+		// checks map zone_id → Tier in Go.
+		{
+			ID: "expedition_clear_t1", Name: "Off the Porch", Description: "Cleared your first Tier 1 zone. It only gets worse from here.",
+			Emoji: "🗺️",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedAnyZoneOfTier(d, u, 1) },
+		},
+		{
+			ID: "expedition_clear_t2", Name: "Reasonably Lost", Description: "Cleared a Tier 2 zone. The map stops being a suggestion.",
+			Emoji: "🗺️",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedAnyZoneOfTier(d, u, 2) },
+		},
+		{
+			ID: "expedition_clear_t3", Name: "Deep Enough", Description: "Cleared a Tier 3 zone. Someone should have stopped you.",
+			Emoji: "🗺️",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedAnyZoneOfTier(d, u, 3) },
+		},
+		{
+			ID: "expedition_clear_t4", Name: "Past the Warnings", Description: "Cleared a Tier 4 zone. The signs were quite clear.",
+			Emoji: "🗺️",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedAnyZoneOfTier(d, u, 4) },
+		},
+		{
+			ID: "expedition_clear_t5", Name: "Where the Map Ends", Description: "Cleared a Tier 5 zone. There was nothing left to be brave about.",
+			Emoji: "🗺️",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedAnyZoneOfTier(d, u, 5) },
+		},
+		{
+			ID: "expedition_master_t1", Name: "Warren Cartography", Description: "Cleared every Tier 1 zone. Thorough.",
+			Emoji: "🧭",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedEveryZoneOfTier(d, u, 1) },
+		},
+		{
+			ID: "expedition_master_t2", Name: "No Stone Unturned", Description: "Cleared every Tier 2 zone.",
+			Emoji: "🧭",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedEveryZoneOfTier(d, u, 2) },
+		},
+		{
+			ID: "expedition_master_t3", Name: "Completionist's Limp", Description: "Cleared every Tier 3 zone. Walk it off.",
+			Emoji: "🧭",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedEveryZoneOfTier(d, u, 3) },
+		},
+		{
+			ID: "expedition_master_t4", Name: "Nowhere Left to Go Wrong", Description: "Cleared every Tier 4 zone.",
+			Emoji: "🧭",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedEveryZoneOfTier(d, u, 4) },
+		},
+		{
+			ID: "expedition_master_t5", Name: "The Long Way Down", Description: "Cleared every Tier 5 zone. Both of them. All the way.",
+			Emoji: "🧭",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedEveryZoneOfTier(d, u, 5) },
+		},
+		{
+			ID: "expedition_quiet_clear", Name: "Nobody Saw Anything", Description: "Cleared a zone without threat ever passing 50. You were never here.",
+			Emoji: "🌑",
+			Check: clearedUnderThreat50,
+		},
+		{
+			ID: "temper_legendary", Name: "Hot Enough", Description: "Tempered an item all the way to Legendary. The blacksmith needed a moment.",
+			Emoji: "🔨",
+			Check: func(d *sql.DB, u id.UserID) bool {
+				// Granted by the temper path on reaching Legendary
+				return false
+			},
+		},
 	}
+}
+
+// ── Expedition achievement helpers ──────────────────────────────────────────
+
+// clearedZoneIDs returns the zones this player has beaten outright. Boss-
+// defeated gates out extractions that merely ended in 'complete'.
+func clearedZoneIDs(d *sql.DB, userID id.UserID) map[ZoneID]bool {
+	out := map[ZoneID]bool{}
+	rows, err := d.Query(
+		`SELECT DISTINCT zone_id FROM dnd_expedition
+		 WHERE user_id = ? AND status = ? AND boss_defeated = 1`,
+		string(userID), ExpeditionStatusComplete)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var z string
+		if err := rows.Scan(&z); err != nil {
+			return out
+		}
+		out[ZoneID(z)] = true
+	}
+	return out
+}
+
+func clearedAnyZoneOfTier(d *sql.DB, userID id.UserID, tier ZoneTier) bool {
+	cleared := clearedZoneIDs(d, userID)
+	for zid := range cleared {
+		if z, ok := getZone(zid); ok && z.Tier == tier {
+			return true
+		}
+	}
+	return false
+}
+
+func clearedEveryZoneOfTier(d *sql.DB, userID id.UserID, tier ZoneTier) bool {
+	cleared := clearedZoneIDs(d, userID)
+	seen := 0
+	for _, z := range allZones() {
+		if z.Tier != tier {
+			continue
+		}
+		if !cleared[z.ID] {
+			return false
+		}
+		seen++
+	}
+	return seen > 0
+}
+
+// clearedUnderThreat50 looks for a cleared expedition whose peak threat never
+// crossed 50 — the same max_threat_seen sample the Patient Zero milestone
+// reads, so the two reward the same play.
+//
+// The key's *presence* is required, not just a low value. recordMaxThreat only
+// samples on day rollover and never stores a zero, so an absent key means the
+// expedition has no threat history at all (a same-day clear) — which is not
+// evidence that threat stayed low.
+func clearedUnderThreat50(d *sql.DB, userID id.UserID) bool {
+	rows, err := d.Query(
+		`SELECT region_state FROM dnd_expedition
+		 WHERE user_id = ? AND status = ? AND boss_defeated = 1`,
+		string(userID), ExpeditionStatusComplete)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return false
+		}
+		var state map[string]any
+		if json.Unmarshal([]byte(raw), &state) != nil {
+			continue
+		}
+		peak, ok := state[regionStateMaxThreatKey].(float64)
+		if ok && int(peak) < 50 {
+			return true
+		}
+	}
+	return false
 }
 
 // statGTE checks if a user_stats column is >= threshold.

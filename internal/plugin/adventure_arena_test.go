@@ -637,9 +637,9 @@ func TestRenderArenaPersonalStats_WithStats(t *testing.T) {
 }
 
 func TestRenderArenaLeaderboard_Empty(t *testing.T) {
-	text := renderArenaLeaderboard(nil)
-	if !strings.Contains(text, "No arena runs") {
-		t.Error("empty leaderboard should say no runs")
+	text := renderArenaLeaderboard("2026-Q3", nil)
+	if !strings.Contains(text, "Nobody has entered") {
+		t.Error("empty leaderboard should say nobody entered")
 	}
 }
 
@@ -648,7 +648,7 @@ func TestRenderArenaLeaderboard_WithEntries(t *testing.T) {
 		{DisplayName: "Alice", TotalEarnings: 100000, HighestTier: 5, Tier5Completions: 1, TotalRuns: 5, TotalDeaths: 2},
 		{DisplayName: "Bob", TotalEarnings: 50000, HighestTier: 3, TotalRuns: 10, TotalDeaths: 7},
 	}
-	text := renderArenaLeaderboard(entries)
+	text := renderArenaLeaderboard("2026-Q3", entries)
 	if !strings.Contains(text, "Alice") {
 		t.Error("leaderboard should contain Alice")
 	}

@@ -134,13 +134,13 @@ type ArenaLeaderboardEntry struct {
 	TotalDeaths     int
 }
 
-func renderArenaLeaderboard(entries []ArenaLeaderboardEntry) string {
+func renderArenaLeaderboard(season string, entries []ArenaLeaderboardEntry) string {
 	if len(entries) == 0 {
-		return "⚔️ **Arena Leaderboard**\n\nNo arena runs recorded yet. Be the first."
+		return fmt.Sprintf("⚔️ **Arena Leaderboard — Season %s**\n\nNobody has entered the arena this season. Be the first.", season)
 	}
 
 	var b strings.Builder
-	b.WriteString("⚔️ **Arena Leaderboard**\n\n")
+	b.WriteString(fmt.Sprintf("⚔️ **Arena Leaderboard — Season %s**\n\n", season))
 
 	medals := []string{"🥇", "🥈", "🥉"}
 	for i, e := range entries {
@@ -157,6 +157,7 @@ func renderArenaLeaderboard(entries []ArenaLeaderboardEntry) string {
 		b.WriteString(fmt.Sprintf("%s **%s** — €%d earned | %s | %d runs | %d deaths\n",
 			prefix, e.DisplayName, e.TotalEarnings, tierLabel, e.TotalRuns, e.TotalDeaths))
 	}
+	b.WriteString("\n_Season standings. `!arena stats` for your lifetime record._")
 
 	return b.String()
 }
