@@ -125,6 +125,13 @@ func (p *LotteryPlugin) handleLotteryBuy(ctx MessageContext, args string) error 
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Something went wrong buying tickets. You've been refunded.")
 	}
 
+	// Ticket euros fund the pot, which is what `!lottery pot` has always
+	// claimed and what the draw assumes — prizes debit the pot, so without
+	// this the lottery is a pure drain on rake income from elsewhere.
+	// Credited only after the tickets persist, so the refund path above
+	// can't strand money in the pot.
+	communityPotAdd(int(cost))
+
 	// Build confirmation.
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("🎟️ **%d ticket(s) purchased** — €%d\n\n", n, n))
