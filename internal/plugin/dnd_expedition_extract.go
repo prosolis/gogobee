@@ -252,9 +252,6 @@ func loadLapsedExtractions(now time.Time) ([]*Expedition, error) {
 // status) never runs. Every member stays seated, and assertNotAdventuring keeps
 // refusing them a run of their own. `!expedition leave` is their escape, but a
 // player should not have to find it.
-//
-// The audience is read before the close-out: completeExpedition disbands the
-// roster, and expeditionAudience reads that roster.
 func (p *AdventurePlugin) sweepLapsedExtractions(now time.Time) {
 	exps, err := loadLapsedExtractions(now)
 	if err != nil {
@@ -262,21 +259,36 @@ func (p *AdventurePlugin) sweepLapsedExtractions(now time.Time) {
 		return
 	}
 	for _, e := range exps {
-		audience := expeditionAudience(e)
-		if err := completeExpedition(e.ID, ExpeditionStatusFailed); err != nil {
+		if err := p.reapLapsedExtraction(e); err != nil {
 			slog.Warn("expedition: expire lapsed extraction", "expedition", e.ID, "err", err)
 			continue
 		}
-		zone, _ := getZone(e.ZoneID)
-		body := fmt.Sprintf(
-			"🕯 **The way back has closed — %s**\n\nYour extracted expedition sat past its seven-day resume window, and the dungeon reshaped without you. Day %d is where it ends.\n\nThe loot, XP, and coins you carried out are still yours. `!expedition list` when you're ready for the next one.",
-			zone.Display, e.CurrentDay)
-		for _, uid := range audience {
-			if err := p.SendDM(uid, body); err != nil {
-				slog.Warn("expedition: lapsed-extraction DM failed", "user", uid, "expedition", e.ID, "err", err)
-			}
+	}
+}
+
+// reapLapsedExtraction closes one lapsed extraction and tells its roster the
+// way back has shut. It is the single reap-with-notify path: the hourly
+// sweeper loops it, and expeditionCmdStart calls it when a player starts a new
+// expedition on top of one whose window has already closed — so a member is
+// never silently unseated by whichever path happens to reach the row first.
+//
+// The audience is read before the close-out: completeExpedition disbands the
+// roster, and expeditionAudience reads that roster.
+func (p *AdventurePlugin) reapLapsedExtraction(e *Expedition) error {
+	audience := expeditionAudience(e)
+	if err := completeExpedition(e.ID, ExpeditionStatusFailed); err != nil {
+		return err
+	}
+	zone, _ := getZone(e.ZoneID)
+	body := fmt.Sprintf(
+		"🕯 **The way back has closed — %s**\n\nYour extracted expedition sat past its seven-day resume window, and the dungeon reshaped without you. Day %d is where it ends.\n\nThe loot, XP, and coins you carried out are still yours. `!expedition list` when you're ready for the next one.",
+		zone.Display, e.CurrentDay)
+	for _, uid := range audience {
+		if err := p.SendDM(uid, body); err != nil {
+			slog.Warn("expedition: lapsed-extraction DM failed", "user", uid, "expedition", e.ID, "err", err)
 		}
 	}
+	return nil
 }
 
 // expeditionExtractionSweepTicker reaps lapsed extractions hourly. The window is

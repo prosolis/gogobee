@@ -330,16 +330,27 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	// Only a row with a roster blocks. A solo extraction strands nobody, so
 	// walking away from it stays a normal thing to do.
 	if pending, _ := getResumableExpedition(ctx.Sender); pending != nil {
-		switch n, err := partySize(pending.ID); {
+		switch {
 		case extractionLapsed(pending, time.Now().UTC()):
 			// Past the window — reap it here rather than make them wait an hour
-			// for the sweeper, and let the new expedition proceed.
-			_ = completeExpedition(pending.ID, ExpeditionStatusFailed)
-		case err == nil && n > 1:
-			zone, _ := getZone(pending.ZoneID)
-			return p.SendDM(ctx.Sender, fmt.Sprintf(
-				"You extracted from **%s** on Day %d and your party is still waiting on you. `!resume` to lead them back in, or `!expedition abandon` to let it go — until you do one or the other, none of them can start a run of their own.",
-				zone.Display, pending.CurrentDay))
+			// for the sweeper, and let the new expedition proceed. Route through
+			// the shared reap so the freed members hear about it, same as the
+			// sweeper and `!expedition abandon` do.
+			if err := p.reapLapsedExtraction(pending); err != nil {
+				slog.Warn("expedition: reap lapsed on start", "expedition", pending.ID, "err", err)
+			}
+		default:
+			// A roster still holds; block. On a roster-read error, assume it is
+			// occupied and refuse — proceeding would orphan a party we could not
+			// confirm was empty, the one outcome this guard exists to prevent. A
+			// solo extraction (n == 1) strands nobody, so walking away is fine.
+			n, err := partySize(pending.ID)
+			if err != nil || n > 1 {
+				zone, _ := getZone(pending.ZoneID)
+				return p.SendDM(ctx.Sender, fmt.Sprintf(
+					"You extracted from **%s** on Day %d and your party is still waiting on you. `!resume` to lead them back in, or `!expedition abandon` to let it go — until you do one or the other, none of them can start a run of their own.",
+					zone.Display, pending.CurrentDay))
+			}
 		}
 	}
 

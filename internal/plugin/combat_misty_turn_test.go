@@ -43,15 +43,6 @@ func mistyBuffed(maxHP, heal int) *Combatant {
 	}
 }
 
-func hasAction(events []CombatEvent, action string) bool {
-	for _, e := range events {
-		if e.Action == action {
-			return true
-		}
-	}
-	return false
-}
-
 // ── the exploit ──────────────────────────────────────────────────────────────
 
 // The debuff must land at round end in a manual fight, exactly as it does when

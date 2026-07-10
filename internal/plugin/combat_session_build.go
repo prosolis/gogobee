@@ -225,13 +225,6 @@ func seatCombatResult(sess *CombatSession, seat int) CombatResult {
 	hp, hpMax := sess.seatHP(seat), sess.seatHPMax(seat)
 	won := sess.Status == CombatStatusWon
 	events := eventsForSeat(sess.TurnLog, seat)
-	misty := false
-	for _, ev := range events {
-		if ev.Action == "misty_heal" {
-			misty = true
-			break
-		}
-	}
 	return CombatResult{
 		PlayerWon:   won,
 		Events:      events,
@@ -239,8 +232,20 @@ func seatCombatResult(sess *CombatSession, seat int) CombatResult {
 		EnemyEndHP:  sess.EnemyHP,
 		TotalRounds: sess.Round,
 		NearDeath:   won && hp > 0 && float64(hp) < float64(max(1, hpMax))*0.15,
-		MistyHealed: misty,
+		MistyHealed: hasAction(events, "misty_heal"),
 	}
+}
+
+// hasAction reports whether the event log holds at least one event with the
+// given Action. The one-line "did this happen in the fight?" scan the close-out
+// uses to read a proc's outcome off the log rather than a flag.
+func hasAction(events []CombatEvent, action string) bool {
+	for _, e := range events {
+		if e.Action == action {
+			return true
+		}
+	}
+	return false
 }
 
 // postCombatBookkeepingForSeat is postCombatBookkeeping for one seat of a
