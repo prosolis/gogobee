@@ -137,23 +137,9 @@ func newAppserviceSession(cfg Config) (*Session, error) {
 	mach := ch.Machine()
 
 	// Best-effort cross-signing bootstrap so the bot's device shows as verified to
-	// users who trust its master key. Mirrors the masdevice path (client.go); the
-	// appservice path historically omitted it, so a fresh crypto.db has no
-	// cross-signing identity and the device shows unverified. Best-effort: under MAS
-	// the key upload may be refused, which we log and ignore — E2EE still functions.
-	if recoveryKey, _, err := mach.GenerateAndUploadCrossSigningKeys(ctx, func(ui *mautrix.RespUserInteractive) interface{} {
-		return map[string]interface{}{"session": ui.Session}
-	}, ""); err != nil {
-		slog.Warn("cross-signing: key upload skipped (may already exist or need UIA)", "err", err)
-	} else {
-		slog.Info("cross-signing: keys uploaded", "recovery_key", recoveryKey)
-	}
-	if err := mach.SignOwnDevice(ctx, mach.OwnIdentity()); err != nil {
-		slog.Warn("cross-signing: sign own device failed", "err", err)
-	}
-	if err := mach.SignOwnMasterKey(ctx); err != nil {
-		slog.Warn("cross-signing: sign master key failed", "err", err)
-	}
+	// users who trust its master key. Best-effort: under MAS the key upload may be
+	// refused, which we log and ignore — E2EE still functions without it.
+	bootstrapCrossSigning(ctx, mach, cfg.DataDir)
 
 	// Crypto plumbing that /sync would otherwise carry:
 	ep.OnOTK(mach.HandleOTKCounts)

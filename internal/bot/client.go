@@ -131,19 +131,7 @@ func NewClient(cfg Config) (*mautrix.Client, error) {
 	// verified to users who trust its master key). Not required for E2EE to
 	// function; under MAS the key upload may be refused, which we ignore.
 	mach := ch.Machine()
-	if recoveryKey, _, err := mach.GenerateAndUploadCrossSigningKeys(ctx, func(ui *mautrix.RespUserInteractive) interface{} {
-		return map[string]interface{}{"session": ui.Session}
-	}, ""); err != nil {
-		slog.Warn("cross-signing: key upload skipped (may already exist or need UIA)", "err", err)
-	} else {
-		slog.Info("cross-signing: keys uploaded", "recovery_key", recoveryKey)
-	}
-	if err := mach.SignOwnDevice(ctx, mach.OwnIdentity()); err != nil {
-		slog.Warn("cross-signing: sign own device failed", "err", err)
-	}
-	if err := mach.SignOwnMasterKey(ctx); err != nil {
-		slog.Warn("cross-signing: sign master key failed", "err", err)
-	}
+	bootstrapCrossSigning(ctx, mach, cfg.DataDir)
 
 	// ---- Background token refresher ----
 	// Refresh ~60s before expiry and push the new token into the live client so
