@@ -48,8 +48,9 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 	sub, rest := splitFirstWord(args)
 	switch strings.ToLower(sub) {
 	case "":
-		// If active, show status; otherwise help.
-		if exp, _ := getActiveExpedition(ctx.Sender); exp != nil {
+		// If active, show status; otherwise help. A party member is on an
+		// expedition they do not own, so ask the leader-or-member resolver.
+		if exp, _, _ := activeExpeditionFor(ctx.Sender); exp != nil {
 			return p.expeditionCmdStatus(ctx, "")
 		}
 		return p.SendDM(ctx.Sender, expeditionHelpText())
@@ -65,8 +66,16 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 		// player doesn't have to remember the !zone seam). Otherwise
 		// fall back to the historical alias for `!expedition start`.
 		if rest != "" && isAllDigits(strings.TrimSpace(rest)) {
-			if exp, _ := getActiveExpedition(ctx.Sender); exp != nil {
+			exp, isLeader, _ := activeExpeditionFor(ctx.Sender)
+			switch {
+			case exp != nil && isLeader:
 				return p.zoneCmdGo(ctx, rest)
+			case exp != nil:
+				// A member reaching a fork must not silently fall through to
+				// `!expedition start` and be told their path number is an
+				// unknown zone. The leader picks the way (C1); P6c enforces
+				// that at the !zone seam too.
+				return p.SendDM(ctx.Sender, "The party leader picks the path.")
 			}
 		}
 		return p.expeditionCmdStart(ctx, c, rest)
@@ -76,6 +85,16 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 		return p.expeditionCmdLog(ctx)
 	case "abandon", "quit":
 		return p.expeditionCmdAbandon(ctx)
+	case "invite":
+		return p.expeditionCmdInvite(ctx, rest)
+	case "accept", "join":
+		return p.expeditionCmdAccept(ctx, c, rest)
+	case "decline":
+		return p.expeditionCmdDecline(ctx)
+	case "party", "roster":
+		return p.expeditionCmdParty(ctx)
+	case "leave":
+		return p.expeditionCmdLeave(ctx)
 	case "extract":
 		return p.handleExtractCmd(ctx, "")
 	case "resume":
@@ -99,6 +118,11 @@ func expeditionHelpText() string {
 	b.WriteString("`!expedition start <zone>` — prompts a loadout: `lean` / `balanced` / `heavy`\n")
 	b.WriteString("`!expedition run` — start (or resume) the autopilot walk (alias `!explore`)\n")
 	b.WriteString("`!expedition status` — day, rooms, supplies, recent events\n\n")
+	b.WriteString("**Bring someone** _(Day 1, up to three of you)_:\n")
+	b.WriteString("`!expedition invite @user` — they buy their own supplies into the party pool\n")
+	b.WriteString("`!expedition accept` / `!expedition decline` — answer an invite\n")
+	b.WriteString("`!expedition party` — who's with you\n")
+	b.WriteString("`!expedition leave` — turn back for town (members only)\n\n")
 	b.WriteString("**Mid-expedition:**\n")
 	b.WriteString("`!extract` — bail safely (resumable for 7 days)\n")
 	b.WriteString("`!resume [loadout]` — resume an extracted expedition\n")
@@ -393,7 +417,7 @@ func (p *AdventurePlugin) expeditionCmdStatus(ctx MessageContext, args string) e
 }
 
 func (p *AdventurePlugin) expeditionCmdStatusImpl(ctx MessageContext, debug bool) error {
-	exp, err := getActiveExpedition(ctx.Sender)
+	exp, _, err := activeExpeditionFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
 	}
@@ -417,7 +441,7 @@ func (p *AdventurePlugin) expeditionCmdStatusImpl(ctx MessageContext, debug bool
 		b.WriteString(fmt.Sprintf("🗺 **Region:** %s (%d/%d)%s\n",
 			r.Name, r.Order, len(regionsForZone(exp.ZoneID)), marker))
 	}
-	if run, rerr := getActiveZoneRun(ctx.Sender); rerr == nil && run != nil && run.TotalRooms > 0 {
+	if run, _, rerr := activeZoneRunFor(ctx.Sender); rerr == nil && run != nil && run.TotalRooms > 0 {
 		b.WriteString(fmt.Sprintf("🚪 **Rooms:** %d / %d in this region\n",
 			run.CurrentRoom+1, run.TotalRooms))
 	}

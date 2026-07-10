@@ -116,13 +116,21 @@ func (p *AdventurePlugin) fireExpeditionAutoRuns(now time.Time) {
 // is older than ageCutoff so a freshly-started expedition isn't yanked
 // out from under the player on tick 1.
 func loadExpeditionsForAutoRun(runCutoff, ageCutoff time.Time) ([]string, error) {
+	// N3/P6b: an expedition with an unanswered invite does not walk. The
+	// leader must not be dragged into a boss room while their friend is still
+	// reading the DM. Bounded by expeditionInviteTTL, which the invited_at
+	// comparison enforces here rather than trusting the purge to have run.
 	rows, err := db.Get().Query(`
 		SELECT expedition_id
-		  FROM dnd_expedition
+		  FROM dnd_expedition e
 		 WHERE status = 'active'
 		   AND start_date < ?
-		   AND (last_autorun_at IS NULL OR last_autorun_at < ?)`,
-		ageCutoff, runCutoff)
+		   AND (last_autorun_at IS NULL OR last_autorun_at < ?)
+		   AND NOT EXISTS (
+		         SELECT 1 FROM expedition_invite i
+		          WHERE i.expedition_id = e.expedition_id
+		            AND i.invited_at > ?)`,
+		ageCutoff, runCutoff, inviteCutoff())
 	if err != nil {
 		return nil, err
 	}

@@ -2142,6 +2142,28 @@ CREATE TABLE IF NOT EXISTS expedition_party (
 );
 CREATE INDEX IF NOT EXISTS idx_expedition_party_user
     ON expedition_party(user_id);
+
+-- ── N3/P6b — pending party invites ────────────────────────────────────────
+-- An invite the leader has sent and the invitee has not yet answered. It is
+-- deleted on accept, on decline, and when the expedition ends; it expires on
+-- read past expeditionInviteTTL, so a forgotten invite cannot pin an
+-- expedition's autopilot forever.
+--
+-- Absent == nobody has been asked, which is true of every expedition that
+-- existed before N3, so there is nothing to backfill.
+--
+-- While any row here names an expedition, the autopilot will not walk it: the
+-- leader must not be dragged into a boss room while their friend is still
+-- reading the invite DM.
+CREATE TABLE IF NOT EXISTS expedition_invite (
+    expedition_id   TEXT NOT NULL,
+    user_id         TEXT NOT NULL,
+    invited_by      TEXT NOT NULL,
+    invited_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (expedition_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_expedition_invite_user
+    ON expedition_invite(user_id);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

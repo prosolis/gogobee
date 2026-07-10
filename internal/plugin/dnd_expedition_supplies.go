@@ -298,6 +298,23 @@ func makeSupplies(tier ZoneTier, p SupplyPurchase) ExpeditionSupplies {
 	}
 }
 
+// addSupplyPurchase folds a joining member's packs into the party's pool
+// (N3/P6b). Everyone carries their own rations in, so both Current and Max rise
+// by what they bought.
+//
+// Raising Max alongside Current is what keeps supplyDepletion honest: it reads
+// the ratio, and a member arriving with a full pack must not read as the party
+// suddenly starving. On Day 1 — the only day an invite is legal — nothing has
+// burned yet, so Current == Max and the fold is exact.
+func addSupplyPurchase(s ExpeditionSupplies, p SupplyPurchase) ExpeditionSupplies {
+	total := p.Total()
+	s.Current += total
+	s.Max += total
+	s.PacksStandard += p.StandardPacks
+	s.PacksDeluxe += p.DeluxePacks
+	return s
+}
+
 // applyDailyBurn deducts one day's supplies from the snapshot (caller
 // persists). Returns the new snapshot and the SU consumed.
 //

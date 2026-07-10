@@ -103,6 +103,10 @@ func (p *AdventurePlugin) eventTicker() {
 			// can't hold a co-op fight hostage (N3/P5). Solo fights are never
 			// listed — they answer to the reaper above.
 			p.nudgeStalledPartyTurns()
+
+			// Reclaim invites nobody answered (N3/P6b). Every read already
+			// filters on the TTL; this just stops the rows accumulating.
+			purgeExpiredInvites()
 		}
 	}
 }

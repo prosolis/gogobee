@@ -399,6 +399,11 @@ func releaseParty(expID string) {
 	if err := disbandParty(expID); err != nil {
 		slog.Warn("expedition: disband party", "expedition", expID, "err", err)
 	}
+	// An unanswered invite to a finished expedition would otherwise sit there
+	// until its TTL, letting someone accept their way onto a corpse.
+	if err := clearExpeditionInvites(expID); err != nil {
+		slog.Warn("expedition: clear invites", "expedition", expID, "err", err)
+	}
 }
 
 // applyThreatDelta clamps the threat level to [0,100], records the event,
