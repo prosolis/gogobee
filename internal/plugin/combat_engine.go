@@ -309,6 +309,11 @@ type actor struct {
 	c *Combatant
 
 	playerHP int
+	// hpMax is this actor's HP ceiling for in-fight healing. It tracks
+	// c.Stats.MaxHP except in the turn-based engine, where seat 0 restores the
+	// session's persisted player_hp_max — that snapshot comes from
+	// dndHPSnapshot and can differ from the rebuilt combatant's MaxHP.
+	hpMax int
 
 	// Consumable one-shots
 	healChargesLeft int // remaining heal-at-<50% triggers
@@ -418,6 +423,7 @@ func newActor(c *Combatant) *actor {
 	a := &actor{
 		c:            c,
 		playerHP:     startHP,
+		hpMax:        c.Stats.MaxHP,
 		wardCharges:  c.Mods.WardCharges,
 		sporeRounds:  c.Mods.SporeCloud,
 		reflectFrac:  c.Mods.ReflectNext,

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"sort"
 )
 
 // Phase 13 — Turn-based combat state machine.
@@ -72,27 +73,66 @@ type turnActionEffect struct {
 	ConcentrationDmg int
 }
 
+// enemySeat is the sentinel roster index the monster occupies in a turn order.
+// Player seats are the roster indices 0..len(actors)-1.
+const enemySeat = -1
+
 // turnEngine wraps a combatState reconstructed from a persisted CombatSession
 // so a single phase can be resolved and then written back.
+//
+// players is the seated roster in roster order; order is this round's seat
+// sequence, which interleaves the roster with enemySeat. A solo fight's order
+// is always [0, enemySeat] — the fixed player-then-enemy sequence the engine
+// has always run — so no initiative is rolled and its RNG stream is untouched.
 type turnEngine struct {
-	sess   *CombatSession
-	player *Combatant
-	enemy  *Combatant
-	st     *combatState
-	result *CombatResult
+	sess    *CombatSession
+	players []*Combatant
+	enemy   *Combatant
+	order   []int
+	st      *combatState
+	result  *CombatResult
+}
+
+// combatSessionSeed hashes the session id into the base PCG seed.
+func combatSessionSeed(sess *CombatSession) uint64 {
+	var seed uint64 = 1469598103934665603 // FNV-ish offset basis
+	for _, c := range sess.SessionID {
+		seed = (seed ^ uint64(c)) * 1099511628211
+	}
+	return seed
 }
 
 // combatSessionRNG seeds a deterministic generator from the session id and the
 // phase being resolved, so a fight replays reproducibly no matter how many bot
 // restarts occur mid-fight. Each (round, phase) gets a distinct stream — a flat
 // per-session seed would correlate the player's and enemy's d20s within a round.
+//
+// This is the solo form of combatSessionStepRNG, kept as the name the engine's
+// single-seat callers and tests use.
 func combatSessionRNG(sess *CombatSession) *rand.Rand {
-	var seed uint64 = 1469598103934665603 // FNV-ish offset basis
-	for _, c := range sess.SessionID {
-		seed = (seed ^ uint64(c)) * 1099511628211
+	return combatSessionStepRNG(sess, 0)
+}
+
+// combatSessionStepRNG seeds the generator for one step resolved by one seat.
+// A round holds one player_turn step per party member, and they all share a
+// (round, phase) pair — so the acting seat is mixed into the *seed* to keep
+// their d20s independent. Seat 0 and the enemy sentinel mix to nothing, which
+// is what makes a solo fight draw exactly the pre-roster stream.
+func combatSessionStepRNG(sess *CombatSession, seat int) *rand.Rand {
+	seed := combatSessionSeed(sess)
+	if seat > 0 {
+		seed ^= uint64(seat) * 0x9E3779B97F4A7C15 // golden-ratio odd multiplier
 	}
 	stream := uint64(sess.Round)*4 + phaseOrdinal(sess.Phase)
 	return rand.New(rand.NewPCG(seed, stream))
+}
+
+// combatInitiativeRNG seeds the once-per-round initiative roll. It takes the
+// round explicitly because stepRoundEnd must order the round it is opening,
+// not the one it is closing, and sess.Round is only advanced by commit.
+// A distinct seed mix keeps it clear of every step stream.
+func combatInitiativeRNG(sess *CombatSession, round int) *rand.Rand {
+	return rand.New(rand.NewPCG(combatSessionSeed(sess)^0xD1B54A32D192ED03, uint64(round)))
 }
 
 func phaseOrdinal(phase string) uint64 {
@@ -108,15 +148,82 @@ func phaseOrdinal(phase string) uint64 {
 	}
 }
 
+// turnOrder returns the seat sequence for one round: the player roster and the
+// enemy sentinel, highest initiative first. Initiative mirrors the auto-resolve
+// engine's formula (speed + d10 + InitiativeBias); ties break toward the lower
+// seat, and the enemy loses every tie.
+//
+// A solo roster short-circuits to the engine's historical fixed order and rolls
+// nothing — the turn-based engine has never had initiative, and giving one seat
+// a coin-flip on who swings first would be a live balance change.
+func turnOrder(sess *CombatSession, round int, players []*Combatant, enemy *Combatant) []int {
+	if len(players) <= 1 {
+		return []int{0, enemySeat}
+	}
+	type entry struct {
+		seat int
+		init float64
+	}
+	rng := combatInitiativeRNG(sess, round)
+	entries := make([]entry, 0, len(players)+1)
+	for i, p := range players {
+		entries = append(entries, entry{i, float64(p.Stats.Speed) + rngFloat(rng)*10 + p.Mods.InitiativeBias})
+	}
+	entries = append(entries, entry{enemySeat, float64(enemy.Stats.Speed) + rngFloat(rng)*10})
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
+		if a.init != b.init {
+			return a.init > b.init
+		}
+		if (a.seat == enemySeat) != (b.seat == enemySeat) {
+			return b.seat == enemySeat
+		}
+		return a.seat < b.seat
+	})
+	order := make([]int, len(entries))
+	for i, e := range entries {
+		order[i] = e.seat
+	}
+	return order
+}
+
+// phaseForSeat names the phase under which a seat resolves its turn.
+func phaseForSeat(seat int) string {
+	if seat == enemySeat {
+		return CombatPhaseEnemyTurn
+	}
+	return CombatPhasePlayerTurn
+}
+
+// turnIdxForPhase reconciles a persisted cursor against the persisted phase.
+// They can disagree for exactly one reason: a fight that was in flight when
+// TurnIdx was introduced decodes as 0 regardless of whose turn it is. Phase is
+// the older, load-bearing field, so it wins; the cursor snaps to the first slot
+// of the matching kind. On a solo order ([player, enemy]) that is exact.
+func turnIdxForPhase(order []int, idx int, phase string) int {
+	if idx >= 0 && idx < len(order) && phaseForSeat(order[idx]) == phase {
+		return idx
+	}
+	for i, seat := range order {
+		if phaseForSeat(seat) == phase {
+			return i
+		}
+	}
+	return 0
+}
+
 // resumeTurnEngine rebuilds the in-memory combatState from a persisted session.
-// rng is the deterministic source for this step (see combatSessionRNG).
-func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.Rand) *turnEngine {
-	// The seated character's half of the persisted statuses. A single-seat
-	// roster today; P4 gives combat_session per-participant rows and this
-	// becomes one actor per member.
+// rng is the deterministic source for this step (see combatSessionStepRNG).
+//
+// Seat 0 restores the session's persisted per-character statuses. Seats 1+ open
+// fresh from their combatant's modifiers: a party's per-member statuses need the
+// combat_participant rows that P4 adds, and until then no persisted session ever
+// carries more than one seat.
+func resumeTurnEngine(sess *CombatSession, players []*Combatant, enemy *Combatant, rng *rand.Rand) *turnEngine {
 	seat0 := &actor{
-		c:           player,
+		c:           players[0],
 		playerHP:    sess.PlayerHP,
+		hpMax:       sess.PlayerHPMax,
 		poisonTicks: sess.Statuses.PoisonTicks,
 		poisonDmg:   sess.Statuses.PoisonDmg,
 		stunPlayer:  sess.Statuses.StunPlayer,
@@ -142,9 +249,14 @@ func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.R
 		playerACDebuff: sess.Statuses.PlayerACDebuff,
 		maxHPDrain:     sess.Statuses.MaxHPDrain,
 	}
+	actors := make([]*actor, len(players))
+	actors[0] = seat0
+	for i := 1; i < len(players); i++ {
+		actors[i] = newActor(players[i])
+	}
 	st := &combatState{
 		actor:          seat0,
-		actors:         []*actor{seat0},
+		actors:         actors,
 		enemyHP:        sess.EnemyHP,
 		round:          sess.Round,
 		enraged:        sess.Statuses.Enraged,
@@ -166,13 +278,30 @@ func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.R
 		enemyAtkBuff:     sess.Statuses.EnemyAtkBuff,
 		rng:              rng,
 	}
-	return &turnEngine{
-		sess:   sess,
-		player: player,
-		enemy:  enemy,
-		st:     st,
-		result: &CombatResult{},
+	order := turnOrder(sess, sess.Round, players, enemy)
+	sess.Statuses.TurnIdx = turnIdxForPhase(order, sess.Statuses.TurnIdx, sess.Phase)
+	if sess.Phase == CombatPhasePlayerTurn {
+		st.seat(order[sess.Statuses.TurnIdx])
 	}
+	return &turnEngine{
+		sess:    sess,
+		players: players,
+		enemy:   enemy,
+		order:   order,
+		st:      st,
+		result:  &CombatResult{},
+	}
+}
+
+// advance moves the round cursor to the next seat, or to round_end once every
+// seat has acted.
+func (te *turnEngine) advance() {
+	te.sess.Statuses.TurnIdx++
+	if te.sess.Statuses.TurnIdx >= len(te.order) {
+		te.sess.Phase = CombatPhaseRoundEnd
+		return
+	}
+	te.sess.Phase = phaseForSeat(te.order[te.sess.Statuses.TurnIdx])
 }
 
 // step resolves exactly one phase of the fight and advances sess.Phase. The
@@ -200,6 +329,13 @@ func (te *turnEngine) step(action PlayerAction) ([]CombatEvent, error) {
 }
 
 func (te *turnEngine) stepPlayerTurn(action PlayerAction) {
+	// A seat that went down earlier this round forfeits its turn silently.
+	// Unreachable while the roster is solo — a downed solo player has already
+	// ended the fight.
+	if te.st.playerHP <= 0 {
+		te.advance()
+		return
+	}
 	switch action.Kind {
 	case ActionFlee:
 		te.st.events = append(te.st.events, CombatEvent{
@@ -220,26 +356,34 @@ func (te *turnEngine) stepPlayerTurn(action PlayerAction) {
 	// Extra Attack only fired in the auto-resolve SimulateCombat path; that
 	// left every elite/boss !fight at L11+ short two swings/turn, which the
 	// J1 boss-trace surfaced as Fighter's T3+ wall.
-	// Returns true once the fight is decided — usually the enemy is down,
-	// but a retaliate aura can drop the player on their own swing, so
-	// disambiguate the outcome by HP.
-	if resolvePlayerSwings(te.st, te.player, te.enemy, &turnCombatPhase, te.result) {
-		if te.st.playerHP <= 0 {
-			te.finish(CombatStatusLost)
-		} else {
+	// Returns true once the swing decided something — usually the enemy is
+	// down, but a retaliate aura can drop the swinger on their own attack. A
+	// downed swinger only ends the fight if nobody else is standing.
+	// The outcome is read off HP rather than the bool: resolvePlayerSwings also
+	// returns false when a retaliate aura kills the swinger between extra
+	// attacks, and the old code walked that corpse into the enemy's turn.
+	resolvePlayerSwings(te.st, te.st.c, te.enemy, &turnCombatPhase, te.result)
+	if te.st.enemyHP <= 0 {
+		te.finish(CombatStatusWon)
+		return
+	}
+	if !te.st.anyAlive() {
+		te.finish(CombatStatusLost)
+		return
+	}
+	// A swinger who went down to retaliate gets no bonus-action follow-ups.
+	// Solo never reaches here dead — anyAlive above would have ended the fight.
+	if te.st.playerHP > 0 {
+		if te.petStrike() {
 			te.finish(CombatStatusWon)
+			return
 		}
-		return
+		if te.spiritWeaponStrike() {
+			te.finish(CombatStatusWon)
+			return
+		}
 	}
-	if te.petStrike() {
-		te.finish(CombatStatusWon)
-		return
-	}
-	if te.spiritWeaponStrike() {
-		te.finish(CombatStatusWon)
-		return
-	}
-	te.sess.Phase = CombatPhaseEnemyTurn
+	te.advance()
 }
 
 // petStrike resolves the player's pet attack for a turn-based fight. The pet
@@ -252,10 +396,10 @@ func (te *turnEngine) stepPlayerTurn(action PlayerAction) {
 // the enemy.
 func (te *turnEngine) petStrike() bool {
 	st := te.st
-	if te.player.Mods.PetAttackProc <= 0 || st.randFloat() >= te.player.Mods.PetAttackProc {
+	if st.c.Mods.PetAttackProc <= 0 || st.randFloat() >= st.c.Mods.PetAttackProc {
 		return false
 	}
-	petDmg := te.player.Mods.PetAttackDmg + st.roll(5)
+	petDmg := st.c.Mods.PetAttackDmg + st.roll(5)
 	st.enemyHP = max(0, st.enemyHP-petDmg)
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: turnCombatPhase.Name, Actor: "pet", Action: "pet_attack",
@@ -270,10 +414,10 @@ func (te *turnEngine) petStrike() bool {
 // pet flavor on a petless caster. Returns true if the strike dropped the enemy.
 func (te *turnEngine) spiritWeaponStrike() bool {
 	st := te.st
-	if te.player.Mods.SpiritWeaponProc <= 0 || st.randFloat() >= te.player.Mods.SpiritWeaponProc {
+	if st.c.Mods.SpiritWeaponProc <= 0 || st.randFloat() >= st.c.Mods.SpiritWeaponProc {
 		return false
 	}
-	dmg := te.player.Mods.SpiritWeaponDmg + st.roll(5)
+	dmg := st.c.Mods.SpiritWeaponDmg + st.roll(5)
 	st.enemyHP = max(0, st.enemyHP-dmg)
 	st.events = append(st.events, CombatEvent{
 		Round: st.round, Phase: turnCombatPhase.Name, Actor: "spirit_weapon", Action: "spirit_weapon_strike",
@@ -291,7 +435,7 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 	st := te.st
 	if eff == nil {
 		// Defensive: a kind with no payload just passes the turn.
-		te.sess.Phase = CombatPhaseEnemyTurn
+		te.advance()
 		return
 	}
 	action := eff.Action
@@ -312,7 +456,7 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 	if eff.PlayerHeal > 0 {
 		// Respect any max_hp_drain monster ability — a drained player can't be
 		// healed back past the lowered ceiling.
-		hpCap := max(1, te.sess.PlayerHPMax-st.maxHPDrain)
+		hpCap := max(1, st.hpMax-st.maxHPDrain)
 		st.playerHP = min(hpCap, st.playerHP+eff.PlayerHeal)
 	}
 	// Arm / replace the concentration aura. A new concentration cast overwrites
@@ -354,10 +498,37 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 			st.enemySkipFirst = true
 		}
 	}
-	te.sess.Phase = CombatPhaseEnemyTurn
+	te.advance()
+}
+
+// enemyTarget picks the seat the monster swings at this turn: uniformly among
+// the standing roster. A solo roster draws nothing, so its RNG stream keeps the
+// pre-roster shape. Returns false when the whole roster is down.
+func (te *turnEngine) enemyTarget() (int, bool) {
+	if len(te.st.actors) == 1 {
+		return 0, te.st.actors[0].playerHP > 0
+	}
+	standing := make([]int, 0, len(te.st.actors))
+	for i, a := range te.st.actors {
+		if a.playerHP > 0 {
+			standing = append(standing, i)
+		}
+	}
+	if len(standing) == 0 {
+		return 0, false
+	}
+	return standing[te.st.roll(len(standing))], true
 }
 
 func (te *turnEngine) stepEnemyTurn() {
+	// Seat the target before anything reads the cursor: the ability path, the
+	// pet procs, and the swing loop all resolve against whoever is targeted.
+	target, ok := te.enemyTarget()
+	if !ok {
+		te.finish(CombatStatusLost)
+		return
+	}
+	te.st.seat(target)
 	// A control spell cast last phase forfeits the enemy's attack this round —
 	// unless the enemy is fear_immune, in which case the control fizzled and it
 	// acts as normal.
@@ -373,7 +544,7 @@ func (te *turnEngine) stepEnemyTurn() {
 				Round: te.st.round, Phase: turnCombatPhase.Name, Actor: "enemy", Action: "spell_held",
 				PlayerHP: te.st.playerHP, EnemyHP: te.st.enemyHP,
 			})
-			te.sess.Phase = CombatPhaseRoundEnd
+			te.advance()
 			return
 		}
 	}
@@ -385,8 +556,15 @@ func (te *turnEngine) stepEnemyTurn() {
 	// player went down without a save.
 	abilityDealtDamage := false
 	if te.enemy.Ability != nil && turnAbilityFires(te.enemy.Ability, te.st, te.enemy) {
-		if applyAbility(te.st, te.player, te.enemy, &turnCombatPhase, te.result) {
-			te.finish(CombatStatusLost)
+		if applyAbility(te.st, te.st.c, te.enemy, &turnCombatPhase, te.result) {
+			// The target went down without a save. The fight only ends if it
+			// took the last member with it; otherwise the enemy has spent its
+			// turn on that kill.
+			if !te.st.anyAlive() {
+				te.finish(CombatStatusLost)
+			} else {
+				te.advance()
+			}
 			return
 		}
 		switch te.enemy.Ability.Effect {
@@ -402,8 +580,8 @@ func (te *turnEngine) stepEnemyTurn() {
 		// remaining swings resolve normally — a single proc shouldn't nullify a
 		// boss's whole multiattack round. (This deliberately diverges from the
 		// auto-resolve engine's apply-to-all model.)
-		petWhiff := te.player.Mods.PetWhiffProc > 0 && te.st.randFloat() < te.player.Mods.PetWhiffProc
-		petDeflect := te.player.Mods.PetDeflectProc > 0 && te.st.randFloat() < te.player.Mods.PetDeflectProc
+		petWhiff := te.st.c.Mods.PetWhiffProc > 0 && te.st.randFloat() < te.st.c.Mods.PetWhiffProc
+		petDeflect := te.st.c.Mods.PetDeflectProc > 0 && te.st.randFloat() < te.st.c.Mods.PetDeflectProc
 		if petDeflect {
 			te.result.PetDeflected = true
 		}
@@ -421,10 +599,15 @@ func (te *turnEngine) stepEnemyTurn() {
 			// Spend the proc on the first swing only; later swings see false.
 			swingWhiff := petWhiff && i == 0
 			swingDeflect := petDeflect && i == 0
-			decided := resolveEnemyAttack(te.st, te.player, &swing, &turnCombatPhase, te.result, swingWhiff, swingDeflect, false)
+			decided := resolveEnemyAttack(te.st, te.st.c, &swing, &turnCombatPhase, te.result, swingWhiff, swingDeflect, false)
 			if te.st.playerHP <= 0 {
-				te.finish(CombatStatusLost)
-				return
+				// The target is down. The enemy stops swinging at a corpse; the
+				// fight ends only if the roster is empty.
+				if !te.st.anyAlive() {
+					te.finish(CombatStatusLost)
+					return
+				}
+				break
 			}
 			if decided || te.st.enemyHP <= 0 {
 				te.finish(CombatStatusWon)
@@ -432,7 +615,7 @@ func (te *turnEngine) stepEnemyTurn() {
 			}
 		}
 	}
-	te.sess.Phase = CombatPhaseRoundEnd
+	te.advance()
 }
 
 // turnAbilityFires decides whether a monster ability triggers this enemy turn.
@@ -460,26 +643,36 @@ func turnAbilityFires(ability *MonsterAbility, st *combatState, enemy *Combatant
 }
 
 // stepRoundEnd applies between-round status effects, then opens the next round.
+// Per-actor effects (poison, concentration) tick once per seat, in seating
+// order; the enemy's regen is fight-scoped and ticks once. A solo roster walks
+// each loop exactly once, so it draws the same RNG the pre-roster engine did.
 func (te *turnEngine) stepRoundEnd() {
 	st := te.st
-	if st.poisonTicks > 0 {
+	for i := range st.actors {
+		st.seat(i)
+		if st.poisonTicks <= 0 {
+			continue
+		}
 		st.playerHP = max(0, st.playerHP-st.poisonDmg)
 		st.poisonTicks--
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: CombatPhaseRoundEnd, Actor: "enemy", Action: "poison_tick",
 			Damage: st.poisonDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
-		if st.playerHP <= 0 {
-			if !trySave(st, te.player, CombatPhaseRoundEnd) {
-				te.finish(CombatStatusLost)
-				return
-			}
+		if st.playerHP <= 0 && !trySave(st, st.c, CombatPhaseRoundEnd) && !st.anyAlive() {
+			te.finish(CombatStatusLost)
+			return
 		}
 	}
 	// Concentration aura (Spirit Guardians et al.): the lingering spell bites
-	// the enemy each round it stays up. Ticks before enemy regen so a lethal
-	// pulse settles the fight before the enemy knits its wounds back.
-	if st.concentrationDmg > 0 && st.enemyHP > 0 {
+	// the enemy each round it stays up. Concentration is per-caster, so every
+	// seat holding one pulses. Ticks before enemy regen so a lethal pulse
+	// settles the fight before the enemy knits its wounds back.
+	for i := range st.actors {
+		st.seat(i)
+		if st.concentrationDmg <= 0 || st.enemyHP <= 0 || st.playerHP <= 0 {
+			continue
+		}
 		st.enemyHP = max(0, st.enemyHP-st.concentrationDmg)
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: CombatPhaseRoundEnd, Actor: "player", Action: "concentration_tick",
@@ -490,6 +683,7 @@ func (te *turnEngine) stepRoundEnd() {
 			return
 		}
 	}
+	st.seat(0)
 	// Regenerate (monster ability): the enemy knits its wounds at round end.
 	if st.enemyRegen > 0 && st.enemyHP > 0 && st.enemyHP < te.enemy.Stats.MaxHP {
 		st.enemyHP = min(te.enemy.Stats.MaxHP, st.enemyHP+st.enemyRegen)
@@ -499,7 +693,11 @@ func (te *turnEngine) stepRoundEnd() {
 		})
 	}
 	st.round++
-	te.sess.Phase = CombatPhasePlayerTurn
+	// Initiative is re-rolled each round, so the next round's order is derived
+	// here — off st.round, since commit has not yet pushed it onto the session.
+	te.order = turnOrder(te.sess, st.round, te.players, te.enemy)
+	te.sess.Statuses.TurnIdx = 0
+	te.sess.Phase = phaseForSeat(te.order[0])
 }
 
 // finish parks the session in a terminal status + the 'over' phase.
@@ -516,42 +714,47 @@ func (te *turnEngine) finish(status string) {
 // by the command layer (a !cast / !consume folds them in) and applied to the
 // rebuilt combatant by applySessionBuffs — so commit mutates Statuses in place
 // rather than replacing it, leaving those deltas untouched.
+// Per-actor state is read off seat 0 rather than off the cursor, which the
+// enemy turn parks on its target and round_end walks across the roster. Seat 0
+// is the only member a session row can hold; P4's participant rows carry the
+// rest.
 func (te *turnEngine) commit() {
 	st := te.st
+	a := st.actors[0]
 	te.sess.Round = st.round
-	te.sess.PlayerHP = st.playerHP
+	te.sess.PlayerHP = a.playerHP
 	te.sess.EnemyHP = st.enemyHP
 	s := &te.sess.Statuses
-	s.PoisonTicks = st.poisonTicks
-	s.PoisonDmg = st.poisonDmg
-	s.StunPlayer = st.stunPlayer
+	s.PoisonTicks = a.poisonTicks
+	s.PoisonDmg = a.poisonDmg
+	s.StunPlayer = a.stunPlayer
 	s.Enraged = st.enraged
 	s.ArmorBroken = st.armorBroken
 	s.ArmorBreakAmt = st.armorBreakAmt
 	s.EnemySkipNext = st.enemySkipFirst
-	s.WardCharges = st.wardCharges
-	s.SporeRounds = st.sporeRounds
-	s.ReflectFrac = st.reflectFrac
-	s.AutoCritFirst = st.autoCrit
-	s.ArcaneWardHP = st.arcaneWardHP
-	s.HealChargesLeft = st.healChargesLeft
-	s.ConcentrationDmg = st.concentrationDmg
-	s.DeathSaveUsed = st.deathSaveUsed
-	s.LuckyUsed = st.luckyUsed
-	s.Raged = st.raged
-	s.PendingRage = st.pendingRageAttack
-	s.FirstAtkBonusUsed = st.firstAttackBonusUsed
-	s.AssassinateReroll = st.assassinateRerollUsed
-	s.AssassinateBonus = st.assassinateBonusUsed
+	s.WardCharges = a.wardCharges
+	s.SporeRounds = a.sporeRounds
+	s.ReflectFrac = a.reflectFrac
+	s.AutoCritFirst = a.autoCrit
+	s.ArcaneWardHP = a.arcaneWardHP
+	s.HealChargesLeft = a.healChargesLeft
+	s.ConcentrationDmg = a.concentrationDmg
+	s.DeathSaveUsed = a.deathSaveUsed
+	s.LuckyUsed = a.luckyUsed
+	s.Raged = a.raged
+	s.PendingRage = a.pendingRageAttack
+	s.FirstAtkBonusUsed = a.firstAttackBonusUsed
+	s.AssassinateReroll = a.assassinateRerollUsed
+	s.AssassinateBonus = a.assassinateBonusUsed
 	s.EnemyEvadeNext = st.enemyEvadeNext
 	s.EnemyBlockUp = st.enemyBlockUp
 	s.EnemyAdvantage = st.enemyAdvantage
 	s.EnemyRetaliateFrac = st.enemyRetaliateFrac
 	s.EnemyRegen = st.enemyRegen
 	s.EnemySurviveArmed = st.enemySurviveArmed
-	s.PlayerAtkDrain = st.playerAtkDrain
-	s.PlayerACDebuff = st.playerACDebuff
-	s.MaxHPDrain = st.maxHPDrain
+	s.PlayerAtkDrain = a.playerAtkDrain
+	s.PlayerACDebuff = a.playerACDebuff
+	s.MaxHPDrain = a.maxHPDrain
 	s.EnemySpellResist = st.enemySpellResist
 	s.EnemyRevealNext = st.enemyRevealNext
 	s.EnemyFearImmune = st.enemyFearImmune
@@ -559,16 +762,35 @@ func (te *turnEngine) commit() {
 	te.sess.TurnLog = append(te.sess.TurnLog, st.events...)
 }
 
-// advanceCombatSession resolves one phase of the fight and persists the result.
-// It is the single entry point callers (commands, reaper) should use: it seeds
-// the deterministic RNG, resumes the engine, steps, commits, and saves. The
-// passed sess is mutated in place. The events generated this step are returned.
+// advanceCombatSession resolves one phase of a solo fight and persists the
+// result. It is the single entry point callers (commands, reaper) should use.
 func advanceCombatSession(sess *CombatSession, player, enemy *Combatant, action PlayerAction) ([]CombatEvent, error) {
+	return advancePartyCombatSession(sess, []*Combatant{player}, enemy, action)
+}
+
+// advancePartyCombatSession resolves one phase of the fight for the seated
+// roster and persists the result: it derives the acting seat from this round's
+// turn order, seeds that seat's deterministic RNG, resumes the engine, steps,
+// commits, and saves. The passed sess is mutated in place. The events generated
+// this step are returned.
+func advancePartyCombatSession(sess *CombatSession, players []*Combatant, enemy *Combatant, action PlayerAction) ([]CombatEvent, error) {
 	if sess == nil {
 		return nil, ErrNoActiveCombatSession
 	}
-	rng := combatSessionRNG(sess)
-	te := resumeTurnEngine(sess, player, enemy, rng)
+	if len(players) == 0 {
+		return nil, fmt.Errorf("combat session %s: empty roster", sess.SessionID)
+	}
+	// The seat is needed before the engine is resumed, because it seeds the
+	// step's RNG — so the order is derived once here and once inside
+	// resumeTurnEngine. Both derivations read only (sessionID, round, roster),
+	// so they agree by construction.
+	seat := enemySeat
+	if sess.Phase == CombatPhasePlayerTurn {
+		order := turnOrder(sess, sess.Round, players, enemy)
+		seat = order[turnIdxForPhase(order, sess.Statuses.TurnIdx, sess.Phase)]
+	}
+	rng := combatSessionStepRNG(sess, seat)
+	te := resumeTurnEngine(sess, players, enemy, rng)
 	events, err := te.step(action)
 	if err != nil {
 		return nil, err

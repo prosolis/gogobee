@@ -65,6 +65,14 @@ type CombatStatuses struct {
 	// combatState, so the flag must survive the commit between them.
 	EnemySkipNext bool `json:"enemy_skip_next,omitempty"`
 
+	// TurnIdx is the position within the round's initiative order (see
+	// turnOrder) of whoever acts next. A solo fight's order is the fixed
+	// [player, enemy], so TurnIdx mirrors the phase and the field is dead
+	// weight — omitempty keeps it out of every solo row. Rows written before
+	// this field existed decode as 0 and are reconciled against Phase on
+	// resume, so a mid-fight upgrade lands on the right slot.
+	TurnIdx int `json:"turn_idx,omitempty"`
+
 	// Fight-scoped depleting resources — mirror the combatState charges that
 	// genuinely carry round-to-round. Seeded at fight start (Arcane Ward) or by
 	// a mid-fight !cast / !consume, restored into combatState on every resume,

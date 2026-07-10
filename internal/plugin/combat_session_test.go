@@ -181,7 +181,7 @@ func turnSession(phase string, playerHP, enemyHP int) *CombatSession {
 
 func stepEngine(sess *CombatSession, player, enemy *Combatant, action PlayerAction) ([]CombatEvent, error) {
 	rng := rand.New(rand.NewPCG(42, phaseOrdinal(sess.Phase)))
-	te := resumeTurnEngine(sess, player, enemy, rng)
+	te := resumeTurnEngine(sess, []*Combatant{player}, enemy, rng)
 	events, err := te.step(action)
 	if err != nil {
 		return nil, err
@@ -375,7 +375,7 @@ func TestTurnEngine_StepRejectsTerminalSession(t *testing.T) {
 	player, enemy := basePlayer(), baseEnemy()
 
 	rng := rand.New(rand.NewPCG(1, 1))
-	te := resumeTurnEngine(sess, &player, &enemy, rng)
+	te := resumeTurnEngine(sess, []*Combatant{&player}, &enemy, rng)
 	if _, err := te.step(PlayerAction{Kind: ActionAttack}); err != errCombatSessionOver {
 		t.Errorf("err = %v, want errCombatSessionOver", err)
 	}
