@@ -513,6 +513,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleMasteryCmd(ctx)
 	case lower == "treasures" || strings.HasPrefix(lower, "treasures "):
 		return p.handleTreasuresCmd(ctx, strings.TrimSpace(strings.TrimPrefix(lower, "treasures")))
+	case lower == "vault" || strings.HasPrefix(lower, "vault "):
+		return p.handleVaultCmd(ctx, strings.TrimSpace(args[len("vault"):]))
 	}
 
 	return p.SendDM(ctx.Sender, "Unknown command. Type `!adventure help` to see available commands.")
@@ -530,6 +532,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure equip-magic`" + ` — Equip magic items (curios) into your D&D slots
 ` + "`!adventure sell <item>`" + ` — Sell an inventory item (or ` + "`sell all`" + `)
 ` + "`!adventure inventory`" + ` — View your inventory
+` + "`!adventure vault`" + ` — Store items safely (Tier-4 Established home; ` + "`vault store/take <item>`" + `)
 ` + "`!adventure leaderboard`" + ` — View the leaderboard
 ` + "`!adventure respond`" + ` — Respond to a mid-day event
 ` + "`!adventure rivals`" + ` — View rival duel records

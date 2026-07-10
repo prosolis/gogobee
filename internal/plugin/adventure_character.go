@@ -562,7 +562,7 @@ func loadAdvInventory(userID id.UserID) ([]AdvItem, error) {
 	d := db.Get()
 	rows, err := d.Query(`
 		SELECT id, name, item_type, tier, value, slot, skill_source, temper
-		FROM adventure_inventory WHERE user_id = ?
+		FROM adventure_inventory WHERE user_id = ? AND in_vault = 0
 		ORDER BY tier DESC, value DESC`, string(userID))
 	if err != nil {
 		return nil, err
@@ -623,8 +623,60 @@ func clearAdvInventory(userID id.UserID) ([]AdvItem, error) {
 func advInventoryCount(userID id.UserID) int {
 	d := db.Get()
 	var count int
-	_ = d.QueryRow(`SELECT COUNT(*) FROM adventure_inventory WHERE user_id = ?`, string(userID)).Scan(&count)
+	_ = d.QueryRow(`SELECT COUNT(*) FROM adventure_inventory WHERE user_id = ? AND in_vault = 0`, string(userID)).Scan(&count)
 	return count
+}
+
+// loadAdvVault returns the items the player has stowed in their housing vault
+// (N4/E1). These are excluded from loadAdvInventory — a vaulted item is out of
+// play (unsellable, uncraftable, unusable in combat) until it is taken back.
+func loadAdvVault(userID id.UserID) ([]AdvItem, error) {
+	d := db.Get()
+	rows, err := d.Query(`
+		SELECT id, name, item_type, tier, value, slot, skill_source, temper
+		FROM adventure_inventory WHERE user_id = ? AND in_vault = 1
+		ORDER BY tier DESC, value DESC`, string(userID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []AdvItem
+	for rows.Next() {
+		var it AdvItem
+		var slot string
+		if err := rows.Scan(&it.ID, &it.Name, &it.Type, &it.Tier, &it.Value, &slot, &it.SkillSource, &it.Temper); err != nil {
+			return nil, err
+		}
+		it.Slot = EquipmentSlot(slot)
+		items = append(items, it)
+	}
+	return items, rows.Err()
+}
+
+// advVaultCount returns how many of a user's items are stowed in the vault.
+func advVaultCount(userID id.UserID) int {
+	d := db.Get()
+	var count int
+	_ = d.QueryRow(`SELECT COUNT(*) FROM adventure_inventory WHERE user_id = ? AND in_vault = 1`, string(userID)).Scan(&count)
+	return count
+}
+
+// setItemVaulted flips a single inventory row's vault flag. Scoped to the
+// owning user so a mistyped id can never move another player's item.
+func setItemVaulted(userID id.UserID, itemID int64, vaulted bool) (bool, error) {
+	v := 0
+	if vaulted {
+		v = 1
+	}
+	res, err := db.Get().Exec(
+		`UPDATE adventure_inventory SET in_vault = ? WHERE id = ? AND user_id = ?`,
+		v, itemID, string(userID))
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 func loadAllAdvCharacters() ([]AdventureCharacter, error) {

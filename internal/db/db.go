@@ -357,6 +357,13 @@ func runMigrations(d *sql.DB) error {
 		// row and no bootstrap backfill is needed. The column is a read guard:
 		// loadCombatParticipants is skipped entirely when it reads 1.
 		`ALTER TABLE combat_session ADD COLUMN roster_size INTEGER NOT NULL DEFAULT 1`,
+		// N4/E1 housing vault (gogobee_engagement_plan.md §E1). A Tier-4 Estate
+		// unlocks a 10-slot vault that shelters items from sale/use. Rather than a
+		// parallel table, a stowed item keeps its identity (id, temper, everything)
+		// and flips in_vault=1; loadAdvInventory filters it back out, so a vaulted
+		// item drops out of sell/craft/combat readers as one flag change. DEFAULT 0
+		// = "in play", correct for every pre-existing row, so no bootstrap backfill.
+		`ALTER TABLE adventure_inventory ADD COLUMN in_vault INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
