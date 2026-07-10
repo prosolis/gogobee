@@ -34,6 +34,12 @@ package plugin
 // hangs off the open spoke of upper_hall (cheapest gate, hardest fight);
 // the SECRET sits behind the highest-DC Perception with its loot bias
 // preserved.
+//
+// N5/D4 adds a fourth upper_hall spoke: the Sealed Reliquary, a cross-zone
+// key vault (LockKey "sunken sigil", earned in the Sunken Temple's Coral
+// Reliquary). A one-node loot shortcut back to spire_corridor — reachable
+// only by a player who found the sigil, so it never shows on the longest
+// path and the 23-node band is unchanged.
 
 func zoneManorBlackspireGraph() ZoneGraph {
 	nodes := []ZoneNode{
@@ -108,6 +114,12 @@ func zoneManorBlackspireGraph() ZoneGraph {
 		{NodeID: "manor_blackspire.reliquary_dust", Kind: NodeKindExploration,
 			Label: "Reliquary Dust", PosX: 18, PosY: 2},
 
+		// upper_hall — cross-zone key spoke (N5/D4). A Sunken Temple sigil
+		// opens this vault; a loot-rich shortcut back to the spire corridor.
+		{NodeID: "manor_blackspire.sealed_reliquary", Kind: NodeKindSecret,
+			Label: "Sealed Reliquary", PosX: 16, PosY: -2,
+			Content: ZoneNodeContent{LootBias: 2.2}},
+
 		// upper_hall — level-min spoke (tower).
 		{NodeID: "manor_blackspire.tower_observatory", Kind: NodeKindExploration,
 			Label: "Tower Observatory", PosX: 16, PosY: 4},
@@ -174,6 +186,9 @@ func zoneManorBlackspireGraph() ZoneGraph {
 		{From: "manor_blackspire.upper_hall", To: "manor_blackspire.tower_observatory",
 			Lock: LockLevelMin, LockData: map[string]any{"min_level": 7},
 			Hint: "a spiral stair that creaks ominously — climb only if you trust your footing", Weight: 3},
+		{From: "manor_blackspire.upper_hall", To: "manor_blackspire.sealed_reliquary",
+			Lock: LockKey, LockData: map[string]any{"key_id": "sunken sigil"},
+			Hint: "a panel scored with a drowned god's mark — you'd need its twin to open it", Weight: 4},
 
 		// Master Bedroom spoke (elite).
 		{From: "manor_blackspire.master_bedroom", To: "manor_blackspire.grim_balcony", Lock: LockNone},
@@ -184,6 +199,9 @@ func zoneManorBlackspireGraph() ZoneGraph {
 		{From: "manor_blackspire.hidden_oratory", To: "manor_blackspire.choir_balcony", Lock: LockNone},
 		{From: "manor_blackspire.choir_balcony", To: "manor_blackspire.reliquary_dust", Lock: LockNone},
 		{From: "manor_blackspire.reliquary_dust", To: "manor_blackspire.spire_corridor", Lock: LockNone},
+
+		// Sealed Reliquary spoke (cross-zone key — Sunken Sigil).
+		{From: "manor_blackspire.sealed_reliquary", To: "manor_blackspire.spire_corridor", Lock: LockNone},
 
 		// Tower spoke.
 		{From: "manor_blackspire.tower_observatory", To: "manor_blackspire.spiral_ascent", Lock: LockNone},

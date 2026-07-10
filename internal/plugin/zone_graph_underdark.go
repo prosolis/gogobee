@@ -61,6 +61,15 @@ package plugin
 //     Garrison) and the multi-region transition a teeth-y interrupt.
 // The deep_chasm spur stays anchor-light (harvest, no second trap/elite)
 // so the CON-gated climb keeps its "denser loot, less fighting" identity.
+//
+// N5/D4 turns throne_gallery (R4 tail, which every arm passes through) into
+// a fork with two secret spokes, both merging to throne_steps so either is
+// length-neutral vs the inner-hall path:
+//   - Lost Reliquary — the Underdark's own perception-gated secret (DC 17).
+//   - Sealed Vault — the cross-zone key vault opened by an Underforge Seal
+//     (earned in the Underforge's Forge Vault). LockKey "underforge seal".
+// Placed on the universal R4 tail, not in an arm, so the secrets are
+// reachable no matter which region the walk took.
 
 func zoneUnderdarkGraph() ZoneGraph {
 	r1 := "underdark_surface_tunnels"
@@ -163,10 +172,22 @@ func zoneUnderdarkGraph() ZoneGraph {
 			Label: "Guard Post", PosX: 24, PosY: 2},
 		{NodeID: "underdark.throne_doors", Kind: NodeKindExploration, RegionID: r4,
 			Label: "Riven Doors", PosX: 25, PosY: 2},
-		{NodeID: "underdark.throne_gallery", Kind: NodeKindExploration, RegionID: r4,
+		{NodeID: "underdark.throne_gallery", Kind: NodeKindFork, RegionID: r4,
 			Label: "Throne Gallery", PosX: 26, PosY: 2},
 		{NodeID: "underdark.throne_inner_hall", Kind: NodeKindExploration, RegionID: r4,
 			Label: "Inner Hall", PosX: 27, PosY: 2},
+
+		// N5/D4 secret spokes off the throne gallery (both merge to
+		// throne_steps, so either detour is length-neutral vs the inner-hall
+		// path). lost_reliquary is the Underdark's own perception-gated secret;
+		// sealed_forge_vault is the cross-zone key vault opened by an Underforge
+		// Seal (earned in the Underforge's Forge Vault).
+		{NodeID: "underdark.lost_reliquary", Kind: NodeKindSecret, RegionID: r4,
+			Label: "Lost Reliquary", PosX: 27, PosY: 0,
+			Content: ZoneNodeContent{LootBias: 2.0}},
+		{NodeID: "underdark.sealed_forge_vault", Kind: NodeKindSecret, RegionID: r4,
+			Label: "Sealed Vault", PosX: 27, PosY: 4,
+			Content: ZoneNodeContent{LootBias: 2.2}},
 		{NodeID: "underdark.throne_steps", Kind: NodeKindExploration, RegionID: r4,
 			Label: "Throne Steps", PosX: 28, PosY: 2},
 		{NodeID: "underdark.boss", Kind: NodeKindBoss, IsBoss: true, RegionID: r4,
@@ -232,7 +253,15 @@ func zoneUnderdarkGraph() ZoneGraph {
 		{From: "underdark.throne_antechamber", To: "underdark.throne_guard_post", Lock: LockNone},
 		{From: "underdark.throne_guard_post", To: "underdark.throne_doors", Lock: LockNone},
 		{From: "underdark.throne_doors", To: "underdark.throne_gallery", Lock: LockNone},
-		{From: "underdark.throne_gallery", To: "underdark.throne_inner_hall", Lock: LockNone},
+		{From: "underdark.throne_gallery", To: "underdark.throne_inner_hall", Lock: LockNone, Weight: 1},
+		{From: "underdark.throne_gallery", To: "underdark.lost_reliquary",
+			Lock: LockPerception, LockData: map[string]any{"dc": 17},
+			Hint: "a side-shrine still lit, off the gallery's blind end", Weight: 2},
+		{From: "underdark.throne_gallery", To: "underdark.sealed_forge_vault",
+			Lock: LockKey, LockData: map[string]any{"key_id": "underforge seal"},
+			Hint: "a deep-road door branded by a forge you may have passed", Weight: 3},
+		{From: "underdark.lost_reliquary", To: "underdark.throne_steps", Lock: LockNone},
+		{From: "underdark.sealed_forge_vault", To: "underdark.throne_steps", Lock: LockNone},
 		{From: "underdark.throne_inner_hall", To: "underdark.throne_steps", Lock: LockNone},
 		{From: "underdark.throne_steps", To: "underdark.boss", Lock: LockNone},
 	}

@@ -9,8 +9,10 @@ func TestUnderdarkGraph_Registered(t *testing.T) {
 	}
 	// Long-expedition D1-d widened this zone from 10 → 46 nodes so the
 	// longest entry→boss walk lands in the T4 [28,34] traversal band.
-	if len(g.Nodes) != 46 {
-		t.Errorf("nodes = %d, want 46", len(g.Nodes))
+	// N5/D4 added two throne-gallery secret spokes (Lost Reliquary +
+	// Sealed Vault) → 48.
+	if len(g.Nodes) != 48 {
+		t.Errorf("nodes = %d, want 48", len(g.Nodes))
 	}
 }
 

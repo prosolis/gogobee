@@ -12,22 +12,24 @@ func TestManorBlackspireGraph_Registered(t *testing.T) {
 	}
 	// Long-expedition D1-c widened this zone from 11 → 35 nodes so the
 	// longest entry→boss walk lands in the T3 [22,26] traversal band.
-	if len(g.Nodes) != 35 {
-		t.Errorf("nodes = %d, want 35", len(g.Nodes))
+	// N5/D4 added the Sealed Reliquary cross-zone vault → 36.
+	if len(g.Nodes) != 36 {
+		t.Errorf("nodes = %d, want 36", len(g.Nodes))
 	}
 }
 
-// TestManorBlackspireGraph_TwoStackedThreeWayForks captures the design
-// shape: both great_hall and upper_hall expose three options.
-func TestManorBlackspireGraph_TwoStackedThreeWayForks(t *testing.T) {
+// TestManorBlackspireGraph_StackedForks captures the design shape: great_hall
+// exposes three options; upper_hall exposes four since N5/D4 added the Sealed
+// Reliquary key spoke (the other three remain the elite/secret/tower gates).
+func TestManorBlackspireGraph_StackedForks(t *testing.T) {
 	g := zoneManorBlackspireGraph()
-	for _, hub := range []string{
-		"manor_blackspire.great_hall",
-		"manor_blackspire.upper_hall",
-	} {
-		outs := g.outgoingEdges(hub)
-		if len(outs) != 3 {
-			t.Errorf("%s outgoing = %d, want 3", hub, len(outs))
+	want := map[string]int{
+		"manor_blackspire.great_hall": 3,
+		"manor_blackspire.upper_hall": 4,
+	}
+	for hub, n := range want {
+		if outs := g.outgoingEdges(hub); len(outs) != n {
+			t.Errorf("%s outgoing = %d, want %d", hub, len(outs), n)
 		}
 	}
 }
@@ -43,6 +45,7 @@ func TestManorBlackspireGraph_AllSpokesReachBoss(t *testing.T) {
 		"manor_blackspire.master_bedroom",
 		"manor_blackspire.hidden_oratory",
 		"manor_blackspire.tower_observatory",
+		"manor_blackspire.sealed_reliquary",
 	} {
 		if !reachable(g, leaf, "manor_blackspire.boss") {
 			t.Errorf("%s unreachable to boss", leaf)

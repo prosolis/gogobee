@@ -202,6 +202,52 @@ func scanMoodEventsFromEvents(runID string, events []CombatEvent) (nat20s, nat1s
 //
 // Higher-tier zones currently fall through to the pre-D2a flat-percent
 // nick — D3a/D4a will add Tier 2+ trap catalogs.
+// resolveSecretRoom resolves a NodeKindSecret room as a no-combat treasure
+// cache (N5/D4). Finding the secret — via the perception/stat check on the fork
+// that hangs it, or a cross-zone key — is the reward: a guaranteed journal page
+// (the Hollow King's fragments gather in hidden rooms), a LootBias-weighted
+// treasure roll, a guaranteed zone-tier consumable cache, and, for the two
+// key-bearing secrets, a cross-zone key. No enemy, no threat.
+//
+// LootBias has been authored on every secret node since the branching-zones
+// phase and was dead code until now; it finally scales the treasure weight here.
+func (p *AdventurePlugin) resolveSecretRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition, node ZoneNode) string {
+	var b strings.Builder
+	b.WriteString(secretRoomDiscoveryLine(node))
+
+	var rewards []string
+	if line := p.grantJournalPage(userID, nil); line != "" {
+		rewards = append(rewards, line)
+	}
+	if line := p.grantSecretRoomKey(userID, node); line != "" {
+		rewards = append(rewards, line)
+	}
+
+	// LootBias-weighted treasure roll. Floors at the elite weight so even the
+	// leanest secret out-rolls a standard kill; the richest (abyss 3.0) still
+	// rolls below a boss. checkTreasureDrop DMs the discovery itself on a hit,
+	// exactly as a combat-room drop does, so it isn't folded into the outcome.
+	weight := node.Content.LootBias
+	if weight < advTreasureWeightElite {
+		weight = advTreasureWeightElite
+	}
+	p.rollZoneTreasure(userID, zone.ID, weight)
+
+	// Guaranteed cache so the room always pays out something visible.
+	for _, item := range consumableCache(int(zone.Tier), secretRoomCacheCount) {
+		it := item
+		if line := p.grantZoneItem(userID, &it, "🧪"); line != "" {
+			rewards = append(rewards, line)
+		}
+	}
+
+	if len(rewards) > 0 {
+		b.WriteString("\n\n")
+		b.WriteString(strings.Join(rewards, "\n"))
+	}
+	return b.String()
+}
+
 func (p *AdventurePlugin) resolveTrapRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition) (damage int, narration string) {
 	dndChar, _ := LoadDnDCharacter(userID)
 	if dndChar == nil {

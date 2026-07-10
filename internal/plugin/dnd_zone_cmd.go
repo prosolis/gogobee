@@ -988,6 +988,25 @@ func (p *AdventurePlugin) streamFlowThen(userID id.UserID, phaseMessages []strin
 // inter-phase delays — see resolveCombatRoom for the contract. For
 // non-combat rooms (entry, trap), phases is nil and outcome carries the
 // resolution narration.
+// currentSecretNode returns the run's current graph node when it is a secret
+// room, so resolveRoom can divert it to the treasure-cache resolver. Returns
+// false for a non-secret node, an unknown zone, or a legacy row that never got
+// a CurrentNode written (those pre-date branching graphs and have no secrets).
+func currentSecretNode(run *DungeonRun) (ZoneNode, bool) {
+	if run.CurrentNode == "" {
+		return ZoneNode{}, false
+	}
+	g, ok := loadZoneGraph(run.ZoneID)
+	if !ok {
+		return ZoneNode{}, false
+	}
+	n, ok := g.Nodes[run.CurrentNode]
+	if !ok || n.Kind != NodeKindSecret {
+		return ZoneNode{}, false
+	}
+	return n, true
+}
+
 func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition, compact bool) (intro string, phases []string, outcome string, ended bool, err error) {
 	// Revisit R2 — a cleared room stays cleared. Advancing out of a room the
 	// player backtracked into must not re-roll its combat or re-arm its trap.
@@ -1002,6 +1021,14 @@ func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone Zo
 	// only after resolving it, so the room being resolved is never already in
 	// RoomsCleared.
 	if run.RoomIsCleared(run.CurrentRoom) {
+		return
+	}
+	// N5/D4 — a secret room is a no-combat treasure cache, not the exploration
+	// fight its RoomType collapses to. Keyed off the graph node (which still
+	// carries NodeKindSecret) rather than CurrentRoomType (which does not), so
+	// it must be checked before the RoomType switch below.
+	if node, ok := currentSecretNode(run); ok {
+		outcome = p.resolveSecretRoom(userID, run, zone, node)
 		return
 	}
 	switch run.CurrentRoomType() {

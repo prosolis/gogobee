@@ -149,6 +149,103 @@ func (p *AdventurePlugin) grantJournalPage(userID id.UserID, rng *rand.Rand) str
 		journalPages[page-1].Title, page, journalTotalPages)
 }
 
+// --- N5/D4 secret content pass ---------------------------------------------
+//
+// Every NodeKindSecret room resolves as a no-combat treasure cache (see
+// resolveSecretRoom in dnd_zone_combat.go). Finding it — via the perception /
+// stat check on the fork, or a cross-zone key — is the reward: a guaranteed
+// journal page, a LootBias-weighted treasure roll, and a guaranteed consumable
+// cache. The flavor and the key catalog live here with the rest of the
+// campaign; the resolution mechanics live next to the other room resolvers.
+
+// secretRoomCacheCount is how many zone-tier consumables a secret room always
+// hands over, so the room pays out something visible even for a player who has
+// every page and misses the treasure roll.
+const secretRoomCacheCount = 2
+
+// crossZoneKey pairs a source secret room with the key item it grants. The key
+// is a plain inventory item; a LockKey edge in the destination zone matches its
+// lower-cased Name against lock_data.key_id (see evaluateEdgeLock). Keys persist
+// in inventory, so the unlock is permanent once earned.
+type crossZoneKey struct {
+	item       AdvItem
+	unlocksIn  ZoneID // destination zone, for the grant narration
+	unlockHint string // what the key opens, surfaced when it's granted
+}
+
+// secretRoomKeys — the two cross-zone keys (N5/D4). A Sunken Temple sigil opens
+// a sealed reliquary in Manor Blackspire; an Underforge seal opens a vault deep
+// in the Underdark throne approach. Keyed by the source secret's node ID.
+var secretRoomKeys = map[string]crossZoneKey{
+	"sunken_temple.coral_reliquary": {
+		item:       AdvItem{Name: "Sunken Sigil", Type: "key", Tier: 2},
+		unlocksIn:  ZoneManorBlackspire,
+		unlockHint: "a drowned god's mark — Blackspire has a door that remembers it",
+	},
+	"underforge.forge_vault": {
+		item:       AdvItem{Name: "Underforge Seal", Type: "key", Tier: 3},
+		unlocksIn:  ZoneUnderdark,
+		unlockHint: "the forge's own brand — something in the deep roads was promised its work",
+	},
+}
+
+// grantSecretRoomKey hands over the cross-zone key a secret room carries, if it
+// carries one and the player isn't already holding it. Idempotent: re-finding
+// the room on a later run won't stack duplicate keys. Returns the narration line
+// (empty when the room grants no key, the player already has it, or on error).
+func (p *AdventurePlugin) grantSecretRoomKey(userID id.UserID, node ZoneNode) string {
+	key, ok := secretRoomKeys[node.NodeID]
+	if !ok {
+		return ""
+	}
+	items, err := loadAdvInventory(userID)
+	if err != nil {
+		return ""
+	}
+	want := strings.ToLower(key.item.Name)
+	for _, it := range items {
+		if strings.ToLower(it.Name) == want {
+			return "" // already earned — don't stack it
+		}
+	}
+	if err := addAdvInventoryItem(userID, key.item); err != nil {
+		slog.Error("secret room: grant key", "user", userID, "key", key.item.Name, "err", err)
+		return ""
+	}
+	return fmt.Sprintf("🗝 **%s** — %s.", key.item.Name, key.unlockHint)
+}
+
+// secretRoomDiscovery is the bespoke in-world discovery line for a secret room,
+// keyed by node ID. Not TwinBee's voice — the same in-world register the journal
+// pages use. Nodes without an entry fall back to a generic line built from the
+// node label.
+var secretRoomDiscovery = map[string]string{
+	"crypt_valdris.secret_chamber":      "🔍 **A sealed chamber.** The other grave-robbers pried at the wrong wall. This one gives — Valdris kept something back even from his own tomb.",
+	"forest_shadows.sapling_shrine":     "🔍 **The Sapling Shrine.** A ring of young antlers grown from the dirt, and something votive left at the centre — an offering the King's shell never came back to claim.",
+	"sunken_temple.coral_reliquary":     "🔍 **The Coral Reliquary.** Behind a lattice of living coral, a niche the flood sealed rather than drowned. What the temple hid, it hid well.",
+	"manor_blackspire.hidden_oratory":   "🔍 **The Hidden Oratory.** A chapel with no door in the floor plan, kept for a tenant the deeds refuse to name.",
+	"manor_blackspire.sealed_reliquary": "🔍 **The Sealed Reliquary.** The drowned god's sigil bites into the lock and turns. Blackspire kept a piece of the temple's secret behind a door only the temple could open.",
+	"underforge.forge_vault":            "🔍 **The Forge Vault.** A strongroom off the unbanked heat, its ledger of commissions all addressed elsewhere and long overdue.",
+	"underdark.lost_reliquary":          "🔍 **A lost reliquary.** A shrine the deep roads swallowed whole, still lit, still waiting on a procession that stopped coming a long age ago.",
+	"underdark.sealed_forge_vault":      "🔍 **The Sealed Vault.** The Underforge's brand fits the seam, and the deep-road door gives up what the forge sent ahead — payment on the old account.",
+	"feywild_crossing.illusion_garden":  "🔍 **The Illusion Garden.** A too-kind grove that isn't there when you look straight at it. He can afford beauty here; it costs him nothing to keep.",
+	"dragons_lair.hoard_pillar":         "🔍 **A pillar of hoard.** Coin drifted to the ceiling around a single column the wyrm guards more than gold — as if something at its heart were worth more.",
+	"abyss_portal.reality_seam":         "🔍 **A seam in the real.** The gate's arithmetic frays here, and through the frayed place a hand once reached to leave a thing behind on the way out.",
+}
+
+// secretRoomDiscoveryLine returns the discovery flavor for a secret room,
+// falling back to a label-driven generic when the node has no bespoke entry.
+func secretRoomDiscoveryLine(node ZoneNode) string {
+	if line, ok := secretRoomDiscovery[node.NodeID]; ok {
+		return line
+	}
+	label := node.Label
+	if label == "" {
+		label = "a hidden room"
+	}
+	return fmt.Sprintf("🔍 **%s** — a room the others walked past. Something was left here for whoever looked closer.", label)
+}
+
 // bossEpilogues ties each zone boss's death to the Hollow King arc: a 2-3
 // sentence capstone appended to the boss-down moment. Forest of Shadows is the
 // King himself — but what falls there is a shell he shed, which is why the arc
