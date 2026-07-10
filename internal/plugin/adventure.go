@@ -1126,7 +1126,7 @@ func (p *AdventurePlugin) checkTreasureDrop(userID id.UserID, char *AdventureCha
 		return
 	}
 
-	if count < advMaxTreasures {
+	if count < maxTreasuresForTier(char.HouseTier) {
 		// Directly save
 		if err := advSaveTreasure(userID, drop.Def); err != nil {
 			slog.Error("adventure: failed to save treasure", "user", userID, "err", err)
@@ -1511,7 +1511,7 @@ func (p *AdventurePlugin) handleRecipesCmd(ctx MessageContext) error {
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Failed to load your character.")
 	}
-	return p.SendDM(ctx.Sender, renderRecipesKnown(char.ForagingSkill))
+	return p.SendDM(ctx.Sender, renderRecipesKnown(char.ForagingSkill, homeWorkshopCraftBonus(char.HouseTier)))
 }
 
 func (p *AdventurePlugin) handleTreasuresCmd(ctx MessageContext, arg string) error {

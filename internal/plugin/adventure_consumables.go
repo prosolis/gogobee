@@ -346,15 +346,34 @@ var craftingRecipes = []CraftingRecipe{
 	{Result: "Voidstone Shard", Ingredients: []string{"Voidstone", "Mythril Ore"}, MinForaging: 30, Tier: 5},
 }
 
-// craftingSuccessRate returns the success chance for a recipe given foraging level.
-// Base rate is 50% at minimum level, +3% per 5 levels above minimum, capped at 95%.
-func craftingSuccessRate(foragingLevel, minForaging int) float64 {
+// houseTierWorkshop is the T3 "Comfortable" house that unlocks the workshop —
+// a flat craft-success bonus while crafting at home.
+const houseTierWorkshop = 3
+
+// homeWorkshopCraftBonus returns the additive craft-success bonus from a T3+
+// home workshop. Tier 1/2 and no house grant none.
+func homeWorkshopCraftBonus(houseTier int) float64 {
+	if houseTier >= houseTierWorkshop {
+		return 0.05
+	}
+	return 0
+}
+
+// craftingSuccessRate returns the success chance for a recipe given foraging
+// level. Base rate is 50% at minimum level, +3% per 5 levels above minimum,
+// capped at 95%. A T3+ home workshop adds workshopBonus on top and lifts the
+// cap to 98%, so a maxed forager still gains a little from the bench.
+func craftingSuccessRate(foragingLevel, minForaging int, workshopBonus float64) float64 {
 	base := 0.50
 	levelsAbove := foragingLevel - minForaging
 	bonus := float64(levelsAbove) / 5.0 * 0.03
-	rate := base + bonus
-	if rate > 0.95 {
-		return 0.95
+	rate := base + bonus + workshopBonus
+	cap := 0.95
+	if workshopBonus > 0 {
+		cap = 0.98
+	}
+	if rate > cap {
+		return cap
 	}
 	return rate
 }
@@ -369,13 +388,16 @@ type CraftResult struct {
 // their current foraging level, plus a teaser line for the next unlock
 // threshold. Hides exact ingredient lists for recipes the player hasn't
 // unlocked — only the count of locked recipes is shown.
-func renderRecipesKnown(foragingLevel int) string {
+func renderRecipesKnown(foragingLevel int, workshopBonus float64) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("🧪 **Crafting Recipes** — Foraging Lv.%d\n\n", foragingLevel))
 
 	if foragingLevel < 10 {
 		sb.WriteString("_Auto-crafting unlocks at Foraging Lv.10. Keep gathering._")
 		return sb.String()
+	}
+	if workshopBonus > 0 {
+		sb.WriteString(fmt.Sprintf("_🔨 Home workshop: +%.0f%% craft success._\n\n", workshopBonus*100))
 	}
 
 	// Group recipes by tier, list those known.
@@ -402,7 +424,7 @@ func renderRecipesKnown(foragingLevel int) string {
 		}
 		sb.WriteString(fmt.Sprintf("**Tier %d** (Foraging %d+)\n", tier, recipes[0].MinForaging))
 		for _, r := range recipes {
-			rate := craftingSuccessRate(foragingLevel, r.MinForaging) * 100
+			rate := craftingSuccessRate(foragingLevel, r.MinForaging, workshopBonus) * 100
 			sb.WriteString(fmt.Sprintf("  • %s — %s (%.0f%% success)\n",
 				r.Result, strings.Join(r.Ingredients, " + "), rate))
 		}
@@ -433,7 +455,7 @@ var craftXPFailure = map[int]int{1: 3, 2: 5, 3: 8, 4: 12, 5: 18}
 //
 // Side effects: grants foraging XP per attempt (success > failure) and bumps
 // the player's CraftsSucceeded counter on each success.
-func autoCraftConsumables(userID id.UserID, items []AdvItem, foragingLevel int) ([]CraftResult, []AdvItem) {
+func autoCraftConsumables(userID id.UserID, items []AdvItem, foragingLevel int, workshopBonus float64) ([]CraftResult, []AdvItem) {
 	if foragingLevel < 10 {
 		return nil, items
 	}
@@ -452,7 +474,7 @@ func autoCraftConsumables(userID id.UserID, items []AdvItem, foragingLevel int) 
 			break
 		}
 
-		rate := craftingSuccessRate(foragingLevel, bestRecipe.MinForaging)
+		rate := craftingSuccessRate(foragingLevel, bestRecipe.MinForaging, workshopBonus)
 		success := rand.Float64() < rate
 
 		if success {

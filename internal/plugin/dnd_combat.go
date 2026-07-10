@@ -481,10 +481,23 @@ func formatN(n int, word string) string {
 // wound layered with the fresh equipment cushion. There is no scale
 // conversion; persistDnDHPAfterCombat is the inverse direct copy.
 func applyDnDHPScaling(stats *CombatStats, c *DnDCharacter) {
-	if c == nil || c.HPMax <= 0 || c.HPCurrent >= c.HPMax {
+	if c == nil || c.HPMax <= 0 {
 		return
 	}
-	startHP := c.HPCurrent + stats.HPBonus
+	// Well-rested temporary HP (from a long rest at a T2+ home) is a cushion
+	// layered above the fight's MaxHP. It is dormant (0) for anyone not
+	// currently rested — including every scenario in the balance corpus and
+	// the class-balance harness, which never sets it — so the full-HP fast
+	// path below stays byte-identical for them and the golden does not move.
+	if c.TempHP > 0 {
+		stats.MaxHP += c.TempHP
+	}
+	if c.HPCurrent >= c.HPMax {
+		// Full HP: StartHP=0 sentinel already means "enter at MaxHP", which
+		// now includes the +TempHP cushion.
+		return
+	}
+	startHP := c.HPCurrent + stats.HPBonus + c.TempHP
 	if startHP < 1 {
 		startHP = 1
 	}

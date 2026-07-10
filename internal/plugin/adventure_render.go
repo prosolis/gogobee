@@ -1037,8 +1037,17 @@ func renderAdvLeaderboard(chars []AdvLeaderboardEntry) string {
 // ── Treasure Discard Prompt ──────────────────────────────────────────────────
 
 func renderAdvTreasureDiscardPrompt(newTreasure *AdvTreasureDef, existing []AdvTreasureDef) string {
-	if len(TreasureInventoryCap) == 0 {
-		return "You found a treasure but your inventory is full. Reply 1, 2, or 3 to discard, or `keep`."
+	// The flavor templates below are written for the base 3-slot set. With a
+	// T3 trophy room the set can hold 4, so fall back to a plain dynamic list
+	// whenever it isn't exactly 3 — every slot has to be visible to choose it.
+	if len(TreasureInventoryCap) == 0 || len(existing) != 3 {
+		var b strings.Builder
+		fmt.Fprintf(&b, "You found **%s** but your treasure slots are full. Discard one to make room:\n", newTreasure.Name)
+		for i, ex := range existing {
+			fmt.Fprintf(&b, "%d. %s — %s\n", i+1, ex.Name, ex.InventoryDesc)
+		}
+		fmt.Fprintf(&b, "\nReply with the number to discard, or `keep` to leave the new one behind.")
+		return b.String()
 	}
 
 	// Build substitution map with existing treasure info

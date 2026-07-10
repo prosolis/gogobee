@@ -79,3 +79,13 @@ func TestAdvLocForZone(t *testing.T) {
 		t.Errorf("name = %q, want the zone's display name", loc.Name)
 	}
 }
+
+// TestMaxTreasuresForTier pins the T3 "trophy room" 4th slot: the base cap is
+// 3, and only a tier-3+ home lifts it to 4.
+func TestMaxTreasuresForTier(t *testing.T) {
+	for tier, want := range map[int]int{0: 3, 1: 3, 2: 3, 3: 4, 4: 4} {
+		if got := maxTreasuresForTier(tier); got != want {
+			t.Errorf("maxTreasuresForTier(%d) = %d, want %d", tier, got, want)
+		}
+	}
+}

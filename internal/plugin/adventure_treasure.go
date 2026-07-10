@@ -50,6 +50,26 @@ var advTreasureDropRates = map[int]float64{
 
 const advMaxTreasures = 3
 
+// houseTierTrophyRoom is the T3 "Comfortable" house that unlocks the trophy
+// room — a fourth treasure slot.
+const houseTierTrophyRoom = 3
+
+// maxTreasuresForTier returns how many treasures a player may hold. The base
+// cap is 3; a T3+ house adds the trophy-room slot for a 4th.
+//
+// The extra slot is a housing perk, but HouseTier is only ever written upward
+// (purchase paths; there is no foreclosure/downgrade that writes it back down),
+// so a player can only ever hold a 4th treasure while tier>=3. There is
+// therefore no reachable state where a held treasure must be revoked at
+// bonus-computation time, and the cap is enforced only at the save gate.
+func maxTreasuresForTier(houseTier int) int {
+	n := advMaxTreasures
+	if houseTier >= houseTierTrophyRoom {
+		n++
+	}
+	return n
+}
+
 // ── Treasure Definitions ─────────────────────────────────────────────────────
 
 var advAllTreasures = map[int][]AdvTreasureDef{

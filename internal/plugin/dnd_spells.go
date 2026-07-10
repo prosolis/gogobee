@@ -564,6 +564,48 @@ func refreshSpellSlots(userID id.UserID) error {
 	return err
 }
 
+// applyLongRestSpellSlots resets a caster's slot pool to its base (class +
+// subclass) total with used=0, then folds in any well-rested bonus slots for a
+// home rest of the given tier. The bonus lives in `total`, so it is spent like
+// an ordinary slot and is wiped by the *next* long rest's reset — expiry needs
+// no separate bookkeeping. It is safe to call on every long rest because
+// ensureSpellsForCharacter already keeps `total` == slotsForCharacter(c) on
+// load, so the base reset is a no-op except for clearing a prior bonus.
+//
+// Non-casters have an empty pool; the function falls back to the plain
+// used=0 refresh and grants nothing. Returns the bonus actually granted (nil if
+// none) so the caller can name it in the rest message.
+func applyLongRestSpellSlots(c *DnDCharacter, restTier int) (map[int]int, error) {
+	pool := slotsForCharacter(c)
+	if len(pool) == 0 {
+		return nil, refreshSpellSlots(c.UserID)
+	}
+	bonus := wellRestedSlotBonus(restTier, pool)
+	tx, err := db.Get().Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM dnd_spell_slots WHERE user_id = ?`, string(c.UserID)); err != nil {
+		return nil, err
+	}
+	for lvl, total := range pool {
+		if _, err := tx.Exec(`
+			INSERT INTO dnd_spell_slots (user_id, slot_level, total, used)
+			VALUES (?, ?, ?, 0)`,
+			string(c.UserID), lvl, total+bonus[lvl]); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if len(bonus) == 0 {
+		return nil, nil
+	}
+	return bonus, nil
+}
+
 // partialRefreshSpellSlots restores spell slots on short rest. All L1 slots
 // come back, plus floor(charLevel/4) additional slots distributed
 // lowest-first across tiers ≥2. Returns slot_level→count restored so the

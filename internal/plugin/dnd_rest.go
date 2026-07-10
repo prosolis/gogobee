@@ -222,8 +222,15 @@ func (p *AdventurePlugin) handleDnDLongRest(ctx MessageContext) error {
 		innPaid = true
 	}
 
+	// Well-rested buff: only when resting at your own home (not the inn), and
+	// only from tier 2 up — a tier-1 shack and a rented inn room grant nothing.
+	restTier := 0
+	if hasHousing {
+		restTier = house.Tier
+	}
+
 	c.HPCurrent = c.HPMax
-	c.TempHP = 0
+	c.TempHP = wellRestedTempHP(c.HPMax, restTier)
 	c.ShortRestCharges = c.Level
 	// Phase 10 SUB2a — long rest clears one level of exhaustion (5e: a
 	// long rest clears one). For Berserker who racks up exhaustion via
@@ -241,8 +248,9 @@ func (p *AdventurePlugin) handleDnDLongRest(ctx MessageContext) error {
 	}
 	markActedToday(ctx.Sender)
 	_ = refreshAllResources(ctx.Sender)
-	// Phase 9: spell slots refresh on long rest.
-	_ = refreshSpellSlots(ctx.Sender)
+	// Phase 9: spell slots refresh on long rest. A home rest also folds in the
+	// well-rested bonus slots (no-op for non-casters and inn/tier-1 rests).
+	slotBonus, _ := applyLongRestSpellSlots(c, restTier)
 	// Phase 9: Cleric prep flags reset (SP4) — until SP4 ships, default
 	// Cleric grants are already prepared=1 so this is a no-op for them.
 	// Voluntary concentration ends at long rest (mage_armor's 8h is exactly
@@ -262,6 +270,14 @@ func (p *AdventurePlugin) handleDnDLongRest(ctx MessageContext) error {
 	// HomeLongRest pool when at home; generic RestLong otherwise.
 	if line := dndRestLongFlavorLine(hasHousing); line != "" {
 		msg += "\n\n_" + line + "_"
+	}
+	if bits := wellRestedSummary(c.TempHP, slotBonus); bits != "" {
+		homeName := "home"
+		if def := houseTierByTier(restTier); def != nil {
+			homeName = def.Name
+		}
+		msg += fmt.Sprintf("\n\n🛏️ _Well-rested at your %s — %s until your next long rest._",
+			strings.ToLower(homeName), bits)
 	}
 	return p.SendDM(ctx.Sender, msg)
 }

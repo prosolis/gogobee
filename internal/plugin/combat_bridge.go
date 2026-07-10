@@ -185,7 +185,7 @@ func (p *AdventurePlugin) loadConsumableInventory(userID id.UserID) []Consumable
 	// Auto-craft if player has foraging level 10+
 	char, err := loadAdvCharacter(userID)
 	if err == nil && char.ForagingSkill >= 10 {
-		craftResults, updatedItems := autoCraftConsumables(userID, items, char.ForagingSkill)
+		craftResults, updatedItems := autoCraftConsumables(userID, items, char.ForagingSkill, homeWorkshopCraftBonus(char.HouseTier))
 		if len(craftResults) > 0 {
 			items = updatedItems
 			for _, cr := range craftResults {
