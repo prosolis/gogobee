@@ -64,6 +64,12 @@ func simulateParty(players []Combatant, enemy Combatant, phases []CombatPhase) P
 }
 
 func simulatePartyWithRNG(players []Combatant, enemy Combatant, phases []CombatPhase, rng *rand.Rand) PartyCombatResult {
+	// Party-only: bump the enemy's max HP so the fight lasts long enough for the
+	// scaled action economy to actually threaten each member. Solo is unchanged
+	// (scale 1.0), so SimulateCombat and the golden do not move.
+	if len(players) > 1 {
+		enemy.Stats.MaxHP = scaledEnemyMaxHP(enemy.Stats.MaxHP, len(players))
+	}
 	enemyStart := enemy.Stats.MaxHP
 	if enemy.Stats.StartHP > 0 && enemy.Stats.StartHP < enemy.Stats.MaxHP {
 		enemyStart = enemy.Stats.StartHP
@@ -289,6 +295,129 @@ func roundInitiative(st *combatState, enemy *Combatant, phase *CombatPhase) []in
 	return order
 }
 
+// enemyActionsThisRound is how many attack-actions the enemy takes this round
+// against the seated roster. Solo returns 1 without drawing from the RNG, so both
+// combat engines collapse to their pre-party behaviour and the characterization
+// golden and d8prereq corpus do not move.
+//
+// A party's action budget is a *fractional expectation* (partyActionExpectation),
+// realised as floor(exp) actions plus one more with probability frac(exp). The
+// fraction matters because the action lever is coarse: against a party of two, an
+// integer 2 actions is a 100% faceroll and 3 is brutal (~45%), with nothing
+// between — a per-round coin-flip for the extra action is the only way to land
+// the band in the gap. The single draw is taken only for a party, so the solo RNG
+// stream is untouched.
+func enemyActionsThisRound(st *combatState) int {
+	n := len(st.actors)
+	if n < 2 {
+		return 1
+	}
+	exp := partyActionExpectation(n)
+	base := int(exp)
+	if frac := exp - float64(base); frac > 0 && st.randFloat() < frac {
+		base++
+	}
+	return base
+}
+
+// partyActionExpectation is the expected number of enemy attack-actions per round
+// against a party of n. A single enemy swing (the pre-P8 behaviour) let each
+// member absorb ~1/N² of the solo incoming and cleared 100% of T5; the sim band
+// landed the martial-leader target only near ~2N actions, and HP alone can't touch
+// a martial (fighter stays at 100% even at enemy HP ×1.6). So the enemy's action
+// economy is the load-bearing lever, and it is fractional so a two-person party
+// lands between soloing and a trio instead of snapping to one of two integers
+// (against a duo, an integer 2 actions is a ~91% faceroll and 3 is a ~45% meat
+// grinder — 2.4 sits fighter+cleric at ~75%, between solo 70% and trio 90%).
+//
+// N≥3 follows 2N−1, the point that gave fighter ~90% / cleric-led ~72% at
+// HP ×1.15. The whole curve is monotonic by party size and never drops a
+// composition below its solo clear rate — bringing a friend is never a penalty.
+func partyActionExpectation(n int) float64 {
+	switch {
+	case n < 2:
+		return 1
+	case n == 2:
+		return 2.4
+	default:
+		return float64(2*n - 1)
+	}
+}
+
+// partyEnemyHPScale is the party-only multiplier on the enemy's max HP. Solo
+// (roster < 2) returns 1.0, so the solo path — and the characterization golden
+// and the d8prereq corpus — is byte-for-byte untouched. With the action economy
+// fixed, each member now takes ~1 swing a round, so a longer fight is more
+// cumulative exposure per member: HP became a live difficulty lever exactly the
+// way P6e predicted it would once the enemy stopped swinging only once.
+//
+// 1.15 is where the P8 sim sweep landed the band: with 2N−1 actions, a party of
+// three clears the T5 martial-leader band at ~89% (fighter) / ~67% (cleric-led),
+// clearly safer than soloing (70% / 27%) but with real TPKs and member deaths —
+// not the 100% faceroll a single enemy swing produced.
+func partyEnemyHPScale(rosterSize int) float64 {
+	if rosterSize < 2 {
+		return 1.0
+	}
+	return 1.15
+}
+
+// scaledEnemyMaxHP applies the party HP scalar to a base max-HP with one rounding
+// rule, so every call site (the auto-resolve engine, the party session's initial
+// persist, and the per-turn rebuild) agrees on the same number.
+func scaledEnemyMaxHP(baseMaxHP, rosterSize int) int {
+	return int(float64(baseMaxHP) * partyEnemyHPScale(rosterSize))
+}
+
+// enemyRoundSwings resolves the enemy's attacks for one round of the auto-resolve
+// engine. A solo roster takes exactly one swing at its single seat, reusing the
+// round's already-rolled target and pet procs, so its RNG stream and event log are
+// byte-for-byte the pre-P8 engine's. A party faces enemyActionsThisRound() swings,
+// each re-targeted at a random standing seat with that seat's own pet procs, so the
+// damage is spread across the roster instead of pinning the round's first target.
+//
+// abilityDealtDamage means a cleave/lifesteal already spent the enemy's first
+// action this round, so one fewer swing follows — for solo that collapses to the
+// old "the ability stands in for the attack" skip. Returns true if the fight is
+// decided.
+func enemyRoundSwings(st *combatState, enemy *Combatant, phase *CombatPhase, seats []CombatResult,
+	target int, abilityDealtDamage, petWhiff, petDeflect, sporeMiss bool) bool {
+
+	swings := enemyActionsThisRound(st)
+	reuseFirst := !abilityDealtDamage
+	if abilityDealtDamage {
+		swings--
+	}
+	for k := 0; k < swings; k++ {
+		tgt := target
+		sw, sd, sp := petWhiff, petDeflect, sporeMiss
+		if !(reuseFirst && k == 0) {
+			// A fresh target for every swing past the first: re-pick among the
+			// standing seats and roll that seat's own pet procs. This branch never
+			// runs for a solo roster, so it adds no draws to the solo stream.
+			var alive bool
+			if tgt, alive = enemyTargetSeat(st); !alive {
+				return combatOver(st)
+			}
+			st.seat(tgt)
+			sw = st.c.Mods.PetWhiffProc > 0 && st.randFloat() < st.c.Mods.PetWhiffProc
+			sd = st.c.Mods.PetDeflectProc > 0 && st.randFloat() < st.c.Mods.PetDeflectProc
+			if sd {
+				seats[tgt].PetDeflected = true
+			}
+			sp = st.sporeRounds > 0 && st.randFloat() < 0.15
+		}
+		st.seat(tgt)
+		mark := len(st.events)
+		over := resolveEnemyAttack(st, st.c, enemy, phase, &seats[tgt], sw, sd, sp)
+		stampEventSeats(st, mark, tgt)
+		if over && combatOver(st) {
+			return true
+		}
+	}
+	return false
+}
+
 // simulatePartyRound runs one round for the whole roster. Returns true if the
 // fight is over.
 func simulatePartyRound(st *combatState, enemy *Combatant, phase *CombatPhase, seats []CombatResult) bool {
@@ -383,14 +512,7 @@ func simulatePartyRound(st *combatState, enemy *Combatant, phase *CombatPhase, s
 	// via Mods.InitiativeBias — +X means they go first more often.
 	for _, s := range roundInitiative(st, enemy, phase) {
 		if s == enemySeat {
-			if abilityDealtDamage {
-				continue
-			}
-			st.seat(target)
-			mark := len(st.events)
-			over := resolveEnemyAttack(st, st.c, enemy, phase, &seats[target], petWhiff, petDeflect, sporeMiss)
-			stampEventSeats(st, mark, target)
-			if over && combatOver(st) {
+			if enemyRoundSwings(st, enemy, phase, seats, target, abilityDealtDamage, petWhiff, petDeflect, sporeMiss) {
 				return true
 			}
 			continue

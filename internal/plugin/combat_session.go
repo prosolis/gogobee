@@ -488,7 +488,10 @@ func (p *AdventurePlugin) startPartyCombatSession(
 	if len(seats) == 0 {
 		return nil, fmt.Errorf("start combat session: empty roster")
 	}
-	enemyHP := enemy.Stats.MaxHP
+	// Party-only enemy HP bump (solo roster scales by 1.0). The per-turn rebuild
+	// in partyCombatantsForSession applies the identical scalar to the enemy's
+	// Stats.MaxHP, so the persisted current HP and the rebuilt max never drift.
+	enemyHP := scaledEnemyMaxHP(enemy.Stats.MaxHP, len(seats))
 	owner := seats[0]
 	sess, err := startCombatSession(owner.UserID, runID, encounterID, enemyID,
 		owner.HP, owner.HPMax, enemyHP, enemyHP)

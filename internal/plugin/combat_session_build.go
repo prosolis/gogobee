@@ -176,6 +176,12 @@ func (p *AdventurePlugin) partyCombatantsForSession(sess *CombatSession) ([]*Com
 			// rebuilds the identical stat block, so seat 0's copy is the fight's.
 			// Only the *player* half of the build varies by seat.
 			enemy = e
+			// Party-only enemy HP bump, re-derived each turn from the template so
+			// it never compounds. Matches the scalar startPartyCombatSession used
+			// for the initial persist; solo (roster 1) scales by 1.0.
+			if sess.IsParty() {
+				enemy.Stats.MaxHP = scaledEnemyMaxHP(enemy.Stats.MaxHP, sess.RosterSize())
+			}
 		}
 	}
 	return players, &enemy, nil

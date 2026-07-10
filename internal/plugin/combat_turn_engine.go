@@ -414,10 +414,11 @@ func (te *turnEngine) step(action PlayerAction) ([]CombatEvent, error) {
 		te.stepPlayerTurn(action)
 		te.stampSeat(0, acting)
 	case CombatPhaseEnemyTurn:
+		// stepEnemyTurn self-stamps each attack-action to the seat it targeted: a
+		// party's enemy re-targets across the roster within one turn, so there is
+		// no single seat the whole phase lands on. Solo stamps seat 0 throughout,
+		// exactly as the old blanket stamp did.
 		te.stepEnemyTurn()
-		// stepEnemyTurn seats its target before anything resolves, and the whole
-		// phase lands on that one character.
-		te.stampSeat(0, te.st.seatIdx)
 	case CombatPhaseRoundEnd:
 		te.stepRoundEnd()
 	case CombatPhaseOver:
@@ -615,34 +616,39 @@ func (te *turnEngine) stepEnemyTurn() {
 		return
 	}
 	te.st.seat(target)
-	// A control spell cast last phase forfeits the enemy's attack this round —
-	// unless the enemy is fear_immune, in which case the control fizzled and it
-	// acts as normal.
+	// A control spell cast last phase forfeits the enemy's whole turn (every
+	// attack-action) this round — unless the enemy is fear_immune, in which case
+	// the control fizzled and it acts as normal.
 	if te.st.enemySkipFirst {
 		te.st.enemySkipFirst = false
+		mark := len(te.st.events)
 		if enemyImmuneToControl(te.enemy, te.st) {
 			te.st.events = append(te.st.events, CombatEvent{
 				Round: te.st.round, Phase: turnCombatPhase.Name, Actor: "enemy", Action: "fear_resist",
 				PlayerHP: te.st.playerHP, EnemyHP: te.st.enemyHP,
 			})
+			te.stampSeat(mark, target)
 		} else {
 			te.st.events = append(te.st.events, CombatEvent{
 				Round: te.st.round, Phase: turnCombatPhase.Name, Actor: "enemy", Action: "spell_held",
 				PlayerHP: te.st.playerHP, EnemyHP: te.st.enemyHP,
 			})
+			te.stampSeat(mark, target)
 			te.advance()
 			return
 		}
 	}
 
-	// Monster ability fires at the top of the enemy turn. cleave / lifesteal
-	// resolve their own damage and stand in for the attack action this round;
-	// every other effect (poison / stun / enrage / armor_break) is a rider that
-	// leaves the multiattack below intact. applyAbility returns true when the
-	// player went down without a save.
+	// Monster ability fires once, at the top of the enemy turn, against the
+	// initial target. cleave / lifesteal resolve their own damage and stand in
+	// for the enemy's first attack-action this round; every other effect (poison
+	// / stun / enrage / armor_break) is a rider that leaves the multiattack below
+	// intact. applyAbility returns true when the player went down without a save.
 	abilityDealtDamage := false
 	if te.enemy.Ability != nil && turnAbilityFires(te.enemy.Ability, te.st, te.enemy) {
+		mark := len(te.st.events)
 		if applyAbility(te.st, te.st.c, te.enemy, &turnCombatPhase, te.result) {
+			te.stampSeat(mark, target)
 			// The target went down without a save. The fight only ends if it
 			// took the last member with it; otherwise the enemy has spent its
 			// turn on that kill.
@@ -653,55 +659,92 @@ func (te *turnEngine) stepEnemyTurn() {
 			}
 			return
 		}
+		te.stampSeat(mark, target)
 		switch te.enemy.Ability.Effect {
 		case "cleave", "lifesteal":
 			abilityDealtDamage = true
 		}
 	}
 
-	if !abilityDealtDamage {
-		// Pet defensive procs are a single proc per enemy turn: roll once, then
-		// spend it on the first swing only. Whiff makes that one swing a
-		// guaranteed miss; deflect halves its damage. Against a multiattack the
-		// remaining swings resolve normally — a single proc shouldn't nullify a
-		// boss's whole multiattack round. (This deliberately diverges from the
-		// auto-resolve engine's apply-to-all model.)
-		petWhiff := te.st.c.Mods.PetWhiffProc > 0 && te.st.randFloat() < te.st.c.Mods.PetWhiffProc
-		petDeflect := te.st.c.Mods.PetDeflectProc > 0 && te.st.randFloat() < te.st.c.Mods.PetDeflectProc
-		if petDeflect {
-			te.result.PetDeflected = true
-		}
-
-		// SRD multiattack: each profile entry is one attack roll resolved
-		// through the shared primitive. A registered elite/boss swings its full
-		// profile; everyone else gets a single attack from the template stats.
-		// resolveEnemyAttack returns true when the fight is decided — either the
-		// player went down without a death save, or a reflect consumable killed
-		// the enemy. Disambiguate by inspecting HP.
-		for i, atk := range enemyAttackProfile(te.sess.EnemyID, te.enemy.Stats) {
-			swing := *te.enemy
-			swing.Stats.Attack = atk.Damage
-			swing.Stats.AttackBonus = atk.AttackBonus
-			// Spend the proc on the first swing only; later swings see false.
-			swingWhiff := petWhiff && i == 0
-			swingDeflect := petDeflect && i == 0
-			decided := resolveEnemyAttack(te.st, te.st.c, &swing, &turnCombatPhase, te.result, swingWhiff, swingDeflect, false)
-			if te.st.playerHP <= 0 {
-				// The target is down. The enemy stops swinging at a corpse; the
-				// fight ends only if the roster is empty.
-				if !te.st.anyAlive() {
-					te.finish(CombatStatusLost)
-					return
-				}
-				break
-			}
-			if decided || te.st.enemyHP <= 0 {
-				te.finish(CombatStatusWon)
+	// The enemy takes enemyActionsThisRound() attack-actions, each its full
+	// SRD multiattack, re-targeting a fresh standing seat per action so a party's
+	// damage is spread across the roster rather than pinning the first target.
+	// A solo roster is exactly one action against its one seat — no re-target is
+	// drawn — so its event stream and RNG draws are unchanged. When the ability
+	// already dealt damage it was the first action, so one fewer follows; for solo
+	// that collapses to the old "the ability stood in for the attack" skip.
+	actions := enemyActionsThisRound(te.st)
+	reuseFirstTarget := !abilityDealtDamage
+	if abilityDealtDamage {
+		actions--
+	}
+	for a := 0; a < actions; a++ {
+		if !(reuseFirstTarget && a == 0) {
+			tgt, alive := te.enemyTarget()
+			if !alive {
+				te.finish(CombatStatusLost)
 				return
 			}
+			te.st.seat(tgt)
+			target = tgt
+		}
+		if te.enemyAttackAction(target) {
+			return
 		}
 	}
 	te.advance()
+}
+
+// enemyAttackAction resolves one enemy attack-action — the full SRD multiattack
+// profile — against the seat the cursor already points at, and stamps every event
+// it emits to that seat (the party's enemy re-targets across the roster within one
+// turn, so the whole-turn blanket stamp in step() no longer holds). Registered
+// elites/bosses swing their full profile; everyone else gets a single attack from
+// the template stats.
+//
+// Returns true only when it decided the fight (te.finish has already been called),
+// so the caller ends the enemy turn. It returns false when the target dropped but
+// the roster is still alive — this action is over, and the caller re-targets the
+// next one.
+func (te *turnEngine) enemyAttackAction(seat int) (finished bool) {
+	mark := len(te.st.events)
+	// Pet defensive procs are a single proc per attack-action: roll once, then
+	// spend on the first swing only. Whiff makes that one swing a guaranteed miss;
+	// deflect halves its damage. Against a multiattack the remaining swings resolve
+	// normally — a single proc shouldn't nullify a boss's whole multiattack.
+	// (This deliberately diverges from the auto-resolve engine's apply-to-all.)
+	petWhiff := te.st.c.Mods.PetWhiffProc > 0 && te.st.randFloat() < te.st.c.Mods.PetWhiffProc
+	petDeflect := te.st.c.Mods.PetDeflectProc > 0 && te.st.randFloat() < te.st.c.Mods.PetDeflectProc
+	if petDeflect {
+		te.result.PetDeflected = true
+	}
+
+	for i, atk := range enemyAttackProfile(te.sess.EnemyID, te.enemy.Stats) {
+		swing := *te.enemy
+		swing.Stats.Attack = atk.Damage
+		swing.Stats.AttackBonus = atk.AttackBonus
+		swingWhiff := petWhiff && i == 0
+		swingDeflect := petDeflect && i == 0
+		decided := resolveEnemyAttack(te.st, te.st.c, &swing, &turnCombatPhase, te.result, swingWhiff, swingDeflect, false)
+		if te.st.playerHP <= 0 {
+			te.stampSeat(mark, seat)
+			// The target is down. The enemy stops swinging at a corpse; the fight
+			// ends only if the roster is empty, otherwise this action is over and
+			// the caller re-targets.
+			if !te.st.anyAlive() {
+				te.finish(CombatStatusLost)
+				return true
+			}
+			return false
+		}
+		if decided || te.st.enemyHP <= 0 {
+			te.stampSeat(mark, seat)
+			te.finish(CombatStatusWon)
+			return true
+		}
+	}
+	te.stampSeat(mark, seat)
+	return false
 }
 
 // turnAbilityFires decides whether a monster ability triggers this enemy turn.

@@ -124,31 +124,89 @@ func TestSimulateParty_DownedMemberDoesNotEndTheFight(t *testing.T) {
 	}
 }
 
-// The enemy swings at one seat per round, not at everyone.
-func TestSimulateParty_EnemyStrikesOneSeatPerRound(t *testing.T) {
+// P8 scaling constants: solo is exempt on both levers (1 action, ×1.0 HP) so the
+// characterization golden and the d8prereq corpus are untouched. A party's action
+// budget is a fractional expectation — 2.4 for a duo (so it lands between soloing
+// and a trio, where an integer 2 vs 3 has no room), 2N−1 for N≥3 — plus ×1.15
+// enemy HP.
+func TestP8PartyScaling_SoloExemptPartyScaled(t *testing.T) {
+	if got := partyActionExpectation(1); got != 1 {
+		t.Fatalf("solo action expectation = %v, want 1", got)
+	}
+	if got := partyEnemyHPScale(1); got != 1.0 {
+		t.Fatalf("solo HP scale = %v, want 1.0", got)
+	}
+	if got := scaledEnemyMaxHP(200, 1); got != 200 {
+		t.Fatalf("solo enemy HP = %d, want 200 (unscaled)", got)
+	}
+	if got := partyActionExpectation(2); got != 2.4 {
+		t.Fatalf("duo action expectation = %v, want 2.4", got)
+	}
+	for n := 3; n <= 5; n++ {
+		if got, want := partyActionExpectation(n), float64(2*n-1); got != want {
+			t.Fatalf("party of %d: action expectation = %v, want %v", n, got, want)
+		}
+	}
+	if got := partyEnemyHPScale(3); got != 1.15 {
+		t.Fatalf("party HP scale = %v, want 1.15", got)
+	}
+	// int(200*1.15) truncates 229.99… to 229; the 1-HP floor is immaterial.
+	if got := scaledEnemyMaxHP(200, 3); got != 229 {
+		t.Fatalf("party enemy HP = %d, want 229 (trunc 200*1.15)", got)
+	}
+}
+
+// P8: the enemy's action economy scales with the roster. A party of N faces up to
+// N attack-actions a round, each re-targeted, so the enemy's damage spreads across
+// the roster instead of pinning one seat — the 1/N² exposure that made P6e's party
+// a 100%-clear faceroll. Solo stays at exactly one swing a round, the pre-party
+// behaviour the characterization golden pins.
+func TestSimulateParty_EnemyActionEconomyScalesWithRoster(t *testing.T) {
+	enemyRollsPerRound := func(res PartyCombatResult) map[int]int {
+		perRound := map[int]int{}
+		for _, e := range res.Events {
+			if e.Actor == "enemy" && e.Roll > 0 {
+				perRound[e.Round]++
+			}
+		}
+		return perRound
+	}
+
+	// Solo: never more than one enemy swing in a round.
+	soloTank := baseEnemy()
+	soloTank.Stats.MaxHP = 5000
+	solo := simulatePartyWithRNG(
+		[]Combatant{basePlayer()}, soloTank, dungeonCombatPhases, seededRNG(23))
+	if len(enemyRollsPerRound(solo)) == 0 {
+		t.Fatal("solo: the enemy never attacked")
+	}
+	for round, n := range enemyRollsPerRound(solo) {
+		if n > 1 {
+			t.Fatalf("solo round %d: enemy swung %d times, want at most 1", round, n)
+		}
+	}
+
+	// Party of 3: no round exceeds the roster's action budget, and at least one
+	// round sees more than one swing — the enemy is really taking extra actions.
 	tank := baseEnemy()
 	tank.Stats.MaxHP = 5000
-
-	res := simulatePartyWithRNG(
+	party := simulatePartyWithRNG(
 		[]Combatant{basePlayer(), basePlayer(), basePlayer()}, tank, dungeonCombatPhases, seededRNG(23))
-
-	perRound := map[int]map[int]bool{}
-	for _, e := range res.Events {
-		if e.Actor != "enemy" || e.Roll == 0 {
-			continue
-		}
-		if perRound[e.Round] == nil {
-			perRound[e.Round] = map[int]bool{}
-		}
-		perRound[e.Round][e.Seat] = true
+	budget := int(partyActionExpectation(3))
+	if partyActionExpectation(3) > float64(budget) {
+		budget++ // ceil: the coin-flip round can add one action
 	}
-	if len(perRound) == 0 {
-		t.Fatal("the enemy never attacked")
-	}
-	for round, seats := range perRound {
-		if len(seats) != 1 {
-			t.Fatalf("round %d: enemy attack rolls landed on %d seats, want 1", round, len(seats))
+	sawMulti := false
+	for round, n := range enemyRollsPerRound(party) {
+		if n > budget {
+			t.Fatalf("party round %d: enemy swung %d times, over the %d-action budget", round, n, budget)
 		}
+		if n > 1 {
+			sawMulti = true
+		}
+	}
+	if !sawMulti {
+		t.Fatal("a party of 3 never faced more than one enemy swing in a round — action economy did not scale")
 	}
 }
 
