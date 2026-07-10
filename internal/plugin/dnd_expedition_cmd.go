@@ -322,6 +322,26 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 			"You're already on expedition in **%s** (Day %d). Finish it or `!expedition abandon` first.",
 			zone.Display, existing.CurrentDay))
 	}
+	// A leader who extracted still holds their roster for the resume window, and
+	// `!resume` only ever reaches the *newest* extracted row. Starting fresh on
+	// top of one would orphan it: unreachable, un-reapable until the sweeper
+	// catches it, with every member still seated and refused a run of their own.
+	//
+	// Only a row with a roster blocks. A solo extraction strands nobody, so
+	// walking away from it stays a normal thing to do.
+	if pending, _ := getResumableExpedition(ctx.Sender); pending != nil {
+		switch n, err := partySize(pending.ID); {
+		case extractionLapsed(pending, time.Now().UTC()):
+			// Past the window — reap it here rather than make them wait an hour
+			// for the sweeper, and let the new expedition proceed.
+			_ = completeExpedition(pending.ID, ExpeditionStatusFailed)
+		case err == nil && n > 1:
+			zone, _ := getZone(pending.ZoneID)
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"You extracted from **%s** on Day %d and your party is still waiting on you. `!resume` to lead them back in, or `!expedition abandon` to let it go — until you do one or the other, none of them can start a run of their own.",
+				zone.Display, pending.CurrentDay))
+		}
+	}
 
 	cost := float64(purchase.Cost())
 	if p.euro == nil {
@@ -611,6 +631,15 @@ func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
 	}
 	if exp == nil {
+		// An extracted expedition is still the owner's to close — it holds the
+		// roster until the resume window lapses. Without this, a leader who
+		// wanted out had to pay to `!resume` first just to abandon.
+		if exp, err = getResumableExpedition(ctx.Sender); err != nil {
+			return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+		}
+		isLeader = exp != nil
+	}
+	if exp == nil {
 		return p.SendDM(ctx.Sender, "No active expedition to abandon.")
 	}
 	if !isLeader {
@@ -619,15 +648,37 @@ func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
 			"Only your party leader can abandon the expedition. `!expedition leave` to walk out alone.")
 	}
 	zone, _ := getZone(exp.ZoneID)
+	extracted := exp.Status == ExpeditionStatusExtracting
+	audience := expeditionAudience(exp) // read before abandonExpedition disbands the roster
 	if err := abandonExpedition(ctx.Sender); err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't abandon: "+err.Error())
 	}
 	markActedToday(ctx.Sender)
 	_ = retireAllRegionRuns(exp)
 	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative", "expedition abandoned", "")
-	if err := p.SendDM(ctx.Sender, fmt.Sprintf(
+	// An extracted party is standing in town, not in the dungeon: their supplies
+	// are already spent and their loot is already banked. Say the true thing.
+	body := fmt.Sprintf(
 		"Expedition in **%s** abandoned on Day %d. Supplies are forfeit. The dungeon remembers.",
-		zone.Display, exp.CurrentDay)); err != nil {
+		zone.Display, exp.CurrentDay)
+	if extracted {
+		body = fmt.Sprintf(
+			"You let the expedition in **%s** go. Day %d is where it ends — loot, XP, and coins are kept. The dungeon remembers.",
+			zone.Display, exp.CurrentDay)
+	}
+	// The roster is being disbanded out from under the members; they hear it from
+	// their leader rather than discovering it the next time a command works again.
+	for _, uid := range audience {
+		if uid == ctx.Sender {
+			continue
+		}
+		if err := p.SendDM(uid, fmt.Sprintf(
+			"Your leader called off the expedition in **%s** on Day %d. You're free to start a run of your own.",
+			zone.Display, exp.CurrentDay)); err != nil {
+			slog.Warn("expedition: abandon DM failed", "user", uid, "expedition", exp.ID, "err", err)
+		}
+	}
+	if err := p.SendDM(ctx.Sender, body); err != nil {
 		return err
 	}
 	// Emergence seam: see maybeRollPetArrivalOnEmerge.

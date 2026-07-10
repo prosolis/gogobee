@@ -224,6 +224,28 @@ func getActiveExpedition(userID id.UserID) (*Expedition, error) {
 	return e, err
 }
 
+// ownedLiveExpedition returns the expedition this player owns and has not yet
+// finished with — 'active' or 'extracting'. An extracted expedition is not
+// over: it holds its roster for the whole resume window (releaseParty is not
+// called on it), so the owner is still the only person who can close it.
+//
+// Active rows sort first, so a leader who owns both — extracted from one, then
+// started another — resolves to the one they are standing in.
+func ownedLiveExpedition(userID id.UserID) (*Expedition, error) {
+	row := db.Get().QueryRow(`
+		SELECT`+expeditionSelectCols+`
+		  FROM dnd_expedition e
+		 WHERE e.user_id = ?
+		   AND e.status IN ('active', 'extracting')
+		 ORDER BY (e.status = 'active') DESC, e.start_date DESC
+		 LIMIT 1`, string(userID))
+	e, err := scanExpedition(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return e, err
+}
+
 // getExpedition fetches by ID regardless of status. Test/admin use.
 func getExpedition(id string) (*Expedition, error) {
 	row := db.Get().QueryRow(`
@@ -385,9 +407,18 @@ func setExpeditionRunID(expID, runID string) error {
 	return err
 }
 
-// abandonExpedition flags the active expedition as abandoned. Idempotent.
+// abandonExpedition flags the player's live expedition as abandoned. Idempotent.
+//
+// It spans 'extracting' as well as 'active': an extracted expedition still owns
+// its roster, so abandoning is the leader's only way to free their party
+// without paying to `!resume` first. Character reset (dnd_setup) leans on this
+// too — a rerolled leader who left an extracted party behind would otherwise
+// strand every member until the sweeper reaped the row.
+//
+// One row per call, active first, so the run-spawn rollback in expeditionCmdStart
+// tears down the expedition it just created rather than an older extracted one.
 func abandonExpedition(userID id.UserID) error {
-	e, err := getActiveExpedition(userID)
+	e, err := ownedLiveExpedition(userID)
 	if err != nil {
 		return err
 	}

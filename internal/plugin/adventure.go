@@ -270,9 +270,13 @@ func (p *AdventurePlugin) Init() error {
 	go p.expeditionRecapTicker()
 	go p.expeditionAmbientTicker()
 	go p.expeditionAutoRunTicker()
+	go p.expeditionExtractionSweepTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()
+	// Extractions that lapsed while the bot was down: the roster they hold is
+	// blocking those members right now, not an hour from now.
+	p.sweepLapsedExtractions(time.Now().UTC())
 
 	return nil
 }

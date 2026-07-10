@@ -30,6 +30,7 @@ import (
 const (
 	extractResumeWindow      = 7 * 24 * time.Hour
 	forcedExtractCoinTaxFrac = 0.20
+	extractionSweepInterval  = time.Hour
 )
 
 var (
@@ -218,6 +219,82 @@ func getResumableExpedition(userID id.UserID) (*Expedition, error) {
 	return e, err
 }
 
+// extractionLapsed reports whether an 'extracting' row is past its resume
+// window and should be reaped. A NULL completed_at counts as lapsed: the column
+// is the only clock the window has, and a row without one can never expire.
+func extractionLapsed(e *Expedition, now time.Time) bool {
+	return e.CompletedAt == nil || now.Sub(*e.CompletedAt) > extractResumeWindow
+}
+
+// loadLapsedExtractions returns every extracted expedition whose resume window
+// has closed, regardless of owner.
+func loadLapsedExtractions(now time.Time) ([]*Expedition, error) {
+	rows, err := db.Get().Query(`
+		SELECT`+expeditionSelectCols+`
+		  FROM dnd_expedition e
+		 WHERE e.status = 'extracting'
+		   AND (e.completed_at IS NULL OR e.completed_at < ?)`,
+		now.Add(-extractResumeWindow))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanExpeditionRows(rows)
+}
+
+// sweepLapsedExtractions closes out every extraction whose seven-day window has
+// run out, which releases its roster.
+//
+// Without this the window is a promise the code never keeps. `handleResumeCmd`
+// expires a lapsed row lazily, but only the *leader* can call `!resume` — so a
+// leader who quits, forgets, or simply starts a different expedition leaves the
+// row 'extracting' forever, and releaseParty (which fires only on a terminal
+// status) never runs. Every member stays seated, and assertNotAdventuring keeps
+// refusing them a run of their own. `!expedition leave` is their escape, but a
+// player should not have to find it.
+//
+// The audience is read before the close-out: completeExpedition disbands the
+// roster, and expeditionAudience reads that roster.
+func (p *AdventurePlugin) sweepLapsedExtractions(now time.Time) {
+	exps, err := loadLapsedExtractions(now)
+	if err != nil {
+		slog.Error("expedition: load lapsed extractions", "err", err)
+		return
+	}
+	for _, e := range exps {
+		audience := expeditionAudience(e)
+		if err := completeExpedition(e.ID, ExpeditionStatusFailed); err != nil {
+			slog.Warn("expedition: expire lapsed extraction", "expedition", e.ID, "err", err)
+			continue
+		}
+		zone, _ := getZone(e.ZoneID)
+		body := fmt.Sprintf(
+			"🕯 **The way back has closed — %s**\n\nYour extracted expedition sat past its seven-day resume window, and the dungeon reshaped without you. Day %d is where it ends.\n\nThe loot, XP, and coins you carried out are still yours. `!expedition list` when you're ready for the next one.",
+			zone.Display, e.CurrentDay)
+		for _, uid := range audience {
+			if err := p.SendDM(uid, body); err != nil {
+				slog.Warn("expedition: lapsed-extraction DM failed", "user", uid, "expedition", e.ID, "err", err)
+			}
+		}
+	}
+}
+
+// expeditionExtractionSweepTicker reaps lapsed extractions hourly. The window is
+// seven days, so the cadence only bounds how long a freed member waits to hear
+// about it.
+func (p *AdventurePlugin) expeditionExtractionSweepTicker() {
+	ticker := time.NewTicker(extractionSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			p.sweepLapsedExtractions(time.Now().UTC())
+		}
+	}
+}
+
 // resumeExpedition flips an extracting row back to 'active' with fresh
 // supplies. Threat/temporal/region state are preserved as-is.
 func resumeExpedition(expID string, supplies ExpeditionSupplies) error {
@@ -323,8 +400,9 @@ func (p *AdventurePlugin) handleResumeCmd(ctx MessageContext, args string) error
 	if exp == nil {
 		return p.SendDM(ctx.Sender, "No extracted expedition to resume. Use `!expedition start <zone>` to begin a new one.")
 	}
-	if exp.CompletedAt == nil || time.Since(*exp.CompletedAt) > extractResumeWindow {
-		// Expire it so it doesn't keep resurfacing.
+	if extractionLapsed(exp, time.Now().UTC()) {
+		// Expire it so it doesn't keep resurfacing. The hourly sweeper would get
+		// here on its own; this keeps the refusal and the reap in one breath.
 		_ = completeExpedition(exp.ID, ExpeditionStatusFailed)
 		return p.SendDM(ctx.Sender,
 			"That extraction is past its 7-day resume window — the dungeon has reshaped without you. Start a new expedition.")
