@@ -58,19 +58,10 @@ func (p *AdventurePlugin) buildFightSeats(
 	}
 	for i, uid := range roster {
 		leader := i == 0
-		player, e, _, err := p.buildZoneCombatants(uid, monster, tier, dmMood)
-		if err != nil {
-			if leader {
-				return nil, nil, "", "Couldn't set up the fight: " + err.Error()
-			}
-			slog.Warn("combat: party member left out of fight", "user", uid, "err", err)
-			skip(uid, "Couldn't bring you into the fight: "+err.Error())
-			continue
-		}
-		if leader {
-			enemy = &e
-		}
 
+		// Both refusals below are cheap and neither needs the build, so they run
+		// before it: consuming a seat's armed ability and *then* sitting them out
+		// would spend their rage on a fight they never joined.
 		hp, hpMax := dndHPSnapshot(uid)
 		if hp <= 0 {
 			if leader {
@@ -96,7 +87,32 @@ func (p *AdventurePlugin) buildFightSeats(
 			continue
 		}
 
-		seats = append(seats, CombatSeatSetup{UserID: uid, HP: hp, HPMax: hpMax, Mods: player.Mods, C: &player})
+		// Consumed exactly once for the fight, here. Every later rebuild
+		// re-applies this id off the seat's statuses rather than re-arming.
+		armed := ""
+		if c, cerr := LoadDnDCharacter(uid); cerr == nil && c != nil {
+			trySimAutoArm(c)
+			armed = consumeArmedAbility(c)
+		}
+		player, e, _, err := p.buildZoneCombatants(uid, monster, tier, dmMood, armed)
+		if err != nil {
+			if leader {
+				return nil, nil, "", "Couldn't set up the fight: " + err.Error()
+			}
+			slog.Warn("combat: party member left out of fight", "user", uid, "err", err)
+			skip(uid, "Couldn't bring you into the fight: "+err.Error())
+			continue
+		}
+		if leader {
+			enemy = &e
+		}
+		if armed != "" {
+			slog.Info("combat: armed ability fired (turn-based start)", "user", uid, "ability", armed)
+		}
+
+		seats = append(seats, CombatSeatSetup{
+			UserID: uid, HP: hp, HPMax: hpMax, Mods: player.Mods, C: &player, ArmedAbility: armed,
+		})
 	}
 	return seats, enemy, senderSkip, ""
 }

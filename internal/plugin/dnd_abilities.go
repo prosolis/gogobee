@@ -410,22 +410,52 @@ func trySimAutoArm(c *DnDCharacter) string {
 	return ab.Name
 }
 
-// applyArmedAbility checks for a pre-armed ability on the character and
-// applies its effect to the player's CombatModifiers, then clears the armed
-// flag. Called from combat_bridge.go before SimulateCombat.
-func applyArmedAbility(c *DnDCharacter, mods *CombatModifiers) (string, bool) {
+// consumeArmedAbility disarms the character, returning the ability id that was
+// armed. It is the *mutating* half of arming: the flag is cleared and saved, so
+// it must run exactly once per fight, at fight start.
+//
+// It is split from applyAbilityByID because a turn-based fight rebuilds its
+// combatants from the DB on every player command. A rebuild that consumed would
+// fire the ability on round 1, clear the flag, and then hand every later round a
+// character with no ability at all — the player pays the resource for one round
+// of a buff that is supposed to span the fight. So the fight consumes once and
+// persists the id on the session; each rebuild re-applies it from there.
+//
+// An id that is no longer in the ability table is disarmed and reported as "".
+func consumeArmedAbility(c *DnDCharacter) string {
 	if c == nil || c.ArmedAbility == "" {
+		return ""
+	}
+	armed := c.ArmedAbility
+	c.ArmedAbility = ""
+	_ = SaveDnDCharacter(c)
+	if _, ok := dndActiveAbilities[armed]; !ok {
+		return ""
+	}
+	return armed
+}
+
+// applyAbilityByID folds an ability's effect into a freshly-derived set of
+// CombatModifiers. It is pure with respect to persistence — no DB write, no
+// disarm — so it is safe to call on every rebuild of an in-flight fight.
+//
+// abilityID is what consumeArmedAbility returned at fight start. Empty (nobody
+// armed anything) and unknown ids are both no-ops.
+func applyAbilityByID(c *DnDCharacter, abilityID string, mods *CombatModifiers) (string, bool) {
+	if c == nil || abilityID == "" {
 		return "", false
 	}
-	ab, ok := dndActiveAbilities[c.ArmedAbility]
+	ab, ok := dndActiveAbilities[abilityID]
 	if !ok {
-		c.ArmedAbility = ""
-		_ = SaveDnDCharacter(c)
 		return "", false
 	}
 	ab.Apply(c, mods)
-	firedName := ab.Name
-	c.ArmedAbility = ""
-	_ = SaveDnDCharacter(c)
-	return firedName, true
+	return ab.Name, true
+}
+
+// armAbilityForFight consumes whatever the character armed and applies it in one
+// step, for the auto-resolve callers that build a combatant and immediately
+// fight with it. A turn-based fight must not use this — see consumeArmedAbility.
+func armAbilityForFight(c *DnDCharacter, mods *CombatModifiers) (string, bool) {
+	return applyAbilityByID(c, consumeArmedAbility(c), mods)
 }

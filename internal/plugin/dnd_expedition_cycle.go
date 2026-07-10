@@ -82,34 +82,39 @@ type nightRolloverResult struct {
 // to finish the rollover; legacy deliverBriefing interleaves processOvernightCamp
 // between the two so a fortified camp's −5 lands before drift's +3.
 func (p *AdventurePlugin) nightRolloverBurn(e *Expedition) (float32, error) {
-	// D5-c: Ranger forage runs before the daily burn so the +SU lands on
-	// today's supplies, not tomorrow's. Logged so the end-of-day digest
-	// can surface the gain; pure no-op for non-Ranger characters.
-	if c, err := LoadDnDCharacter(id.UserID(e.UserID)); err == nil && c != nil {
-		if gain := applyRangerForage(e, c, nil); gain > 0 {
-			_ = appendExpeditionLog(e.ID, e.CurrentDay, "forage",
-				fmt.Sprintf("ranger forage +%g SU", gain),
-				flavor.Pick(flavor.HarvestForageSuccess))
-		}
-	}
-	burnOverride := applyZoneTemporalPreBurn(e, e.CurrentDay+1)
-	var newSupplies ExpeditionSupplies
 	var burn float32
-	if burnOverride.Multiplier > 0 {
-		// The temporal override replaces the harsh/siege multiplier, not the
-		// roster's: a party still eats N × 0.8 rations inside a time-warped zone.
-		burn = e.Supplies.DailyBurn * burnOverride.Multiplier * float32(expeditionBurnRatePct(e.ID)) / 100
-		newSupplies = e.Supplies
-		newSupplies.Current -= burn
-		if newSupplies.Current < 0 {
-			newSupplies.Current = 0
+	// Forage and burn land in one write, so they resolve together against the
+	// pool as it stands now — not as `e` last saw it.
+	newSupplies, err := p.withExpeditionSupplies(e.ID, func(fresh *Expedition) (ExpeditionSupplies, error) {
+		// D5-c: Ranger forage runs before the daily burn so the +SU lands on
+		// today's supplies, not tomorrow's. Logged so the end-of-day digest
+		// can surface the gain; pure no-op for non-Ranger characters.
+		if c, cerr := LoadDnDCharacter(id.UserID(fresh.UserID)); cerr == nil && c != nil {
+			if gain := applyRangerForage(fresh, c, nil); gain > 0 {
+				_ = appendExpeditionLog(fresh.ID, fresh.CurrentDay, "forage",
+					fmt.Sprintf("ranger forage +%g SU", gain),
+					flavor.Pick(flavor.HarvestForageSuccess))
+			}
 		}
-		newSupplies.ForagedToday = false
-	} else {
-		harsh := e.ThreatLevel > 60 || zoneTemporalHarsh(e)
-		newSupplies, burn = applyExpeditionDailyBurn(e, harsh, e.SiegeMode)
-	}
-	if err := updateSupplies(e.ID, newSupplies); err != nil {
+		burnOverride := applyZoneTemporalPreBurn(fresh, fresh.CurrentDay+1)
+		if burnOverride.Multiplier > 0 {
+			// The temporal override replaces the harsh/siege multiplier, not the
+			// roster's: a party still eats N × 0.8 rations inside a time-warped zone.
+			burn = fresh.Supplies.DailyBurn * burnOverride.Multiplier * float32(expeditionBurnRatePct(fresh.ID)) / 100
+			next := fresh.Supplies
+			next.Current -= burn
+			if next.Current < 0 {
+				next.Current = 0
+			}
+			next.ForagedToday = false
+			return next, nil
+		}
+		harsh := fresh.ThreatLevel > 60 || zoneTemporalHarsh(fresh)
+		next, b := applyExpeditionDailyBurn(fresh, harsh, fresh.SiegeMode)
+		burn = b
+		return next, nil
+	})
+	if err != nil {
 		return 0, err
 	}
 	if err := advanceExpeditionDay(e.ID); err != nil {

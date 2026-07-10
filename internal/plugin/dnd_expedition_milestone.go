@@ -176,20 +176,30 @@ const twoWeeksCacheSize = 3
 func (p *AdventurePlugin) grantTwoWeeksCache(e *Expedition) string {
 	var lines []string
 
-	if s := e.Supplies; s.DailyBurn > 0 {
-		s.Current += twoWeeksRestockDays * s.DailyBurn
-		if s.Max > 0 && s.Current > s.Max {
-			s.Current = s.Max
-		}
-		if s.Current > e.Supplies.Current {
-			if err := updateSupplies(e.ID, s); err != nil {
-				slog.Error("milestone: two weeks restock failed",
-					"expedition", e.ID, "err", err)
-			} else {
-				lines = append(lines, fmt.Sprintf(
-					"📦 Supplies restocked — %.1f of %.1f.", s.Current, s.Max))
-				e.Supplies = s
+	if e.Supplies.DailyBurn > 0 {
+		var restocked bool
+		pooled, err := p.withExpeditionSupplies(e.ID, func(fresh *Expedition) (ExpeditionSupplies, error) {
+			s := fresh.Supplies
+			if s.DailyBurn <= 0 {
+				return s, nil
 			}
+			s.Current += twoWeeksRestockDays * s.DailyBurn
+			if s.Max > 0 && s.Current > s.Max {
+				s.Current = s.Max
+			}
+			restocked = s.Current > fresh.Supplies.Current
+			return s, nil
+		})
+		switch {
+		case err != nil:
+			slog.Error("milestone: two weeks restock failed",
+				"expedition", e.ID, "err", err)
+		case restocked:
+			lines = append(lines, fmt.Sprintf(
+				"📦 Supplies restocked — %.1f of %.1f.", pooled.Current, pooled.Max))
+			e.Supplies = pooled
+		default:
+			e.Supplies = pooled
 		}
 	}
 

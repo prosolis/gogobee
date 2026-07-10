@@ -190,10 +190,18 @@ func (p *AdventurePlugin) campPitch(ctx MessageContext, exp *Expedition, kind st
 		}
 	}
 
-	exp.Supplies.Current -= cost
-	if err := updateSupplies(exp.ID, exp.Supplies); err != nil {
+	// The affordability check above ran against `exp` as it was read, and
+	// nightRolloverBurn may have moved the pool since. Deduct against the pool
+	// as it stands — the same arithmetic, just not onto a stale snapshot.
+	pooled, err := p.withExpeditionSupplies(exp.ID, func(fresh *Expedition) (ExpeditionSupplies, error) {
+		next := fresh.Supplies
+		next.Current -= cost
+		return next, nil
+	})
+	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't deduct supplies: "+err.Error())
 	}
+	exp.Supplies = pooled
 	camp := &CampState{
 		Active:        true,
 		Type:          kind,

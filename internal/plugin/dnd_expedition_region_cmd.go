@@ -143,13 +143,17 @@ func (p *AdventurePlugin) regionCmdTravel(ctx MessageContext, exp *Expedition) e
 // on both paths.
 func (p *AdventurePlugin) advanceToNextRegion(userID id.UserID, exp *Expedition, cur, next ExpeditionRegion) (string, error) {
 	// Burn one day of supplies (transit day).
-	siege := exp.SiegeMode
-	harsh := exp.ThreatLevel > 60 || zoneTemporalHarsh(exp)
-	newSupplies, burned := applyExpeditionDailyBurn(exp, harsh, siege)
-	exp.Supplies = newSupplies
-	if err := updateSupplies(exp.ID, exp.Supplies); err != nil {
+	var burned float32
+	newSupplies, err := p.withExpeditionSupplies(exp.ID, func(fresh *Expedition) (ExpeditionSupplies, error) {
+		harsh := fresh.ThreatLevel > 60 || zoneTemporalHarsh(fresh)
+		next, b := applyExpeditionDailyBurn(fresh, harsh, fresh.SiegeMode)
+		burned = b
+		return next, nil
+	})
+	if err != nil {
 		return "", fmt.Errorf("apply transit supply burn: %w", err)
 	}
+	exp.Supplies = newSupplies
 	if err := advanceExpeditionDay(exp.ID); err != nil {
 		return "", fmt.Errorf("advance expedition day: %w", err)
 	}

@@ -349,12 +349,14 @@ func (p *AdventurePlugin) applyAmbientEffect(e *Expedition, ev ambientEvent) str
 		return "Something out there is paying attention now."
 	case "pack_rat":
 		drain := float32(0.2) + float32(rng.IntN(2))*float32(0.1) // 0.2 or 0.3
-		ns := e.Supplies
-		ns.Current -= drain
-		if ns.Current < 0 {
-			ns.Current = 0
-		}
-		if err := updateSupplies(e.ID, ns); err != nil {
+		if _, err := p.withExpeditionSupplies(e.ID, func(fresh *Expedition) (ExpeditionSupplies, error) {
+			ns := fresh.Supplies
+			ns.Current -= drain
+			if ns.Current < 0 {
+				ns.Current = 0
+			}
+			return ns, nil
+		}); err != nil {
 			slog.Warn("expedition: ambient supply drain", "expedition", e.ID, "err", err)
 			return ""
 		}

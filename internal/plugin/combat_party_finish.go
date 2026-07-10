@@ -51,9 +51,12 @@ func (p *AdventurePlugin) finishPartyCombatSession(ct *combatTurn) []string {
 	// nat20/nat1 mood deltas from the whole fight's event log — the run's, so once.
 	scanMoodEventsFromEvents(sess.RunID, sess.TurnLog)
 
-	// Every seat's HP lands on their sheet regardless of how the fight ended.
+	// Every seat's HP lands on their sheet regardless of how the fight ended, and
+	// so does the bookkeeping that outlives the fight — a Berserker who raged and
+	// lost is still exhausted. Both fan out; neither is the owner's alone.
 	for seat := range sess.RosterSize() {
 		persistDnDHPAfterCombat(id.UserID(sess.seatUserID(seat)), sess.seatHP(seat))
+		p.postCombatBookkeepingForSeat(sess, seat)
 	}
 
 	switch sess.Status {

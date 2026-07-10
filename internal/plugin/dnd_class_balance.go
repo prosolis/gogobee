@@ -25,7 +25,7 @@ import (
 //
 // Bypassed deliberately (Phase 0 simplifying constraints, doc §2):
 //
-//   - DB-touching layers: applyMagicItemEffects, applyArmedAbility, and
+//   - DB-touching layers: applyMagicItemEffects, armAbilityForFight, and
 //     the SaveDnDCharacter inside applyPendingCast. The harness is pure
 //     Go; tests run without a sqlite instance.
 //   - Race passives beyond Human (+1 all): neutral baseline, again per §2.

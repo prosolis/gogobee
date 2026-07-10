@@ -88,6 +88,13 @@ type ActorStatuses struct {
 	// and druids with no sustained DPS once their burst landed.
 	ConcentrationDmg int `json:"concentration_dmg,omitempty"`
 
+	// ArmedAbility is the id of the active ability this character armed and
+	// spent entering the fight (rage, second_wind, …). The resource is already
+	// debited and the character disarmed; this is the record that lets every
+	// rebuild of an in-flight fight re-apply the ability's mods, and lets the
+	// close-out know a rage fired. Empty when nothing was armed.
+	ArmedAbility string `json:"armed_ability,omitempty"`
+
 	// Once-per-fight class/race/subclass one-shots: the "already used" flags.
 	// Without persistence these reset every round on resume, letting a Halfling
 	// reroll a nat 1 or an Orc rage every single round of a turn-based fight.
@@ -221,23 +228,26 @@ func (s *ActorStatuses) applyBuffDelta(d turnBuffDelta) {
 // the Abjuration Arcane Ward is normally non-zero at fight start — the
 // turn-based build deliberately omits pre-combat consumables and queued casts —
 // but the full set is seeded for robustness. Returns true if anything was set.
-func seedCombatSessionOneShots(s *CombatSession, playerMods CombatModifiers) bool {
-	return seedActorOneShots(&s.Statuses.ActorStatuses, playerMods)
+func seedCombatSessionOneShots(s *CombatSession, seat CombatSeatSetup) bool {
+	return seedActorOneShots(&s.Statuses.ActorStatuses, seat)
 }
 
 // seedActorOneShots copies one character's fight-start one-shot resources onto
 // their persisted statuses. Seat 0's live on the session row; a party member's
 // live on their participant row, and each seat reads its own combatant's mods —
 // a party Abjurer brings their own Arcane Ward, not the leader's.
-func seedActorOneShots(st *ActorStatuses, playerMods CombatModifiers) bool {
+func seedActorOneShots(st *ActorStatuses, seat CombatSeatSetup) bool {
+	playerMods := seat.Mods
 	st.WardCharges = playerMods.WardCharges
 	st.SporeRounds = playerMods.SporeCloud
 	st.ReflectFrac = playerMods.ReflectNext
 	st.AutoCritFirst = playerMods.AutoCritFirst
 	st.ArcaneWardHP = playerMods.ArcaneWardHP
 	st.HealChargesLeft = playerMods.HealItemCharges
+	st.ArmedAbility = seat.ArmedAbility
 	return st.WardCharges != 0 || st.SporeRounds != 0 || st.ReflectFrac != 0 ||
-		st.AutoCritFirst || st.ArcaneWardHP != 0 || st.HealChargesLeft != 0
+		st.AutoCritFirst || st.ArcaneWardHP != 0 || st.HealChargesLeft != 0 ||
+		st.ArmedAbility != ""
 }
 
 // CombatParticipant is one party member's seat in a fight, from seat 1 up.
@@ -477,13 +487,13 @@ func (p *AdventurePlugin) startPartyCombatSession(
 
 	// Seat 0's one-shots live on the session row; seeding them is a mutation of
 	// sess.Statuses that the save below flushes along with the participants.
-	dirty := seedCombatSessionOneShots(sess, owner.Mods)
+	dirty := seedCombatSessionOneShots(sess, owner)
 
 	if len(seats) > 1 {
 		ps := make([]CombatParticipant, 0, len(seats)-1)
 		for i, s := range seats[1:] {
 			var st ActorStatuses
-			seedActorOneShots(&st, s.Mods)
+			seedActorOneShots(&st, s)
 			ps = append(ps, CombatParticipant{
 				Seat: i + 1, UserID: string(s.UserID), HP: s.HP, HPMax: s.HPMax, Statuses: st,
 			})
@@ -525,6 +535,10 @@ type CombatSeatSetup struct {
 	HPMax  int
 	Mods   CombatModifiers
 	C      *Combatant
+	// ArmedAbility is the ability id this seat consumed entering the fight, ""
+	// if they armed nothing. It is persisted onto the seat's statuses so every
+	// later rebuild can re-apply the ability without re-spending it.
+	ArmedAbility string
 }
 
 // getActiveCombatSession returns the player's in-flight fight, or (nil, nil).

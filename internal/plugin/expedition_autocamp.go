@@ -250,10 +250,15 @@ func (p *AdventurePlugin) pitchAutopilotCamp(exp *Expedition, d autoCampDecision
 	if exp.Supplies.Current < cost {
 		return "", fmt.Errorf("insufficient supplies (have %.1f, need %.1f)", exp.Supplies.Current, cost)
 	}
-	exp.Supplies.Current -= cost
-	if err := updateSupplies(exp.ID, exp.Supplies); err != nil {
+	pooled, err := p.withExpeditionSupplies(exp.ID, func(fresh *Expedition) (ExpeditionSupplies, error) {
+		next := fresh.Supplies
+		next.Current -= cost
+		return next, nil
+	})
+	if err != nil {
 		return "", err
 	}
+	exp.Supplies = pooled
 	camp := &CampState{
 		Active:        true,
 		Type:          d.Kind,

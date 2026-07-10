@@ -146,7 +146,7 @@ func TestSpendAndRefreshResource(t *testing.T) {
 	}
 }
 
-func TestApplyArmedAbility_FighterSecondWind(t *testing.T) {
+func TestArmAbilityForFight_FighterSecondWind(t *testing.T) {
 	setupAbilitiesTestDB(t)
 	uid := id.UserID("@arm_fighter:example")
 	c := &DnDCharacter{
@@ -162,7 +162,7 @@ func TestApplyArmedAbility_FighterSecondWind(t *testing.T) {
 	}
 
 	mods := CombatModifiers{}
-	name, fired := applyArmedAbility(c, &mods)
+	name, fired := armAbilityForFight(c, &mods)
 	if !fired {
 		t.Fatal("ability did not fire")
 	}
@@ -181,7 +181,7 @@ func TestApplyArmedAbility_FighterSecondWind(t *testing.T) {
 	}
 }
 
-func TestApplyArmedAbility_MageMagicMissile(t *testing.T) {
+func TestArmAbilityForFight_MageMagicMissile(t *testing.T) {
 	setupAbilitiesTestDB(t)
 	uid := id.UserID("@arm_mage:example")
 	c := &DnDCharacter{
@@ -192,7 +192,7 @@ func TestApplyArmedAbility_MageMagicMissile(t *testing.T) {
 		t.Fatal(err)
 	}
 	mods := CombatModifiers{}
-	_, fired := applyArmedAbility(c, &mods)
+	_, fired := armAbilityForFight(c, &mods)
 	if !fired {
 		t.Fatal("magic missile did not fire")
 	}
@@ -202,10 +202,10 @@ func TestApplyArmedAbility_MageMagicMissile(t *testing.T) {
 	}
 }
 
-func TestApplyArmedAbility_NoArm(t *testing.T) {
+func TestArmAbilityForFight_NoArm(t *testing.T) {
 	c := &DnDCharacter{Class: ClassFighter, ArmedAbility: ""}
 	mods := CombatModifiers{}
-	_, fired := applyArmedAbility(c, &mods)
+	_, fired := armAbilityForFight(c, &mods)
 	if fired {
 		t.Error("fired with no armed ability")
 	}

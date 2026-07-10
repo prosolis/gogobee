@@ -332,6 +332,10 @@ func continueHint(userID id.UserID) string {
 // the room's manual combat is done, and a fresh !zone advance clears the room.
 func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSession, enemy Combatant) string {
 	persistDnDHPAfterCombat(userID, sess.PlayerHP)
+	// Achievements and post-combat subclass state are owed on every terminal
+	// status, not just a win — a Berserker who rages and loses still comes out
+	// of it exhausted. The auto-resolve close-outs have always done this.
+	p.postCombatBookkeepingForSeat(sess, 0)
 
 	run, _ := getZoneRun(sess.RunID)
 	var zone ZoneDefinition

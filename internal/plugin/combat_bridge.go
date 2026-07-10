@@ -10,6 +10,30 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
+// postCombatBookkeeping is the close-out every fight owes its character,
+// whatever surface it was fought on: achievements, and the subclass state that
+// outlives the fight (Berserker exhaustion, Grim Harvest's kill-heal).
+//
+// It exists because there are four close-outs — two auto-resolve
+// (runDungeonCombat, runZoneCombatRoster) and two turn-based
+// (finishCombatSession, finishPartyCombatSession) — and for a long time only
+// the auto-resolve pair ran any of this. The same Elite kill therefore paid out
+// differently depending on whether the player let it auto-resolve or fought it
+// a round at a time. Route all four through here and the divergence cannot
+// silently reopen.
+//
+// raged is whether the character's Berserker rage was active for this fight;
+// mods carries the fight-start modifiers Grim Harvest reads. HP persistence is
+// NOT done here — the turn-based paths already own their own HP writes.
+func (p *AdventurePlugin) postCombatBookkeeping(
+	userID id.UserID, dndChar *DnDCharacter, raged bool, result CombatResult, mods CombatModifiers,
+) {
+	p.grantCombatAchievements(userID, result)
+	if err := persistDnDPostCombatSubclass(dndChar, raged, result, mods); err != nil {
+		slog.Error("dnd: post-combat subclass persist", "user", userID, "err", err)
+	}
+}
+
 // grantCombatAchievements checks combat results for achievement-worthy moments.
 func (p *AdventurePlugin) grantCombatAchievements(userID id.UserID, result CombatResult) {
 	if p.achievements == nil {
@@ -87,7 +111,7 @@ func (p *AdventurePlugin) runDungeonCombat(
 	applySubclassPassives(&playerStats, &playerMods, dndChar)
 	applyMagicItemEffects(&playerStats, &playerMods, userID)
 	trySimAutoArm(dndChar)
-	if firedName, fired := applyArmedAbility(dndChar, &playerMods); fired {
+	if firedName, fired := armAbilityForFight(dndChar, &playerMods); fired {
 		slog.Info("dnd: armed ability fired", "user", userID, "ability", firedName)
 	}
 	applyDnDDungeonMonsterLayer(&enemyStats, loc.Tier)
@@ -129,12 +153,8 @@ func (p *AdventurePlugin) runDungeonCombat(
 	// until a player-driven use command lands.
 	consumeFiredHealingItems(userID, countHealEventsFired(result))
 
-	p.grantCombatAchievements(userID, result)
-
 	persistDnDHPAfterCombat(userID, result.PlayerEndHP)
-	if err := persistDnDPostCombatSubclass(dndChar, playerMods.BerserkerRage, result, playerMods); err != nil {
-		slog.Error("dnd: post-combat subclass persist (dungeon)", "user", userID, "err", err)
-	}
+	p.postCombatBookkeeping(userID, dndChar, playerMods.BerserkerRage, result, playerMods)
 
 	if xp := dungeonCombatXP(result, loc.Tier); xp > 0 {
 		if _, err := p.grantDnDXP(userID, xp); err != nil {

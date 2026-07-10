@@ -33,11 +33,18 @@ import (
 // + armed ability) and the monster's bestiary stat block with tier scaling and
 // the DM-mood combat tilt folded in. The returned dndChar is handed back so
 // callers can run post-combat subclass persistence without reloading it.
+//
+// armed is the ability id already consumed for this fight (consumeArmedAbility,
+// or armAbilityForFight's return on the auto-resolve paths); "" means none. The
+// build re-applies it rather than consuming, because the turn-based path calls
+// this once per player command and a consuming build would spend the ability on
+// round 1 and drop it for the rest of the fight.
 func (p *AdventurePlugin) buildZoneCombatants(
 	userID id.UserID,
 	monster DnDMonsterTemplate,
 	tier int,
 	dmMood int,
+	armed string,
 ) (player Combatant, enemy Combatant, dndChar *DnDCharacter, err error) {
 	tilt := dmMoodCombatTilt(dmMood)
 	char, err := loadAdvCharacter(userID)
@@ -64,10 +71,7 @@ func (p *AdventurePlugin) buildZoneCombatants(
 	applyRacePassives(&playerStats, &playerMods, dndChar)
 	applySubclassPassives(&playerStats, &playerMods, dndChar)
 	applyMagicItemEffects(&playerStats, &playerMods, userID)
-	trySimAutoArm(dndChar)
-	if firedName, fired := applyArmedAbility(dndChar, &playerMods); fired {
-		slog.Info("dnd: armed ability fired (turn-based build)", "user", userID, "ability", firedName)
-	}
+	applyAbilityByID(dndChar, armed, &playerMods)
 
 	enemyStats, enemyMods := monster.toCombatStats()
 	// Tier scaling mirrors runZoneCombat: only raise AC/AttackBonus to a
@@ -152,7 +156,11 @@ func (p *AdventurePlugin) partyCombatantsForSession(sess *CombatSession) ([]*Com
 	players := make([]*Combatant, len(seats))
 	var enemy Combatant
 	for seat, uid := range seats {
-		player, e, _, err := p.buildZoneCombatants(id.UserID(uid), monster, int(zone.Tier), run.DMMood)
+		// The ability this seat armed was consumed once, at fight start, and its
+		// id parked on their statuses. Re-applying it here — not re-consuming —
+		// is what makes a rage last the whole fight instead of one round.
+		st := sess.actorStatusesForSeat(seat)
+		player, e, _, err := p.buildZoneCombatants(id.UserID(uid), monster, int(zone.Tier), run.DMMood, st.ArmedAbility)
 		if err != nil {
 			return nil, nil, fmt.Errorf("seat %d (%s): %w", seat, uid, err)
 		}
@@ -161,7 +169,7 @@ func (p *AdventurePlugin) partyCombatantsForSession(sess *CombatSession) ([]*Com
 		// one-shots (ward/spore/…) live on their persisted statuses and flow
 		// through the turn engine's resume/commit cycle, so only the persistent
 		// stat deltas are applied here — and only that seat's own.
-		applySessionBuffs(&player, sess.actorStatusesForSeat(seat))
+		applySessionBuffs(&player, st)
 		players[seat] = &player
 		if seat == 0 {
 			// The enemy build reads only (monster, tier, dmMood): every seat
@@ -171,6 +179,64 @@ func (p *AdventurePlugin) partyCombatantsForSession(sess *CombatSession) ([]*Com
 		}
 	}
 	return players, &enemy, nil
+}
+
+// seatFightStartMods re-derives the fight-start modifiers a finished fight's
+// close-out still needs — today only the Berserker's rage flag, which decides
+// whether the character owes a point of exhaustion.
+//
+// It re-applies the seat's armed ability to an empty mod set rather than
+// rebuilding the whole combatant: no Apply writes to the character (they read
+// level and HP and write only mods), so this is pure, and the passive/equipment
+// layers a full build would add are not read by any post-combat hook.
+//
+// GrimHarvestSlot stays zero here, and that is not an oversight: the turn-based
+// path never runs applyPendingCast, so a Necromancy Mage's spell is never
+// stashed and Grim Harvest cannot fire on this surface at all. Wiring the mage
+// spell hooks into the turn-based `!cast` is a separate change.
+func seatFightStartMods(sess *CombatSession, seat int, c *DnDCharacter) CombatModifiers {
+	var mods CombatModifiers
+	applyAbilityByID(c, sess.actorStatusesForSeat(seat).ArmedAbility, &mods)
+	return mods
+}
+
+// seatCombatResult reconstructs, for one seat of a finished turn-based fight,
+// the slice of CombatResult that the post-combat hooks actually read. The turn
+// engine never builds a CombatResult — it persists a session and a shared event
+// log — so the close-out has to assemble one.
+//
+// SniperKilled and MistyHealed stay false because the turn engine has no Arina
+// or Misty proc to set them: those two live only in the auto-resolve engine.
+// NearDeath mirrors the auto-resolve engine's win threshold (below 15% of max);
+// its loss-side meaning is unused here, since the only hook that reads it gates
+// on PlayerWon.
+func seatCombatResult(sess *CombatSession, seat int) CombatResult {
+	hp, hpMax := sess.seatHP(seat), sess.seatHPMax(seat)
+	won := sess.Status == CombatStatusWon
+	return CombatResult{
+		PlayerWon:   won,
+		Events:      eventsForSeat(sess.TurnLog, seat),
+		PlayerEndHP: hp,
+		EnemyEndHP:  sess.EnemyHP,
+		TotalRounds: sess.Round,
+		NearDeath:   won && hp > 0 && float64(hp) < float64(max(1, hpMax))*0.15,
+	}
+}
+
+// postCombatBookkeepingForSeat is postCombatBookkeeping for one seat of a
+// terminal turn-based session — the bridge between what the turn engine
+// persisted and what the shared close-out expects.
+func (p *AdventurePlugin) postCombatBookkeepingForSeat(sess *CombatSession, seat int) {
+	uid := id.UserID(sess.seatUserID(seat))
+	// Loaded after the caller's persistDnDHPAfterCombat, so a Grim-Harvest-style
+	// hook that heals off HPCurrent reads the fight's real ending HP.
+	c, err := LoadDnDCharacter(uid)
+	if err != nil || c == nil {
+		slog.Error("combat: post-combat bookkeeping skipped, no sheet", "user", uid, "err", err)
+		return
+	}
+	mods := seatFightStartMods(sess, seat, c)
+	p.postCombatBookkeeping(uid, c, mods.BerserkerRage, seatCombatResult(sess, seat), mods)
 }
 
 // applySessionBuffs re-derives the persistent stat effect of every mid-fight

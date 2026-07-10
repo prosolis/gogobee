@@ -321,6 +321,42 @@ func updateSupplies(expID string, s ExpeditionSupplies) error {
 	return err
 }
 
+// withExpeditionSupplies serializes one read-modify-write of the shared supply
+// pool. updateSupplies rewrites supplies_json wholesale, so a caller that folds
+// its delta onto an *Expedition it read earlier silently discards anything that
+// landed in between — a member's pooled packs, another writer's spend. Handlers
+// run one goroutine per event, so those writers genuinely interleave.
+//
+// fn is handed a freshly-read expedition under the pool's own lock and returns
+// the supplies to persist. Callers that keep using their own *Expedition
+// afterwards must copy the returned pool back onto it.
+//
+// advUserLock cannot stand in here: it is keyed by sender, so two members
+// racing the same expedition row take two different mutexes and exclude nobody.
+func (p *AdventurePlugin) withExpeditionSupplies(
+	expID string, fn func(fresh *Expedition) (ExpeditionSupplies, error),
+) (ExpeditionSupplies, error) {
+	mu := p.advExpeditionLock(expID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	fresh, err := getExpedition(expID)
+	if err != nil {
+		return ExpeditionSupplies{}, err
+	}
+	if fresh == nil {
+		return ExpeditionSupplies{}, fmt.Errorf("expedition %s not found", expID)
+	}
+	next, err := fn(fresh)
+	if err != nil {
+		return ExpeditionSupplies{}, err
+	}
+	if err := updateSupplies(expID, next); err != nil {
+		return ExpeditionSupplies{}, err
+	}
+	return next, nil
+}
+
 // updateCamp persists camp state. Pass nil to break camp.
 func updateCamp(expID string, c *CampState) error {
 	var arg any

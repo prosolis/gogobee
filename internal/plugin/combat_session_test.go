@@ -454,15 +454,23 @@ func TestApplySessionBuffs(t *testing.T) {
 func TestSeedCombatSessionOneShots(t *testing.T) {
 	// Arcane Ward is the one resource normally live at fight start.
 	s := &CombatSession{}
-	if !seedCombatSessionOneShots(s, CombatModifiers{ArcaneWardHP: 15}) {
+	if !seedCombatSessionOneShots(s, CombatSeatSetup{Mods: CombatModifiers{ArcaneWardHP: 15}}) {
 		t.Error("seed should report true when Arcane Ward is present")
 	}
 	if s.Statuses.ArcaneWardHP != 15 {
 		t.Errorf("ArcaneWardHP = %d, want 15", s.Statuses.ArcaneWardHP)
 	}
+	// The armed ability rides along, so a rebuild mid-fight can re-apply it.
+	armed := &CombatSession{}
+	if !seedCombatSessionOneShots(armed, CombatSeatSetup{ArmedAbility: "rage"}) {
+		t.Error("seed should report true when an ability was armed")
+	}
+	if armed.Statuses.ArmedAbility != "rage" {
+		t.Errorf("ArmedAbility = %q, want rage", armed.Statuses.ArmedAbility)
+	}
 	// Nothing to seed → false, statuses untouched.
 	empty := &CombatSession{}
-	if seedCombatSessionOneShots(empty, CombatModifiers{}) {
+	if seedCombatSessionOneShots(empty, CombatSeatSetup{}) {
 		t.Error("seed should report false with no fight-start resources")
 	}
 }

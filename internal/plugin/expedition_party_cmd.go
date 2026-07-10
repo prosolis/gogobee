@@ -178,21 +178,13 @@ func (p *AdventurePlugin) expeditionCmdAccept(ctx MessageContext, c *DnDCharacte
 	if isHol, _ := isHolidayToday(); isHol {
 		suppliesPurchase.StandardPacks++
 	}
-	// updateSupplies overwrites supplies_json wholesale, so the pool has to be
-	// re-read under the expedition's own lock: `exp` was fetched before the coin
-	// debit, and a second invitee accepting — or the leader's day-burn tick —
-	// may have rewritten the row since. Folding onto that stale snapshot would
-	// silently drop their packs or resurrect spent SU.
-	expMu := p.advExpeditionLock(exp.ID)
-	expMu.Lock()
-	fresh, err := getExpedition(exp.ID)
-	if err != nil || fresh == nil {
-		expMu.Unlock()
-		return p.SendDM(ctx.Sender, "You're in, but your supplies didn't reach the pool.")
-	}
-	pooled := addSupplyPurchase(fresh.Supplies, suppliesPurchase)
-	err = updateSupplies(exp.ID, pooled)
-	expMu.Unlock()
+	// `exp` was fetched before the coin debit, and a second invitee accepting —
+	// or the leader's day-burn tick — may have rewritten the row since. Folding
+	// onto that stale snapshot would silently drop their packs or resurrect
+	// spent SU, so the fold happens against a fresh read under the pool's lock.
+	pooled, err := p.withExpeditionSupplies(exp.ID, func(fresh *Expedition) (ExpeditionSupplies, error) {
+		return addSupplyPurchase(fresh.Supplies, suppliesPurchase), nil
+	})
 	if err != nil {
 		return p.SendDM(ctx.Sender, "You're in, but your supplies didn't reach the pool: "+err.Error())
 	}

@@ -86,7 +86,24 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 			continue
 		}
 
-		player, e, dndChar, err := p.buildZoneCombatants(uid, monster, tier, dmMood)
+		// A downed member sits it out. They own no close-out claim — and the
+		// check runs before the arm, so sitting out doesn't cost them the
+		// ability they had readied.
+		if !leader {
+			if hp, _ := dndHPSnapshot(uid); hp <= 0 {
+				continue
+			}
+		}
+
+		// Auto-resolve builds and fights in one breath, so this seat can arm and
+		// apply together. The turn-based path has to split the two — see
+		// consumeArmedAbility.
+		armed := ""
+		if c, cerr := LoadDnDCharacter(uid); cerr == nil && c != nil {
+			trySimAutoArm(c)
+			armed = consumeArmedAbility(c)
+		}
+		player, e, dndChar, err := p.buildZoneCombatants(uid, monster, tier, dmMood, armed)
 		if err != nil {
 			if leader {
 				return bail(err)
@@ -96,9 +113,6 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 		}
 		if leader {
 			enemy = e
-		} else if hp, _ := dndHPSnapshot(uid); hp <= 0 {
-			// A downed member sits it out. They own no close-out claim.
-			continue
 		}
 
 		// Pre-combat one-shots that the turn-based path does NOT share: a queued
@@ -136,11 +150,8 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 			}
 		}
 
-		p.grantCombatAchievements(b.uid, seatRes)
 		persistDnDHPAfterCombat(b.uid, seatRes.PlayerEndHP)
-		if err := persistDnDPostCombatSubclass(b.dndChar, b.mods.BerserkerRage, seatRes, b.mods); err != nil {
-			slog.Error("dnd: post-combat subclass persist (zone)", "user", b.uid, "err", err)
-		}
+		p.postCombatBookkeeping(b.uid, b.dndChar, b.mods.BerserkerRage, seatRes, b.mods)
 
 		if xp := zoneCombatXP(seatRes, monster.CR, tier); xp > 0 {
 			if _, err := p.grantDnDXP(b.uid, xp); err != nil {
