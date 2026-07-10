@@ -1130,6 +1130,13 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 			ob.WriteString("\n")
 			ob.WriteString(line)
 		}
+		// D1b campaign capstone. The compact autopilot resolves boss rooms
+		// itself (the primary long-expedition path), so the epilogue has to
+		// fire here too — otherwise almost every player clears the boss
+		// without ever seeing it.
+		if isBoss {
+			writeBossEpilogue(&ob, zone.ID)
+		}
 		outcome = ob.String()
 		return
 	}

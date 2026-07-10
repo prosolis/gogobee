@@ -382,9 +382,7 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 			b.WriteString(drop + "\n")
 		}
 		if !elite {
-			if ep := bossEpilogueLine(zone.ID); ep != "" {
-				b.WriteString("\n" + ep + "\n")
-			}
+			writeBossEpilogue(&b, zone.ID)
 		}
 		if bossOnExpedition {
 			// The boss is the expedition's climax. Frame the close-out as

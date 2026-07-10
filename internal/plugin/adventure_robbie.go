@@ -171,7 +171,10 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 	if err == nil {
 		char.RobbieVisitCount++
 		if char.RobbieVisitCount%robbieGiftEveryNVisits == 0 {
-			if gifts := consumableCache(robbieGiftTier(char.CombatLevel), 1); len(gifts) > 0 {
+			// Use the canonical DnD level (like the arena's tier gate), not the
+			// frozen legacy CombatLevel — that snapshots at 1–3 once D&D setup
+			// completes, so reading it here would peg every gift at tier 1.
+			if gifts := consumableCache(robbieGiftTier(arenaDnDLevelOrZero(userID)), 1); len(gifts) > 0 {
 				if err := addAdvInventoryItem(userID, gifts[0]); err == nil {
 					leftGift = &gifts[0]
 				}
@@ -200,10 +203,12 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 func robbieQualifyingItems(inv []AdvItem, equip map[EquipmentSlot]*AdvEquipment) []AdvItem {
 	var result []AdvItem
 	for _, item := range inv {
-		// Never touch Arena gear, cards, or consumables. Consumables are a
-		// player-curated stockpile (crafted or dropped); selling them is an
-		// explicit decision the player must make themselves.
-		if item.Type == "ArenaGear" || item.Type == "card" || item.Type == "consumable" {
+		// Never touch Arena gear, cards, consumables, or keys. Consumables are
+		// a player-curated stockpile (crafted or dropped); selling them is an
+		// explicit decision the player must make themselves. Keys are cross-zone
+		// unlock tokens (N5/D4) that must persist in inventory to open their
+		// vault later — sweeping one permanently breaks that unlock.
+		if item.Type == "ArenaGear" || item.Type == "card" || item.Type == "consumable" || item.Type == "key" {
 			continue
 		}
 

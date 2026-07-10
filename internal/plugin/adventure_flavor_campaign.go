@@ -269,6 +269,17 @@ func bossEpilogueLine(zoneID ZoneID) string {
 	return bossEpilogues[zoneID]
 }
 
+// writeBossEpilogue appends a zone's campaign capstone (if any) to a
+// victory narration. Shared by every boss-down render path — the manual
+// turn-based finishes (finishCombatSession, finishPartyWin) and the compact
+// autopilot boss resolve — so the D1b epilogue fires no matter how the boss
+// was cleared. Caller gates on "this was a boss, not an elite".
+func writeBossEpilogue(b *strings.Builder, zoneID ZoneID) {
+	if ep := bossEpilogueLine(zoneID); ep != "" {
+		b.WriteString("\n" + ep + "\n")
+	}
+}
+
 // twinBeeJournalReactions are TwinBee's morning/digest reactions to pages found
 // during the day — first-person, implicit subject, he/him, one line, curious,
 // never expository (feedback_twinbee_voice, feedback_twinbee_is_male). Picked
@@ -463,6 +474,15 @@ func (p *AdventurePlugin) finishEpilogueWin(userID id.UserID, alreadyCleared boo
 		return "_The throne stays empty. You came to be sure. You are sure._"
 	}
 
+	// Latch the once-only flag BEFORE handing out the Legendary + title, so a
+	// failed write (or a crash) can never leave the reward repeatable. If the
+	// latch fails, skip the grant entirely — the player re-enters uncleared and
+	// can try again, rather than pocketing a second Legendary on the retry.
+	if err := markEpilogueClearedDB(userID); err != nil {
+		slog.Error("epilogue: mark cleared failed", "user", userID, "err", err)
+		return "_The account won't quite close — the ledger jams. Try `!expedition start epilogue` again._"
+	}
+
 	var b strings.Builder
 	b.WriteString("🎖️ **The account is closed.** You are named **" + finaleTitle + "** — the one who unhoused the Hollow King.\n")
 	if mi, ok := pickMagicItemForRarity(RarityLegendary, nil); ok {
@@ -480,9 +500,6 @@ func (p *AdventurePlugin) finishEpilogueWin(userID id.UserID, alreadyCleared boo
 				slog.Error("epilogue: title save failed", "user", userID, "err", err)
 			}
 		}
-	}
-	if err := markEpilogueClearedDB(userID); err != nil {
-		slog.Error("epilogue: mark cleared failed", "user", userID, "err", err)
 	}
 
 	if gr := gamesRoom(); gr != "" {

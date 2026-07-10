@@ -131,6 +131,15 @@ func (p *AdventurePlugin) npcFireEncounter(userID id.UserID, npc string) {
 		return
 	}
 
+	// Don't consume the encounter — or its one-shot arc beat — if the player is
+	// already mid-interaction (shop, treasure, another NPC). Bail before
+	// touching MistyEncounterCount so a contended slot defers the whole
+	// encounter to a later fire instead of durably advancing the counter past
+	// a 5/15/30 threshold and losing that beat forever.
+	if _, occupied := p.pending.Load(string(userID)); occupied {
+		return
+	}
+
 	now := time.Now().UTC()
 
 	var opening, prompt string
@@ -163,11 +172,6 @@ func (p *AdventurePlugin) npcFireEncounter(userID id.UserID, npc string) {
 	}
 	if err := upsertPlayerMetaNPCState(userID, npcStateFromAdvChar(char)); err != nil {
 		slog.Error("player_meta: npc last_seen dual-write failed", "user", userID, "npc", npc, "err", err)
-	}
-
-	// Don't overwrite an existing pending interaction (shop, treasure, etc.)
-	if _, occupied := p.pending.Load(string(userID)); occupied {
-		return
 	}
 
 	// Set pending interaction — NPC encounters stay valid until end of UTC day

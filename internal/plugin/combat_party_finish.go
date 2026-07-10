@@ -119,9 +119,7 @@ func (p *AdventurePlugin) finishPartyWin(
 			}
 		}
 		if !elite {
-			if ep := bossEpilogueLine(zone.ID); ep != "" {
-				b.WriteString("\n" + ep + "\n")
-			}
+			writeBossEpilogue(&b, zone.ID)
 		}
 		switch {
 		case bossOnExpedition && seat == 0:
