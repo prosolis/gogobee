@@ -283,6 +283,12 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 			formatRespecDuration(remaining)))
 	}
 	zoneTok, packTok := splitFirstWord(rest)
+	// N5/D1c: the campaign finale is reached here but is not a normal zone — it
+	// runs a single auto-resolved boss fight with its own unlock gate, no
+	// supplies, no walk. Intercept before the zone/loadout machinery.
+	if strings.EqualFold(zoneTok, "epilogue") {
+		return p.handleEpilogueEncounter(ctx)
+	}
 	available := zonesForLevel(c.Level)
 	zoneID, ok := resolveZoneInput(zoneTok, available)
 	if !ok {

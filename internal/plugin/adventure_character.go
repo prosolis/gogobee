@@ -115,6 +115,9 @@ type AdventureCharacter struct {
 	// == page i+1). Read-only overlay from player_meta.journal_pages; writes go
 	// through the atomic grantJournalPageDB, never the bulk character save.
 	JournalPages int64
+	// N5/D1c the finale reward-once flag. True after the first finale clear;
+	// overlay-read, written by the atomic markEpilogueClearedDB.
+	EpilogueCleared bool
 }
 
 type AdvEquipment struct {

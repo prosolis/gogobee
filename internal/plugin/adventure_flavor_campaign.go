@@ -2,8 +2,11 @@ package plugin
 
 import (
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"strings"
+
+	"gogobee/internal/db"
 
 	"maunium.net/go/mautrix/id"
 )
@@ -229,7 +232,7 @@ func renderJournal(mask int64) string {
 	}
 
 	if journalComplete(mask) {
-		b.WriteString("\nThe ledger is whole. Every page you needed, you have. What remains is to bring it to him.")
+		b.WriteString("\nThe ledger is whole. Clear both Tier-5 zones and you can follow him to the end — `!expedition start epilogue`.")
 	} else {
 		b.WriteString(fmt.Sprintf("\n_%d pages still scattered._", journalTotalPages-found))
 	}
@@ -244,6 +247,155 @@ func romanNumeral(n int) string {
 		return fmt.Sprintf("%d", n)
 	}
 	return romanNumerals[n-1]
+}
+
+// ── D1c: the finale ─────────────────────────────────────────────────────────
+
+// finaleTitle is the unique role awarded for the first finale clear.
+const finaleTitle = "Kingsbane"
+
+const epilogueEntryFlavor = "You bring the whole ledger to the Empty Throne. The shape kept warm against his return stirs, and stands, and is finally, fully here."
+
+// hollowKingFinaleMonster is the finale stat block: Belaxath's block — the abyss
+// boss whose gate "was meant to let one thing come home" — re-dressed as the
+// King returned in full, with HP bumped for a capstone. A variant stat block
+// with no new mechanics, per the plan. Built on the fly (not registered in
+// dndBestiary) because runZoneCombat takes the template directly, exactly as the
+// arena bosses do.
+func hollowKingFinaleMonster() DnDMonsterTemplate {
+	m := dndBestiary["boss_belaxath"]
+	m.ID = "boss_hollow_king_finale"
+	m.Name = "The Hollow King, Unhoused"
+	m.HP = int(float64(m.HP) * 1.25)
+	m.Notes = "Finale encounter — the Hollow King returned in full through the abyss gate. Variant of the Balor stat block; no new mechanics."
+	return m
+}
+
+// epilogueUnlocked gates the finale on the whole ledger plus both Tier-5 clears.
+func (p *AdventurePlugin) epilogueUnlocked(char *AdventureCharacter) (bool, string) {
+	if !journalComplete(char.JournalPages) {
+		return false, fmt.Sprintf(
+			"The trail runs cold. You've recovered **%d of %d** journal pages — find them all before you can follow him to the end. (`!adventure journal`)",
+			journalPageCount(char.JournalPages), journalTotalPages)
+	}
+	if !clearedEveryZoneOfTier(db.Get(), char.UserID, ZoneTier(5)) {
+		return false, "You hold the whole ledger, but not the standing to use it. Clear **both** Tier-5 zones — the Dragon's Lair and the Abyss Portal — then come back to the throne."
+	}
+	return true, ""
+}
+
+// handleEpilogueEncounter runs the finale: a single auto-resolved boss fight
+// against the Hollow King's true form, reached via `!expedition start epilogue`.
+// Reward drops only on the first clear (reward-once); later clears are a
+// flavour-only rematch. A loss costs a death, as any boss fight does.
+func (p *AdventurePlugin) handleEpilogueEncounter(ctx MessageContext) error {
+	char, _, err := p.ensureCharacter(ctx.Sender)
+	if err != nil {
+		return p.SendReply(ctx.RoomID, ctx.EventID, "Failed to load your character. Try `!adventure` first.")
+	}
+	if !char.Alive {
+		return p.SendDM(ctx.Sender, "You're in no shape to face him. Mend at `!hospital` first.")
+	}
+	if ok, why := p.epilogueUnlocked(char); !ok {
+		return p.SendDM(ctx.Sender, why)
+	}
+	// Busy guards — the finale is a synchronous auto-resolved fight, so refuse if
+	// anything else is in flight and could collide on HP or run state.
+	if exp, _ := getActiveExpedition(ctx.Sender); exp != nil {
+		return p.SendDM(ctx.Sender, "Finish your expedition before you walk to the Empty Throne.")
+	}
+	if run, _ := getActiveZoneRun(ctx.Sender); run != nil {
+		return p.SendDM(ctx.Sender, "Finish your current zone run first.")
+	}
+	if sess, _ := getActiveCombatSession(ctx.Sender); sess != nil {
+		return p.SendDM(ctx.Sender, "You're already in a fight. Finish it first.")
+	}
+
+	monster := hollowKingFinaleMonster()
+	displayName, _ := loadDisplayName(ctx.Sender)
+	if displayName == "" {
+		displayName = "You"
+	}
+
+	preHP, _ := dndHPSnapshot(ctx.Sender)
+	result, err := p.runZoneCombat(ctx.Sender, monster, 5, bossCombatPhases, 50)
+	if err != nil {
+		slog.Error("epilogue: combat failed", "user", ctx.Sender, "err", err)
+		return p.SendDM(ctx.Sender, "Something went wrong at the throne. Try again in a moment.")
+	}
+	postHP, maxHP := dndHPSnapshot(ctx.Sender)
+	nat20s, nat1s := countNat20sAnd1s(result)
+
+	intro := fmt.Sprintf("👑 **The Empty Throne — %s** (HP %d, AC %d)\n_%s_",
+		monster.Name, monster.HP, monster.AC, epilogueEntryFlavor)
+	phases := RenderCombatLog(result, displayName, monster.Name)
+	outcome := renderBossOutcome(BossOutcomeInputs{
+		// Synthetic ZoneArena keeps twinBeeLine's deterministic pickers off any
+		// real zone's pool, exactly as the arena does.
+		ZoneID:          ZoneArena,
+		RunID:           "epilogue-" + string(ctx.Sender),
+		RoomIdx:         0,
+		Monster:         monster,
+		Result:          result,
+		PreHP:           preHP,
+		PostHP:          postHP,
+		MaxHP:           maxHP,
+		PhaseTwoAt:      0.40,
+		Nat20s:          nat20s,
+		Nat1s:           nat1s,
+		DefeatHeadline:  "💀 The Hollow King folds you into the quiet he keeps. The account goes unpaid a while longer.",
+		VictoryHeadline: fmt.Sprintf("🏆 **The Hollow King falls — and this time stays down.** You finished at **%d/%d HP**.", postHP, maxHP),
+	})
+
+	var tail string
+	if !result.PlayerWon {
+		markAdventureDead(ctx.Sender, "adventure", "the Empty Throne")
+	} else {
+		tail = p.finishEpilogueWin(ctx.Sender, char.EpilogueCleared)
+	}
+
+	_ = p.sendZoneCombatMessages(ctx.Sender, append([]string{intro}, phases...), joinLootLines(outcome, tail))
+	return nil
+}
+
+// finishEpilogueWin grants the reward on a first clear and returns the reward
+// narration; a repeat clear is flavour only. The character is reloaded before
+// the title write so runZoneCombat's post-fight HP persist isn't clobbered.
+func (p *AdventurePlugin) finishEpilogueWin(userID id.UserID, alreadyCleared bool) string {
+	if alreadyCleared {
+		return "_The throne stays empty. You came to be sure. You are sure._"
+	}
+
+	var b strings.Builder
+	b.WriteString("🎖️ **The account is closed.** You are named **" + finaleTitle + "** — the one who unhoused the Hollow King.\n")
+	if mi, ok := pickMagicItemForRarity(RarityLegendary, nil); ok {
+		if line := p.dropMagicItemLoot(userID, mi, LootTierLegendary); line != "" {
+			b.WriteString(line + "\n")
+		}
+	} else {
+		slog.Error("epilogue: no legendary in registry", "user", userID)
+	}
+
+	if fresh, err := loadAdvCharacter(userID); err == nil && fresh != nil {
+		if fresh.Title != finaleTitle {
+			fresh.Title = finaleTitle
+			if err := saveAdvCharacter(fresh); err != nil {
+				slog.Error("epilogue: title save failed", "user", userID, "err", err)
+			}
+		}
+	}
+	if err := markEpilogueClearedDB(userID); err != nil {
+		slog.Error("epilogue: mark cleared failed", "user", userID, "err", err)
+	}
+
+	if gr := gamesRoom(); gr != "" {
+		if dn, _ := loadDisplayName(userID); dn != "" {
+			p.SendMessage(id.RoomID(gr), fmt.Sprintf(
+				"👑 **%s** carried the whole ledger to the Empty Throne and closed the account. The Hollow King is ended. **%s.**",
+				dn, finaleTitle))
+		}
+	}
+	return b.String()
 }
 
 var romanNumerals = []string{

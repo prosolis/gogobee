@@ -421,6 +421,33 @@ func grantJournalPageDB(userID id.UserID, page int) error {
 	return err
 }
 
+// loadEpilogueCleared reads the finale reward-once flag (N5/D1c).
+func loadEpilogueCleared(userID id.UserID) (bool, error) {
+	var cleared int
+	err := db.Get().QueryRow(
+		`SELECT epilogue_cleared FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&cleared)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return cleared != 0, nil
+}
+
+// markEpilogueClearedDB latches the finale reward-once flag atomically, so the
+// monotonic false→true set survives any concurrent character save.
+func markEpilogueClearedDB(userID id.UserID) error {
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (user_id, epilogue_cleared) VALUES (?, 1)
+		 ON CONFLICT(user_id) DO UPDATE SET epilogue_cleared = 1`,
+		string(userID),
+	)
+	return err
+}
+
 // HouseState is the in-memory mirror of player_meta's house_* columns. Phase
 // L4e ports housing/mortgage off AdvCharacter (gogobee_legacy_migration.md
 // §6.5). All six fields mutate together at known sites (purchase, payoff,
@@ -1318,6 +1345,9 @@ func applyPlayerMetaOverlay(c *AdventureCharacter) {
 	}
 	if mask, err := loadJournalPages(uid); err == nil {
 		c.JournalPages = mask
+	}
+	if cleared, err := loadEpilogueCleared(uid); err == nil {
+		c.EpilogueCleared = cleared
 	}
 	if s, err := loadHouseState(uid); err == nil {
 		c.HouseTier = s.Tier

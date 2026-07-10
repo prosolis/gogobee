@@ -386,6 +386,13 @@ func runMigrations(d *sql.DB) error {
 		// character save. DEFAULT 0 == "no pages found", correct for every
 		// pre-existing row, so no bootstrap backfill.
 		`ALTER TABLE player_meta ADD COLUMN journal_pages INTEGER NOT NULL DEFAULT 0`,
+		// N5/D1c the Hollow King finale (gogobee_engagement_plan.md §D1). Set once,
+		// the first time a player closes the account — the reward (unique title +
+		// one Legendary) drops only on that first clear; later rematches are
+		// flavour-only. Written by a dedicated atomic UPDATE, never the bulk
+		// character save, so a monotonic false→true flag can't be clobbered.
+		// DEFAULT 0 correct for every pre-existing row, so no bootstrap.
+		`ALTER TABLE player_meta ADD COLUMN epilogue_cleared INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

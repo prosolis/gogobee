@@ -188,6 +188,97 @@ func TestBossEpilogues_EveryRegisteredZoneHasOne(t *testing.T) {
 	}
 }
 
+func TestHollowKingFinaleMonster_ClonesBelaxathWithBump(t *testing.T) {
+	base := dndBestiary["boss_belaxath"]
+	if base.ID == "" {
+		t.Fatal("boss_belaxath missing from bestiary — finale clones it")
+	}
+	m := hollowKingFinaleMonster()
+	if m.ID != "boss_hollow_king_finale" {
+		t.Errorf("finale ID = %q", m.ID)
+	}
+	if m.Name == base.Name || m.Name == "" {
+		t.Errorf("finale name should differ from Belaxath: %q", m.Name)
+	}
+	if m.HP <= base.HP {
+		t.Errorf("finale HP %d should exceed base %d (capstone bump)", m.HP, base.HP)
+	}
+	// No new mechanics: the ability and defensive profile carry over unchanged.
+	if m.Ability != base.Ability {
+		t.Errorf("finale ability pointer changed — should reuse Belaxath's, no new mechanics")
+	}
+	if m.AC != base.AC || m.CR != base.CR {
+		t.Errorf("finale AC/CR drifted from base: AC %d/%d CR %v/%v", m.AC, base.AC, m.CR, base.CR)
+	}
+}
+
+func TestEpilogueRewardOnce_FlagRoundTrip(t *testing.T) {
+	townTestDB(t)
+	u := id.UserID("@finale:test.invalid")
+
+	if got, err := loadEpilogueCleared(u); err != nil || got {
+		t.Fatalf("fresh player: cleared=%v err=%v, want false/nil", got, err)
+	}
+	if err := markEpilogueClearedDB(u); err != nil {
+		t.Fatalf("mark cleared: %v", err)
+	}
+	if got, err := loadEpilogueCleared(u); err != nil || !got {
+		t.Fatalf("after mark: cleared=%v err=%v, want true/nil", got, err)
+	}
+	// Idempotent.
+	if err := markEpilogueClearedDB(u); err != nil {
+		t.Fatalf("re-mark: %v", err)
+	}
+
+	var c AdventureCharacter
+	c.UserID = u
+	applyPlayerMetaOverlay(&c)
+	if !c.EpilogueCleared {
+		t.Fatalf("overlay did not carry EpilogueCleared")
+	}
+}
+
+func TestEpilogueUnlocked_Gates(t *testing.T) {
+	townTestDB(t)
+	p := &AdventurePlugin{}
+
+	// Incomplete journal → refused, page-count message.
+	partial := &AdventureCharacter{UserID: id.UserID("@u1:test.invalid")}
+	partial.JournalPages = setJournalPageBit(0, 1)
+	ok, why := p.epilogueUnlocked(partial)
+	if ok {
+		t.Fatalf("incomplete journal should not unlock")
+	}
+	if !strings.Contains(why, "journal pages") {
+		t.Errorf("expected page-count refusal, got: %s", why)
+	}
+
+	// Complete journal but no Tier-5 clears → refused, T5 message.
+	full := &AdventureCharacter{UserID: id.UserID("@u2:test.invalid")}
+	for i := 1; i <= journalTotalPages; i++ {
+		full.JournalPages = setJournalPageBit(full.JournalPages, i)
+	}
+	ok, why = p.epilogueUnlocked(full)
+	if ok {
+		t.Fatalf("no T5 clears should not unlock")
+	}
+	if !strings.Contains(why, "Tier-5") {
+		t.Errorf("expected Tier-5 refusal, got: %s", why)
+	}
+}
+
+func TestFinishEpilogueWin_RepeatIsFlavorOnly(t *testing.T) {
+	// The already-cleared branch is pure flavour: no reward, no client calls.
+	p := &AdventurePlugin{}
+	repeat := p.finishEpilogueWin(id.UserID("@u:test.invalid"), true)
+	if strings.Contains(repeat, finaleTitle) {
+		t.Errorf("a repeat clear must not re-award the title: %s", repeat)
+	}
+	if strings.TrimSpace(repeat) == "" {
+		t.Errorf("a repeat clear should still say something")
+	}
+}
+
 func TestTwinBeeJournalReaction_DeterministicAndGuarded(t *testing.T) {
 	if twinBeeJournalReaction(3, 0) != "" {
 		t.Errorf("zero pages should produce no reaction")
