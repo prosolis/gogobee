@@ -140,7 +140,7 @@ func ragingPlayer() Combatant {
 			CritRate: 0.05, DodgeRate: 0.05, BlockRate: 0.05,
 		},
 		Mods: CombatModifiers{
-			DamageReduct: 1.0,
+			DamageReduct:  1.0,
 			BerserkerRage: true, RageMeleeDmg: 2,
 			PhysicalResistRage: true, FrenzyDmgBonus: 0.5,
 		},

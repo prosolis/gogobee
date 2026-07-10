@@ -528,8 +528,8 @@ func TestExpeditionBalance_Phase2_LeverSweep(t *testing.T) {
 	// sweep walks two settings tighter (gentler) and one looser
 	// (harsher) for each knob so the live point sits in the middle of
 	// the grid and we can read the slope in both directions.
-	bumps := []int{2, 5, 10}        // threat-bump per retreat
-	divisors := []int{3, 5, 8, 12}  // /N wounded-nick divisor; bigger = gentler
+	bumps := []int{2, 5, 10}       // threat-bump per retreat
+	divisors := []int{3, 5, 8, 12} // /N wounded-nick divisor; bigger = gentler
 
 	t.Logf("phase2 lever sweep — %d zones × %d bump × %d divisor × %d trials, Fighter @ tier centerline (rolls=4)",
 		len(zoneOrder), len(bumps), len(divisors), trialsPerCell)
@@ -622,16 +622,16 @@ func TestExpeditionBalance_Phase2_LeverSweep(t *testing.T) {
 // This sweep walks two of the global knobs called out in the plan-doc
 // "Phase 3 — global lever tuning" section:
 //
-//   eliteInterruptThreshold (live=19, total roll cutoff for Elite
-//   bracket) — directly controls how often fresh-entry elite fights
-//   trigger during the daytime harvest pipeline. Sweep {17, 19, 23}:
-//   17 = more elites (slope check below live), 19 = live baseline,
-//   23 = elites only when roll+mod ≥ 23 (rare even at T5).
+//	eliteInterruptThreshold (live=19, total roll cutoff for Elite
+//	bracket) — directly controls how often fresh-entry elite fights
+//	trigger during the daytime harvest pipeline. Sweep {17, 19, 23}:
+//	17 = more elites (slope check below live), 19 = live baseline,
+//	23 = elites only when roll+mod ≥ 23 (rare even at T5).
 //
-//   threatDriftBase (live=3, daily threat clock drift before mood-mod)
-//   — slows the multi-day AC/init/supply-burn creep that compounds
-//   over a 14-day expedition. Sweep {1, 3, 5}: 1 = nearly flat, 3 =
-//   live, 5 = harsher.
+//	threatDriftBase (live=3, daily threat clock drift before mood-mod)
+//	— slows the multi-day AC/init/supply-burn creep that compounds
+//	over a 14-day expedition. Sweep {1, 3, 5}: 1 = nearly flat, 3 =
+//	live, 5 = harsher.
 //
 // 3×3 = 9 combos × 10 zones × 200 trials/cell. Diagnostic-only — no
 // gates beyond the Phase 1 wiring sanity. -short skips.
@@ -736,19 +736,19 @@ func TestExpeditionBalance_Phase3_GlobalLeverSweep(t *testing.T) {
 // Phase 3-B holds the Phase 3-A best cell (eliteInterruptThreshold=23,
 // threatDriftBase=1) and walks two more global knobs:
 //
-//   surpriseNickFloor (live=tier, i.e. 1..5 by zone tier) — the raw
-//   surprise-round nick on a fresh-HP entry. Lower floor = less
-//   per-fight chip on T4/T5 standard fights, where the live tier=4-5
-//   floor is the biggest single contributor to the wear-down curve
-//   that funnels survivors into starvation. Sweep {-1 (disable, =0),
-//   1 (flat), 0-sentinel (live tier)}.
+//	surpriseNickFloor (live=tier, i.e. 1..5 by zone tier) — the raw
+//	surprise-round nick on a fresh-HP entry. Lower floor = less
+//	per-fight chip on T4/T5 standard fights, where the live tier=4-5
+//	floor is the biggest single contributor to the wear-down curve
+//	that funnels survivors into starvation. Sweep {-1 (disable, =0),
+//	1 (flat), 0-sentinel (live tier)}.
 //
-//   supplyBurnRatePct (live=100, %) — daily supply burn scalar. Lower
-//   = more days of margin. T4 and T5 burns are 3×/4× the T1 baseline;
-//   halving them ought to convert the starvation outs we saw in
-//   Phase 3-A into actual completions if survivability is the only
-//   remaining blocker, or leave them dying in combat if it isn't.
-//   Sweep {100 (live), 75, 50}.
+//	supplyBurnRatePct (live=100, %) — daily supply burn scalar. Lower
+//	= more days of margin. T4 and T5 burns are 3×/4× the T1 baseline;
+//	halving them ought to convert the starvation outs we saw in
+//	Phase 3-A into actual completions if survivability is the only
+//	remaining blocker, or leave them dying in combat if it isn't.
+//	Sweep {100 (live), 75, 50}.
 //
 // 3×3 = 9 combos × 10 zones × 200 trials/cell, all on top of the
 // Phase 3-A best cell. Diagnostic-only — no gates beyond Phase 1
@@ -925,14 +925,14 @@ func TestExpeditionBalance_Phase4A_OutlierDiagnostic(t *testing.T) {
 		killAttributed int // last fight of a died_combat trial
 	}
 	type zoneAgg struct {
-		profile      expeditionBalanceProfile
-		completions  int
-		deaths       int
-		starves      int
-		monsters     map[string]*monsterStat
-		dayHist      [16]int // 1..14 + overflow bucket; index 0 unused
-		eliteFights  int
-		stdFights    int
+		profile     expeditionBalanceProfile
+		completions int
+		deaths      int
+		starves     int
+		monsters    map[string]*monsterStat
+		dayHist     [16]int // 1..14 + overflow bucket; index 0 unused
+		eliteFights int
+		stdFights   int
 		// for the trial currently in flight (mutated during traceFightStruct)
 		lastFight harnessFightTrace
 	}
@@ -1094,9 +1094,9 @@ func TestExpeditionBalance_Phase4A_OutlierDiagnostic(t *testing.T) {
 // the lever has to be tier-wide. The plan doc names three candidate
 // moves:
 //
-//   1. Gear-tier centerline remap (phase1TierCenterline)   → axis L
-//   2. Per-tier elite-bracket threshold (vs global)        → axis E
-//   3. Ship burn=75 globally (Phase 3-B's high-burn cell)  → axis B
+//  1. Gear-tier centerline remap (phase1TierCenterline)   → axis L
+//  2. Per-tier elite-bracket threshold (vs global)        → axis E
+//  3. Ship burn=75 globally (Phase 3-B's high-burn cell)  → axis B
 //
 // This diagnostic does *not* pick the lever. It runs a one-axis-at-a-
 // time sensitivity sweep on the six under-band zones and lets the
@@ -1106,9 +1106,9 @@ func TestExpeditionBalance_Phase4A_OutlierDiagnostic(t *testing.T) {
 // means the lever is inert for that tier, monotone climb means it's
 // the lever, non-monotone means a confound.
 //
-//   L: player level    = {centerline-2, centerline, centerline+2}
-//   E: elite threshold = {18, 23, 28}
-//   B: supply burn pct = {40, 50, 60}
+//	L: player level    = {centerline-2, centerline, centerline+2}
+//	E: elite threshold = {18, 23, 28}
+//	B: supply burn pct = {40, 50, 60}
 //
 // Per cell we log comp%/death%/starve% plus the elite-vs-standard
 // fight share (so axis E's slope can be cross-checked against the
@@ -1145,7 +1145,7 @@ func TestExpeditionBalance_Phase5A_TierWideSensitivity(t *testing.T) {
 	// Returns comp/death/starve counts plus elite/standard fight share
 	// so the caller can attribute the slope across axis values.
 	type cellOut struct {
-		comp, death, starve int
+		comp, death, starve    int
 		eliteFights, stdFights int
 	}
 	runCell := func(zid ZoneID, tier ZoneTier, level, elite, burn int) cellOut {
@@ -1281,8 +1281,9 @@ func TestExpeditionBalance_Phase5A_TierWideSensitivity(t *testing.T) {
 // what flat delta on top of the ladder lands T1-T5 in band.
 //
 // Bands (gogobee_expedition_difficulty.md):
-//   T1 80% (70-90%)   T2 72% (62-82%)   T3 65% (55-75%)
-//   T4 55% (45-65%)   T5 45% (35-55%)
+//
+//	T1 80% (70-90%)   T2 72% (62-82%)   T3 65% (55-75%)
+//	T4 55% (45-65%)   T5 45% (35-55%)
 //
 // 10 zones × 3 deltas × 200 trials = 6k trials; runs in ~1s.
 // Diagnostic-only — picks the delta Phase 5-B ships in

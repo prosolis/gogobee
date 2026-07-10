@@ -38,28 +38,28 @@ func setupAuditTestDB(t *testing.T) {
 // regardless of MaxHP parity.
 func TestOrcRage_ThresholdExact(t *testing.T) {
 	cases := []struct {
-		hp, maxHP int
+		hp, maxHP  int
 		shouldFire bool
 	}{
 		{50, 100, false}, // exactly 50% — does NOT fire (strict <)
 		{49, 100, true},  // just under
 		{8, 16, false},   // exactly 50% even MaxHP
 		{7, 16, true},
-		{8, 15, true},    // 8/15 = 53% — under former threshold of MaxHP/2=7. New: 8*2=16, 16<15 false. Hmm.
+		{8, 15, true}, // 8/15 = 53% — under former threshold of MaxHP/2=7. New: 8*2=16, 16<15 false. Hmm.
 	}
 	// Re-derive: HP*2 < MaxHP. So 8*2=16 < 15? No. Doesn't fire. That means at MaxHP=15, threshold trips at HP*2 < 15, i.e. HP < 7.5, i.e. HP ≤ 7.
 	// Old behavior used HP < MaxHP/2 = HP < 7 (integer div). So fired at HP < 7, i.e., HP ≤ 6. Different by one.
 	// Pick cases that distinguish.
 	cases = []struct {
-		hp, maxHP int
+		hp, maxHP  int
 		shouldFire bool
 	}{
 		{50, 100, false},
 		{49, 100, true},
 		{8, 16, false},
 		{7, 16, true},
-		{6, 15, true}, // 6*2=12 < 15 ✓
-		{7, 15, true}, // 7*2=14 < 15 ✓ (old code's MaxHP/2=7 would have NOT fired at HP=7)
+		{6, 15, true},  // 6*2=12 < 15 ✓
+		{7, 15, true},  // 7*2=14 < 15 ✓ (old code's MaxHP/2=7 would have NOT fired at HP=7)
 		{8, 15, false}, // 8*2=16, not < 15
 	}
 	for _, c := range cases {

@@ -97,12 +97,12 @@ func TestAdvMasteryRowSegment(t *testing.T) {
 
 func TestAdvMasteryRollup(t *testing.T) {
 	cases := []struct {
-		name             string
-		used             map[EquipmentSlot]int
-		wantCrossed      int
-		wantMaxed        int
-		wantBonus        float64
-		wantAnyProgress  bool
+		name            string
+		used            map[EquipmentSlot]int
+		wantCrossed     int
+		wantMaxed       int
+		wantBonus       float64
+		wantAnyProgress bool
 	}{
 		{"empty", nil, 0, 0, 0, false},
 		{"sub-50 only", map[EquipmentSlot]int{SlotWeapon: 30}, 0, 0, 0, true},
@@ -240,12 +240,12 @@ func TestAdvTreasureIrreplaceable(t *testing.T) {
 
 func TestRenderCraftingTeaser_BracketBoundaries(t *testing.T) {
 	cases := []struct {
-		name             string
-		foraging         int
-		craftsSucceeded  int
-		wantEmpty        bool
-		wantContainsAny  []string // any of these (OR)
-		wantNotContains  []string
+		name            string
+		foraging        int
+		craftsSucceeded int
+		wantEmpty       bool
+		wantContainsAny []string // any of these (OR)
+		wantNotContains []string
 	}{
 		{"foraging 6 — out of pre-window", 6, 0, true, nil, nil},
 		{"foraging 7 — pre-unlock with 3 levels left, plural", 7, 0, false, []string{"3 Foraging level"}, []string{"unlocks in 1 ", "unlocks in 0"}},
@@ -297,7 +297,7 @@ func TestCraftingReminderWeekday_Spread(t *testing.T) {
 
 func TestCraftingReminderWeekday_StableWithinWeek(t *testing.T) {
 	uid := id.UserID("@stable:test")
-	mon := time.Date(2026, 5, 4, 0, 0, 0, 0, time.UTC) // Monday
+	mon := time.Date(2026, 5, 4, 0, 0, 0, 0, time.UTC)   // Monday
 	sun := time.Date(2026, 5, 10, 23, 0, 0, 0, time.UTC) // Sunday same ISO week
 	if craftingReminderWeekday(uid, mon) != craftingReminderWeekday(uid, sun) {
 		t.Error("weekday should be stable within an ISO week")

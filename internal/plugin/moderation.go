@@ -53,13 +53,13 @@ type modConfig struct {
 	RepeatSimilarityThreshold float64
 
 	// Mention flood
-	MentionMax              int
-	MentionFloodCount       int
+	MentionMax                int
+	MentionFloodCount         int
 	MentionFloodWindowSeconds int
 
 	// Link rate (new members)
-	LinkRateNewMember        int
-	LinkRateWindowSeconds    int
+	LinkRateNewMember     int
+	LinkRateWindowSeconds int
 
 	// Invite flooding
 	InviteMaxPerHour int
@@ -123,16 +123,16 @@ func loadModConfig() modConfig {
 // ---------------------------------------------------------------------------
 
 var dmTemplates = map[string]string{
-	"strike1_word":  "Hey — that word isn't something we allow in this community. Your message has been removed. This has been noted. Please keep it in mind going forward.",
-	"strike1_flood": "Hey — looks like you might have gotten a bit trigger-happy there. Slow it down a little. Your messages have been removed and this has been noted.",
-	"strike1_wall":  "Hey — that message was way too long for this room. It's been removed and noted. Please keep it shorter.",
-	"strike1_repeat": "Hey — repeating the same message isn't cool. Your messages have been removed and this has been noted.",
+	"strike1_word":    "Hey — that word isn't something we allow in this community. Your message has been removed. This has been noted. Please keep it in mind going forward.",
+	"strike1_flood":   "Hey — looks like you might have gotten a bit trigger-happy there. Slow it down a little. Your messages have been removed and this has been noted.",
+	"strike1_wall":    "Hey — that message was way too long for this room. It's been removed and noted. Please keep it shorter.",
+	"strike1_repeat":  "Hey — repeating the same message isn't cool. Your messages have been removed and this has been noted.",
 	"strike1_mention": "Hey — too many mentions in a short time. Please don't mass-ping. This has been noted.",
-	"strike1_link":  "Hey — slow down on the links. New members have a limit. This has been noted.",
-	"strike1_invite": "Hey — you've been sending too many invites. This has been flagged and noted.",
-	"strike2":       "This is the second time we've had to step in. You've been muted for %s. When you're back, please keep the community guidelines in mind. This is your last warning before a permanent ban.",
-	"strike3":       "This is the third strike. You're being removed from the community permanently. Take care.",
-	"manual_warn":   "A community admin has issued you a formal warning: %s. Please keep this in mind.",
+	"strike1_link":    "Hey — slow down on the links. New members have a limit. This has been noted.",
+	"strike1_invite":  "Hey — you've been sending too many invites. This has been flagged and noted.",
+	"strike2":         "This is the second time we've had to step in. You've been muted for %s. When you're back, please keep the community guidelines in mind. This is your last warning before a permanent ban.",
+	"strike3":         "This is the third strike. You're being removed from the community permanently. Take care.",
+	"manual_warn":     "A community admin has issued you a formal warning: %s. Please keep this in mind.",
 }
 
 // ---------------------------------------------------------------------------

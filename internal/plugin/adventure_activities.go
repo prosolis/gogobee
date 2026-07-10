@@ -642,7 +642,7 @@ type AdvActionResult struct {
 	FlavorKey      string
 	EquipBroken    []EquipmentSlot
 	NearDeath      bool
-	StreakBonus     int
+	StreakBonus    int
 	CombatLog      *CombatResult
 	// MasteryCrossings records equipment slots whose ActionsUsed crossed a
 	// mastery threshold (advMasteryThresholds) on this action. The caller

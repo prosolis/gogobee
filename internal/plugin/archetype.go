@@ -29,51 +29,51 @@ const (
 	thLinkmasterMinMsgs     = 50
 
 	// Temporal
-	thNightOwlPct     = 40
-	thNightOwlMinMsgs = 100
-	thEarlyBirdPct    = 40
+	thNightOwlPct      = 40
+	thNightOwlMinMsgs  = 100
+	thEarlyBirdPct     = 40
 	thEarlyBirdMinMsgs = 100
 
 	// Emotional (LLM-gated)
-	thEmotionalMinClassified    = 100
-	thCheerleaderPosPct         = 50
-	thPhilosopherNeutPct        = 40
-	thPhilosopherQPct           = 10
-	thPhilosopherAvgWords       = 8
-	thAgitatorNegPct            = 30
-	thAgitatorMinMsgs           = 200
-	thWildcardStdDev            = 0.5
-	thWildcardMinClassified     = 150
-	thHypeMachineExclPct        = 20
-	thHypeMachinePosPct         = 60
+	thEmotionalMinClassified = 100
+	thCheerleaderPosPct      = 50
+	thPhilosopherNeutPct     = 40
+	thPhilosopherQPct        = 10
+	thPhilosopherAvgWords    = 8
+	thAgitatorNegPct         = 30
+	thAgitatorMinMsgs        = 200
+	thWildcardStdDev         = 0.5
+	thWildcardMinClassified  = 150
+	thHypeMachineExclPct     = 20
+	thHypeMachinePosPct      = 60
 
 	// Economy
 	thBrokeSpiritedMaxBalance = 100.0
 	thDegenerateMinLosses     = 10
 
 	// Games
-	thSharkWinRate           = 55
-	thSharkMinGames          = 15
-	thWordleMinPuzzles       = 10
-	thArenaChampMinTier      = 4
-	thArenaChampWinRate      = 50
-	thArenaCowardMinRuns     = 3
-	thArenaCowardMaxAvgTier  = 2
-	thTriviaNerdMinCorrect   = 10
+	thSharkWinRate          = 55
+	thSharkMinGames         = 15
+	thWordleMinPuzzles      = 10
+	thArenaChampMinTier     = 4
+	thArenaChampWinRate     = 50
+	thArenaCowardMinRuns    = 3
+	thArenaCowardMaxAvgTier = 2
+	thTriviaNerdMinCorrect  = 10
 
 	// Adventure
-	thAdvMinDays           = 10
-	thAdvDiverseMinDays    = 15
-	thAdvDiverseMinTypes   = 3
-	thAdvDiverseMaxShare   = 40
+	thAdvMinDays            = 10
+	thAdvDiverseMinDays     = 15
+	thAdvDiverseMinTypes    = 3
+	thAdvDiverseMaxShare    = 40
 	thGearheadMinMasterwork = 3
 
 	// Communication (vocabulary)
 	thWordsmithMinFancyWords = 10
 
 	// Social
-	thPatronMinRepGiven      = 5
-	thPatronRatioMultiplier  = 2
+	thPatronMinRepGiven     = 5
+	thPatronRatioMultiplier = 2
 
 	// Display
 	maxDisplayArchetypes = 6
@@ -83,13 +83,13 @@ const (
 
 var archetypeFlavors = map[string]string{
 	// Communication
-	"Novelist":    "Writes in paragraphs. Has opinions. Probably re-reads their own messages.",
-	"Minimalist":  "Says a lot with very little. You're never sure if they're fine or not.",
-	"Inquisitor":  "Always asking. Never satisfied with the first answer. Probably has follow-ups.",
-	"Enthusiast":  "Genuinely excited about things. All the things. Possibly all at once.",
-	"Chatterbox":  "Has thoughts. Many thoughts. Shares them all. You wouldn't have it any other way.",
-	"Linkmaster":  "The community's unofficial curator. Their tab count is not your business.",
-	"Wordsmith":   "Uses words most people have to look up. The thesaurus fears them.",
+	"Novelist":   "Writes in paragraphs. Has opinions. Probably re-reads their own messages.",
+	"Minimalist": "Says a lot with very little. You're never sure if they're fine or not.",
+	"Inquisitor": "Always asking. Never satisfied with the first answer. Probably has follow-ups.",
+	"Enthusiast": "Genuinely excited about things. All the things. Possibly all at once.",
+	"Chatterbox": "Has thoughts. Many thoughts. Shares them all. You wouldn't have it any other way.",
+	"Linkmaster": "The community's unofficial curator. Their tab count is not your business.",
+	"Wordsmith":  "Uses words most people have to look up. The thesaurus fears them.",
 
 	// Temporal
 	"Night Owl":  "Awake when they probably shouldn't be. Thriving despite all evidence.",
@@ -103,8 +103,8 @@ var archetypeFlavors = map[string]string{
 	"Hype Machine": "Arrived and immediately made everything louder. The room is better for it.",
 
 	// Economy
-	"Whale":             "Has money. Spends money. Has more money somehow. The math is unclear.",
-	"Degenerate":        "Knows exactly what they're doing. Does it anyway. Respects it.",
+	"Whale":              "Has money. Spends money. Has more money somehow. The math is unclear.",
+	"Degenerate":         "Knows exactly what they're doing. Does it anyway. Respects it.",
 	"Broke But Spirited": "Down but not out. The pot fears them anyway.",
 
 	// Games
@@ -221,16 +221,16 @@ type userData struct {
 	userID string
 
 	// user_stats
-	totalMsgs    int
-	totalWords   int
-	totalLinks   int
-	totalImages  int
+	totalMsgs      int
+	totalWords     int
+	totalLinks     int
+	totalImages    int
 	totalQuestions int
-	totalExcl    int
-	totalEmojis  int
-	nightMsgs    int
-	morningMsgs  int
-	fancyWords   int
+	totalExcl      int
+	totalEmojis    int
+	nightMsgs      int
+	morningMsgs    int
+	fancyWords     int
 
 	// sentiment_stats
 	sentPositive int
@@ -242,7 +242,7 @@ type userData struct {
 	sentVariance    float64
 
 	// economy
-	balance       float64
+	balance        float64
 	gamblingLosses int
 	recentGaming   bool
 
@@ -251,7 +251,7 @@ type userData struct {
 	hmPlayed, hmWon             int
 	holdemPlayed                int
 	holdemNetPositive           bool
-	unoSoloPlayed, unoSoloWon  int
+	unoSoloPlayed, unoSoloWon   int
 	unoMultiPlayed, unoMultiWon int
 	wordlePlayed                int
 	triviaCorrect               int
@@ -263,13 +263,13 @@ type userData struct {
 	arenaAvgCashTier float64
 
 	// adventure
-	advDays       int
-	advActivities map[string]int // activity_type -> count
+	advDays         int
+	advActivities   map[string]int // activity_type -> count
 	masterworkCount int
 
 	// social
-	repGiven     int
-	repReceived  int
+	repGiven       int
+	repReceived    int
 	reactionsGiven int
 }
 

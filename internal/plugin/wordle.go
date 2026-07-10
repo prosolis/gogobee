@@ -484,8 +484,6 @@ func wordleCategoryHint(category WordleCategory) string {
 	return ""
 }
 
-
-
 // isValidWord checks if a word is valid, using the in-memory cache first,
 // then the custom allow-list, then DreamDict.
 // Returns (valid, apiError). apiError is true when the service is unreachable.
@@ -544,7 +542,6 @@ func (p *WordlePlugin) fetchDefinition(answer string) string {
 	}
 	return dictFetchDefinitionText(p.dict, answer, lang)
 }
-
 
 func (p *WordlePlugin) nextPuzzleNumber() int {
 	d := db.Get()
@@ -842,4 +839,3 @@ func (p *WordlePlugin) rehydratePuzzles() {
 		slog.Info("wordle: rehydrated puzzle", "room", roomID, "answer_len", pr.wordLength, "guesses", len(puzzle.Guesses))
 	}
 }
-

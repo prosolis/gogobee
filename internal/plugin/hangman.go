@@ -973,4 +973,3 @@ func (p *HangmanPlugin) recordHangmanScore(userID id.UserID, earned float64) {
 		string(userID), earned, earned,
 	)
 }
-

@@ -592,4 +592,3 @@ func (p *AdventurePlugin) resolveDungeonAction(
 
 	return result
 }
-

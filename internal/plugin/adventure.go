@@ -21,10 +21,10 @@ import (
 
 type AdventurePlugin struct {
 	Base
-	euro         *EuroPlugin
-	xp           *XPPlugin
-	achievements *AchievementsPlugin
-	mu           sync.Mutex
+	euro           *EuroPlugin
+	xp             *XPPlugin
+	achievements   *AchievementsPlugin
+	mu             sync.Mutex
 	dmToPlayer     map[id.RoomID]id.UserID
 	pending        sync.Map // userID string -> *advPendingInteraction
 	userLocks      sync.Map // userID string -> *sync.Mutex
@@ -37,8 +37,8 @@ type AdventurePlugin struct {
 	hospitalNudges sync.Map // userID string -> time.Time (when to send nudge)
 	craftResults   sync.Map // userID string -> []CraftResult (pending craft results for narrative)
 	treasureUndo   sync.Map // userID string -> *advTreasureUndoToken (10-min auto-swap reversal)
-	morningHour int
-	summaryHour int
+	morningHour    int
+	summaryHour    int
 
 	// stopCh is closed by Stop() to signal all background tickers
 	// (morning/summary/midnight/event/rival/robbie/hospital/mortgage/
@@ -1558,4 +1558,3 @@ func (p *AdventurePlugin) handleBoostCmd(ctx MessageContext) error {
 	advSetBoost(true)
 	return p.SendReply(ctx.RoomID, ctx.EventID, "⚡ Double XP/money boost **enabled**! All adventure XP and loot values are doubled.")
 }
-

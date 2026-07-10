@@ -44,18 +44,18 @@ const (
 // WeaponProfile mirrors the spec's struct. DamageDie is parsed from "1d8",
 // "2d6", "1d10" etc. into Count/Sides on construction.
 type WeaponProfile struct {
-	ID           string
-	Name         string
-	Category     WeaponCategory
-	DamageCount  int             // dice count
-	DamageSides  int             // die sides
-	DamageType   string          // slashing, piercing, bludgeoning
-	Properties   []WeaponProperty
-	VersaCount   int             // versatile two-handed dice (0 if not versatile)
-	VersaSides   int
-	MagicBonus   int             // 0 for mundane
-	MagicProp    string          // empty for mundane
-	NamedItem    bool            // true for §7.2 named magic weapons
+	ID          string
+	Name        string
+	Category    WeaponCategory
+	DamageCount int    // dice count
+	DamageSides int    // die sides
+	DamageType  string // slashing, piercing, bludgeoning
+	Properties  []WeaponProperty
+	VersaCount  int // versatile two-handed dice (0 if not versatile)
+	VersaSides  int
+	MagicBonus  int    // 0 for mundane
+	MagicProp   string // empty for mundane
+	NamedItem   bool   // true for §7.2 named magic weapons
 }
 
 // HasProperty reports whether the weapon has the given property.
@@ -137,16 +137,17 @@ const (
 )
 
 // ArmorProfile is the spec's struct. MaxDEXBonus convention:
-//   -1 = unlimited (light armor takes full DEX mod)
-//    2 = medium (cap at +2)
-//    0 = heavy (no DEX bonus)
-//    0 for shields (shields don't add DEX)
+//
+//	-1 = unlimited (light armor takes full DEX mod)
+//	 2 = medium (cap at +2)
+//	 0 = heavy (no DEX bonus)
+//	 0 for shields (shields don't add DEX)
 type ArmorProfile struct {
 	ID           string
 	Name         string
 	Type         ArmorType
-	BaseAC       int  // 0 for shields (shields use ShieldBonus)
-	ShieldBonus  int  // +2 base for shields, 0 for armor
+	BaseAC       int // 0 for shields (shields use ShieldBonus)
+	ShieldBonus  int // +2 base for shields, 0 for armor
 	MaxDEXBonus  int
 	STRRequire   int
 	StealthDisad bool

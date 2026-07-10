@@ -137,11 +137,11 @@ func TestHasStraight(t *testing.T) {
 		ranks uint16
 		want  bool
 	}{
-		{"A-high straight (T-J-Q-K-A)", 0x1F00, true},   // bits 8-12
-		{"low straight (A-2-3-4-5)", 0x100F, true},       // bits 0,1,2,3,12
-		{"5-6-7-8-9", 0x00F8, true},                      // bits 3-7
-		{"four consecutive", 0x000F, false},               // bits 0-3
-		{"scattered", 0x1111, false},                      // bits 0,4,8,12
+		{"A-high straight (T-J-Q-K-A)", 0x1F00, true}, // bits 8-12
+		{"low straight (A-2-3-4-5)", 0x100F, true},    // bits 0,1,2,3,12
+		{"5-6-7-8-9", 0x00F8, true},                   // bits 3-7
+		{"four consecutive", 0x000F, false},           // bits 0-3
+		{"scattered", 0x1111, false},                  // bits 0,4,8,12
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -254,14 +254,14 @@ func TestBuildTipUserPrompt_NoDrawWhenMadeHand(t *testing.T) {
 
 func TestBuildTipUserPrompt_PotOddsWhenFacingBet(t *testing.T) {
 	ctx := holdemTipContext{
-		Hole:       [2]string{"A♠", "K♠"},
-		Community:  "2♣ 7♦ J♠",
-		Street:     StreetFlop,
-		Position:   "CO",
-		NumActive:  4,
-		Equity:     EquityResult{Win: 0.45, Tie: 0.02, Loss: 0.53},
-		ToCall:     50,
-		PotOddsPct: 25.0,
+		Hole:         [2]string{"A♠", "K♠"},
+		Community:    "2♣ 7♦ J♠",
+		Street:       StreetFlop,
+		Position:     "CO",
+		NumActive:    4,
+		Equity:       EquityResult{Win: 0.45, Tie: 0.02, Loss: 0.53},
+		ToCall:       50,
+		PotOddsPct:   25.0,
 		HandCategory: "High Card",
 	}
 

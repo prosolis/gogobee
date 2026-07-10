@@ -316,12 +316,12 @@ func petStateFromAdvChar(c *AdventureCharacter) PetState {
 // payment, autopay toggle, weekly tick, rate refresh), so the helper takes
 // the whole struct rather than splitting per-field.
 type HouseState struct {
-	Tier            int
-	LoanBalance     int
-	LoanFrozen      bool
-	MissedPayments  int
-	Autopay         bool
-	CurrentRate     float64
+	Tier           int
+	LoanBalance    int
+	LoanFrozen     bool
+	MissedPayments int
+	Autopay        bool
+	CurrentRate    float64
 }
 
 // HasHouse mirrors AdventureCharacter.HasHouse: a player counts as housed
@@ -830,9 +830,9 @@ func upsertPlayerMetaLifecycleState(userID id.UserID, s LifecycleState) error {
 // loadLifecycleState returns lifecycle state from player_meta.
 func loadLifecycleState(userID id.UserID) (LifecycleState, error) {
 	var (
-		s                                 LifecycleState
+		s                                        LifecycleState
 		streakDecayed, actionTaken, holidayTaken int
-		createdAt, lastActiveAt           sql.NullTime
+		createdAt, lastActiveAt                  sql.NullTime
 	)
 	err := db.Get().QueryRow(
 		`SELECT current_streak, best_streak, last_action_date, streak_decayed,
@@ -1038,9 +1038,9 @@ func deathStateFromAdvChar(c *AdventureCharacter) DeathState {
 // `saveAdvCharacter` alongside the L5e death state, since these fields
 // either rarely mutate or already mutate at every save site.
 type MiscState struct {
-	Title            string
-	TreasuresLocked  bool
-	CraftsSucceeded  int
+	Title           string
+	TreasuresLocked bool
+	CraftsSucceeded int
 }
 
 func upsertPlayerMetaMiscState(userID id.UserID, s MiscState) error {

@@ -24,9 +24,9 @@ import (
 // ── Ability definitions ──────────────────────────────────────────────────────
 
 type DnDAbility struct {
-	ID          string
-	Name        string
-	Class       DnDClass
+	ID    string
+	Name  string
+	Class DnDClass
 	// Subclass: if non-empty, ability is only available when the player's
 	// subclass matches. Phase 10 adds the first such ability (Berserker
 	// rage). Used by parseAbility/arm gating and by classActiveAbilities

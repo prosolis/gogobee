@@ -138,12 +138,12 @@ func TestArenaBossOutcome_WinSurfacesStagedLogAndBossDeath(t *testing.T) {
 
 	victoryHeadline := "🏆 **" + monster.Name + "** falls (HP " + "60" + "→" + "42" + " / 60)."
 	outcome := renderBossOutcome(BossOutcomeInputs{
-		ZoneID:          ZoneArena,
-		RunID:           "arena-stagedlog-test",
-		RoomIdx:         11,
-		Monster:         monster,
-		Result:          result,
-		PreHP:           60, PostHP: 42, MaxHP: 60,
+		ZoneID:  ZoneArena,
+		RunID:   "arena-stagedlog-test",
+		RoomIdx: 11,
+		Monster: monster,
+		Result:  result,
+		PreHP:   60, PostHP: 42, MaxHP: 60,
 		PhaseTwoAt:      arenaBossPhaseTwoAt(1),
 		Nat20s:          1,
 		Nat1s:           0,

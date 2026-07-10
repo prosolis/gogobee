@@ -32,9 +32,9 @@ type bandsintownEvent struct {
 		Latitude  string `json:"latitude"`
 		Longitude string `json:"longitude"`
 	} `json:"venue"`
-	Lineup    []string `json:"lineup"`
-	OnSaleAt  string   `json:"on_sale_datetime"`
-	Offers    []struct {
+	Lineup   []string `json:"lineup"`
+	OnSaleAt string   `json:"on_sale_datetime"`
+	Offers   []struct {
 		Type   string `json:"type"`
 		URL    string `json:"url"`
 		Status string `json:"status"`

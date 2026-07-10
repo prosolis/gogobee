@@ -322,11 +322,11 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 // ── TwinBee Gifts (Temporary Buffs) ──────────────────────────────────────────
 
 type twinBeeGiftDef struct {
-	BuffType  string
-	BuffName  string
-	Modifier  float64
-	Duration  time.Duration
-	Flavor    string
+	BuffType string
+	BuffName string
+	Modifier float64
+	Duration time.Duration
+	Flavor   string
 }
 
 var twinBeeGifts = []twinBeeGiftDef{

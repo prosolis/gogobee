@@ -21,17 +21,17 @@ import (
 type DnDSkill string
 
 const (
-	SkillAthletics      DnDSkill = "athletics"
-	SkillAcrobatics     DnDSkill = "acrobatics"
-	SkillStealth        DnDSkill = "stealth"
-	SkillSleightOfHand  DnDSkill = "sleight_of_hand"
-	SkillArcana         DnDSkill = "arcana"
-	SkillInvestigation  DnDSkill = "investigation"
-	SkillPerception     DnDSkill = "perception"
-	SkillInsight        DnDSkill = "insight"
-	SkillPersuasion     DnDSkill = "persuasion"
-	SkillIntimidation   DnDSkill = "intimidation"
-	SkillDeception      DnDSkill = "deception"
+	SkillAthletics     DnDSkill = "athletics"
+	SkillAcrobatics    DnDSkill = "acrobatics"
+	SkillStealth       DnDSkill = "stealth"
+	SkillSleightOfHand DnDSkill = "sleight_of_hand"
+	SkillArcana        DnDSkill = "arcana"
+	SkillInvestigation DnDSkill = "investigation"
+	SkillPerception    DnDSkill = "perception"
+	SkillInsight       DnDSkill = "insight"
+	SkillPersuasion    DnDSkill = "persuasion"
+	SkillIntimidation  DnDSkill = "intimidation"
+	SkillDeception     DnDSkill = "deception"
 )
 
 type dndSkillInfo struct {

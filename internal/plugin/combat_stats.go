@@ -218,8 +218,8 @@ func DeriveDungeonMonsterStats(loc *AdvLocation) (CombatStats, CombatModifiers) 
 	death := loc.BaseDeathPct // 8 to 60
 
 	stats := CombatStats{
-		MaxHP:     12 + int(t*7+death*0.3),         // T1≈22, T5≈65 — sized so dnd-scale players can finish a kill within the phase budget
-		Attack:    int(t*1.5) + int(death*0.04),    // T1=1, T5=9 — tuned to dnd HP pools (players have 13–80 HP, not 100+)
+		MaxHP:     12 + int(t*7+death*0.3),      // T1≈22, T5≈65 — sized so dnd-scale players can finish a kill within the phase budget
+		Attack:    int(t*1.5) + int(death*0.04), // T1=1, T5=9 — tuned to dnd HP pools (players have 13–80 HP, not 100+)
 		Defense:   2 + int(t*1.2),
 		Speed:     4 + int(t*1.5),
 		CritRate:  0.03 + death*0.003,

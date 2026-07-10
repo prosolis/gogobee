@@ -73,9 +73,9 @@ type DungeonRun struct {
 	// path of node_ids the player has resolved. NodeChoices stores
 	// pending fork-prompt state (G5 surface) — populated when the player
 	// arrives at a fork with 2+ unlocked outgoing edges.
-	CurrentNode   string
-	VisitedNodes  []string
-	NodeChoices   map[string]any
+	CurrentNode  string
+	VisitedNodes []string
+	NodeChoices  map[string]any
 
 	// Revisit R1 — monotonic count of node entries, including the entry
 	// room. Distinct from CurrentRoom: CurrentRoom answers "where am I on
@@ -623,4 +623,3 @@ func addLoot(runID string, itemID string) error {
 		 WHERE run_id = ?`, string(lootJSON), runID)
 	return err
 }
-

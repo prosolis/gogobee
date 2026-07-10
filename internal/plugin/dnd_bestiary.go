@@ -16,8 +16,8 @@ type DnDMonsterTemplate struct {
 	CR          float32 // challenge rating (display only for now)
 	HP          int
 	AC          int
-	Attack      int  // engine's "Attack" stat (raw damage value)
-	AttackBonus int  // d20 to-hit bonus
+	Attack      int // engine's "Attack" stat (raw damage value)
+	AttackBonus int // d20 to-hit bonus
 	Speed       int
 	BlockRate   float64
 	Ability     *MonsterAbility
@@ -176,10 +176,10 @@ var _ = func() bool {
 		"flameskull": {
 			ID: "flameskull", Name: "Flameskull",
 			CR: 4, HP: 40, AC: 13, Attack: 7, AttackBonus: 5, Speed: 15,
-			BlockRate: 0.05,
-			Ability:   &MonsterAbility{Name: "Fireball", Phase: "decisive", ProcChance: 0.55, Effect: "aoe_fire"},
-			XPValue:   1100,
-			Notes:     "Elite. Fireball 8d6 DEX DC 13. Rejuvenation in 1h unless holy water used.",
+			BlockRate:    0.05,
+			Ability:      &MonsterAbility{Name: "Fireball", Phase: "decisive", ProcChance: 0.55, Effect: "aoe_fire"},
+			XPValue:      1100,
+			Notes:        "Elite. Fireball 8d6 DEX DC 13. Rejuvenation in 1h unless holy water used.",
 			FireAttacker: true,
 		},
 		"boss_grol_unbroken": {
@@ -385,37 +385,37 @@ var _ = func() bool {
 		"magmin": {
 			ID: "magmin", Name: "Magmin",
 			CR: 0.5, HP: 9, AC: 14, Attack: 2, AttackBonus: 3, Speed: 10,
-			BlockRate: 0.05,
-			Ability:   &MonsterAbility{Name: "Death Burst", Phase: "decisive", ProcChance: 1.00, Effect: "death_aoe"},
-			XPValue:   100,
-			Notes:     "Death Burst: 2d6 fire in 10 ft on death. Ignite flammable objects on touch.",
+			BlockRate:    0.05,
+			Ability:      &MonsterAbility{Name: "Death Burst", Phase: "decisive", ProcChance: 1.00, Effect: "death_aoe"},
+			XPValue:      100,
+			Notes:        "Death Burst: 2d6 fire in 10 ft on death. Ignite flammable objects on touch.",
 			FireAttacker: true,
 		},
 		"azer": {
 			ID: "azer", Name: "Azer",
 			CR: 2, HP: 39, AC: 17, Attack: 4, AttackBonus: 5, Speed: 12,
-			BlockRate: 0.20,
-			Ability:   &MonsterAbility{Name: "Fire Aura", Phase: "any", ProcChance: 0.50, Effect: "retaliate"},
-			XPValue:   450,
-			Notes:     "1d10 fire to melee attackers; immune to fire; weapons deal heated bonus damage.",
+			BlockRate:    0.20,
+			Ability:      &MonsterAbility{Name: "Fire Aura", Phase: "any", ProcChance: 0.50, Effect: "retaliate"},
+			XPValue:      450,
+			Notes:        "1d10 fire to melee attackers; immune to fire; weapons deal heated bonus damage.",
 			FireAttacker: true,
 		},
 		"salamander": {
 			ID: "salamander", Name: "Salamander",
 			CR: 5, HP: 90, AC: 15, Attack: 8, AttackBonus: 7, Speed: 12,
-			BlockRate: 0.10,
-			Ability:   &MonsterAbility{Name: "Constrict", Phase: "any", ProcChance: 0.40, Effect: "stun"},
-			XPValue:   1800,
-			Notes:     "Constrict grapple + 2d6 fire/turn; spear multiattack; fire aura.",
+			BlockRate:    0.10,
+			Ability:      &MonsterAbility{Name: "Constrict", Phase: "any", ProcChance: 0.40, Effect: "stun"},
+			XPValue:      1800,
+			Notes:        "Constrict grapple + 2d6 fire/turn; spear multiattack; fire aura.",
 			FireAttacker: true,
 		},
 		"fire_elemental": {
 			ID: "fire_elemental", Name: "Fire Elemental",
 			CR: 5, HP: 102, AC: 13, Attack: 8, AttackBonus: 6, Speed: 14,
-			BlockRate: 0.05,
-			Ability:   &MonsterAbility{Name: "Fire Form", Phase: "any", ProcChance: 0.50, Effect: "retaliate"},
-			XPValue:   1800,
-			Notes:     "1d10 contact fire damage; immune to fire; vulnerable to water/cold.",
+			BlockRate:    0.05,
+			Ability:      &MonsterAbility{Name: "Fire Form", Phase: "any", ProcChance: 0.50, Effect: "retaliate"},
+			XPValue:      1800,
+			Notes:        "1d10 contact fire damage; immune to fire; vulnerable to water/cold.",
 			FireAttacker: true,
 		},
 		"helmed_horror": {
@@ -429,10 +429,10 @@ var _ = func() bool {
 		"boss_emberlord_thyrak": {
 			ID: "boss_emberlord_thyrak", Name: "Emberlord Thyrak",
 			CR: 9, HP: 178, AC: 18, Attack: 14, AttackBonus: 8, Speed: 11,
-			BlockRate: 0.20,
-			Ability:   &MonsterAbility{Name: "Forge Breath", Phase: "any", ProcChance: 0.30, Effect: "aoe"},
-			XPValue:   5000,
-			Notes:     "Underforge boss. Phase 2 below 50% HP — spawns 2 Fire Elementals; breath recharge 4–6.",
+			BlockRate:    0.20,
+			Ability:      &MonsterAbility{Name: "Forge Breath", Phase: "any", ProcChance: 0.30, Effect: "aoe"},
+			XPValue:      5000,
+			Notes:        "Underforge boss. Phase 2 below 50% HP — spawns 2 Fire Elementals; breath recharge 4–6.",
 			FireAttacker: true,
 		},
 	}
@@ -594,10 +594,10 @@ var _ = func() bool {
 		"young_red_dragon": {
 			ID: "young_red_dragon", Name: "Young Red Dragon",
 			CR: 10, HP: 178, AC: 18, Attack: 16, AttackBonus: 10, Speed: 16,
-			BlockRate: 0.10,
-			Ability:   &MonsterAbility{Name: "Fire Breath", Phase: "any", ProcChance: 0.30, Effect: "aoe_fire"},
-			XPValue:   5900,
-			Notes:     "Elite. Fire Breath 16d6 DEX DC 21; Multiattack; Frightful Presence WIS DC 16.",
+			BlockRate:    0.10,
+			Ability:      &MonsterAbility{Name: "Fire Breath", Phase: "any", ProcChance: 0.30, Effect: "aoe_fire"},
+			XPValue:      5900,
+			Notes:        "Elite. Fire Breath 16d6 DEX DC 21; Multiattack; Frightful Presence WIS DC 16.",
 			FireAttacker: true,
 		},
 		"boss_infernax": {
@@ -612,10 +612,10 @@ var _ = func() bool {
 			// 460/AC21/42 over-corrected → ~40%; this Pass 3 405/AC20/42
 			// lands leaders in band.)
 			CR: 24, HP: 405, AC: 20, Attack: 38, AttackBonus: 11, Speed: 18,
-			BlockRate: 0.15,
-			Ability:   &MonsterAbility{Name: "Frightful Presence", Phase: "opening", ProcChance: 0.40, Effect: "stun"},
-			XPValue:   62000,
-			Notes:     "Dragon's Lair boss. Ancient Red Dragon. Legendary Actions; Lair Actions; phase 2 below 50% HP — fire ignores resistance.",
+			BlockRate:    0.15,
+			Ability:      &MonsterAbility{Name: "Frightful Presence", Phase: "opening", ProcChance: 0.40, Effect: "stun"},
+			XPValue:      62000,
+			Notes:        "Dragon's Lair boss. Ancient Red Dragon. Legendary Actions; Lair Actions; phase 2 below 50% HP — fire ignores resistance.",
 			FireAttacker: true,
 		},
 		// ── Abyss Portal ─────────────────────────────────────────────────
@@ -670,10 +670,10 @@ var _ = func() bool {
 			// 360/AC20/45 over-buffed → 19-40% leaders; this is the Pass 2
 			// correction back down toward band.)
 			CR: 19, HP: 300, AC: 20, Attack: 31, AttackBonus: 11, Speed: 14,
-			BlockRate: 0.20,
-			Ability:   &MonsterAbility{Name: "Lightning Discharge", Phase: "decisive", ProcChance: 0.40, Effect: "aoe"},
-			XPValue:   22000,
-			Notes:     "Abyss Portal boss. Balor. Fire Aura; Death Throes on death; Demonic Resilience; Legendary Resistance 3/combat; phase 2 below 40% HP — Huge size, advantage on attacks.",
+			BlockRate:    0.20,
+			Ability:      &MonsterAbility{Name: "Lightning Discharge", Phase: "decisive", ProcChance: 0.40, Effect: "aoe"},
+			XPValue:      22000,
+			Notes:        "Abyss Portal boss. Balor. Fire Aura; Death Throes on death; Demonic Resilience; Legendary Resistance 3/combat; phase 2 below 40% HP — Huge size, advantage on attacks.",
 			FireAttacker: true,
 		},
 	}
@@ -700,13 +700,13 @@ func dndBestiaryByCR(maxCR float32) []DnDMonsterTemplate {
 // named monsters in the existing combat pipeline.
 func (m DnDMonsterTemplate) toCombatStats() (CombatStats, CombatModifiers) {
 	stats := CombatStats{
-		MaxHP:       m.HP,
-		Attack:      m.Attack,
-		Defense:     0,
-		Speed:       m.Speed,
-		BlockRate:   m.BlockRate,
-		AC:          m.AC,
-		AttackBonus: m.AttackBonus,
+		MaxHP:        m.HP,
+		Attack:       m.Attack,
+		Defense:      0,
+		Speed:        m.Speed,
+		BlockRate:    m.BlockRate,
+		AC:           m.AC,
+		AttackBonus:  m.AttackBonus,
 		FireAttacker: m.FireAttacker,
 	}
 	mods := CombatModifiers{DamageReduct: 1.0}

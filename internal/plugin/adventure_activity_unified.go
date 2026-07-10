@@ -116,12 +116,12 @@ func loadAdvDailyActivity(date string) (map[id.UserID][]AdvDailyActivity, error)
 	}
 	for rows.Next() {
 		var (
-			uid, zoneID                        string
-			visitedJSON                        string
-			totalRooms                         int
-			abandoned, bossDefeated            int
-			completedAt                        *time.Time
-			lastAction                         time.Time
+			uid, zoneID             string
+			visitedJSON             string
+			totalRooms              int
+			abandoned, bossDefeated int
+			completedAt             *time.Time
+			lastAction              time.Time
 		)
 		if err := rows.Scan(&uid, &zoneID, &visitedJSON, &totalRooms,
 			&abandoned, &bossDefeated, &completedAt, &lastAction); err != nil {

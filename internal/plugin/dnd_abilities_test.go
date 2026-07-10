@@ -54,9 +54,9 @@ func TestActiveAbilityCatalogue(t *testing.T) {
 
 func TestParseAbility(t *testing.T) {
 	cases := []struct {
-		in   string
-		id   string
-		ok   bool
+		in string
+		id string
+		ok bool
 	}{
 		{"second_wind", "second_wind", true},
 		{"second wind", "second_wind", true},

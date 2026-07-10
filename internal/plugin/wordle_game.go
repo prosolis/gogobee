@@ -28,9 +28,9 @@ type WordleGuess struct {
 type WordleCategory string
 
 const (
-	WordleCategoryEN    WordleCategory = ""     // English (default)
-	WordleCategoryPT    WordleCategory = "pt"   // European Portuguese
-	WordleCategoryFR    WordleCategory = "fr"   // French
+	WordleCategoryEN    WordleCategory = ""      // English (default)
+	WordleCategoryPT    WordleCategory = "pt"    // European Portuguese
+	WordleCategoryFR    WordleCategory = "fr"    // French
 	WordleCategoryGames WordleCategory = "games" // Video game words (English)
 )
 

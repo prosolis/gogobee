@@ -3,17 +3,20 @@
 // outcomes mirror what live players hit.
 //
 // Single run:
-//   expedition-sim [-class fighter] [-level 5] [-zone goblin_warrens]
-//                  [-bank 1000] [-cap 50] [-log] [-data DIR]
+//
+//	expedition-sim [-class fighter] [-level 5] [-zone goblin_warrens]
+//	               [-bank 1000] [-cap 50] [-log] [-data DIR]
 //
 // Party run (N3/P7 — the leader is -class; followers clone it unless named):
-//   expedition-sim -party 3 -level 15 -zone dragons_lair
-//   expedition-sim -party 2 -class cleric -party-classes fighter -level 16 ...
+//
+//	expedition-sim -party 3 -level 15 -zone dragons_lair
+//	expedition-sim -party 2 -class cleric -party-classes fighter -level 16 ...
 //
 // Matrix mode (cartesian sweep over classes × levels × zones × N runs,
 // one JSON object per stdout line, log suppressed by default):
-//   expedition-sim -matrix -classes fighter,mage -levels 5,10 \
-//                  -zones goblin_warrens,wolf_den -runs 20
+//
+//	expedition-sim -matrix -classes fighter,mage -levels 5,10 \
+//	               -zones goblin_warrens,wolf_den -runs 20
 package main
 
 import (
@@ -268,7 +271,6 @@ func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult,
 		_ = os.RemoveAll(dir)
 	}
 }
-
 
 func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zone plugin.ZoneID, bank float64, cap, days int, followers []string) (*plugin.SimResult, error) {
 	runner, err := plugin.NewSimRunner(dataDir)

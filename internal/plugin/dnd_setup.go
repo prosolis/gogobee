@@ -105,13 +105,13 @@ func (p *AdventurePlugin) handleDnDSetupCmd(ctx MessageContext, args string) err
 	case lower == "cancel":
 		return p.dndSetupCancel(ctx)
 	}
-	return p.SendDM(ctx.Sender,"Unknown !setup subcommand. Try !setup with no args for instructions.")
+	return p.SendDM(ctx.Sender, "Unknown !setup subcommand. Try !setup with no args for instructions.")
 }
 
 func (p *AdventurePlugin) dndSetupStatus(ctx MessageContext) error {
 	c, err := LoadDnDCharacter(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender,"Couldn't load your Adv 2.0 draft: "+err.Error())
+		return p.SendDM(ctx.Sender, "Couldn't load your Adv 2.0 draft: "+err.Error())
 	}
 
 	// No row yet → fresh setup. Show suggestion + race menu.
@@ -125,7 +125,7 @@ func (p *AdventurePlugin) dndSetupStatus(ctx MessageContext) error {
 		b.WriteString("**Step 1 — Race.** Pick one of:\n")
 		b.WriteString(renderRaceMenu())
 		b.WriteString("\nReply: `!setup race <name>` (e.g. `!setup race elf`)\n")
-		return p.SendDM(ctx.Sender,b.String())
+		return p.SendDM(ctx.Sender, b.String())
 	}
 
 	// Confirmed already → reroute to !sheet, unless this is an auto-migrated
@@ -152,62 +152,62 @@ func (p *AdventurePlugin) dndSetupStatus(ctx MessageContext) error {
 		b.WriteString("**Next: Step 1 — Race.**\n")
 		b.WriteString(renderRaceMenu())
 		b.WriteString("\nReply: `!setup race <name>`\n")
-		return p.SendDM(ctx.Sender,b.String())
+		return p.SendDM(ctx.Sender, b.String())
 	}
 	b.WriteString(fmt.Sprintf("Race: **%s** ✓\n", titleRace(c.Race)))
 	if c.Class == "" {
 		b.WriteString("\n**Next: Step 2 — Class.**\n")
 		b.WriteString(renderClassMenu())
 		b.WriteString("\nReply: `!setup class <name>`\n")
-		return p.SendDM(ctx.Sender,b.String())
+		return p.SendDM(ctx.Sender, b.String())
 	}
 	b.WriteString(fmt.Sprintf("Class: **%s** ✓\n", titleClass(c.Class)))
 	if !statsAssigned(c) {
 		b.WriteString("\n**Next: Step 3 — Ability Scores.**\n")
 		b.WriteString("Assign these six values — **15 14 13 12 10 8** — to STR, DEX, CON, INT, WIS, CHA. Each value used exactly once.\n\n")
 		b.WriteString("Reply: `!setup stats 15 14 13 12 10 8` (rearrange to taste).\n")
-		return p.SendDM(ctx.Sender,b.String())
+		return p.SendDM(ctx.Sender, b.String())
 	}
 	b.WriteString(fmt.Sprintf("Stats (pre-racial): STR %d  DEX %d  CON %d  INT %d  WIS %d  CHA %d ✓\n",
 		c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA))
 	b.WriteString("\n**Step 4 — Confirm.** Reply `!setup confirm` to finalize, or `!setup cancel` to scrap and start over.\n")
 	b.WriteString(renderConfirmPreview(c))
-	return p.SendDM(ctx.Sender,b.String())
+	return p.SendDM(ctx.Sender, b.String())
 }
 
 func (p *AdventurePlugin) dndSetupRace(ctx MessageContext, raceArg string) error {
 	r, ok := parseRace(raceArg)
 	if !ok {
-		return p.SendDM(ctx.Sender,"Unknown race. Options: human, elf, dwarf, halfling, orc, tiefling, half-elf")
+		return p.SendDM(ctx.Sender, "Unknown race. Options: human, elf, dwarf, halfling, orc, tiefling, half-elf")
 	}
 	c, err := loadOrInitDraft(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender,"Couldn't open your draft: "+err.Error())
+		return p.SendDM(ctx.Sender, "Couldn't open your draft: "+err.Error())
 	}
 	c.Race = r
 	if err := SaveDnDCharacter(c); err != nil {
-		return p.SendDM(ctx.Sender,"Couldn't save: "+err.Error())
+		return p.SendDM(ctx.Sender, "Couldn't save: "+err.Error())
 	}
 	ri, _ := raceInfo(r)
-	return p.SendDM(ctx.Sender,fmt.Sprintf("Race set: **%s**. _%s_\n\nNext: `!setup class <name>` — see options with `!setup`.",
+	return p.SendDM(ctx.Sender, fmt.Sprintf("Race set: **%s**. _%s_\n\nNext: `!setup class <name>` — see options with `!setup`.",
 		ri.Display, ri.Passive))
 }
 
 func (p *AdventurePlugin) dndSetupClass(ctx MessageContext, classArg string) error {
 	cl, ok := parseClass(classArg)
 	if !ok {
-		return p.SendDM(ctx.Sender,"Unknown class. Options: fighter, rogue, mage, cleric, ranger")
+		return p.SendDM(ctx.Sender, "Unknown class. Options: fighter, rogue, mage, cleric, ranger")
 	}
 	c, err := loadOrInitDraft(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender,"Couldn't open your draft: "+err.Error())
+		return p.SendDM(ctx.Sender, "Couldn't open your draft: "+err.Error())
 	}
 	c.Class = cl
 	if err := SaveDnDCharacter(c); err != nil {
-		return p.SendDM(ctx.Sender,"Couldn't save: "+err.Error())
+		return p.SendDM(ctx.Sender, "Couldn't save: "+err.Error())
 	}
 	ci, _ := classInfo(cl)
-	return p.SendDM(ctx.Sender,fmt.Sprintf("Class set: **%s** — leans on %s & %s.\n\n"+
+	return p.SendDM(ctx.Sender, fmt.Sprintf("Class set: **%s** — leans on %s & %s.\n\n"+
 		"Next: assign your stats. The standard array is **15 14 13 12 10 8** — six numbers, each used once.\n"+
 		"Order: STR DEX CON INT WIS CHA.\n\n"+
 		"Example: `!setup stats 15 14 13 12 10 8` (all rolled into STR-first; rearrange to taste).",
@@ -227,29 +227,29 @@ func (p *AdventurePlugin) dndSetupStats(ctx MessageContext, statsArg string) err
 	}
 	c, err := loadOrInitDraft(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender,"Couldn't open your draft: "+err.Error())
+		return p.SendDM(ctx.Sender, "Couldn't open your draft: "+err.Error())
 	}
 	c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA = scores[0], scores[1], scores[2], scores[3], scores[4], scores[5]
 	if err := SaveDnDCharacter(c); err != nil {
-		return p.SendDM(ctx.Sender,"Couldn't save: "+err.Error())
+		return p.SendDM(ctx.Sender, "Couldn't save: "+err.Error())
 	}
 	var b strings.Builder
 	b.WriteString("Stats saved (pre-racial bonuses).\n")
 	b.WriteString(renderConfirmPreview(c))
 	b.WriteString("\nReply `!setup confirm` to finalize.")
-	return p.SendDM(ctx.Sender,b.String())
+	return p.SendDM(ctx.Sender, b.String())
 }
 
 func (p *AdventurePlugin) dndSetupConfirm(ctx MessageContext) error {
 	c, err := LoadDnDCharacter(ctx.Sender)
 	if err != nil || c == nil {
-		return p.SendDM(ctx.Sender,"No setup draft found. Run `!setup` to start.")
+		return p.SendDM(ctx.Sender, "No setup draft found. Run `!setup` to start.")
 	}
 	if !c.PendingSetup {
-		return p.SendDM(ctx.Sender,"Already confirmed. Use `!sheet` to view your character.")
+		return p.SendDM(ctx.Sender, "Already confirmed. Use `!sheet` to view your character.")
 	}
 	if c.Race == "" || c.Class == "" || !statsAssigned(c) {
-		return p.SendDM(ctx.Sender,"Draft incomplete. Run `!setup` to see what's missing.")
+		return p.SendDM(ctx.Sender, "Draft incomplete. Run `!setup` to see what's missing.")
 	}
 
 	// Apply racial modifiers to the assigned scores.
@@ -283,28 +283,28 @@ func (p *AdventurePlugin) dndSetupConfirm(ctx MessageContext) error {
 	c.UpdatedAt = time.Now().UTC()
 
 	if err := SaveDnDCharacter(c); err != nil {
-		return p.SendDM(ctx.Sender,"Couldn't save: "+err.Error())
+		return p.SendDM(ctx.Sender, "Couldn't save: "+err.Error())
 	}
 	_ = initResources(ctx.Sender, c.Class)
 	// Phase 9: caster classes get a default known-spell list and slot pool.
 	// Idempotent — !setup confirm after a respec wipe will repopulate.
 	_ = ensureSpellsForCharacter(c)
 
-	return p.SendDM(ctx.Sender,renderSetupComplete(c))
+	return p.SendDM(ctx.Sender, renderSetupComplete(c))
 }
 
 func (p *AdventurePlugin) dndSetupCancel(ctx MessageContext) error {
 	c, err := LoadDnDCharacter(ctx.Sender)
 	if err != nil || c == nil {
-		return p.SendDM(ctx.Sender,"No draft to cancel.")
+		return p.SendDM(ctx.Sender, "No draft to cancel.")
 	}
 	if !c.PendingSetup {
-		return p.SendDM(ctx.Sender,"Your character is already finalized — use `!respec` instead.")
+		return p.SendDM(ctx.Sender, "Your character is already finalized — use `!respec` instead.")
 	}
 	if _, err := dbExecCancel(ctx.Sender); err != nil {
-		return p.SendDM(ctx.Sender,"Couldn't cancel: "+err.Error())
+		return p.SendDM(ctx.Sender, "Couldn't cancel: "+err.Error())
 	}
-	return p.SendDM(ctx.Sender,"Draft scrapped. Run `!setup` to start over.")
+	return p.SendDM(ctx.Sender, "Draft scrapped. Run `!setup` to start over.")
 }
 
 // ── !respec ──────────────────────────────────────────────────────────────────
@@ -480,11 +480,11 @@ func dbExecCancel(userID id.UserID) (int64, error) {
 // parseStatsArg accepts the six standard-array values in any of several
 // natural forms. All of these work:
 //
-//   15 14 13 12 10 8
-//   15, 14, 13, 12, 10, 8
-//   (15, 14, 13, 12, 10, 8)
-//   {15 14 13 12 10 8}
-//   [15,14,13,12,10,8]
+//	15 14 13 12 10 8
+//	15, 14, 13, 12, 10, 8
+//	(15, 14, 13, 12, 10, 8)
+//	{15 14 13 12 10 8}
+//	[15,14,13,12,10,8]
 //
 // Returns the scores in input order. Validation that they're a permutation
 // of the standard array happens in the caller via isStandardArray.

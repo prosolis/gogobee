@@ -455,12 +455,13 @@ const AbyssInstabilityPerDay = 5
 const AbyssMaxInstability = 100
 
 // AbyssInstabilityBandFor classifies the §7.6 instability tiers.
-//   normal:    0–20
-//   mild:      21–40 (-1 WIS)
-//   warp:      41–60 (rooms shift order)
-//   surges:    61–80 (12h wandering checks)
-//   unravel:   81–99 (supply ×2, -2 all rolls)
-//   collapse:  100
+//
+//	normal:    0–20
+//	mild:      21–40 (-1 WIS)
+//	warp:      41–60 (rooms shift order)
+//	surges:    61–80 (12h wandering checks)
+//	unravel:   81–99 (supply ×2, -2 all rolls)
+//	collapse:  100
 func AbyssInstabilityBandFor(stack int) string {
 	switch {
 	case stack <= 20:

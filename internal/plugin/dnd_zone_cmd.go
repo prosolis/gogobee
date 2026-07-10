@@ -1010,10 +1010,10 @@ func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone Zo
 // runs combat, persists side effects, fires nat-1/nat-20 mood deltas,
 // and renders the staged narration. Returns:
 //
-//   intro   — pre-combat block (TwinBee combat-start + monster stat block)
-//   phases  — RenderCombatLog output, streamed with delays by the caller
-//   outcome — post-combat block: nat20/nat1 flavor, kill line, loot, d20 summary
-//   ended   — true when the player went down (caller skips next-room teaser)
+//	intro   — pre-combat block (TwinBee combat-start + monster stat block)
+//	phases  — RenderCombatLog output, streamed with delays by the caller
+//	outcome — post-combat block: nat20/nat1 flavor, kill line, loot, d20 summary
+//	ended   — true when the player went down (caller skips next-room teaser)
 //
 // Phases will be nil only on a "no roster" skip — caller treats that as a
 // non-paced fallthrough.

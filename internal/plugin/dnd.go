@@ -228,21 +228,21 @@ func computeAC(class DnDClass, dexMod int) int {
 // ── DnDCharacter struct + repository ─────────────────────────────────────────
 
 type DnDCharacter struct {
-	UserID       id.UserID
-	Race         DnDRace
-	Class        DnDClass
-	Level        int
-	XP           int
-	STR, DEX, CON int
-	INT, WIS, CHA int
-	HPCurrent    int
-	HPMax        int
-	TempHP       int
-	ArmorClass   int
-	PendingSetup    bool
-	AutoMigrated    bool
-	OnboardingSent  bool
-	ArmedAbility    string
+	UserID         id.UserID
+	Race           DnDRace
+	Class          DnDClass
+	Level          int
+	XP             int
+	STR, DEX, CON  int
+	INT, WIS, CHA  int
+	HPCurrent      int
+	HPMax          int
+	TempHP         int
+	ArmorClass     int
+	PendingSetup   bool
+	AutoMigrated   bool
+	OnboardingSent bool
+	ArmedAbility   string
 	// Phase 9 — spell layer.
 	// PendingCast: JSON blob describing the queued spell to fire on next
 	// one-shot combat (empty string = nothing queued). Set by !cast for
@@ -251,30 +251,30 @@ type DnDCharacter struct {
 	// (empty = nothing active). ConcentrationExpiresAt is the wall-clock
 	// expiry; nil for indefinite. Casting another concentration spell
 	// supersedes whatever's here.
-	PendingCast              string
-	ConcentrationSpell       string
-	ConcentrationExpiresAt   *time.Time
+	PendingCast            string
+	ConcentrationSpell     string
+	ConcentrationExpiresAt *time.Time
 	// Phase 10 — subclass.
 	// Subclass: empty until the player runs !subclass at L5+. Once set,
 	// changing requires `!subclass <name>` again subject to a 30-day
 	// cooldown (LastSubclassRespecAt) and 500-coin cost.
-	Subclass                 DnDSubclass
-	LastSubclassRespecAt     *time.Time
+	Subclass             DnDSubclass
+	LastSubclassRespecAt *time.Time
 	// Phase 10 SUB2a — Berserker Frenzy increments after each rage'd
 	// combat; future class abilities will also tick this. Cleared on
 	// long rest. 5e caps at 6 (death); we let it grow and let consumers
 	// clamp where needed.
-	Exhaustion               int
+	Exhaustion int
 	// 2026-05-10 immersion: short rest charges (1/level, restored on long
 	// rest). resting_until gates !zone enter / !expedition start while the
 	// character is "still resting" — short rest = 1h, long rest = 8h.
 	ShortRestCharges int
 	RestingUntil     *time.Time
-	LastRespecAt    *time.Time
-	LastShortRestAt *time.Time
-	LastLongRestAt  *time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	LastRespecAt     *time.Time
+	LastShortRestAt  *time.Time
+	LastLongRestAt   *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // Modifiers returns the six ability modifiers in STR/DEX/CON/INT/WIS/CHA order.

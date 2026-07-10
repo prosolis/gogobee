@@ -38,9 +38,9 @@ func TestWanderingOutcome_BucketBoundaries(t *testing.T) {
 
 func TestResolveWanderingCheck_RoughCampBumpsRoll(t *testing.T) {
 	exp := &Expedition{
-		ZoneID:     ZoneGoblinWarrens,
+		ZoneID:      ZoneGoblinWarrens,
 		ThreatLevel: 0,
-		Camp:       &CampState{Active: true, Type: CampTypeRough},
+		Camp:        &CampState{Active: true, Type: CampTypeRough},
 	}
 	// roll 8 → +3 rough → total 11 → Minor (would have been Passage at 8).
 	nc := resolveWanderingCheck(exp, ClassFighter, func() int { return 8 })
@@ -54,9 +54,9 @@ func TestResolveWanderingCheck_RoughCampBumpsRoll(t *testing.T) {
 
 func TestResolveWanderingCheck_FortifiedCampReducesRoll(t *testing.T) {
 	exp := &Expedition{
-		ZoneID:     ZoneGoblinWarrens,
+		ZoneID:      ZoneGoblinWarrens,
 		ThreatLevel: 0,
-		Camp:       &CampState{Active: true, Type: CampTypeFortified},
+		Camp:        &CampState{Active: true, Type: CampTypeFortified},
 	}
 	// roll 14 → -4 fortified → total 10 → Passage.
 	nc := resolveWanderingCheck(exp, ClassFighter, func() int { return 14 })
@@ -83,9 +83,9 @@ func TestResolveWanderingCheck_ThreatModAbove30(t *testing.T) {
 
 func TestResolveWanderingCheck_RangerWildernessDiscount(t *testing.T) {
 	exp := &Expedition{
-		ZoneID:     ZoneForestShadows,
+		ZoneID:      ZoneForestShadows,
 		ThreatLevel: 0,
-		Camp:       &CampState{Active: true, Type: CampTypeStandard},
+		Camp:        &CampState{Active: true, Type: CampTypeStandard},
 	}
 	nc := resolveWanderingCheck(exp, ClassRanger, func() int { return 12 })
 	if nc.ClassMod != -2 {
@@ -124,7 +124,7 @@ func TestProcessNightCheck_LogsAndBumpsThreatOnPassage(t *testing.T) {
 	}
 	nc := NightCheck{
 		Outcome: NightOutcomePassage, Roll: 8, Total: 8,
-		Summary: "Signs of passage near camp; no encounter.",
+		Summary:      "Signs of passage near camp; no encounter.",
 		ThreatBumped: true,
 	}
 	if err := processNightCheck(exp, nc); err != nil {

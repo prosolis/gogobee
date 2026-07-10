@@ -56,13 +56,13 @@ func TestPassiveDecayMood_DriftsTowardFifty(t *testing.T) {
 		hoursAgo int
 		want     int
 	}{
-		{"high-score-decays-down", 80, 5, 70},   // -2/hr * 5
-		{"high-clamps-at-50", 80, 100, 50},      // would overshoot
-		{"low-score-decays-up", 10, 5, 20},      // +2/hr * 5
-		{"low-clamps-at-50", 10, 100, 50},       // would overshoot
-		{"already-50-no-change", 50, 100, 50},   // neutral stays neutral
-		{"fresh-no-decay", 80, 0, 80},           // no time elapsed
-		{"sub-hour-no-decay", 80, 0, 80},        // hours==0 → no drift
+		{"high-score-decays-down", 80, 5, 70}, // -2/hr * 5
+		{"high-clamps-at-50", 80, 100, 50},    // would overshoot
+		{"low-score-decays-up", 10, 5, 20},    // +2/hr * 5
+		{"low-clamps-at-50", 10, 100, 50},     // would overshoot
+		{"already-50-no-change", 50, 100, 50}, // neutral stays neutral
+		{"fresh-no-decay", 80, 0, 80},         // no time elapsed
+		{"sub-hour-no-decay", 80, 0, 80},      // hours==0 → no drift
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

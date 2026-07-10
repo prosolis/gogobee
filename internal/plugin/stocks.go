@@ -17,24 +17,24 @@ import (
 
 // finnhubQuote is the response from the Finnhub quote endpoint.
 type finnhubQuote struct {
-	Current    float64 `json:"c"`  // Current price
-	Change     float64 `json:"d"`  // Change
-	ChangePct  float64 `json:"dp"` // Percent change
-	High       float64 `json:"h"`  // High price of the day
-	Low        float64 `json:"l"`  // Low price of the day
-	Open       float64 `json:"o"`  // Open price of the day
-	PrevClose  float64 `json:"pc"` // Previous close price
-	Timestamp  int64   `json:"t"`  // Timestamp
+	Current   float64 `json:"c"`  // Current price
+	Change    float64 `json:"d"`  // Change
+	ChangePct float64 `json:"dp"` // Percent change
+	High      float64 `json:"h"`  // High price of the day
+	Low       float64 `json:"l"`  // Low price of the day
+	Open      float64 `json:"o"`  // Open price of the day
+	PrevClose float64 `json:"pc"` // Previous close price
+	Timestamp int64   `json:"t"`  // Timestamp
 }
 
 // finnhubProfile is the response from the Finnhub company profile endpoint.
 type finnhubProfile struct {
-	Name          string  `json:"name"`
-	Ticker        string  `json:"ticker"`
-	Exchange      string  `json:"exchange"`
-	Industry      string  `json:"finnhubIndustry"`
-	MarketCap     float64 `json:"marketCapitalization"` // in millions
-	Currency      string  `json:"currency"`
+	Name      string  `json:"name"`
+	Ticker    string  `json:"ticker"`
+	Exchange  string  `json:"exchange"`
+	Industry  string  `json:"finnhubIndustry"`
+	MarketCap float64 `json:"marketCapitalization"` // in millions
+	Currency  string  `json:"currency"`
 }
 
 // stockCacheEntry holds cached stock data.

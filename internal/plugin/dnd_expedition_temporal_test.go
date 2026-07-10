@@ -366,8 +366,8 @@ func TestUnderforge_FortifiedRestReducesHeat(t *testing.T) {
 	defer cleanupExpeditions(uid)
 
 	exp := &Expedition{
-		ID:          "fake-uf",
-		ZoneID:      ZoneUnderforge,
+		ID:            "fake-uf",
+		ZoneID:        ZoneUnderforge,
 		TemporalStack: 5,
 	}
 	// Insert minimal row so updateTemporalStack works.

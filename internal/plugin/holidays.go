@@ -168,11 +168,11 @@ func (p *HolidaysPlugin) Prefetch() error {
 		slog.Error("holidays: aladhan fetch failed", "err", err)
 	} else if islamicInfo != "" {
 		allHolidays = append(allHolidays, Holiday{
-			Name:    "Islamic Date",
+			Name:        "Islamic Date",
 			Description: islamicInfo,
-			Country: "International",
-			Type:    "islamic-calendar",
-			Date:    dateStr,
+			Country:     "International",
+			Type:        "islamic-calendar",
+			Date:        dateStr,
 		})
 	}
 
@@ -471,9 +471,9 @@ func (p *HolidaysPlugin) fetchCalendarific(date time.Time, country string) ([]Ho
 
 	// Types to exclude — too regional to be interesting
 	skipTypes := map[string]bool{
-		"Local holiday":        true,
-		"Common local holiday": true,
-		"Local observance":     true,
+		"Local holiday":                     true,
+		"Common local holiday":              true,
+		"Local observance":                  true,
 		"Clock change/Daylight Saving Time": true,
 	}
 

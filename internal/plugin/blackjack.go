@@ -141,11 +141,11 @@ type bjTable struct {
 // ---------------------------------------------------------------------------
 
 type bjConfig struct {
-	TimeoutSeconds     int
-	AutoplayThreshold  int
-	MinBet             float64
-	MaxBet             float64
-	DebtLimit          float64
+	TimeoutSeconds    int
+	AutoplayThreshold int
+	MinBet            float64
+	MaxBet            float64
+	DebtLimit         float64
 }
 
 func loadBJConfig() bjConfig {
@@ -877,5 +877,3 @@ func (p *BlackjackPlugin) recordBJScore(userID id.UserID, net float64) {
 		recordBotDefeat(userID, "blackjack")
 	}
 }
-
-

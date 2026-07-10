@@ -281,17 +281,17 @@ func TestLuigiCategoryIntros_Coverage(t *testing.T) {
 
 func TestLuigiFlavorPools_NonEmpty(t *testing.T) {
 	pools := map[string][]string{
-		"luigiGreetings":        luigiGreetings,
-		"luigiPurchaseConfirm":  luigiPurchaseConfirm,
-		"luigiTier5Confirm":     luigiTier5Confirm,
-		"luigiComboConfirm":     luigiComboConfirm,
+		"luigiGreetings":         luigiGreetings,
+		"luigiPurchaseConfirm":   luigiPurchaseConfirm,
+		"luigiTier5Confirm":      luigiTier5Confirm,
+		"luigiComboConfirm":      luigiComboConfirm,
 		"luigiInsufficientFunds": luigiInsufficientFunds,
-		"luigiBrowseTimeout":    luigiBrowseTimeout,
-		"luigiMaxedOut":         luigiMaxedOut,
-		"luigiMasterworkAck":    luigiMasterworkAck,
-		"luigiShowAllComment":   luigiShowAllComment,
-		"luigiCommentary":       luigiCommentary,
-		"luigiCancellation":     luigiCancellation,
+		"luigiBrowseTimeout":     luigiBrowseTimeout,
+		"luigiMaxedOut":          luigiMaxedOut,
+		"luigiMasterworkAck":     luigiMasterworkAck,
+		"luigiShowAllComment":    luigiShowAllComment,
+		"luigiCommentary":        luigiCommentary,
+		"luigiCancellation":      luigiCancellation,
 	}
 	for name, pool := range pools {
 		if len(pool) == 0 {

@@ -88,18 +88,18 @@ func must(err error) {
 // open5eSpell is the subset of the Open5e v1 spell schema we consume. Unknown
 // fields are ignored; the vendored JSON keeps the full payload.
 type open5eSpell struct {
-	Slug                  string   `json:"slug"`
-	Name                  string   `json:"name"`
-	Desc                  string   `json:"desc"`
-	HigherLevel           string   `json:"higher_level"`
-	Range                 string   `json:"range"`
-	Material              string   `json:"material"`
-	CanBeCastAsRitual     bool     `json:"can_be_cast_as_ritual"`
-	Duration              string   `json:"duration"`
-	RequiresConcentration bool     `json:"requires_concentration"`
-	CastingTime           string   `json:"casting_time"`
-	LevelInt              int      `json:"level_int"`
-	School                string   `json:"school"`
+	Slug                  string `json:"slug"`
+	Name                  string `json:"name"`
+	Desc                  string `json:"desc"`
+	HigherLevel           string `json:"higher_level"`
+	Range                 string `json:"range"`
+	Material              string `json:"material"`
+	CanBeCastAsRitual     bool   `json:"can_be_cast_as_ritual"`
+	Duration              string `json:"duration"`
+	RequiresConcentration bool   `json:"requires_concentration"`
+	CastingTime           string `json:"casting_time"`
+	LevelInt              int    `json:"level_int"`
+	School                string `json:"school"`
 	// SpellLists is the structured class list, but the SRD dump leaves it
 	// incomplete (no paladin entries at all). DndClass is the free-text
 	// "Druid, Wizard" field and is the more complete source — mapClasses

@@ -39,28 +39,28 @@ type unoMultiPlayer struct {
 }
 
 type unoMultiGame struct {
-	id         string
-	roomID     id.RoomID // games room
-	ante       float64
-	players    []*unoMultiPlayer // in turn order (includes bot)
-	currentIdx int
-	direction  int // +1 or -1
-	drawPile   []unoCard
-	discardTop unoCard
-	topColor   unoColor
-	phase      unoMultiPhase
-	drawnCard   *unoCard  // card drawn this turn
+	id          string
+	roomID      id.RoomID // games room
+	ante        float64
+	players     []*unoMultiPlayer // in turn order (includes bot)
+	currentIdx  int
+	direction   int // +1 or -1
+	drawPile    []unoCard
+	discardTop  unoCard
+	topColor    unoColor
+	phase       unoMultiPhase
+	drawnCard   *unoCard // card drawn this turn
 	pendingCard *unoCard // wild waiting for color
 
 	// Wild Draw Four challenge state
 	wd4Player    *unoMultiPlayer // who played the WD4
 	wd4Victim    *unoMultiPlayer // who can challenge
 	wd4PrevColor unoColor        // color before the wild was played
-	turns      int
-	turnID     int // monotonic, used to invalidate stale timers
-	startedAt  time.Time
-	done       bool
-	bookDown   bool
+	turns        int
+	turnID       int // monotonic, used to invalidate stale timers
+	startedAt    time.Time
+	done         bool
+	bookDown     bool
 
 	// No Mercy mode
 	noMercy       bool

@@ -729,12 +729,12 @@ type AdvPlayerDaySummary struct {
 	ForagingSkill int
 	FishingSkill  int
 
-	Activity       string
-	Location       string
-	Outcome        string
-	LootValue      int64
-	IsDead         bool
-	DeadUntil      string
+	Activity  string
+	Location  string
+	Outcome   string
+	LootValue int64
+	IsDead    bool
+	DeadUntil string
 	// DeadUntilHours is the integer hours-from-now until revival, used by
 	// the standout-death template's {hours} placeholder. Computed when
 	// the summary row is built; 0 if not dead or already past revival.
@@ -744,11 +744,11 @@ type AdvPlayerDaySummary struct {
 	// {duration} placeholder for templates that want precision over the
 	// rounded {hours} count.
 	DeadUntilDuration string
-	IsResting      bool
-	SummaryLine    string
-	HolidayActions int // 0 = not holiday or no action; 1 = took one; 2 = took both
-	DeathSource    string
-	DeathLocation  string
+	IsResting         bool
+	SummaryLine       string
+	HolidayActions    int // 0 = not holiday or no action; 1 = took one; 2 = took both
+	DeathSource       string
+	DeathLocation     string
 }
 
 // advPlayerHeadline renders the per-player headline for the daily report.
@@ -920,7 +920,6 @@ func renderAdvDailySummary(date string, tb *TwinBeeResult, tbRewards TwinBeeRewa
 		sb.WriteString("\n")
 	}
 
-
 	// Standout
 	if bestPlayer != nil && bestPlayer.LootValue > 0 {
 		pool := SummaryStandoutGood
@@ -984,8 +983,8 @@ func renderAdvLeaderboard(chars []AdvLeaderboardEntry) string {
 
 	// Sort by score
 	type entry struct {
-		Name  string
-		Score int
+		Name   string
+		Score  int
 		Levels string
 		Streak int
 	}

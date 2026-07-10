@@ -1249,7 +1249,6 @@ func (p *HoldemPlugin) removePlayer(game *HoldemGame, uid id.UserID) {
 	}
 }
 
-
 func (p *HoldemPlugin) getNPCBalance() int64 {
 	d := db.Get()
 	var balance int64

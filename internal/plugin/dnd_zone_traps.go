@@ -37,18 +37,18 @@ const (
 // (count, sides) form; AlertsEnemies flags traps that have no damage
 // but raise the alarm. Weight biases the room-level random pick.
 type zoneTrapDef struct {
-	Kind          ZoneTrapKind
-	Display       string
-	Trigger       string  // short flavor descriptor for the trip narration
-	DetectSkill   DnDSkill
-	DetectDC      int
-	DamageDiceN   int     // 0 if no direct damage
-	DamageDiceD   int     // sides
+	Kind            ZoneTrapKind
+	Display         string
+	Trigger         string // short flavor descriptor for the trip narration
+	DetectSkill     DnDSkill
+	DetectDC        int
+	DamageDiceN     int    // 0 if no direct damage
+	DamageDiceD     int    // sides
 	DamageType      string // "bludgeoning", "piercing", "poison", ...
 	AlertsEnemies   bool   // tripwire-class: 0 damage, raises alarm
 	SuppressesMagic bool   // antimagic-class: 0 damage, narrative suppression
 	Tier            ZoneTier
-	Weight          int    // 1..10, default 5
+	Weight          int // 1..10, default 5
 }
 
 // tier1TrapCatalog — design doc §6 Tier 1 table.

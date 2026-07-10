@@ -318,15 +318,15 @@ func renderBabysitSummary(char *AdventureCharacter, logs []babysitLogEntry) stri
 // ── Babysit Log CRUD ────────────────────────────────────────────────────────
 
 type babysitLogEntry struct {
-	ID            int64
-	UserID        id.UserID
-	LogDate       string
-	Activity      string
-	Outcome       string
-	GoldEarned    int
-	XPGained      int
-	ItemsDropped  string
-	RivalRefused  string
+	ID           int64
+	UserID       id.UserID
+	LogDate      string
+	Activity     string
+	Outcome      string
+	GoldEarned   int
+	XPGained     int
+	ItemsDropped string
+	RivalRefused string
 }
 
 func logBabysitActivity(userID id.UserID, activity, outcome string, gold, xp int, items string) {

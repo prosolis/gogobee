@@ -8,7 +8,10 @@ import (
 // ── formatNumber (xp.go) ───────────────────────────────────────────────────
 
 func TestFormatNumber_Small(t *testing.T) {
-	cases := []struct{ in int; want string }{
+	cases := []struct {
+		in   int
+		want string
+	}{
 		{0, "0"},
 		{1, "1"},
 		{999, "999"},
@@ -21,7 +24,10 @@ func TestFormatNumber_Small(t *testing.T) {
 }
 
 func TestFormatNumber_WithCommas(t *testing.T) {
-	cases := []struct{ in int; want string }{
+	cases := []struct {
+		in   int
+		want string
+	}{
 		{1000, "1,000"},
 		{10000, "10,000"},
 		{1000000, "1,000,000"},

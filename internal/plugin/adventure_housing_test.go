@@ -144,10 +144,10 @@ func TestHouseHPBonus(t *testing.T) {
 		expected float64
 	}{
 		{0, 0},
-		{1, 0},     // Base house — no bonus
-		{2, 0.05},  // Livable
-		{3, 0.12},  // Comfortable
-		{4, 0.20},  // Established
+		{1, 0},    // Base house — no bonus
+		{2, 0.05}, // Livable
+		{3, 0.12}, // Comfortable
+		{4, 0.20}, // Established
 	}
 	for _, tt := range tests {
 		char := &AdventureCharacter{HouseTier: tt.tier}

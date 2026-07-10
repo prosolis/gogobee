@@ -20,13 +20,13 @@ func TestFxParseConvert(t *testing.T) {
 		{[]string{"1500", "EUR/USD"}, 1500, "EUR", "USD", false},
 		{[]string{"1500", "JPY", "USD"}, 1500, "JPY", "USD", false},
 
-		{[]string{"USD", "EUR"}, 0, "", "", true},                 // no amount
-		{[]string{"1500", "USD"}, 0, "", "", true},                // missing quote
-		{[]string{"1500", "USD", "USD"}, 0, "", "", true},         // same currency
-		{[]string{"1500", "ZZZ", "EUR"}, 0, "", "", true},         // unknown currency
-		{[]string{"1500", "USD", "EUR", "JPY"}, 0, "", "", true},  // too many currencies
-		{[]string{"1500", "100", "USD", "EUR"}, 0, "", "", true},  // multiple amounts
-		{[]string{"-100", "USD", "EUR"}, 0, "", "", true},         // negative
+		{[]string{"USD", "EUR"}, 0, "", "", true},                // no amount
+		{[]string{"1500", "USD"}, 0, "", "", true},               // missing quote
+		{[]string{"1500", "USD", "USD"}, 0, "", "", true},        // same currency
+		{[]string{"1500", "ZZZ", "EUR"}, 0, "", "", true},        // unknown currency
+		{[]string{"1500", "USD", "EUR", "JPY"}, 0, "", "", true}, // too many currencies
+		{[]string{"1500", "100", "USD", "EUR"}, 0, "", "", true}, // multiple amounts
+		{[]string{"-100", "USD", "EUR"}, 0, "", "", true},        // negative
 	}
 
 	for _, c := range cases {

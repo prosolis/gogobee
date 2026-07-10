@@ -24,8 +24,8 @@ func BenchmarkComputeSignalFromRates_CrossPairSize(b *testing.B) {
 	baseRates := make([]float64, 260)
 	quoteRates := make([]float64, 260)
 	for i := range baseRates {
-		baseRates[i] = 0.90 + rand.Float64()*0.10  // EUR/USD ~0.90-1.00
-		quoteRates[i] = 145 + rand.Float64()*10     // JPY/USD ~145-155
+		baseRates[i] = 0.90 + rand.Float64()*0.10 // EUR/USD ~0.90-1.00
+		quoteRates[i] = 145 + rand.Float64()*10   // JPY/USD ~145-155
 	}
 
 	// Compute cross-rates (simulating the join)

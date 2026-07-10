@@ -126,12 +126,12 @@ func renderArenaStatus(run *ArenaRun) string {
 // ── Leaderboard ─────────────────────────────────────────────────────────────
 
 type ArenaLeaderboardEntry struct {
-	DisplayName     string
-	TotalEarnings   int64
-	HighestTier     int
+	DisplayName      string
+	TotalEarnings    int64
+	HighestTier      int
 	Tier5Completions int
-	TotalRuns       int
-	TotalDeaths     int
+	TotalRuns        int
+	TotalDeaths      int
 }
 
 func renderArenaLeaderboard(season string, entries []ArenaLeaderboardEntry) string {

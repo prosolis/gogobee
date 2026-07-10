@@ -66,11 +66,11 @@ func TestRunBabysitDailyTrickle_AccumulatesAndLevels(t *testing.T) {
 	defer func() { _ = recover() }()
 
 	char := &AdventureCharacter{
-		UserID:   id.UserID("@accum:example"),
-		PetType:  "dog",
-		PetName:  "Rex",
-		PetLevel: 1, // needs 10 XP = 1000 centi-XP to L2
-		PetXP:    900,
+		UserID:        id.UserID("@accum:example"),
+		PetType:       "dog",
+		PetName:       "Rex",
+		PetLevel:      1, // needs 10 XP = 1000 centi-XP to L2
+		PetXP:         900,
 		BabysitActive: true,
 	}
 	expires := time.Now().UTC().Add(48 * time.Hour)

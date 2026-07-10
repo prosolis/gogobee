@@ -11,25 +11,25 @@ import (
 // flavor files that would silently produce empty narrative.
 func TestDnDFlavorPoolsNonEmpty(t *testing.T) {
 	pools := map[string][]string{
-		"CombatStart":       flavor.CombatStart,
-		"CombatVictory":     flavor.CombatVictory,
-		"BossDeath":         flavor.BossDeath,
-		"PlayerDeath":       flavor.PlayerDeath,
-		"ZoneComplete":      flavor.ZoneComplete,
-		"Nat20":             flavor.Nat20,
-		"Nat1":              flavor.Nat1,
-		"LevelUp":           flavor.LevelUp,
-		"ItemFound":         flavor.ItemFound,
-		"RestShort":         flavor.RestShort,
-		"RestLong":          flavor.RestLong,
-		"HomeLongRest":      flavor.HomeLongRest,
-		"MistyGreeting":     flavor.MistyGreeting,
+		"CombatStart":         flavor.CombatStart,
+		"CombatVictory":       flavor.CombatVictory,
+		"BossDeath":           flavor.BossDeath,
+		"PlayerDeath":         flavor.PlayerDeath,
+		"ZoneComplete":        flavor.ZoneComplete,
+		"Nat20":               flavor.Nat20,
+		"Nat1":                flavor.Nat1,
+		"LevelUp":             flavor.LevelUp,
+		"ItemFound":           flavor.ItemFound,
+		"RestShort":           flavor.RestShort,
+		"RestLong":            flavor.RestLong,
+		"HomeLongRest":        flavor.HomeLongRest,
+		"MistyGreeting":       flavor.MistyGreeting,
 		"MistyInsightSuccess": flavor.MistyInsightSuccess,
-		"MistySkillFail":    flavor.MistySkillFail,
-		"ArinaGreeting":     flavor.ArinaGreeting,
-		"ArinaArcanaSuccess": flavor.ArinaArcanaSuccess,
-		"ArinaSkillFail":    flavor.ArinaSkillFail,
-		"ExpeditionStart":   flavor.ExpeditionStart,
+		"MistySkillFail":      flavor.MistySkillFail,
+		"ArinaGreeting":       flavor.ArinaGreeting,
+		"ArinaArcanaSuccess":  flavor.ArinaArcanaSuccess,
+		"ArinaSkillFail":      flavor.ArinaSkillFail,
+		"ExpeditionStart":     flavor.ExpeditionStart,
 	}
 	for name, pool := range pools {
 		if len(pool) == 0 {
@@ -47,18 +47,18 @@ func TestDnDFlavorPoolsNonEmpty(t *testing.T) {
 // string when its underlying pool has entries.
 func TestDnDFlavorHelpersReturnNonEmpty(t *testing.T) {
 	cases := map[string]func() string{
-		"dndCombatOpeningLine":     dndCombatOpeningLine,
-		"dndZoneCompleteLine":      dndZoneCompleteLine,
-		"dndNat20Line":             dndNat20Line,
-		"dndNat1Line":              dndNat1Line,
-		"dndLevelUpFlavorLine":     dndLevelUpFlavorLine,
-		"dndItemFoundLine":         dndItemFoundLine,
-		"dndRestShortFlavorLine":   dndRestShortFlavorLine,
-		"dndCombatClosingLine_Win": func() string { return dndCombatClosingLine(true, false) },
-		"dndCombatClosingLine_Boss": func() string { return dndCombatClosingLine(true, true) },
+		"dndCombatOpeningLine":       dndCombatOpeningLine,
+		"dndZoneCompleteLine":        dndZoneCompleteLine,
+		"dndNat20Line":               dndNat20Line,
+		"dndNat1Line":                dndNat1Line,
+		"dndLevelUpFlavorLine":       dndLevelUpFlavorLine,
+		"dndItemFoundLine":           dndItemFoundLine,
+		"dndRestShortFlavorLine":     dndRestShortFlavorLine,
+		"dndCombatClosingLine_Win":   func() string { return dndCombatClosingLine(true, false) },
+		"dndCombatClosingLine_Boss":  func() string { return dndCombatClosingLine(true, true) },
 		"dndCombatClosingLine_Death": func() string { return dndCombatClosingLine(false, false) },
-		"dndRestLongFlavorLine_Home":     func() string { return dndRestLongFlavorLine(true) },
-		"dndRestLongFlavorLine_Inn":      func() string { return dndRestLongFlavorLine(false) },
+		"dndRestLongFlavorLine_Home": func() string { return dndRestLongFlavorLine(true) },
+		"dndRestLongFlavorLine_Inn":  func() string { return dndRestLongFlavorLine(false) },
 	}
 	for name, fn := range cases {
 		// Run several times — flavor pulls a random pool member, so a single

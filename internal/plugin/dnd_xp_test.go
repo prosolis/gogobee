@@ -12,13 +12,13 @@ import (
 
 func TestDnDXPToNextLevel(t *testing.T) {
 	cases := []struct{ level, want int }{
-		{1, 300},   // L1→L2: 300
-		{2, 600},   // L2→L3: 900-300
-		{4, 1000},  // L4→L5: 2700-1700
-		{6, 2200},  // L6→L7: 6500-4300
+		{1, 300},    // L1→L2: 300
+		{2, 600},    // L2→L3: 900-300
+		{4, 1000},   // L4→L5: 2700-1700
+		{6, 2200},   // L6→L7: 6500-4300
 		{19, 11000}, // L19→L20: 85000-74000
-		{20, 0},    // capped
-		{0, 300},   // clamp to 1
+		{20, 0},     // capped
+		{0, 300},    // clamp to 1
 	}
 	for _, c := range cases {
 		if got := dndXPToNextLevel(c.level); got != c.want {

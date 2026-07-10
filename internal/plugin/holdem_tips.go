@@ -72,13 +72,13 @@ type holdemTipContext struct {
 	EquityVsShove EquityResult
 
 	// Derived fields for the rules engine.
-	HoleRanks          [2]int // 0-12, for preflop classification
-	HoleSuited         bool
-	PreflopTier        string // "premium", "strong", "speculative", "playable", "trash"
-	BoardPaired        bool
-	BoardMaxSuit       int // largest same-suit count on the board
-	BoardStraightRisk  int // 0-4, rough straight-possibility score
-	BoardHighRank      int // highest rank on board, -1 preflop
+	HoleRanks         [2]int // 0-12, for preflop classification
+	HoleSuited        bool
+	PreflopTier       string // "premium", "strong", "speculative", "playable", "trash"
+	BoardPaired       bool
+	BoardMaxSuit      int // largest same-suit count on the board
+	BoardStraightRisk int // 0-4, rough straight-possibility score
+	BoardHighRank     int // highest rank on board, -1 preflop
 }
 
 // tipSnapshot holds game data captured under lock for async tip generation.

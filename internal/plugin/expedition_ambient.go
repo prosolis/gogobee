@@ -209,9 +209,9 @@ func (p *AdventurePlugin) deliverAmbient(e *Expedition, now time.Time) error {
 // ambientEvent — one entry in the ambient pool. Weight is relative; the
 // resolver normalizes over eligible events at pick time.
 type ambientEvent struct {
-	Kind    string
-	Pool    []string
-	Weight  int
+	Kind     string
+	Pool     []string
+	Weight   int
 	Eligible func(*Expedition) bool
 }
 
@@ -219,9 +219,9 @@ type ambientEvent struct {
 // out so deliverAmbient can degrade to it if a chosen pool is empty.
 func ambientEventMonologue() ambientEvent {
 	return ambientEvent{
-		Kind:   "monologue",
-		Pool:   flavor.AmbientMonologue,
-		Weight: 35,
+		Kind:     "monologue",
+		Pool:     flavor.AmbientMonologue,
+		Weight:   35,
 		Eligible: func(*Expedition) bool { return true },
 	}
 }
@@ -233,15 +233,15 @@ func ambientEvents() []ambientEvent {
 	return []ambientEvent{
 		ambientEventMonologue(),
 		{
-			Kind:   "small_find",
-			Pool:   flavor.AmbientSmallFind,
-			Weight: 10,
+			Kind:     "small_find",
+			Pool:     flavor.AmbientSmallFind,
+			Weight:   10,
 			Eligible: always,
 		},
 		{
-			Kind:   "noise",
-			Pool:   flavor.AmbientNoise,
-			Weight: 15,
+			Kind:     "noise",
+			Pool:     flavor.AmbientNoise,
+			Weight:   15,
 			Eligible: always,
 		},
 		{
@@ -256,9 +256,9 @@ func ambientEvents() []ambientEvent {
 			},
 		},
 		{
-			Kind:   "lucky_find",
-			Pool:   flavor.AmbientLuckyFind,
-			Weight: 10,
+			Kind:     "lucky_find",
+			Pool:     flavor.AmbientLuckyFind,
+			Weight:   10,
 			Eligible: always,
 		},
 		{

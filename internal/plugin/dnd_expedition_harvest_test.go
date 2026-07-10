@@ -96,7 +96,6 @@ func TestSaveHarvestNodes_DropsLegacyRoomKey(t *testing.T) {
 	}
 }
 
-
 func TestResolveHarvestOutcome_Brackets(t *testing.T) {
 	cases := []struct {
 		roll, dc int

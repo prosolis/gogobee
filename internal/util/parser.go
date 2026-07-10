@@ -10,13 +10,13 @@ import (
 
 // MessageStats holds parsed message metrics.
 type MessageStats struct {
-	Words       int
-	Chars       int
-	Links       int
-	Images      int
-	Questions   int
+	Words        int
+	Chars        int
+	Links        int
+	Images       int
+	Questions    int
 	Exclamations int
-	Emojis      int
+	Emojis       int
 }
 
 var (

@@ -20,15 +20,15 @@ import (
 
 // jikanAnime represents an anime entry from the Jikan API.
 type jikanAnime struct {
-	MalID    int    `json:"mal_id"`
-	URL      string `json:"url"`
-	Title    string `json:"title"`
-	TitleEng string `json:"title_english"`
-	Type     string `json:"type"`
-	Episodes int    `json:"episodes"`
-	Status   string `json:"status"`
+	MalID    int     `json:"mal_id"`
+	URL      string  `json:"url"`
+	Title    string  `json:"title"`
+	TitleEng string  `json:"title_english"`
+	Type     string  `json:"type"`
+	Episodes int     `json:"episodes"`
+	Status   string  `json:"status"`
 	Score    float64 `json:"score"`
-	Synopsis string `json:"synopsis"`
+	Synopsis string  `json:"synopsis"`
 	Aired    struct {
 		String string `json:"string"`
 		From   string `json:"from"`

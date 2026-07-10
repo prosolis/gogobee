@@ -57,8 +57,8 @@ type queueItem struct {
 // LLMPassivePlugin classifies messages using Ollama and reacts accordingly.
 type LLMPassivePlugin struct {
 	Base
-	xp         *XPPlugin
-	dict       *dreamclient.Client
+	xp          *XPPlugin
+	dict        *dreamclient.Client
 	ollamaHost  string
 	ollamaModel string
 	sampleRate  float64

@@ -17,26 +17,26 @@ import (
 type ConsumableEffect string
 
 const (
-	EffectHeal      ConsumableEffect = "heal"
-	EffectDefBoost  ConsumableEffect = "def_boost"
-	EffectAtkBoost  ConsumableEffect = "atk_boost"
-	EffectWard      ConsumableEffect = "ward"
+	EffectHeal       ConsumableEffect = "heal"
+	EffectDefBoost   ConsumableEffect = "def_boost"
+	EffectAtkBoost   ConsumableEffect = "atk_boost"
+	EffectWard       ConsumableEffect = "ward"
 	EffectSpeedBoost ConsumableEffect = "speed_boost"
-	EffectCritBoost ConsumableEffect = "crit_boost"
-	EffectFlatDmg   ConsumableEffect = "flat_dmg"
-	EffectSpore     ConsumableEffect = "spore"
-	EffectReflect   ConsumableEffect = "reflect"
-	EffectAutoCrit  ConsumableEffect = "auto_crit"
+	EffectCritBoost  ConsumableEffect = "crit_boost"
+	EffectFlatDmg    ConsumableEffect = "flat_dmg"
+	EffectSpore      ConsumableEffect = "spore"
+	EffectReflect    ConsumableEffect = "reflect"
+	EffectAutoCrit   ConsumableEffect = "auto_crit"
 )
 
 type ConsumableDef struct {
-	Name     string
-	Effect   ConsumableEffect
-	Value    float64 // meaning depends on effect
-	Tier     int
-	Buyable  bool
-	Price    int64
-	Slot     string // "offensive" or "defensive"
+	Name    string
+	Effect  ConsumableEffect
+	Value   float64 // meaning depends on effect
+	Tier    int
+	Buyable bool
+	Price   int64
+	Slot    string // "offensive" or "defensive"
 }
 
 // ConsumableItem is an AdvItem that has consumable properties.

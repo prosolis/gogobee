@@ -19,18 +19,18 @@ import (
 
 // releaseListResponse is the top-level RAWG API response for game releases.
 type releaseListResponse struct {
-	Count   int             `json:"count"`
-	Results []releaseEntry  `json:"results"`
+	Count   int            `json:"count"`
+	Results []releaseEntry `json:"results"`
 }
 
 // releaseEntry is a game entry from the RAWG releases API.
 type releaseEntry struct {
-	Name      string `json:"name"`
-	Slug      string `json:"slug"`
-	Released  string `json:"released"`
-	Rating    float64 `json:"rating"`
-	Metacritic int   `json:"metacritic"`
-	Platforms []struct {
+	Name       string  `json:"name"`
+	Slug       string  `json:"slug"`
+	Released   string  `json:"released"`
+	Rating     float64 `json:"rating"`
+	Metacritic int     `json:"metacritic"`
+	Platforms  []struct {
 		Platform struct {
 			Name string `json:"name"`
 		} `json:"platform"`

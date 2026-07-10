@@ -427,4 +427,3 @@ func resolveForkChoice(pf *pendingFork, choice int) (pendingChoice, error) {
 	}
 	return c, nil
 }
-

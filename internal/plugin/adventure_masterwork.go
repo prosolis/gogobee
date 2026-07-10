@@ -15,8 +15,8 @@ import (
 type MasterworkDef struct {
 	Slot        EquipmentSlot
 	Activity    AdvActivityType
-	SkillSource string  // "mining", "fishing", "foraging"
-	Tier        int     // 1-5, matches location tier
+	SkillSource string // "mining", "fishing", "foraging"
+	Tier        int    // 1-5, matches location tier
 	Name        string
 	Description string  // character sheet / trade listing
 	DropRate    float64 // per-tier: 0.05, 0.04, 0.03, 0.02, 0.005

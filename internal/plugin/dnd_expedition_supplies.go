@@ -323,6 +323,7 @@ func addSupplyPurchase(s ExpeditionSupplies, p SupplyPurchase) ExpeditionSupplie
 //   - siege overrides everything with a hard 2× floor (even for tier 1
 //     where HarshMod is 1×) — the dungeon is actively starving you out.
 //   - otherwise, harshActive applies HarshMod (zone-tier scaled).
+//
 // phase5BDailyBurnRatePct is the shipped daily-burn multiplier from
 // Phase 3-B's sweep + Phase 5-B's post-buff re-validation. 50 means
 // "half live burn" — needed because the Phase 5-B player power floor

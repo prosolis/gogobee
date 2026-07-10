@@ -275,6 +275,7 @@ var PetCatDeflect = []string{
 		"Your cat is already somewhere else.\n\nIt blinks.\n\nNot at you.\n\nAt nothing.\n\n" +
 		"The way cats do.",
 }
+
 // Fires randomly in the morning DM. Cat has left something.
 // Results in a defense boost for the day.
 // The cat is proud. The cat will never stop doing this.

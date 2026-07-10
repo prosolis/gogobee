@@ -171,8 +171,6 @@ func recordBotDefeat(userID id.UserID, game string) {
 	)
 }
 
-
-
 // redirectToGamesRoom returns the room ID for games-restricted redirect.
 func redirectToGamesRoom(sender id.UserID) string {
 	_ = sender

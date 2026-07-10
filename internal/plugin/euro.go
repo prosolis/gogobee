@@ -583,4 +583,3 @@ func (p *EuroPlugin) handleGrant(ctx MessageContext) error {
 	return p.SendReply(ctx.RoomID, ctx.EventID,
 		fmt.Sprintf("✅ Granted €%d to **%s**. New balance: €%d.", int(amount), targetName, int(newBalance)))
 }
-

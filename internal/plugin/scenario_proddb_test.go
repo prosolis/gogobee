@@ -259,8 +259,8 @@ func TestScenario_MagicItemPlumbing(t *testing.T) {
 	// in the slot the fix intended. Slots are baked into the generated
 	// data file by the importer's classifier; the lookup is a fixed table.
 	type slotCheck struct {
-		id          string
-		wantSlot    DnDSlot
+		id                        string
+		wantSlot                  DnDSlot
 		mustNotBeRingForSubstring string // sanity vs word-boundary regressions
 	}
 	checks := []slotCheck{
@@ -399,8 +399,8 @@ func TestScenario_SpellJargonRegression(t *testing.T) {
 	bannedRegexes := []*regexp.Regexp{
 		regexp.MustCompile(`\bd(4|6|8|10|12|20|100)\b`),
 		regexp.MustCompile(`\b\d+d\d+\b`),
-		regexp.MustCompile(`\bWhatever [a-z]`),       // placeholder signature
-		regexp.MustCompile(`(?:\.\.\.|…)\s*$`),       // trailing ellipsis
+		regexp.MustCompile(`\bWhatever [a-z]`),             // placeholder signature
+		regexp.MustCompile(`(?:\.\.\.|…)\s*$`),             // trailing ellipsis
 		regexp.MustCompile(`\b[a-z]{1,3}(?:\.\.\.|…)\s*$`), // truncated word
 		regexp.MustCompile(`(?i)\bno larger than in any\b`),
 	}

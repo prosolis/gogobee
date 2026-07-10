@@ -326,10 +326,10 @@ func TestCardPointValue(t *testing.T) {
 
 func TestScoreHand(t *testing.T) {
 	hand := []unoCard{
-		{unoRed, unoFive},       // 5
-		{unoBlue, unoNine},      // 9
-		{unoGreen, unoSkip},     // 20
-		{unoWild, unoWildCard},  // 50
+		{unoRed, unoFive},      // 5
+		{unoBlue, unoNine},     // 9
+		{unoGreen, unoSkip},    // 20
+		{unoWild, unoWildCard}, // 50
 	}
 	got := scoreHand(hand)
 	want := 84

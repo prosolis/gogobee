@@ -90,8 +90,8 @@ func NewSpaceInviterPlugin(client *mautrix.Client) *SpaceInviterPlugin {
 	}
 }
 
-func (p *SpaceInviterPlugin) Name() string             { return "space_inviter" }
-func (p *SpaceInviterPlugin) Commands() []CommandDef   { return nil }
+func (p *SpaceInviterPlugin) Name() string                     { return "space_inviter" }
+func (p *SpaceInviterPlugin) Commands() []CommandDef           { return nil }
 func (p *SpaceInviterPlugin) OnReaction(ReactionContext) error { return nil }
 
 func (p *SpaceInviterPlugin) Init() error {

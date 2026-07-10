@@ -36,17 +36,17 @@ var dndClassWeaponBonus = map[DnDClass]int{
 // roughly 70-80% at low tiers and 50-60% at high tiers. Adjust after live
 // data lands.
 const (
-	dndArenaACBase     = 10
+	dndArenaACBase      = 10
 	dndArenaACPerThreat = 0.25 // ThreatLevel 0..30 → AC bump 0..7
-	dndDungeonACBase   = 9
+	dndDungeonACBase    = 9
 	// Dungeon AC scales linearly with tier: T1=10, T5=14
 )
 
 // Monster attack bonus. Counters player AC growth. T1 monster +5, T5 +9.
 const (
-	dndArenaAtkBase    = 4
+	dndArenaAtkBase      = 4
 	dndArenaAtkPerThreat = 0.30
-	dndDungeonAtkBase  = 4
+	dndDungeonAtkBase    = 4
 	// T1 dungeon +5, T5 +9
 )
 
@@ -170,8 +170,8 @@ func applyDnDEquipmentLayer(stats *CombatStats, c *DnDCharacter, equip map[Equip
 // buildHarnessPlayer (expedition / class-balance harnesses) so the
 // harness's measurement matches what live players experience.
 const (
-	phase5BACBonus       = 3
-	phase5BAttackBonus   = 3
+	phase5BACBonus          = 3
+	phase5BAttackBonus      = 3
 	phase5BWeaponMagicBonus = 3
 )
 
@@ -335,7 +335,7 @@ func autoBuildCharacter(userID id.UserID, char *AdventureCharacter) *DnDCharacte
 		Class:  sug.Class,
 		Level:  level,
 		STR:    scores[0], DEX: scores[1], CON: scores[2],
-		INT:   scores[3], WIS: scores[4], CHA: scores[5],
+		INT: scores[3], WIS: scores[4], CHA: scores[5],
 		PendingSetup: false,
 		AutoMigrated: true,
 		CreatedAt:    time.Now().UTC(),

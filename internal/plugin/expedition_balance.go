@@ -192,14 +192,14 @@ type expeditionTrialResult struct {
 // expeditionBalanceResult is the aggregated win-rate per cell. Mirrors
 // classBalanceResult — same shape, different lens.
 type expeditionBalanceResult struct {
-	Profile          expeditionBalanceProfile
-	Trials           int
-	Completions      int
-	Deaths           int
-	StarvedOuts      int
-	MedianDays       int
-	MedianThreatEnd  int
-	AvgEncounters    float64
+	Profile           expeditionBalanceProfile
+	Trials            int
+	Completions       int
+	Deaths            int
+	StarvedOuts       int
+	MedianDays        int
+	MedianThreatEnd   int
+	AvgEncounters     float64
 	AvgHPRemainingPct float64 // mean across survivors
 }
 
@@ -655,11 +655,11 @@ func buildHarnessZoneEnemy(monster DnDMonsterTemplate, tier int) Combatant {
 // expeditionHarness threads per-trial mutable state (RNG, expedition,
 // character HP carryover, encounter count) through the day loop.
 type expeditionHarness struct {
-	exp          *Expedition
-	char         *DnDCharacter
-	rng          *harnessRNG
-	encounters   int
-	rollsPerDay  int // resolved from profile + default; never zero
+	exp         *Expedition
+	char        *DnDCharacter
+	rng         *harnessRNG
+	encounters  int
+	rollsPerDay int // resolved from profile + default; never zero
 	// Lever overrides for the Phase 2 sweep. Zero on both fields ⇒
 	// live behavior (retreatThreatBump=5, /5 surprise-nick divisor).
 	retreatThreatBumpOverride   int
@@ -743,12 +743,12 @@ func runExpeditionBalanceTrial(p expeditionBalanceProfile, seed uint64) expediti
 		rolls = harnessHarvestRollsPerDay
 	}
 	h := &expeditionHarness{
-		exp:                         exp,
-		char:                        char,
-		rng:                         newHarnessRNG(seed),
-		rollsPerDay:                 rolls,
-		retreatThreatBumpOverride:   p.RetreatThreatBumpOverride,
-		surpriseNickDivisorOverride: p.SurpriseNickDivisorOverride,
+		exp:                             exp,
+		char:                            char,
+		rng:                             newHarnessRNG(seed),
+		rollsPerDay:                     rolls,
+		retreatThreatBumpOverride:       p.RetreatThreatBumpOverride,
+		surpriseNickDivisorOverride:     p.SurpriseNickDivisorOverride,
 		eliteInterruptThresholdOverride: p.EliteInterruptThresholdOverride,
 		threatDriftBaseOverride:         p.ThreatDriftBaseOverride,
 		surpriseNickFloorOverride:       p.SurpriseNickFloorOverride,

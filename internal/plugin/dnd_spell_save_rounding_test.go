@@ -29,14 +29,14 @@ func TestEnemySpellSaveMod_Scales(t *testing.T) {
 		atk  int
 		want int
 	}{
-		{0, 0},    // unstatted enemy
-		{2, 1},    // T1
-		{4, 2},    // T2
-		{6, 3},    // T3
-		{8, 4},    // T4
-		{10, 5},   // T5 floor
-		{12, 6},   // T5 boss
-		{20, 10},  // outsized boss
+		{0, 0},   // unstatted enemy
+		{2, 1},   // T1
+		{4, 2},   // T2
+		{6, 3},   // T3
+		{8, 4},   // T4
+		{10, 5},  // T5 floor
+		{12, 6},  // T5 boss
+		{20, 10}, // outsized boss
 	}
 	for _, c := range cases {
 		enemy := &CombatStats{AttackBonus: c.atk}

@@ -112,9 +112,9 @@ func TestDnDRollSummaryLine_HighestNonNat20(t *testing.T) {
 
 func TestParseDice(t *testing.T) {
 	cases := []struct {
-		in                          string
-		count, sides, mod           int
-		ok                          bool
+		in                string
+		count, sides, mod int
+		ok                bool
 	}{
 		{"d20", 1, 20, 0, true},
 		{"1d20", 1, 20, 0, true},

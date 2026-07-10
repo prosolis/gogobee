@@ -74,9 +74,9 @@ func (g *HoldemGame) firstToActPostflop() int {
 // ActionResult describes what happened after an action.
 type ActionResult struct {
 	Announcement string
-	HandOver     bool   // only 1 player remains
-	StreetOver   bool   // street betting is complete
-	AllAllIn     bool   // all remaining players are all-in
+	HandOver     bool // only 1 player remains
+	StreetOver   bool // street betting is complete
+	AllAllIn     bool // all remaining players are all-in
 }
 
 // doFold processes a fold action.
@@ -381,4 +381,3 @@ func (g *HoldemGame) returnUncalledBet() (name string, amount int64) {
 
 	return "", 0
 }
-

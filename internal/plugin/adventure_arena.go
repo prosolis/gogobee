@@ -16,20 +16,20 @@ import (
 // ── Arena Run State ─────────────────────────────────────────────────────────
 
 type ArenaRun struct {
-	ID              int64
-	UserID          id.UserID
-	RoomID          id.RoomID
-	StartTier       int
-	Tier            int
-	Round           int
-	Status          string // "active", "awaiting", "completed", "dead", "cashed_out"
-	Earnings        int64  // session total (multiplied euros accumulated across completed tiers)
-	TierEarnings    int64  // current tier's raw earnings (reset each tier)
-	XPAccumulated   int    // session XP accumulator (raw, multiplied at payout)
-	RoundsSurvived  int
-	LastMonster     string
-	StartedAt       time.Time
-	EndedAt         *time.Time
+	ID             int64
+	UserID         id.UserID
+	RoomID         id.RoomID
+	StartTier      int
+	Tier           int
+	Round          int
+	Status         string // "active", "awaiting", "completed", "dead", "cashed_out"
+	Earnings       int64  // session total (multiplied euros accumulated across completed tiers)
+	TierEarnings   int64  // current tier's raw earnings (reset each tier)
+	XPAccumulated  int    // session XP accumulator (raw, multiplied at payout)
+	RoundsSurvived int
+	LastMonster    string
+	StartedAt      time.Time
+	EndedAt        *time.Time
 }
 
 // ── Command Dispatch ────────────────────────────────────────────────────────
@@ -1015,8 +1015,8 @@ func loadArenaPersonalStats(userID id.UserID) *ArenaPersonalStats {
 
 type ArenaGearSet struct {
 	Tier        int
-	SetKey      string  // DB key: "bloodied", "ironclad", etc.
-	SetName     string  // Display: "Bloodied", "Ironclad", etc.
+	SetKey      string // DB key: "bloodied", "ironclad", etc.
+	SetName     string // Display: "Bloodied", "Ironclad", etc.
 	HelmetName  string
 	Description string
 	DropRate    float64

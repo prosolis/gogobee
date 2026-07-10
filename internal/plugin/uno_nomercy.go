@@ -658,4 +658,3 @@ func parseNoMercyFlags(args string) (noMercy bool, sevenZeroRule bool, amountStr
 
 	return true, false, rest
 }
-

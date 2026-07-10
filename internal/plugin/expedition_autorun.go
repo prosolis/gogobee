@@ -329,9 +329,9 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 //   - expID: the expedition row id (for the EoD digest log fetch).
 //   - r:     walk result, including reason + accumulated stream.
 //   - camp:  rendered camp block from maybeAutoCamp / pitchBossSafetyCamp,
-//           or "" when no camp was pitched this tick.
+//     or "" when no camp was pitched this tick.
 //   - dec:   the camp decision; dec.Night is the trigger for the EoD
-//           digest variant. Zero-value when no pitch happened.
+//     digest variant. Zero-value when no pitch happened.
 //
 // Surface rules:
 //   - stopFork / stopEnded / stopComplete  → render the walk DM. These

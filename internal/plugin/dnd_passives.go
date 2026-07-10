@@ -102,9 +102,10 @@ func applyRacePassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharacte
 // BEFORE consumable application (so consumables can stack on top).
 //
 // Some passives ride on existing CombatModifiers fields:
-//   Rogue's Sneak Attack reuses AutoCritFirst (the consumable Crystal Berry
-//   field) — the engine already implements first-hit-auto-crit semantics.
-//   Cleric's Divine Favor reuses HealItem, the under-50%-HP heal trigger.
+//
+//	Rogue's Sneak Attack reuses AutoCritFirst (the consumable Crystal Berry
+//	field) — the engine already implements first-hit-auto-crit semantics.
+//	Cleric's Divine Favor reuses HealItem, the under-50%-HP heal trigger.
 //
 // This means:
 //   - A Rogue carrying a Crystal Berry doesn't get *two* auto-crits;

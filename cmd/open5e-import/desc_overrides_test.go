@@ -93,11 +93,11 @@ func TestCleanDescRepairsOrphans(t *testing.T) {
 // TestStripNameParenthetical — bestiary R21 / magic-item alias names.
 func TestStripNameParenthetical(t *testing.T) {
 	cases := map[string]string{
-		"Giant Rat (Diseased)":          "Giant Rat",
-		"Deep Gnome (Svirfneblin)":      "Deep Gnome",
+		"Giant Rat (Diseased)":           "Giant Rat",
+		"Deep Gnome (Svirfneblin)":       "Deep Gnome",
 		"Stone of Good Luck (Luckstone)": "Stone of Good Luck",
-		"Ordinary Name":                 "Ordinary Name",
-		"":                              "",
+		"Ordinary Name":                  "Ordinary Name",
+		"":                               "",
 	}
 	for in, want := range cases {
 		if got := stripNameParenthetical(in); got != want {

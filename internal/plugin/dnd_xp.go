@@ -25,26 +25,26 @@ import (
 // dndXPTable[L] = cumulative XP needed to reach level L from level 1.
 // L=0 is unused (D&D characters start at L1).
 var dndXPTable = [...]int{
-	0,      // L1 (start)
-	300,    // L2
-	900,    // L3
-	1700,   // L4
-	2700,   // L5  (anchor: doc)
-	4300,   // L6
-	6500,   // L7  (anchor: doc)
-	9000,   // L8
-	11500,  // L9
-	14000,  // L10 (anchor: doc)
-	18000,  // L11
-	22000,  // L12
-	26000,  // L13
-	30000,  // L14
-	34000,  // L15 (anchor: doc)
-	44000,  // L16
-	54000,  // L17
-	64000,  // L18
-	74000,  // L19
-	85000,  // L20 (anchor: doc)
+	0,     // L1 (start)
+	300,   // L2
+	900,   // L3
+	1700,  // L4
+	2700,  // L5  (anchor: doc)
+	4300,  // L6
+	6500,  // L7  (anchor: doc)
+	9000,  // L8
+	11500, // L9
+	14000, // L10 (anchor: doc)
+	18000, // L11
+	22000, // L12
+	26000, // L13
+	30000, // L14
+	34000, // L15 (anchor: doc)
+	44000, // L16
+	54000, // L17
+	64000, // L18
+	74000, // L19
+	85000, // L20 (anchor: doc)
 }
 
 const dndMaxLevel = 20
@@ -223,11 +223,11 @@ func buildLevelUpMessage(c *DnDCharacter, events []LevelUpEvent, flavor string) 
 // Combat XP formulas. Tuned so a L1 player needs ~3 wins per level early
 // and many more at high levels.
 const (
-	dndArenaXPPerThreat   = 12 // arena win XP = threat * this
-	dndArenaXPMin         = 30 // arena win XP floor (low-threat fights still pay)
-	dndDungeonXPPerTier   = 60 // dungeon win XP = tier^1.4 * this, roughly
-	dndLossXPFraction     = 0.25
-	dndNearDeathXPBonus   = 1.25 // multiplier for clutch wins
+	dndArenaXPPerThreat = 12 // arena win XP = threat * this
+	dndArenaXPMin       = 30 // arena win XP floor (low-threat fights still pay)
+	dndDungeonXPPerTier = 60 // dungeon win XP = tier^1.4 * this, roughly
+	dndLossXPFraction   = 0.25
+	dndNearDeathXPBonus = 1.25 // multiplier for clutch wins
 )
 
 // arenaCombatXP returns the D&D XP to grant for an arena combat outcome.

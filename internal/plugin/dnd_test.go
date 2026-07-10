@@ -205,11 +205,11 @@ func TestParseStatsArg(t *testing.T) {
 	}
 
 	bad := []string{
-		"",                       // empty
-		"15 14 13 12 10",         // 5 numbers
-		"15 14 13 12 10 8 7",     // 7 numbers
-		"15 14 13 12 10 abc",     // non-number
-		"banana",                 // garbage
+		"",                   // empty
+		"15 14 13 12 10",     // 5 numbers
+		"15 14 13 12 10 8 7", // 7 numbers
+		"15 14 13 12 10 abc", // non-number
+		"banana",             // garbage
 	}
 	for _, in := range bad {
 		if _, err := parseStatsArg(in); err == nil {
@@ -231,20 +231,20 @@ func TestParseStatsArg(t *testing.T) {
 
 func TestDnDLevelFromCombatLevel(t *testing.T) {
 	cases := []struct{ combat, want int }{
-		{0, 1},   // floor
+		{0, 1}, // floor
 		{1, 1},
 		{4, 1},
 		{5, 1},
 		{9, 1},
 		{10, 2},
 		{15, 3},
-		{20, 4},  // nonk
-		{24, 4},  // quack
+		{20, 4}, // nonk
+		{24, 4}, // quack
 		{25, 5},
-		{28, 5},  // prosolis
+		{28, 5}, // prosolis
 		{30, 6},
 		{45, 9},
-		{49, 9},  // holymachina
+		{49, 9}, // holymachina
 		{50, 10},
 		{99, 19},
 		{100, 20}, // clamp

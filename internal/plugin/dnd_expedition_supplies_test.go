@@ -44,11 +44,11 @@ func TestSupplyDepletion_Brackets(t *testing.T) {
 		max     float32
 		want    SupplyDepletionState
 	}{
-		{10, 10, SupplyNormal},        // 100%
-		{3, 10, SupplyNormal},         // 30%
-		{2.5, 10, SupplyNormal},       // 25% — boundary stays normal
-		{2, 10, SupplyRationing},      // 20%
-		{1, 10, SupplyRationing},      // 10% — boundary stays rationing
+		{10, 10, SupplyNormal},   // 100%
+		{3, 10, SupplyNormal},    // 30%
+		{2.5, 10, SupplyNormal},  // 25% — boundary stays normal
+		{2, 10, SupplyRationing}, // 20%
+		{1, 10, SupplyRationing}, // 10% — boundary stays rationing
 		{0.9, 10, SupplySevereRationing},
 		{0.1, 10, SupplySevereRationing},
 		{0, 10, SupplyStarvation},

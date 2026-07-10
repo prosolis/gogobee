@@ -207,7 +207,7 @@ func (p *AdventurePlugin) handleHospitalCmd(ctx MessageContext) error {
 
 	// Store pending interaction
 	p.pending.Store(string(ctx.Sender), &advPendingInteraction{
-		Type:      "hospital_pay",
+		Type: "hospital_pay",
 		Data: &advPendingHospitalPay{
 			Cost:       afterInsurance,
 			Discounted: haggleOutcome == haggleWin,
@@ -277,7 +277,7 @@ func (p *AdventurePlugin) resolveHospitalPay(ctx MessageContext, interaction *ad
 			gr := gamesRoom()
 			if gr != "" {
 				name, _ := loadDisplayName(char.UserID)
-			p.SendMessage(gr, fmt.Sprintf(hospitalDitchAnnounce, name))
+				p.SendMessage(gr, fmt.Sprintf(hospitalDitchAnnounce, name))
 			}
 			return nil
 		}

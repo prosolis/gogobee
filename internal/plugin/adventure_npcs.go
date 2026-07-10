@@ -16,11 +16,11 @@ import (
 // ── NPC Constants ──────────────────────────────────────────────────────────
 
 const (
-	mistyCost         = 100
-	arinaCost         = 5000
-	npcCooldownDays   = 7
+	mistyCost          = 100
+	arinaCost          = 5000
+	npcCooldownDays    = 7
 	npcEncounterChance = 0.075 // 7.5%
-	npcBuffDuration   = 7 * 24 * time.Hour
+	npcBuffDuration    = 7 * 24 * time.Hour
 
 	// Arena effect chances per round
 	mistyEffectChance = 0.20 // 20%
@@ -337,10 +337,10 @@ func (p *AdventurePlugin) resolveArina(ctx MessageContext, char *AdventureCharac
 // Returns: extra text to append to round log, enemy HP modifier, player damage taken.
 type npcArenaResult struct {
 	Text       string
-	EnemyDmg   int   // damage dealt to enemy
-	PlayerDmg  int   // damage dealt to player
-	SniperKill bool  // enemy instant kill
-	CondRepair int   // equipment condition repair amount
+	EnemyDmg   int  // damage dealt to enemy
+	PlayerDmg  int  // damage dealt to player
+	SniperKill bool // enemy instant kill
+	CondRepair int  // equipment condition repair amount
 }
 
 func npcCheckArenaEffects(char *AdventureCharacter, monsterName string) *npcArenaResult {

@@ -40,15 +40,15 @@ const (
 // MilkCartonPlugin generates milk carton style "missing person" images.
 type MilkCartonPlugin struct {
 	Base
-	rateLimiter    *RateLimitsPlugin
-	thresholdDays  int
-	maxDays        int
-	minMessages    int
-	excludeUsers   map[string]bool
-	regularFont    font.Face
-	boldFont       font.Face
-	smallFont      font.Face
-	headerFont     font.Face
+	rateLimiter   *RateLimitsPlugin
+	thresholdDays int
+	maxDays       int
+	minMessages   int
+	excludeUsers  map[string]bool
+	regularFont   font.Face
+	boldFont      font.Face
+	smallFont     font.Face
+	headerFont    font.Face
 }
 
 // NewMilkCartonPlugin creates a new milk carton plugin.

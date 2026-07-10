@@ -120,4 +120,3 @@ func TestCurrentRoomType_GraphAuthored(t *testing.T) {
 		t.Errorf("graph mode + secret node: got %s, want %s", got, RoomExploration)
 	}
 }
-

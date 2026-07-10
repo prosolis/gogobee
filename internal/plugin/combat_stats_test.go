@@ -284,11 +284,11 @@ func TestBalanceRegression_DungeonDeathRates(t *testing.T) {
 	// drift), not 1:1 well-equipped combat. These bounds reflect the
 	// new "fairly breezy with some death" target.
 	cases := []tc{
-		{1, 1, advDungeons[0], 0.03, 0.0},   // T1: trivial with proper gear
-		{2, 2, advDungeons[1], 0.05, 0.0},   // T2: trivial at level
-		{5, 3, advDungeons[2], 0.08, 0.0},   // T3: low risk
-		{7, 4, advDungeons[3], 0.15, 0.0},   // T4: still mostly safe
-		{9, 5, advDungeons[4], 0.25, 0.0},   // T5: occasional bad luck
+		{1, 1, advDungeons[0], 0.03, 0.0}, // T1: trivial with proper gear
+		{2, 2, advDungeons[1], 0.05, 0.0}, // T2: trivial at level
+		{5, 3, advDungeons[2], 0.08, 0.0}, // T3: low risk
+		{7, 4, advDungeons[3], 0.15, 0.0}, // T4: still mostly safe
+		{9, 5, advDungeons[4], 0.25, 0.0}, // T5: occasional bad luck
 	}
 
 	for _, c := range cases {

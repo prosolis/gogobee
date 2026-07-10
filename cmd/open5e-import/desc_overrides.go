@@ -129,7 +129,7 @@ var (
 	reSpaces            = regexp.MustCompile(`\s+`)
 	reOrphanMustMake    = regexp.MustCompile(`(?i)\s+must\s+(?:make|succeed on|attempt)([.,;])`)
 	reOrphanTrailingAnd = regexp.MustCompile(`(?i),?\s+and\.`)
-	descScrub = []*regexp.Regexp{
+	descScrub           = []*regexp.Regexp{
 		// Range / distance jargon.
 		regexp.MustCompile(`(?i)\s*\bwithin range\b`),
 		regexp.MustCompile(`(?i)\s*\bwithin \d+ feet(?: of [a-z ]+?)?`),

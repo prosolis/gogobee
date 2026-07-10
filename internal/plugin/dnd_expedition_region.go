@@ -61,7 +61,7 @@ var regionsByZone = map[ZoneID][]ExpeditionRegion{
 		{
 			ID: "underdark_deep_throne", ZoneID: ZoneUnderdark, Order: 4,
 			Name: "The Deep Throne", BaseCampSite: false,
-			RegionBoss:  "Ilvaras Xunyl (Zone Boss)", IsZoneBoss: true,
+			RegionBoss: "Ilvaras Xunyl (Zone Boss)", IsZoneBoss: true,
 			EnemySubset: []string{"drow", "drow_elite_warrior", "drow_mage"},
 		},
 	},
@@ -87,7 +87,7 @@ var regionsByZone = map[ZoneID][]ExpeditionRegion{
 		{
 			ID: "dragons_lair_infernax_chamber", ZoneID: ZoneDragonsLair, Order: 4,
 			Name: "Infernax's Chamber", BaseCampSite: false,
-			RegionBoss:  "Infernax (Zone Boss)", IsZoneBoss: true,
+			RegionBoss: "Infernax (Zone Boss)", IsZoneBoss: true,
 			EnemySubset: []string{"young_red_dragon"},
 		},
 	},
@@ -113,7 +113,7 @@ var regionsByZone = map[ZoneID][]ExpeditionRegion{
 		{
 			ID: "abyss_the_tear", ZoneID: ZoneAbyssPortal, Order: 4,
 			Name: "The Tear", BaseCampSite: false,
-			RegionBoss:  "Belaxath (Zone Boss)", IsZoneBoss: true,
+			RegionBoss: "Belaxath (Zone Boss)", IsZoneBoss: true,
 			EnemySubset: []string{"marilith"},
 		},
 	},

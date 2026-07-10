@@ -68,15 +68,15 @@ type openTDBResult struct {
 }
 
 type activeSession struct {
-	RoomID         id.RoomID
+	RoomID          id.RoomID
 	QuestionEventID id.EventID
-	Question       string
-	CorrectAnswer  string
-	AllAnswers     []string
-	CorrectIndex   int
-	StartedAt      time.Time
-	Difficulty     string
-	Category       string
+	Question        string
+	CorrectAnswer   string
+	AllAnswers      []string
+	CorrectIndex    int
+	StartedAt       time.Time
+	Difficulty      string
+	Category        string
 }
 
 // TriviaPlugin handles trivia game sessions.

@@ -8,17 +8,17 @@ import (
 
 func TestParseDamageDie(t *testing.T) {
 	cases := []struct {
-		s         string
+		s            string
 		count, sides int
-		ok        bool
+		ok           bool
 	}{
 		{"1d8", 1, 8, true},
 		{"2d6", 2, 6, true},
 		{"1D10", 1, 10, true},
 		{"  1d12  ", 1, 12, true},
-		{"d8", 0, 0, false},   // no count
-		{"1d", 0, 0, false},   // no sides
-		{"1d1", 0, 0, false},  // sides < 2
+		{"d8", 0, 0, false},  // no count
+		{"1d", 0, 0, false},  // no sides
+		{"1d1", 0, 0, false}, // sides < 2
 		{"banana", 0, 0, false},
 		{"", 0, 0, false},
 	}
@@ -359,16 +359,16 @@ func TestSynthesizeWeaponProfile_NonWeaponSlotReturnsNil(t *testing.T) {
 
 func TestSynthesizeArmorProfile_TierMapping(t *testing.T) {
 	cases := []struct {
-		tier        int
-		wantBaseAC  int
-		wantType    ArmorType
+		tier       int
+		wantBaseAC int
+		wantType   ArmorType
 	}{
-		{1, 11, ArmorTypeLight},   // Padded
-		{2, 11, ArmorTypeLight},   // Leather
-		{3, 13, ArmorTypeMedium},  // Chain Shirt
-		{4, 14, ArmorTypeMedium},  // Scale Mail
-		{5, 15, ArmorTypeMedium},  // Half Plate
-		{6, 18, ArmorTypeHeavy},   // Plate
+		{1, 11, ArmorTypeLight},  // Padded
+		{2, 11, ArmorTypeLight},  // Leather
+		{3, 13, ArmorTypeMedium}, // Chain Shirt
+		{4, 14, ArmorTypeMedium}, // Scale Mail
+		{5, 15, ArmorTypeMedium}, // Half Plate
+		{6, 18, ArmorTypeHeavy},  // Plate
 	}
 	for _, c := range cases {
 		eq := &AdvEquipment{Slot: SlotArmor, Tier: c.tier, Name: "Armor"}
@@ -416,8 +416,8 @@ func TestPickWeaponAbilityMod(t *testing.T) {
 	}{
 		{"wpn_greatsword", 3}, // melee non-finesse → STR
 		{"wpn_longsword", 3},
-		{"wpn_dagger", 3},   // finesse melee, but STR > DEX, picks STR
-		{"wpn_longbow", 2},  // ranged → DEX
+		{"wpn_dagger", 3},  // finesse melee, but STR > DEX, picks STR
+		{"wpn_longbow", 2}, // ranged → DEX
 		{"wpn_shortbow", 2},
 	}
 	for _, tc := range cases {

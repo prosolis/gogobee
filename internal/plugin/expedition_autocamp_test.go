@@ -9,9 +9,9 @@ import (
 
 func TestDecideAutopilotCamp_SkipsWhenCamped(t *testing.T) {
 	in := autoCampInputs{
-		Camp:     &CampState{Active: true, Type: CampTypeRough},
-		Run:      &DungeonRun{CurrentRoom: 0, RoomsCleared: []int{0}},
-		HPCur:    1, HPMax: 20, // very low — would otherwise camp
+		Camp:  &CampState{Active: true, Type: CampTypeRough},
+		Run:   &DungeonRun{CurrentRoom: 0, RoomsCleared: []int{0}},
+		HPCur: 1, HPMax: 20, // very low — would otherwise camp
 		Supplies: ExpeditionSupplies{Current: 5, Max: 5, DailyBurn: 1},
 	}
 	if _, ok := decideAutopilotCamp(in); ok {
@@ -21,8 +21,8 @@ func TestDecideAutopilotCamp_SkipsWhenCamped(t *testing.T) {
 
 func TestDecideAutopilotCamp_SkipsHealthyHP(t *testing.T) {
 	in := autoCampInputs{
-		Run:      &DungeonRun{CurrentRoom: 0, RoomsCleared: []int{0}},
-		HPCur:    20, HPMax: 20,
+		Run:   &DungeonRun{CurrentRoom: 0, RoomsCleared: []int{0}},
+		HPCur: 20, HPMax: 20,
 		Supplies: ExpeditionSupplies{Current: 5, Max: 5, DailyBurn: 1},
 	}
 	if _, ok := decideAutopilotCamp(in); ok {
@@ -32,8 +32,8 @@ func TestDecideAutopilotCamp_SkipsHealthyHP(t *testing.T) {
 
 func TestDecideAutopilotCamp_LowHPClearedPitchesStandard(t *testing.T) {
 	in := autoCampInputs{
-		Run:      &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
-		HPCur:    5, HPMax: 20, // 25% — below 55% threshold
+		Run:   &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
+		HPCur: 5, HPMax: 20, // 25% — below 55% threshold
 		Supplies: ExpeditionSupplies{Current: 5, Max: 5, DailyBurn: 1},
 	}
 	d, ok := decideAutopilotCamp(in)
@@ -44,8 +44,8 @@ func TestDecideAutopilotCamp_LowHPClearedPitchesStandard(t *testing.T) {
 
 func TestDecideAutopilotCamp_LowHPUnclearedPitchesRough(t *testing.T) {
 	in := autoCampInputs{
-		Run:      &DungeonRun{CurrentRoom: 2, RoomsCleared: []int{0, 1}},
-		HPCur:    5, HPMax: 20,
+		Run:   &DungeonRun{CurrentRoom: 2, RoomsCleared: []int{0, 1}},
+		HPCur: 5, HPMax: 20,
 		Supplies: ExpeditionSupplies{Current: 5, Max: 5, DailyBurn: 1},
 	}
 	d, ok := decideAutopilotCamp(in)
@@ -56,8 +56,8 @@ func TestDecideAutopilotCamp_LowHPUnclearedPitchesRough(t *testing.T) {
 
 func TestDecideAutopilotCamp_DowngradesWhenSuppliesTight(t *testing.T) {
 	in := autoCampInputs{
-		Run:      &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
-		HPCur:    5, HPMax: 20,
+		Run:   &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
+		HPCur: 5, HPMax: 20,
 		Supplies: ExpeditionSupplies{Current: 0.6, Max: 5, DailyBurn: 1}, // can't afford 1.0
 	}
 	d, ok := decideAutopilotCamp(in)
@@ -227,8 +227,8 @@ func TestDecideAutopilotCamp_NightTriggerOnEventAnchored(t *testing.T) {
 	now := time.Now().UTC()
 	stale := now.Add(-(nightCampWindow + time.Hour))
 	in := autoCampInputs{
-		Run:            &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
-		HPCur:          20, HPMax: 20, // healthy — only the night window should pitch
+		Run:   &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
+		HPCur: 20, HPMax: 20, // healthy — only the night window should pitch
 		Supplies:       ExpeditionSupplies{Current: 5, Max: 5, DailyBurn: 1},
 		Now:            now,
 		EventAnchored:  true,
@@ -250,8 +250,8 @@ func TestDecideAutopilotCamp_NightSkippedOnLegacy(t *testing.T) {
 	now := time.Now().UTC()
 	stale := now.Add(-24 * time.Hour)
 	in := autoCampInputs{
-		Run:            &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
-		HPCur:          20, HPMax: 20,
+		Run:   &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
+		HPCur: 20, HPMax: 20,
 		Supplies:       ExpeditionSupplies{Current: 5, Max: 5, DailyBurn: 1},
 		Now:            now,
 		EventAnchored:  false, // legacy — only HP-low triggers
@@ -266,8 +266,8 @@ func TestDecideAutopilotCamp_NightFlagSetEvenOnHPLow(t *testing.T) {
 	now := time.Now().UTC()
 	stale := now.Add(-(nightCampWindow + time.Hour))
 	in := autoCampInputs{
-		Run:            &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
-		HPCur:          5, HPMax: 20, // also low
+		Run:   &DungeonRun{CurrentRoom: 1, RoomsCleared: []int{0, 1}},
+		HPCur: 5, HPMax: 20, // also low
 		Supplies:       ExpeditionSupplies{Current: 5, Max: 5, DailyBurn: 1},
 		Now:            now,
 		EventAnchored:  true,

@@ -46,13 +46,13 @@ type CombatStats struct {
 }
 
 type CombatModifiers struct {
-	DamageBonus      float64 // additive: 0 = neutral, 0.25 = +25% damage. Applied as (1 + DamageBonus).
-	DamageReduct     float64 // multiplicative damage-taken reduction, 1.0 = neutral
-	DeathSave        bool    // Sovereign reprieve — survive one lethal hit
-	PetAttackProc    float64
-	PetAttackDmg     int
-	PetDeflectProc   float64
-	PetWhiffProc     float64 // pet distracts enemy → guaranteed miss
+	DamageBonus    float64 // additive: 0 = neutral, 0.25 = +25% damage. Applied as (1 + DamageBonus).
+	DamageReduct   float64 // multiplicative damage-taken reduction, 1.0 = neutral
+	DeathSave      bool    // Sovereign reprieve — survive one lethal hit
+	PetAttackProc  float64
+	PetAttackDmg   int
+	PetDeflectProc float64
+	PetWhiffProc   float64 // pet distracts enemy → guaranteed miss
 	// Spiritual Weapon — separate channel from the pet so the spectral mace
 	// gets its own narration when a cleric without a companion casts it.
 	// Damage formula mirrors PetAttack (Dmg + d5), proc rolls per round.
@@ -1298,4 +1298,3 @@ func trySave(st *combatState, player *Combatant, phaseName string) bool {
 	}
 	return false
 }
-

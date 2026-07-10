@@ -231,13 +231,13 @@ func TestCalculateAdvProbabilities_BetterGearReducesDeath(t *testing.T) {
 
 func TestAdvEffectiveSkill(t *testing.T) {
 	char := &AdventureCharacter{
-		CombatLevel:  10,
-		MiningSkill:  15,
+		CombatLevel:   10,
+		MiningSkill:   15,
 		ForagingSkill: 20,
 	}
 	bonuses := &AdvBonusSummary{
-		CombatBonus:  5,
-		MiningBonus:  3,
+		CombatBonus:   5,
+		MiningBonus:   3,
 		ForagingBonus: 0,
 	}
 

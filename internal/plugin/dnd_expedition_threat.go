@@ -39,14 +39,14 @@ const (
 // currentBurn() (already wired); ShortRest disabled is checked by the
 // rest plumbing once expedition combat is wired.
 type ThreatBandInfo struct {
-	Band       ThreatBand
-	Label      string
-	Perception int     // enemy passive perception bonus
-	AC         int     // enemy AC bonus
-	InitAdv    bool    // enemy initiative advantage
-	TrapsArm   bool    // re-arm cleared traps each day
-	SupplyMult float32 // multiplier on daily supply burn
-	NoShortRest bool   // siege-mode only
+	Band        ThreatBand
+	Label       string
+	Perception  int     // enemy passive perception bonus
+	AC          int     // enemy AC bonus
+	InitAdv     bool    // enemy initiative advantage
+	TrapsArm    bool    // re-arm cleared traps each day
+	SupplyMult  float32 // multiplier on daily supply burn
+	NoShortRest bool    // siege-mode only
 }
 
 // threatBandFor returns the band for a given level, honouring siege override.

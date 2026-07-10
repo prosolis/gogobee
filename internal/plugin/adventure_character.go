@@ -24,32 +24,32 @@ var allSlots = []EquipmentSlot{SlotWeapon, SlotArmor, SlotHelmet, SlotBoots, Slo
 // ── Core Types ───────────────────────────────────────────────────────────────
 
 type AdventureCharacter struct {
-	UserID           id.UserID
-	DisplayName      string
-	CombatLevel      int
-	MiningSkill      int
-	ForagingSkill    int
-	FishingSkill     int // v2
-	CombatXP         int
-	MiningXP         int
-	ForagingXP       int
-	FishingXP        int // v2
-	Alive            bool
-	DeadUntil        *time.Time
-	ActionTakenToday   bool
-	HolidayActionTaken bool
-	CombatActionsUsed  int
-	HarvestActionsUsed int
-	ArenaWins          int // v2
-	ArenaLosses      int    // v2
-	InvasionScore    int    // v2
-	Title            string // v2
-	CurrentStreak    int
-	BestStreak       int
-	LastActionDate   string
-	GrudgeLocation   string
-	CreatedAt        time.Time
-	LastActiveAt     time.Time
+	UserID                  id.UserID
+	DisplayName             string
+	CombatLevel             int
+	MiningSkill             int
+	ForagingSkill           int
+	FishingSkill            int // v2
+	CombatXP                int
+	MiningXP                int
+	ForagingXP              int
+	FishingXP               int // v2
+	Alive                   bool
+	DeadUntil               *time.Time
+	ActionTakenToday        bool
+	HolidayActionTaken      bool
+	CombatActionsUsed       int
+	HarvestActionsUsed      int
+	ArenaWins               int    // v2
+	ArenaLosses             int    // v2
+	InvasionScore           int    // v2
+	Title                   string // v2
+	CurrentStreak           int
+	BestStreak              int
+	LastActionDate          string
+	GrudgeLocation          string
+	CreatedAt               time.Time
+	LastActiveAt            time.Time
 	DeathReprieveLast       *time.Time
 	MasterworkDropsReceived int
 	RivalPool               int
@@ -78,27 +78,27 @@ type AdventureCharacter struct {
 	HouseAutopay        bool
 	HouseCurrentRate    float64
 	// Pets
-	PetType             string
-	PetName             string
-	PetXP               int
-	PetLevel            int
-	PetArmorTier        int
-	PetChasedAway       bool
-	PetReactivated      bool
-	PetArrived          bool
-	MistyEncounterCount int
-	MistyDonatedCount   int
-	ThomAnimalLineFired bool
+	PetType               string
+	PetName               string
+	PetXP                 int
+	PetLevel              int
+	PetArmorTier          int
+	PetChasedAway         bool
+	PetReactivated        bool
+	PetArrived            bool
+	MistyEncounterCount   int
+	MistyDonatedCount     int
+	ThomAnimalLineFired   bool
 	PetSupplyShopUnlocked bool
-	PetLevel10Date      string
-	PetMorningDefense   bool
-	AutoBabysit         bool
-	AutoBabysitFocus    string // mining|fishing|foraging — preferred skill for auto-babysit; "" defaults to weakest
-	TreasuresLocked     bool   // when true, treasure drops at cap are refused instead of auto-swapping
-	StreakDecayed        bool
-	CraftsSucceeded     int
-	DeathSource         string // "adventure" | "arena" | "" (legacy/unknown — treated as adventure)
-	DeathLocation       string // human-readable location of last death; cleared on revive is not required
+	PetLevel10Date        string
+	PetMorningDefense     bool
+	AutoBabysit           bool
+	AutoBabysitFocus      string // mining|fishing|foraging — preferred skill for auto-babysit; "" defaults to weakest
+	TreasuresLocked       bool   // when true, treasure drops at cap are refused instead of auto-swapping
+	StreakDecayed         bool
+	CraftsSucceeded       int
+	DeathSource           string // "adventure" | "arena" | "" (legacy/unknown — treated as adventure)
+	DeathLocation         string // human-readable location of last death; cleared on revive is not required
 }
 
 type AdvEquipment struct {

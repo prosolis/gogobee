@@ -355,9 +355,9 @@ type CFRData struct {
 
 func packInfoSetKey(street Street, posIP bool, eqBucket, sprBkt, boardTex int, history string) InfoSetKey {
 	var key uint64
-	key |= uint64(street) & 0x7         // bits 0-2
+	key |= uint64(street) & 0x7 // bits 0-2
 	if posIP {
-		key |= 1 << 3                   // bit 3
+		key |= 1 << 3 // bit 3
 	}
 	key |= (uint64(eqBucket) & 0xF) << 4  // bits 4-7 (4 bits for 12 buckets)
 	key |= (uint64(sprBkt) & 0x7) << 8    // bits 8-10

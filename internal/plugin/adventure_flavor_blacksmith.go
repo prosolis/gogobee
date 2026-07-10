@@ -79,4 +79,3 @@ var blacksmithBrokenCondition = []string{
 	"_looks at the condition, looks at you, looks back at the condition_ You know it costs more when you let it get like this. Of course you know. You just didn't care. That's fine. I care enough for both of us. It'll cost you.",
 	"This could have been avoided with regular visits. _slides the cost estimate across the counter without breaking eye contact_",
 }
-

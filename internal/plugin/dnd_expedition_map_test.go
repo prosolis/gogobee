@@ -56,11 +56,11 @@ func TestRenderRegionChain_CurrentMarker(t *testing.T) {
 
 func TestRegionGlyph(t *testing.T) {
 	cases := map[string]string{
-		"Surface Tunnels":  "ST",
-		"The Deep Throne":  "TDT",
-		"Drow Outpost":     "DO",
-		"Illithid Warren":  "IW",
-		"Kobold Warrens":   "KW",
+		"Surface Tunnels": "ST",
+		"The Deep Throne": "TDT",
+		"Drow Outpost":    "DO",
+		"Illithid Warren": "IW",
+		"Kobold Warrens":  "KW",
 	}
 	for name, want := range cases {
 		if got := regionGlyph(name); got != want {

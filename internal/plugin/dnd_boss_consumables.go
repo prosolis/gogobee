@@ -90,9 +90,9 @@ func consumeFiredHealingItems(userID id.UserID, fired int) {
 	}
 	// Filter to heal items, sort cheapest-tier-first.
 	type entry struct {
-		id    int64
-		tier  int
-		name  string
+		id   int64
+		tier int
+		name string
 	}
 	var heals []entry
 	for _, item := range items {

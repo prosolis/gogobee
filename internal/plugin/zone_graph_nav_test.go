@@ -240,4 +240,3 @@ func TestNodeKindToRoomType(t *testing.T) {
 		}
 	}
 }
-
