@@ -673,11 +673,7 @@ func (te *turnEngine) stepEnemyTurn() {
 	// drawn — so its event stream and RNG draws are unchanged. When the ability
 	// already dealt damage it was the first action, so one fewer follows; for solo
 	// that collapses to the old "the ability stood in for the attack" skip.
-	actions := enemyActionsThisRound(te.st)
-	reuseFirstTarget := !abilityDealtDamage
-	if abilityDealtDamage {
-		actions--
-	}
+	actions, reuseFirstTarget := enemyActionPlan(te.st, abilityDealtDamage)
 	for a := 0; a < actions; a++ {
 		if !(reuseFirstTarget && a == 0) {
 			tgt, alive := te.enemyTarget()

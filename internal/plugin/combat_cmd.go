@@ -101,7 +101,11 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 	if refusal != "" {
 		return p.replyDM(ctx, refusal)
 	}
-	enemyHP := enemy.Stats.MaxHP
+	// The persisted session scales enemy HP for a party (solo scales by 1.0, so
+	// this is a no-op there); mirror it here so the entry banner and the opening
+	// round resolve against the same ceiling startPartyCombatSession persisted and
+	// the rebuilt rounds use.
+	enemyHP := scaledEnemyMaxHP(enemy.Stats.MaxHP, len(seats))
 
 	// Fight-start one-shot resources (Abjuration Arcane Ward, etc.) are seeded
 	// per seat onto the session and its participant rows, so they survive the
@@ -130,6 +134,11 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 
 	if sess.IsParty() {
 		players := seatCombatants(seats)
+		// Align the in-memory template with the scaled HP persisted above, so the
+		// opening-round settle resolves the enemy against the same MaxHP the
+		// rebuilt rounds do (regen clamp, bloodied-ability threshold). The persist
+		// already happened off the unscaled value, so this does not double-scale.
+		enemy.Stats.MaxHP = enemyHP
 		// The enemy may have won initiative. Resolve everything the round owes
 		// before anyone is asked to act, so the opening block narrates the hit
 		// rather than showing its damage with no explanation.

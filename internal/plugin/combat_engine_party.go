@@ -369,6 +369,22 @@ func scaledEnemyMaxHP(baseMaxHP, rosterSize int) int {
 	return int(float64(baseMaxHP) * partyEnemyHPScale(rosterSize))
 }
 
+// enemyActionPlan is the shared action budget both combat engines resolve an
+// enemy turn against: how many attack-actions the enemy takes, and whether the
+// first one reuses the round's already-picked target (and its already-rolled
+// procs). A cleave/lifesteal ability already spent the first action, so one fewer
+// follows and none of them reuse the initial target. Both engines call this so
+// the load-bearing count stays in lockstep even though their per-action bodies
+// differ.
+func enemyActionPlan(st *combatState, abilityDealtDamage bool) (count int, reuseFirst bool) {
+	count = enemyActionsThisRound(st)
+	reuseFirst = !abilityDealtDamage
+	if abilityDealtDamage {
+		count--
+	}
+	return count, reuseFirst
+}
+
 // enemyRoundSwings resolves the enemy's attacks for one round of the auto-resolve
 // engine. A solo roster takes exactly one swing at its single seat, reusing the
 // round's already-rolled target and pet procs, so its RNG stream and event log are
@@ -383,11 +399,7 @@ func scaledEnemyMaxHP(baseMaxHP, rosterSize int) int {
 func enemyRoundSwings(st *combatState, enemy *Combatant, phase *CombatPhase, seats []CombatResult,
 	target int, abilityDealtDamage, petWhiff, petDeflect, sporeMiss bool) bool {
 
-	swings := enemyActionsThisRound(st)
-	reuseFirst := !abilityDealtDamage
-	if abilityDealtDamage {
-		swings--
-	}
+	swings, reuseFirst := enemyActionPlan(st, abilityDealtDamage)
 	for k := 0; k < swings; k++ {
 		tgt := target
 		sw, sd, sp := petWhiff, petDeflect, sporeMiss
