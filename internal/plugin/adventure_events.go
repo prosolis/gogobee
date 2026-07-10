@@ -23,17 +23,64 @@ type advActiveEvent struct {
 	ExpiresAt   time.Time
 }
 
-// ── In-memory schedule ───────────────────────────────────────────────────────
-// When a player acts on a given day, the next ticker iteration assigns them
-// a one-shot roll-minute 60–180 minutes in the future. At that minute, the
-// 0.5% trigger roll fires. Each player rolls at most once per UTC day.
+// ── Event anchors ────────────────────────────────────────────────────────────
+// N1/A6 — events used to roll at 0.5%/player/day from a deferred ticker slot,
+// which put one sighting in front of a daily player roughly every 200 days.
+// They now roll at moments the player is demonstrably present and reading a
+// DM: the end-of-day digest, a sale at Thom's, and an arena cashout. Each
+// player still sees at most one event per UTC day.
+//
+// The per-anchor chances below put a player who hits all three at ~1 event
+// per week; see TestAnchoredEventWeeklyRate.
+const (
+	advEventChanceDigest = 0.08
+	advEventChanceSell   = 0.05
+	advEventChanceArena  = 0.05
+)
 
 var (
-	advEventScheduleMu  sync.Mutex
-	advEventSchedule    map[string]int  // userID -> minute-of-day for the deferred roll
-	advEventRolled      map[string]bool // userID -> already rolled today
-	advEventScheduleDay string          // "2006-01-02" the maps belong to
+	advEventFiredMu  sync.Mutex
+	advEventFired    map[string]bool // userID -> an event already fired today
+	advEventFiredDay string          // "2006-01-02" the map belongs to
 )
+
+// claimDailyEventSlot reserves today's single event slot for `userID`.
+// Returns false when the player already had one fire today.
+func claimDailyEventSlot(userID id.UserID, day string) bool {
+	advEventFiredMu.Lock()
+	defer advEventFiredMu.Unlock()
+	if advEventFiredDay != day {
+		advEventFired = make(map[string]bool)
+		advEventFiredDay = day
+	}
+	if advEventFired[string(userID)] {
+		return false
+	}
+	advEventFired[string(userID)] = true
+	return true
+}
+
+// releaseDailyEventSlot hands the slot back when the trigger bailed before
+// anything reached the player, so a later anchor the same day can still fire.
+func releaseDailyEventSlot(userID id.UserID) {
+	advEventFiredMu.Lock()
+	defer advEventFiredMu.Unlock()
+	delete(advEventFired, string(userID))
+}
+
+// maybeFireAnchoredEvent rolls `chance` at one of the A6 anchor moments and,
+// on a hit, triggers the player's one mid-day event for today.
+func (p *AdventurePlugin) maybeFireAnchoredEvent(userID id.UserID, chance float64) {
+	if rand.Float64() >= chance {
+		return
+	}
+	if !claimDailyEventSlot(userID, time.Now().UTC().Format("2006-01-02")) {
+		return
+	}
+	if !p.tryTriggerEvent(userID) {
+		releaseDailyEventSlot(userID)
+	}
+}
 
 // ── Event Ticker ─────────────────────────────────────────────────────────────
 
@@ -46,90 +93,36 @@ func (p *AdventurePlugin) eventTicker() {
 		case <-p.stopCh:
 			return
 		case <-ticker.C:
-			now := time.Now().UTC()
-			dateKey := now.Format("2006-01-02")
-			currentMinute := now.Hour()*60 + now.Minute()
-
 			// Expire stale pending events every tick
 			expireAdvPendingEvents()
 
 			// Auto-play any combat sessions past their 1h timeout.
 			p.reapExpiredCombatSessions()
-
-			advEventScheduleMu.Lock()
-			if advEventScheduleDay != dateKey {
-				advEventSchedule = make(map[string]int)
-				advEventRolled = make(map[string]bool)
-				advEventScheduleDay = dateKey
-			}
-
-			// Schedule deferred rolls for any newly-acted players
-			chars, err := loadAllAdvCharacters()
-			if err != nil {
-				slog.Error("adventure: events: failed to load chars", "err", err)
-				advEventScheduleMu.Unlock()
-				continue
-			}
-			for _, c := range chars {
-				uid := string(c.UserID)
-				if !c.Alive || advEventRolled[uid] {
-					continue
-				}
-				if _, scheduled := advEventSchedule[uid]; scheduled {
-					continue
-				}
-				if !c.HasActedToday() {
-					continue
-				}
-				// Assign a one-shot roll 60–180 minutes from now, capped to 23:50 UTC.
-				rollMinute := currentMinute + 60 + rand.IntN(121)
-				if rollMinute > 23*60+50 {
-					rollMinute = 23*60 + 50
-				}
-				advEventSchedule[uid] = rollMinute
-				slog.Info("adventure: event roll scheduled", "user", uid, "minute", rollMinute)
-			}
-
-			// Find players whose roll-minute has arrived
-			var toRoll []id.UserID
-			for uid, minute := range advEventSchedule {
-				if minute <= currentMinute && !advEventRolled[uid] {
-					toRoll = append(toRoll, id.UserID(uid))
-					advEventRolled[uid] = true
-				}
-			}
-			advEventScheduleMu.Unlock()
-
-			for _, uid := range toRoll {
-				p.tryTriggerEvent(uid)
-			}
 		}
 	}
 }
 
-func (p *AdventurePlugin) tryTriggerEvent(userID id.UserID) {
-	// Load character — must be alive and have acted today
+// tryTriggerEvent fires the player's mid-day event. Reports whether an event
+// actually reached them — a false return means the caller's daily slot was
+// never spent. The trigger roll itself lives in maybeFireAnchoredEvent.
+func (p *AdventurePlugin) tryTriggerEvent(userID id.UserID) bool {
+	// Load character — must be alive.
 	char, err := loadAdvCharacter(userID)
-	if err != nil || char == nil || !char.Alive || !char.HasActedToday() {
-		return
+	if err != nil || char == nil || !char.Alive {
+		return false
 	}
 
 	// Already has an active event?
 	active, _ := loadAdvActiveEvent(userID)
 	if active != nil {
-		return
+		return false
 	}
 
 	// Mid-fight: a turn-based session locks the run. Don't drop a random
 	// overworld event into a live fight — the player can't act on it without
 	// finishing the fight first, and the trigger DM talks over the combat feed.
 	if hasActiveCombatSession(userID) {
-		return
-	}
-
-	// 0.5% chance
-	if rand.Float64() >= 0.005 {
-		return
+		return false
 	}
 
 	// Determine today's activity for filtering
@@ -138,7 +131,7 @@ func (p *AdventurePlugin) tryTriggerEvent(userID id.UserID) {
 	// Pick an event
 	event := advPickRandomEvent(userID, activityType)
 	if event == nil {
-		return
+		return false
 	}
 
 	// Insert into DB
@@ -147,7 +140,7 @@ func (p *AdventurePlugin) tryTriggerEvent(userID id.UserID) {
 	eventID, err := insertAdvEvent(userID, event.Key, expiresAt)
 	if err != nil {
 		slog.Error("adventure: events: failed to insert event", "user", userID, "err", err)
-		return
+		return false
 	}
 
 	slog.Info("adventure: mid-day event triggered", "user", userID, "event", event.Key, "id", eventID)
@@ -170,6 +163,7 @@ func (p *AdventurePlugin) tryTriggerEvent(userID id.UserID) {
 		})
 		_ = p.SendMessage(id.RoomID(gr), roomLine)
 	}
+	return true
 }
 
 // handleEventRespond processes `!adventure respond`.

@@ -234,8 +234,13 @@ func RollConsumableDrop(activity AdvActivityType, tier int) *AdvItem {
 	if rand.Float64() >= 0.15 {
 		return nil
 	}
-	name := names[rand.IntN(len(names))]
-	def := consumableDefByName(name)
+	return consumableAdvItem(consumableDefByName(names[rand.IntN(len(names))]))
+}
+
+// consumableAdvItem builds the inventory row for a consumable def. Drop-only
+// consumables carry no shop price, so their sell value falls back to a
+// per-tier baseline.
+func consumableAdvItem(def *ConsumableDef) *AdvItem {
 	if def == nil {
 		return nil
 	}
@@ -250,6 +255,23 @@ func RollConsumableDrop(activity AdvActivityType, tier int) *AdvItem {
 		Tier:  def.Tier,
 		Value: sellValue,
 	}
+}
+
+// consumableCache draws n consumables from the dungeon drop pool at `tier`,
+// used by guaranteed grants (milestone caches) rather than the drop roll.
+// Tier 1 has no dungeon pool, so it yields the buyable Berry Poultice.
+func consumableCache(tier, n int) []AdvItem {
+	names := consumableDropTable[AdvActivityDungeon][tier]
+	if len(names) == 0 {
+		names = []string{"Berry Poultice"}
+	}
+	out := make([]AdvItem, 0, n)
+	for range n {
+		if item := consumableAdvItem(consumableDefByName(names[rand.IntN(len(names))])); item != nil {
+			out = append(out, *item)
+		}
+	}
+	return out
 }
 
 // BuyableConsumables returns all consumable defs that can be purchased from the shop.

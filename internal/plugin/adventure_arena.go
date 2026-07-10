@@ -624,7 +624,10 @@ func (p *AdventurePlugin) arenaCompleteSession(userID id.UserID, run *ArenaRun, 
 		text += fmt.Sprintf("\n\n🎉 **Combat Level %d!**", newLevel)
 	}
 
-	return p.SendDM(userID, text)
+	err := p.SendDM(userID, text)
+	// N1/A6 — cashing out is the third mid-day event anchor.
+	p.maybeFireAnchoredEvent(userID, advEventChanceArena)
+	return err
 }
 
 // arenaProcessBail handles bail payout (called from handleArenaBail or countdown).

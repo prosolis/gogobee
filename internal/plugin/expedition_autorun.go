@@ -298,6 +298,10 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 		if err := p.SendDM(uid, body); err != nil {
 			slog.Warn("expedition: autorun DM", "user", uid, "err", err)
 		}
+		// N1/A6 — the end-of-day digest is the primary mid-day event anchor.
+		if campDecision.Night {
+			p.maybeFireAnchoredEvent(uid, advEventChanceDigest)
+		}
 	}
 
 	// Emergence seam: a run-complete reached by the background ticker is

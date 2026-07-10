@@ -707,7 +707,10 @@ func (p *AdventurePlugin) handleSellCmd(ctx MessageContext, args string) error {
 	} else {
 		result = p.advSellItem(ctx.Sender, args)
 	}
-	return p.SendDM(ctx.Sender, result)
+	err = p.SendDM(ctx.Sender, result)
+	// N1/A6 — a sale at Thom's is a moment the player is present and reading.
+	p.maybeFireAnchoredEvent(ctx.Sender, advEventChanceSell)
+	return err
 }
 
 func (p *AdventurePlugin) handleInventoryCmd(ctx MessageContext) error {
