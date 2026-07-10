@@ -59,6 +59,8 @@ func (p *AdventurePlugin) handleDnDZoneCmd(ctx MessageContext, args string) erro
 		return p.zoneCmdMap(ctx)
 	case "advance", "next", "a":
 		return p.zoneCmdAdvance(ctx)
+	case "revisit", "back":
+		return p.handleRevisitCmd(ctx, rest)
 	case "abandon", "leave", "quit":
 		return p.zoneCmdAbandon(ctx)
 	case "taunt":
@@ -81,6 +83,7 @@ func zoneHelpText() string {
 	b.WriteString("`!zone map` — show the room layout\n")
 	b.WriteString("`!zone advance` — resolve the current room and move on\n")
 	b.WriteString("`!zone go <n>` — at a fork, take path #n\n")
+	b.WriteString("`!revisit <n>` — walk back to a room you've already cleared\n")
 	b.WriteString("`!zone abandon` — end the active run (no rewards)\n")
 	b.WriteString("`!zone taunt` — poke TwinBee (they'll remember)\n")
 	b.WriteString("`!zone compliment` — flatter TwinBee (they'll like that)\n")
@@ -310,6 +313,13 @@ func (p *AdventurePlugin) zoneCmdMap(ctx MessageContext) error {
 		b.WriteString("_E=Entry  ?=Exploration  T=Trap  ★=Elite  ☠=Boss  ⚿=Secret · ✓ cleared  ▶ here  · pending  ╳ locked_")
 		if path := renderVisitedPath(g, run); path != "" {
 			b.WriteString("\n**Path:** " + path)
+		}
+		if targets := revisitTargets(g, run); len(targets) > 0 {
+			nums := make([]string, len(targets))
+			for i, n := range targets {
+				nums[i] = fmt.Sprintf("`!revisit %d`", n)
+			}
+			b.WriteString("\n**Back to:** " + strings.Join(nums, " · "))
 		}
 		return p.SendDM(ctx.Sender, b.String())
 	}
@@ -933,6 +943,21 @@ func (p *AdventurePlugin) streamFlowThen(userID id.UserID, phaseMessages []strin
 // non-combat rooms (entry, trap), phases is nil and outcome carries the
 // resolution narration.
 func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone ZoneDefinition, compact bool) (intro string, phases []string, outcome string, ended bool, err error) {
+	// Revisit R2 — a cleared room stays cleared. Advancing out of a room the
+	// player backtracked into must not re-roll its combat or re-arm its trap.
+	//
+	// The revisit plan assumed terminal CombatSession rows already gated this.
+	// They only gate Elite/Boss (checked at the doorway in advanceOnceWithOpts);
+	// an Exploration room re-enters resolveCombatRoom unconditionally, and a
+	// Trap room re-arms. Without this, `!revisit` would be a loot exploit:
+	// walk back one room, advance, farm the same enemy forever.
+	//
+	// A no-op under forward-only navigation — advance clears the current room
+	// only after resolving it, so the room being resolved is never already in
+	// RoomsCleared.
+	if run.RoomIsCleared(run.CurrentRoom) {
+		return
+	}
 	switch run.CurrentRoomType() {
 	case RoomEntry:
 		return

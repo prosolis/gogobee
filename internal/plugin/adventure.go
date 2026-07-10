@@ -342,6 +342,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	if p.IsCommand(ctx.Body, "zone") {
 		return p.handleDnDZoneCmd(ctx, p.GetArgs(ctx.Body, "zone"))
 	}
+	if p.IsCommand(ctx.Body, "revisit") {
+		return p.handleRevisitCmd(ctx, p.GetArgs(ctx.Body, "revisit"))
+	}
 	if p.IsCommand(ctx.Body, "fight") {
 		return p.handleFightCmd(ctx)
 	}

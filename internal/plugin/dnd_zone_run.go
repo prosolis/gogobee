@@ -113,6 +113,18 @@ func (r *DungeonRun) CurrentRoomType() RoomType {
 	return r.RoomSeq[r.CurrentRoom]
 }
 
+// RoomIsCleared reports whether the player has already resolved the room at
+// the given path index. Sticky: once cleared, a room stays cleared for the
+// life of the run, however many times the player walks back through it.
+func (r *DungeonRun) RoomIsCleared(idx int) bool {
+	for _, c := range r.RoomsCleared {
+		if c == idx {
+			return true
+		}
+	}
+	return false
+}
+
 // generateRoomSequence builds the deterministic-but-seeded room layout
 // for a run of the given zone. The boss room is always last; one Entry
 // is always first; one Trap and one Elite room sit between explorations.
