@@ -604,21 +604,7 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 // enemyTarget picks the seat the monster swings at this turn: uniformly among
 // the standing roster. A solo roster draws nothing, so its RNG stream keeps the
 // pre-roster shape. Returns false when the whole roster is down.
-func (te *turnEngine) enemyTarget() (int, bool) {
-	if len(te.st.actors) == 1 {
-		return 0, te.st.actors[0].playerHP > 0
-	}
-	standing := make([]int, 0, len(te.st.actors))
-	for i, a := range te.st.actors {
-		if a.playerHP > 0 {
-			standing = append(standing, i)
-		}
-	}
-	if len(standing) == 0 {
-		return 0, false
-	}
-	return standing[te.st.roll(len(standing))], true
-}
+func (te *turnEngine) enemyTarget() (int, bool) { return enemyTargetSeat(te.st) }
 
 func (te *turnEngine) stepEnemyTurn() {
 	// Seat the target before anything reads the cursor: the ability path, the

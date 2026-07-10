@@ -146,12 +146,16 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 	}
 
 	preCombatHP, _ := dndHPSnapshot(userID)
-	result, err := p.runZoneCombat(userID, monster, int(zone.Tier), nil, run.DMMood)
+	// P6e: the party fights the interrupt. The surprise nick above stays on the
+	// leader — it is one free swing at whoever is walking point.
+	pres, seated, err := p.runZoneCombatRoster(
+		zoneCombatRoster(userID), monster, int(zone.Tier), nil, run.DMMood)
 	if err != nil {
 		return fmt.Sprintf("_(Interrupt combat error: %v.)_", err), false
 	}
+	result := pres.Seats[0]
 	postHP, maxHP := dndHPSnapshot(userID)
-	scanMoodEventsFromCombat(run.RunID, result)
+	scanMoodEventsFromEvents(run.RunID, pres.Events)
 
 	var b strings.Builder
 	if kind == InterruptPatrol {
@@ -182,23 +186,34 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 			_ = applyThreatDelta(exp.ID, retreatThreatBump, "combat retreat")
 			b.WriteString(fmt.Sprintf("⏳ **%s** outlasts you. You break off, wounded but alive. (Threat +%d.)",
 				monster.Name, retreatThreatBump))
+			// A party can run out the clock having lost somebody. The retreat is
+			// still a retreat — the run goes on — but the fallen are still fallen.
+			if line := partyCasualtyLine(closeOutZoneLoss(pres, seated, zone, "expedition")); line != "" {
+				b.WriteString("\n")
+				b.WriteString(line)
+			}
 			return b.String(), false
 		}
-		// True death.
+		// True death. The engine only ends a fight the players lost once nobody is
+		// standing, so this branch is the whole roster.
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
 		_ = retireAllRegionRuns(exp)
 		_, _, _ = forcedExtractExpedition(exp.ID, "interrupt death")
-		markAdventureDead(userID, "expedition", zone.Display)
+		closeOutZoneLoss(pres, seated, zone, "expedition")
 		if line := flavor.Pick(flavor.PlayerDeath); line != "" {
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
-		b.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
+		if len(seated) > 1 {
+			b.WriteString(fmt.Sprintf("💀 The party fell to **%s**. Run ended.", monster.Name))
+		} else {
+			b.WriteString(fmt.Sprintf("💀 You fell to **%s**. Run ended.", monster.Name))
+		}
 		return b.String(), true
 	}
 
-	// Win: kill-log writer.
+	// Win: kill-log writer. Run-scoped once; loot and death fan out per seat.
 	_ = recordZoneKill(exp, monster.ID)
 	if line := flavor.Pick(flavor.CombatVictory); line != "" {
 		b.WriteString(line)
@@ -206,9 +221,14 @@ func (p *AdventurePlugin) runHarvestInterrupt(
 	}
 	b.WriteString(fmt.Sprintf("✅ **%s** down (HP %d→%d / %d).",
 		monster.Name, preCombatHP, postHP, maxHP))
-	if drop := p.dropZoneLoot(userID, zone.ID, monster, false, false); drop != "" {
+	drop, downed := p.closeOutZoneWin(pres, seated, zone, monster, false, false, "expedition")
+	if drop != "" {
 		b.WriteString("\n")
 		b.WriteString(drop)
+	}
+	if line := partyCasualtyLine(downed); line != "" {
+		b.WriteString("\n")
+		b.WriteString(line)
 	}
 	return b.String(), false
 }
@@ -471,13 +491,15 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 	if !ok {
 		return
 	}
-	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier), nil, run.DMMood)
+	pres, seated, rerr := p.runZoneCombatRoster(
+		zoneCombatRoster(userID), monster, int(zone.Tier), nil, run.DMMood)
 	if rerr != nil {
 		err = rerr
 		return
 	}
+	result := pres.Seats[0]
 	postHP, maxHP := dndHPSnapshot(userID)
-	scanMoodEventsFromCombat(run.RunID, result)
+	scanMoodEventsFromEvents(run.RunID, pres.Events)
 
 	// Intro: patrol-encounter flavor + creature stat block.
 	var ib strings.Builder
@@ -503,6 +525,11 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 			_ = applyThreatDelta(exp.ID, retreatThreatBump, "patrol retreat")
 			ob.WriteString(fmt.Sprintf("⏳ The patrol drags on. You break off, wounded but alive. (Threat +%d.)",
 				retreatThreatBump))
+			// The run continues, but a party may have left somebody behind.
+			if line := partyCasualtyLine(closeOutZoneLoss(pres, seated, zone, "patrol")); line != "" {
+				ob.WriteString("\n")
+				ob.WriteString(line)
+			}
 			if rollLine := dndRollSummaryLine(result); rollLine != "" {
 				ob.WriteString("\n")
 				ob.WriteString(rollLine)
@@ -515,12 +542,16 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 		_ = abandonZoneRun(userID)
 		_ = retireAllRegionRuns(exp)
 		_, _, _ = forcedExtractExpedition(exp.ID, "patrol death")
-		markAdventureDead(userID, "patrol", zone.Display)
+		closeOutZoneLoss(pres, seated, zone, "patrol")
 		if line := flavor.Pick(flavor.PlayerDeath); line != "" {
 			ob.WriteString(line)
 			ob.WriteString("\n")
 		}
-		ob.WriteString("💀 The patrol takes you down. Run ended.")
+		if len(seated) > 1 {
+			ob.WriteString("💀 The patrol takes the party down. Run ended.")
+		} else {
+			ob.WriteString("💀 The patrol takes you down. Run ended.")
+		}
 		if rollLine := dndRollSummaryLine(result); rollLine != "" {
 			ob.WriteString("\n")
 			ob.WriteString(rollLine)
@@ -536,9 +567,14 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 		ob.WriteString("\n")
 		ob.WriteString(rollLine)
 	}
-	if drop := p.dropZoneLoot(userID, zone.ID, monster, false, false); drop != "" {
+	drop, downed := p.closeOutZoneWin(pres, seated, zone, monster, false, false, "patrol")
+	if drop != "" {
 		ob.WriteString("\n")
 		ob.WriteString(drop)
+	}
+	if line := partyCasualtyLine(downed); line != "" {
+		ob.WriteString("\n")
+		ob.WriteString(line)
 	}
 	outcome = ob.String()
 	return

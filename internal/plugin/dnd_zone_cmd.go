@@ -1043,13 +1043,18 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		return
 	}
 	preHP, _ := dndHPSnapshot(userID)
-	result, rerr := p.runZoneCombat(userID, monster, int(zone.Tier), nil, run.DMMood)
+	// P6e: the whole party fights the room, not just whoever owns the run.
+	// Seats[0] is the leader — their view drives this narration, which is the
+	// leader's stream. The mood scan reads the whole fight's log.
+	pres, seated, rerr := p.runZoneCombatRoster(
+		zoneCombatRoster(userID), monster, int(zone.Tier), nil, run.DMMood)
 	if rerr != nil {
 		err = rerr
 		return
 	}
+	result := pres.Seats[0]
 	postHP, maxHP := dndHPSnapshot(userID)
-	nat20s, nat1s := scanMoodEventsFromCombat(run.RunID, result)
+	nat20s, nat1s := scanMoodEventsFromEvents(run.RunID, pres.Events)
 
 	// Compact mode: skip TwinBee banter, skip the multi-beat play-by-play.
 	// Render a single outcome line. Still records kills, threat, and drops.
@@ -1068,11 +1073,18 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 			ob.WriteString(fmt.Sprintf(" (−%d)", hpDelta))
 		}
 		ob.WriteString(".")
+		// Run-scoped once, for the owner: the kill record and the threat one kill
+		// costs. Character-scoped effects fan out per seat.
 		recordZoneKillForUser(userID, monster.ID)
 		applyRoomCombatThreatForUser(userID, elite || isBoss)
-		if drop := p.dropZoneLoot(userID, zone.ID, monster, isBoss, elite); drop != "" {
+		drop, downed := p.closeOutZoneWin(pres, seated, zone, monster, isBoss, elite, "zone")
+		if drop != "" {
 			ob.WriteString(" ")
 			ob.WriteString(drop)
+		}
+		if line := partyCasualtyLine(downed); line != "" {
+			ob.WriteString("\n")
+			ob.WriteString(line)
 		}
 		outcome = ob.String()
 		return
@@ -1138,11 +1150,12 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		// dnd_expedition_combat.go.
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
 		_ = abandonZoneRun(userID)
-		// Timeout loss = retreat; player took wounds but isn't actually
-		// dead. Don't fire markAdventureDead — that would trigger the 6h
-		// respawn timer for what is mechanically "ran out the clock".
+		// Timeout loss = retreat; the fighters took wounds but nobody actually
+		// died. Don't fire markAdventureDead — that would trigger the 6h respawn
+		// timer for what is mechanically "ran out the clock". Death is read per
+		// seat off HP, which for a solo walker is the same `!TimedOut` rule.
+		closeOutZoneLoss(pres, seated, zone, "zone")
 		if !result.TimedOut {
-			markAdventureDead(userID, "zone", zone.Display)
 			forceExtractExpeditionForRunLoss(userID, "combat death")
 		} else {
 			forceExtractExpeditionForRunLoss(userID, "combat retreat")
@@ -1175,9 +1188,14 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	}
 	recordZoneKillForUser(userID, monster.ID)
 	applyRoomCombatThreatForUser(userID, elite)
-	if drop := p.dropZoneLoot(userID, zone.ID, monster, false, elite); drop != "" {
+	drop, downed := p.closeOutZoneWin(pres, seated, zone, monster, false, elite, "zone")
+	if drop != "" {
 		ob.WriteString("\n")
 		ob.WriteString(drop)
+	}
+	if line := partyCasualtyLine(downed); line != "" {
+		ob.WriteString("\n")
+		ob.WriteString(line)
 	}
 	outcome = ob.String()
 	return

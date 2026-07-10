@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"strings"
-	"time"
 
 	"maunium.net/go/mautrix/id"
 )
@@ -117,6 +116,11 @@ func zoneSelectorHash(runID string, roomIdx int) uint64 {
 //
 // Returns the engine result so the caller can branch on PlayerWon and
 // fold combat events into the per-room narration.
+// runZoneCombat resolves a zone encounter for exactly one player. It is the
+// one-seat case of runZoneCombatRoster, and the entry point for every fight
+// that is not on an expedition — the arena's encounter bouts included, which is
+// why the roster is not resolved here: an arena fighter must never drag their
+// party into the ring.
 func (p *AdventurePlugin) runZoneCombat(
 	userID id.UserID,
 	monster DnDMonsterTemplate,
@@ -124,61 +128,11 @@ func (p *AdventurePlugin) runZoneCombat(
 	phases []CombatPhase,
 	dmMood int,
 ) (CombatResult, error) {
-	if phases == nil {
-		phases = dungeonCombatPhases
-	}
-	char, err := loadAdvCharacter(userID)
-	if err != nil || char == nil {
-		return CombatResult{}, fmt.Errorf("load adv character: %w", err)
-	}
-	equip, err := loadAdvEquipment(userID)
-	if err != nil {
-		return CombatResult{}, fmt.Errorf("load equipment: %w", err)
-	}
-
-	// Player/enemy Combatant pair — shared with the turn-based engine. The
-	// builder folds in the D&D layer, tier scaling, and the DM-mood tilt.
-	player, enemy, dndChar, err := p.buildZoneCombatants(userID, monster, tier, dmMood)
+	res, _, err := p.runZoneCombatRoster([]id.UserID{userID}, monster, tier, phases, dmMood)
 	if err != nil {
 		return CombatResult{}, err
 	}
-
-	// Pre-combat one-shots that the turn-based path does NOT share: a queued
-	// spell and the panic-heal consumable trigger. Both mutate the Combatant
-	// pair once, before the fight runs.
-	applyPendingCast(userID, dndChar, &player.Stats, &player.Mods, &enemy.Stats)
-	consumables := p.loadConsumableInventory(userID)
-	setupAutoHealFromInventory(consumables, &player.Mods)
-
-	result := SimulateCombat(player, enemy, phases)
-	dumpCombatEventsIfDebug(fmt.Sprintf("zone:%s vs %s", monster.ID, player.Name), result)
-
-	// Remove the actual heal items consumed during combat (one inventory
-	// item per heal_item event fired). Cheapest-tier first.
-	consumeFiredHealingItems(userID, countHealEventsFired(result))
-
-	// Misty condition repair (post-combat, same 20% chance as arena/encounter
-	// paths in combat_bridge.go). Mirrors the buff's intent — gourmet food
-	// keeps her gear in shape on long expeditions, not just in the arena.
-	if char.MistyBuffExpires != nil && time.Now().UTC().Before(*char.MistyBuffExpires) {
-		if rand.Float64() < 0.20 {
-			npcRepairMostDamaged(userID, equip, 5)
-		}
-	}
-
-	p.grantCombatAchievements(userID, result)
-	persistDnDHPAfterCombat(userID, result.PlayerEndHP)
-	if err := persistDnDPostCombatSubclass(dndChar, player.Mods.BerserkerRage, result, player.Mods); err != nil {
-		slog.Error("dnd: post-combat subclass persist (zone)", "user", userID, "err", err)
-	}
-
-	if xp := zoneCombatXP(result, monster.CR, tier); xp > 0 {
-		if _, err := p.grantDnDXP(userID, xp); err != nil {
-			slog.Error("dnd: grantDnDXP zone", "user", userID, "err", err)
-		}
-	}
-
-	return result, nil
+	return res.Seats[0], nil
 }
 
 // zoneCombatXP — CR-weighted XP per kill, with a tier-based floor so
