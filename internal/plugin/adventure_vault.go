@@ -48,9 +48,17 @@ func (p *AdventurePlugin) handleVaultCmd(ctx MessageContext, args string) error 
 	case lower == "" || lower == "list":
 		reply = renderVault(ctx.Sender)
 	case strings.HasPrefix(lower, "store "):
+		// Serialize a player's own store/take so two near-simultaneous stores
+		// can't both pass the capacity check and overfill the vault.
+		userMu := p.advUserLock(ctx.Sender)
+		userMu.Lock()
 		reply = vaultStoreItem(ctx.Sender, strings.TrimSpace(args[len("store "):]))
+		userMu.Unlock()
 	case strings.HasPrefix(lower, "take "):
+		userMu := p.advUserLock(ctx.Sender)
+		userMu.Lock()
 		reply = vaultTakeItem(ctx.Sender, strings.TrimSpace(args[len("take "):]))
+		userMu.Unlock()
 	default:
 		reply = "Usage: `!adventure vault` to view · `!adventure vault store <item>` · `!adventure vault take <item>`."
 	}

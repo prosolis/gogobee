@@ -613,7 +613,10 @@ func clearAdvInventory(userID id.UserID) ([]AdvItem, error) {
 		return nil, err
 	}
 	d := db.Get()
-	_, err = d.Exec(`DELETE FROM adventure_inventory WHERE user_id = ?`, string(userID))
+	// Delete only what loadAdvInventory returned — vaulted rows are out of play
+	// and must survive a bulk clear, or the vault's whole promise (safe from
+	// !sell all) breaks the moment any caller routes sell-all through here.
+	_, err = d.Exec(`DELETE FROM adventure_inventory WHERE user_id = ? AND in_vault = 0`, string(userID))
 	if err != nil {
 		return nil, err
 	}

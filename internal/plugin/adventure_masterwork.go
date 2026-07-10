@@ -492,7 +492,32 @@ func (p *AdventurePlugin) handleMasterworkEquipConfirm(ctx MessageContext, inter
 		return p.SendDM(ctx.Sender, "Equip cancelled.")
 	}
 
+	// Serialize against the sender's own !give: MasterworkGear/ArenaGear are
+	// giftable (N4/E2), so the item captured at prompt time may have changed
+	// hands before this confirmation. The lock makes gift-vs-confirm atomic,
+	// and the re-load below refuses an item that is no longer ours — otherwise
+	// equipping the captured copy would mint a duplicate the gift already
+	// handed to the recipient.
+	userMu := p.advUserLock(ctx.Sender)
+	userMu.Lock()
+	defer userMu.Unlock()
+
 	selected := data.Item
+
+	inv, err := loadAdvInventory(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Failed to load your inventory.")
+	}
+	stillOwned := false
+	for _, it := range inv {
+		if it.ID == selected.ID {
+			stillOwned = true
+			break
+		}
+	}
+	if !stillOwned {
+		return p.SendDM(ctx.Sender, fmt.Sprintf("**%s** isn't in your inventory anymore. Equip cancelled.", selected.Name))
+	}
 
 	equip, err := loadAdvEquipment(ctx.Sender)
 	if err != nil {
