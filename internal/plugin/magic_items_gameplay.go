@@ -579,18 +579,8 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 		return p.SendDM(ctx.Sender, "Equip cancelled.")
 	}
 
-	idx := 0
-	parsed := false
-	for _, c := range reply {
-		if c >= '0' && c <= '9' {
-			idx = idx*10 + int(c-'0')
-			parsed = true
-		} else {
-			break
-		}
-	}
-	idx-- // 1-indexed → 0-indexed
-	if !parsed || idx < 0 || idx >= len(data.Items) {
+	idx, ok := parseMenuIndex(reply, len(data.Items))
+	if !ok {
 		p.pending.Store(string(ctx.Sender), interaction)
 		return p.SendDM(ctx.Sender, "Invalid selection. Reply with a number from the list, or \"cancel\".")
 	}

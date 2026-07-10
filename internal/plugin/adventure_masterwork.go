@@ -435,18 +435,8 @@ func (p *AdventurePlugin) handleMasterworkEquipReply(ctx MessageContext, interac
 		return p.SendDM(ctx.Sender, "Equip cancelled.")
 	}
 
-	// Parse number
-	idx := 0
-	for _, c := range reply {
-		if c >= '0' && c <= '9' {
-			idx = idx*10 + int(c-'0')
-		} else {
-			break
-		}
-	}
-	idx-- // 1-indexed to 0-indexed
-
-	if idx < 0 || idx >= len(data.Items) {
+	idx, ok := parseMenuIndex(reply, len(data.Items))
+	if !ok {
 		return p.SendDM(ctx.Sender, "Invalid selection. Reply with a number from the list, or \"cancel\".")
 	}
 

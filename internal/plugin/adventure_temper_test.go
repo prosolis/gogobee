@@ -346,9 +346,9 @@ func TestParseTemperIndex(t *testing.T) {
 		{"cancel", 3, 0, false},
 	}
 	for _, tc := range tests {
-		got, ok := parseTemperIndex(tc.in, tc.n)
+		got, ok := parseMenuIndex(tc.in, tc.n)
 		if ok != tc.wantOK || (ok && got != tc.want) {
-			t.Errorf("parseTemperIndex(%q, %d) = (%d, %v), want (%d, %v)",
+			t.Errorf("parseMenuIndex(%q, %d) = (%d, %v), want (%d, %v)",
 				tc.in, tc.n, got, ok, tc.want, tc.wantOK)
 		}
 	}

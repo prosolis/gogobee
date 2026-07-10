@@ -115,18 +115,6 @@ func partySize(expeditionID string) (int, error) {
 	return n, nil
 }
 
-// openParty seats the leader, converting a solo expedition row into a party of
-// one. It is idempotent: a second call on the same expedition is a no-op, so
-// the invite path can call it unconditionally before adding a member.
-func openParty(expeditionID string, leaderID id.UserID) error {
-	_, err := db.Get().Exec(`
-		INSERT INTO expedition_party (expedition_id, user_id, role)
-		VALUES (?, ?, 'leader')
-		ON CONFLICT (expedition_id, user_id) DO NOTHING`,
-		expeditionID, string(leaderID))
-	return err
-}
-
 // joinParty seats a member. It refuses a full roster, a duplicate, and a player
 // who already leads or rides an expedition of their own — the "one active
 // expedition per user" rule that startExpedition enforces in code, extended to
@@ -171,9 +159,11 @@ func joinParty(expeditionID string, userID id.UserID) error {
 	return tx.Commit()
 }
 
-// seatLeader is openParty inside a caller's transaction: it reads the owner off
-// the expedition row rather than trusting a passed-in id, so the roster's leader
-// can never disagree with dnd_expedition.user_id.
+// seatLeader converts a solo expedition row into a party of one, inside a
+// caller's transaction. It reads the owner off the expedition row rather than
+// trusting a passed-in id, so the roster's leader can never disagree with
+// dnd_expedition.user_id. Idempotent (ON CONFLICT DO NOTHING), so the invite
+// path can call it unconditionally before adding a member.
 func seatLeader(tx *sql.Tx, expeditionID string) error {
 	var owner string
 	err := tx.QueryRow(

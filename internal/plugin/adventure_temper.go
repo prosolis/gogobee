@@ -140,8 +140,12 @@ func findTemperMaterial(items []AdvItem) (AdvItem, bool) {
 	return AdvItem{}, false
 }
 
-// parseTemperIndex reads a leading 1-indexed number and bounds-checks it.
-func parseTemperIndex(reply string, n int) (int, bool) {
+// parseMenuIndex reads a leading 1-indexed number off a menu reply and returns
+// the bounds-checked 0-indexed position. The single parser behind every "reply
+// with a number from the list" prompt — temper, magic-item equip, masterwork
+// equip. Leading whitespace and any trailing text after the digits are ignored;
+// a reply with no leading digit, or one outside [1, n], returns ok=false.
+func parseMenuIndex(reply string, n int) (int, bool) {
 	idx, parsed := 0, false
 	for _, c := range strings.TrimSpace(reply) {
 		if c < '0' || c > '9' {
@@ -214,7 +218,7 @@ func (p *AdventurePlugin) resolveTemperPick(ctx MessageContext, interaction *adv
 	if strings.EqualFold(reply, "cancel") {
 		return p.SendDM(ctx.Sender, "_The forge keeps burning._ Come back when you've decided.")
 	}
-	idx, ok := parseTemperIndex(reply, len(data.Targets))
+	idx, ok := parseMenuIndex(reply, len(data.Targets))
 	if !ok {
 		p.pending.Store(string(ctx.Sender), interaction)
 		return p.SendDM(ctx.Sender, "Reply with a number from the list, or \"cancel\".")
