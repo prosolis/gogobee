@@ -874,15 +874,45 @@ var narrativeCloseLoss = []string{
 // handful of events, and across a long boss fight the picker resetting each
 // round reads as variety rather than staleness.
 func RenderTurnRound(events []CombatEvent, playerName, enemyName string) string {
+	return RenderPartyTurnRound(events, []string{playerName}, enemyName, 0)
+}
+
+// RenderPartyTurnRound renders a round for one member of a party — the reader at
+// viewerSeat.
+//
+// The turn narration pool is written in the second person: "You score 9 damage",
+// "A hit gets through your guard". That is exactly right for the reader's own
+// events and exactly wrong for everybody else's, so this splits on the event's
+// Seat. The reader's own events go through the same flavor pool a solo fight
+// uses, untouched; an ally's are summarised third-person by renderAllySeatEvent.
+//
+// A solo fight has one seat, every event belongs to it, and the reader is it —
+// so it renders the same bytes it always has.
+func RenderPartyTurnRound(events []CombatEvent, seatNames []string, enemyName string, viewerSeat int) string {
+	if len(seatNames) == 0 {
+		seatNames = []string{"You"}
+	}
+	seatName := func(seat int) string {
+		if seat > 0 && seat < len(seatNames) {
+			return seatNames[seat]
+		}
+		return seatNames[0]
+	}
+
 	picker := newActionPicker()
 	var lines []string
 	for _, e := range events {
-		line := renderTurnEvent(e, playerName, enemyName, picker)
+		var line string
+		if e.Seat == viewerSeat {
+			line = renderTurnEvent(e, seatName(e.Seat), enemyName, picker)
+			if roll := rollAnnotation(e); line != "" && roll != "" {
+				line += " " + roll
+			}
+		} else {
+			line = renderAllySeatEvent(e, seatName(e.Seat), enemyName)
+		}
 		if line == "" {
 			continue
-		}
-		if roll := rollAnnotation(e); roll != "" {
-			line += " " + roll
 		}
 		lines = append(lines, line)
 	}
@@ -890,6 +920,80 @@ func RenderTurnRound(events []CombatEvent, playerName, enemyName string) string 
 		return "_The round passes without a clean blow landed._"
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderAllySeatEvent summarises one event belonging to somebody else's
+// character, for a party member's DM. Terse on purpose: the reader wants the
+// shape of the round, not three sentences of flavor about their friend's pet.
+// Anything not worth a line in someone else's DM renders as "".
+func renderAllySeatEvent(e CombatEvent, name, enemyName string) string {
+	who := "**" + name + "**"
+	down := func(line string) string {
+		if e.PlayerHP <= 0 {
+			return line + " " + who + " is down."
+		}
+		return line
+	}
+	switch e.Action {
+	case "hit":
+		if e.Actor == "player" {
+			return fmt.Sprintf("%s hits %s for %d.", who, enemyName, e.Damage)
+		}
+		return down(fmt.Sprintf("%s hits %s for %d.", enemyName, who, e.Damage))
+	case "crit":
+		if e.Actor == "player" {
+			return fmt.Sprintf("%s crits %s for %d!", who, enemyName, e.Damage)
+		}
+		return down(fmt.Sprintf("%s crits %s for %d!", enemyName, who, e.Damage))
+	case "miss":
+		if e.Actor == "player" {
+			return fmt.Sprintf("%s misses.", who)
+		}
+		return fmt.Sprintf("%s misses %s.", enemyName, who)
+	case "block":
+		// renderEvent's convention: Actor "player" means the *enemy* blocked the
+		// player's swing, and vice versa.
+		if e.Actor == "player" {
+			return fmt.Sprintf("%s blocks %s (%d).", enemyName, who, e.Damage)
+		}
+		return fmt.Sprintf("%s blocks (%d).", who, e.Damage)
+	case "spell_cast":
+		label := e.Desc
+		if label == "" {
+			label = "a spell"
+		}
+		return fmt.Sprintf("%s casts %s.", who, label)
+	case "use_consumable":
+		label := e.Desc
+		if label == "" {
+			label = "an item"
+		}
+		return fmt.Sprintf("%s uses %s.", who, label)
+	case "pet_attack":
+		return fmt.Sprintf("🐾 %s's pet strikes for %d.", who, e.Damage)
+	case "spirit_weapon_strike":
+		return fmt.Sprintf("%s's spirit weapon strikes for %d.", who, e.Damage)
+	case "concentration_tick":
+		return fmt.Sprintf("%s's aura burns %s for %d.", who, enemyName, e.Damage)
+	case "poison_tick":
+		return down(fmt.Sprintf("☠️ %s takes %d from poison.", who, e.Damage))
+	case "environmental":
+		return down(fmt.Sprintf("%s takes %d from the room.", who, e.Damage))
+	case "flat_damage":
+		return fmt.Sprintf("%s deals %d.", who, e.Damage)
+	case "heal_item", "misty_heal":
+		return fmt.Sprintf("%s recovers %d.", who, e.Damage)
+	case "death_save":
+		return fmt.Sprintf("%s clings on.", who)
+	case "stun", "stunned":
+		return fmt.Sprintf("%s is stunned.", who)
+	case "flee":
+		return fmt.Sprintf("%s breaks off.", who)
+	default:
+		// Ward absorbs, spore misses, reflects, enrage cues: real, but noise in
+		// somebody else's DM. The owner sees them in full in their own.
+		return ""
+	}
 }
 
 func renderTurnEvent(e CombatEvent, playerName, enemyName string, picker *actionPicker) string {

@@ -44,9 +44,10 @@ func (p *AdventurePlugin) reapExpiredCombatSessions() {
 // nothing to do.
 func (p *AdventurePlugin) reapCombatSession(userIDStr, sessionID string) {
 	userID := id.UserID(userIDStr)
-	userMu := p.advUserLock(userID)
-	userMu.Lock()
-	defer userMu.Unlock()
+	// The session's owner is seat 0, which is the user the sweep listed — so the
+	// fight lock and the user lock are the same mutex here, taken once.
+	release := p.lockCombatFight(userID, userID)
+	defer release()
 
 	sess, err := getActiveCombatSession(userID)
 	if err != nil {
@@ -58,41 +59,51 @@ func (p *AdventurePlugin) reapCombatSession(userIDStr, sessionID string) {
 		return
 	}
 
-	player, enemy, err := p.combatantsForSession(sess)
-	if err != nil {
-		// Can't reconstruct the fight — park it terminal so it isn't retried
-		// every minute forever.
-		slog.Warn("combat: reaper cannot rebuild session, marking expired",
-			"user", userID, "session", sess.SessionID, "err", err)
+	expire := func(why string, args ...any) {
+		slog.Warn("combat: reaper "+why, append([]any{"user", userID, "session", sess.SessionID}, args...)...)
 		if merr := markCombatSessionExpired(sess.SessionID); merr != nil {
 			slog.Error("combat: reaper failed to mark session expired", "session", sess.SessionID, "err", merr)
 		}
+	}
+
+	players, enemy, err := p.partyCombatantsForSession(sess)
+	if err != nil {
+		// Can't reconstruct the fight — park it terminal so it isn't retried
+		// every minute forever.
+		expire("cannot rebuild session, marking expired", "err", err)
 		return
 	}
 
+	// Every seat swings until the fight lands. Deliberately *not* the auto-picker
+	// the turn deadline uses: this is an abandoned fight, and finishing it should
+	// not quietly burn the player's spell slots and potions on their behalf. The
+	// turn-deadline latch is different — that member is mid-fight and their party
+	// is waiting, so playing their character properly is the whole point.
+	//
+	// Each pass resolves one seat's turn and drains the enemy turn, the round-end
+	// tick, and any downed seat behind it, so a solo fight walks exactly the loop
+	// it always did.
+	ct := &combatTurn{sess: sess, players: players, enemy: enemy, seat: 0, uid: userID}
 	rounds := 0
 	for sess.IsActive() {
 		if rounds >= reaperRoundCap {
-			slog.Warn("combat: reaper hit round cap, marking expired",
-				"user", userID, "session", sess.SessionID)
-			if merr := markCombatSessionExpired(sess.SessionID); merr != nil {
-				slog.Error("combat: reaper failed to mark session expired", "session", sess.SessionID, "err", merr)
-			}
+			expire("hit round cap, marking expired")
 			return
 		}
-		if _, rerr := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionAttack}); rerr != nil {
-			slog.Error("combat: reaper round failed", "user", userID, "session", sess.SessionID, "err", rerr)
-			if merr := markCombatSessionExpired(sess.SessionID); merr != nil {
-				slog.Error("combat: reaper failed to mark session expired", "session", sess.SessionID, "err", merr)
-			}
+		if _, rerr := runPartyCombatRound(sess, players, enemy, PlayerAction{Kind: ActionAttack}); rerr != nil {
+			expire("round failed", "err", rerr)
 			return
 		}
 		rounds++
 	}
 
-	outcome := p.finishCombatSession(userID, sess, enemy)
+	outcomes := p.closePartyRound(ct)
 	preamble := fmt.Sprintf("⏳ Your fight with **%s** timed out — I finished it for you.\n\n", enemy.Name)
-	if err := p.SendDM(userID, preamble+outcome); err != nil {
-		slog.Error("combat: reaper failed to DM outcome", "user", userID, "err", err)
+	if !ct.isParty() {
+		if err := p.SendDM(userID, preamble+outcomes[0]); err != nil {
+			slog.Error("combat: reaper failed to DM outcome", "user", userID, "err", err)
+		}
+		return
 	}
+	p.announcePartyRound(ct, nil, preamble, outcomes)
 }

@@ -98,6 +98,11 @@ func (p *AdventurePlugin) eventTicker() {
 
 			// Auto-play any combat sessions past their 1h timeout.
 			p.reapExpiredCombatSessions()
+
+			// Latch away party members onto autopilot so one absent player
+			// can't hold a co-op fight hostage (N3/P5). Solo fights are never
+			// listed — they answer to the reaper above.
+			p.nudgeStalledPartyTurns()
 		}
 	}
 }

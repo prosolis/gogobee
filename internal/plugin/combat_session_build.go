@@ -107,33 +107,70 @@ func (p *AdventurePlugin) buildZoneCombatants(
 	return player, enemy, dndChar, nil
 }
 
-// combatantsForSession reconstructs the Combatant pair for an in-flight
-// CombatSession. It reloads the zone run for the DM mood + tier and looks the
-// enemy up in the bestiary by the session's EnemyID. The pair carries no HP —
-// the turn engine reads that from the session row.
+// combatantsForSession reconstructs the Combatant pair for an in-flight solo
+// CombatSession — the shape every caller wanted before parties existed. It is
+// partyCombatantsForSession reduced to seat 0, and it errors rather than
+// silently dropping the rest of a party's roster on the floor.
 func (p *AdventurePlugin) combatantsForSession(sess *CombatSession) (player Combatant, enemy Combatant, err error) {
+	if sess.IsParty() {
+		return Combatant{}, Combatant{}, fmt.Errorf(
+			"combat session %s seats %d players; use partyCombatantsForSession", sess.SessionID, sess.RosterSize())
+	}
+	players, e, err := p.partyCombatantsForSession(sess)
+	if err != nil {
+		return Combatant{}, Combatant{}, err
+	}
+	return *players[0], *e, nil
+}
+
+// partyCombatantsForSession reconstructs the seated roster and the enemy for an
+// in-flight CombatSession. It reloads the zone run for the DM mood + tier and
+// looks the enemy up in the bestiary by the session's EnemyID. The combatants
+// carry no HP — the turn engine reads that from the session row and the
+// participant rows.
+//
+// Every seat is rebuilt from *its own* player: their sheet, their equipment,
+// their passives, their magic items. That is N times the per-round DB chatter
+// combatantsForSession already had (project_combat_session_cache_deferred), and
+// a party of 3 pays it three times over. Solo — every fight that has ever run,
+// and the whole balance corpus — still issues exactly one build.
+func (p *AdventurePlugin) partyCombatantsForSession(sess *CombatSession) ([]*Combatant, *Combatant, error) {
 	run, rerr := getZoneRun(sess.RunID)
 	if rerr != nil {
-		return Combatant{}, Combatant{}, fmt.Errorf("load zone run: %w", rerr)
+		return nil, nil, fmt.Errorf("load zone run: %w", rerr)
 	}
 	if run == nil {
-		return Combatant{}, Combatant{}, fmt.Errorf("combat session %s: zone run %s not found", sess.SessionID, sess.RunID)
+		return nil, nil, fmt.Errorf("combat session %s: zone run %s not found", sess.SessionID, sess.RunID)
 	}
 	monster, ok := dndBestiary[sess.EnemyID]
 	if !ok {
-		return Combatant{}, Combatant{}, fmt.Errorf("combat session %s: enemy %q not in bestiary", sess.SessionID, sess.EnemyID)
+		return nil, nil, fmt.Errorf("combat session %s: enemy %q not in bestiary", sess.SessionID, sess.EnemyID)
 	}
 	zone := zoneOrFallback(run.ZoneID)
-	player, enemy, _, err = p.buildZoneCombatants(id.UserID(sess.UserID), monster, int(zone.Tier), run.DMMood)
-	if err != nil {
-		return player, enemy, err
+
+	seats := sess.SeatUserIDs()
+	players := make([]*Combatant, len(seats))
+	var enemy Combatant
+	for seat, uid := range seats {
+		player, e, _, err := p.buildZoneCombatants(id.UserID(uid), monster, int(zone.Tier), run.DMMood)
+		if err != nil {
+			return nil, nil, fmt.Errorf("seat %d (%s): %w", seat, uid, err)
+		}
+		// Fold any fight-scoped buffs this seat's mid-fight !cast / !consume
+		// layered on back onto their freshly-rebuilt combatant. The depleting
+		// one-shots (ward/spore/…) live on their persisted statuses and flow
+		// through the turn engine's resume/commit cycle, so only the persistent
+		// stat deltas are applied here — and only that seat's own.
+		applySessionBuffs(&player, sess.actorStatusesForSeat(seat))
+		players[seat] = &player
+		if seat == 0 {
+			// The enemy build reads only (monster, tier, dmMood): every seat
+			// rebuilds the identical stat block, so seat 0's copy is the fight's.
+			// Only the *player* half of the build varies by seat.
+			enemy = e
+		}
 	}
-	// Fold any fight-scoped buffs a mid-fight !cast / !consume layered on back
-	// onto the freshly-rebuilt player. The depleting one-shots (ward/spore/…)
-	// live on the session's Statuses and flow through the turn engine's
-	// resume/commit cycle, so only the persistent stat deltas are applied here.
-	applySessionBuffs(&player, sess.Statuses.ActorStatuses)
-	return player, enemy, err
+	return players, &enemy, nil
 }
 
 // applySessionBuffs re-derives the persistent stat effect of every mid-fight

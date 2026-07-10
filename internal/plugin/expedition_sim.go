@@ -896,11 +896,22 @@ const simHealHPThresholdPct = 40
 // Pre-J2a the sim looped !attack only, which underweighted every caster
 // class — see sim_results/j2_findings.md for the trace evidence.
 func (p *AdventurePlugin) pickAutoCombatAction(uid id.UserID, sess *CombatSession) (kind, arg string) {
+	return p.pickAutoCombatActionForSeat(uid, sess, 0)
+}
+
+// pickAutoCombatActionForSeat is pickAutoCombatAction for an arbitrary seat.
+// The decision tree reads HP and the running concentration aura, and both are
+// per-character — before N3/P5 they were read straight off the session row,
+// which is seat 0. Driving a party member's turn off the leader's HP would heal
+// the wrong person and re-arm the wrong aura.
+func (p *AdventurePlugin) pickAutoCombatActionForSeat(uid id.UserID, sess *CombatSession, seat int) (kind, arg string) {
 	c, _ := LoadDnDCharacter(uid)
 	if c == nil || sess == nil {
 		return "attack", ""
 	}
-	lowHP := sess.PlayerHPMax > 0 && sess.PlayerHP*100 < sess.PlayerHPMax*simHealHPThresholdPct
+	st := sess.actorStatusesForSeat(seat)
+	hp, hpMax := sess.seatHP(seat), sess.seatHPMax(seat)
+	lowHP := hpMax > 0 && hp*100 < hpMax*simHealHPThresholdPct
 	if lowHP {
 		inv := p.loadConsumableInventory(uid)
 		for _, it := range inv {
@@ -916,14 +927,14 @@ func (p *AdventurePlugin) pickAutoCombatAction(uid id.UserID, sess *CombatSessio
 		// otherwise never spends an L2 slot on it. Force the pick once
 		// per fight (BuffSpiritProc==0) so the picker doesn't pretend
 		// it's not a damage option.
-		if id := simPickSpiritualWeapon(c, uid, sess); id != "" {
+		if id := simPickSpiritualWeapon(c, uid, st); id != "" {
 			return "cast", id
 		}
 		// Once a concentration aura is up, a competent caster maintains it and
 		// attacks (or casts a non-concentration spell) rather than burning a
 		// slot to re-arm the same aura — so the picker excludes concentration
 		// spells while one is active.
-		auraActive := sess.Statuses.ConcentrationDmg > 0
+		auraActive := st.ConcentrationDmg > 0
 		if id := simPickSpell(c, uid, auraActive); id != "" {
 			return "cast", id
 		}
@@ -959,11 +970,11 @@ func simMartialFirstClass(class DnDClass) bool {
 // above 2nd, so spending a precious L5 to add a single d8 to the proc is
 // not worth burning the bigger slot's damage potential elsewhere; sim
 // behaves like a competent player and saves the high slot.
-func simPickSpiritualWeapon(c *DnDCharacter, uid id.UserID, sess *CombatSession) string {
-	if c == nil || c.Class != ClassCleric || sess == nil {
+func simPickSpiritualWeapon(c *DnDCharacter, uid id.UserID, st ActorStatuses) string {
+	if c == nil || c.Class != ClassCleric {
 		return ""
 	}
-	if sess.Statuses.BuffSpiritProc > 0 {
+	if st.BuffSpiritProc > 0 {
 		return ""
 	}
 	known, err := listKnownSpells(uid)

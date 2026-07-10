@@ -149,29 +149,43 @@ func (p *AdventurePlugin) handleFleeCmd(ctx MessageContext) error {
 	return p.handleCombatActionCmd(ctx, PlayerAction{Kind: ActionFlee})
 }
 
+const noFightMsg = "You're not in a fight. `!fight` at an Elite or Boss room to start one."
+
 func (p *AdventurePlugin) handleCombatActionCmd(ctx MessageContext, action PlayerAction) error {
-	userMu := p.advUserLock(ctx.Sender)
-	userMu.Lock()
-	defer userMu.Unlock()
-
-	sess, err := getActiveCombatSession(ctx.Sender)
-	if err != nil {
-		return p.replyDM(ctx, "Couldn't read combat state: "+err.Error())
+	ct, release, msg := p.beginCombatTurn(ctx.Sender, noFightMsg)
+	if ct == nil {
+		return p.replyDM(ctx, msg)
 	}
-	if sess == nil {
-		return p.replyDM(ctx, "You're not in a fight. `!fight` at an Elite or Boss room to start one.")
-	}
+	defer release()
 
-	player, enemy, err := p.combatantsForSession(sess)
-	if err != nil {
-		return p.replyDM(ctx, "Couldn't rebuild the fight: "+err.Error())
+	// Fleeing ends the run for the whole party, so it is the leader's call —
+	// the same reasoning that makes `!extract` leader-only.
+	if action.Kind == ActionFlee && ct.isParty() && ct.seat != 0 {
+		return p.replyDM(ctx, "Only your party leader can break off a fight.")
 	}
 
-	events, err := runCombatRound(sess, &player, &enemy, action)
+	events, err := p.driveCombatRound(ct, action)
 	if err != nil {
 		return p.replyDM(ctx, "Couldn't resolve the round: "+err.Error())
 	}
-	return p.replyDM(ctx, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
+	return p.replyCombatRound(ctx, ct, events)
+}
+
+// replyCombatRound narrates a resolved round. A solo fight answers the one
+// player who typed, exactly as it always has. A party fight fans out: every
+// member gets the play-by-play with the right names on it, and their own footer
+// or close-out. Terminal side effects run either way — a silent autopilot round
+// still owes the party its XP and loot.
+func (p *AdventurePlugin) replyCombatRound(ctx MessageContext, ct *combatTurn, events []CombatEvent) error {
+	if !ct.isParty() {
+		return p.replyDM(ctx, p.renderRoundResult(ctx.Sender, ct.sess, events, ct.players[0].Name, *ct.enemy))
+	}
+	outcomes := p.closePartyRound(ct)
+	if ctx.Silent {
+		return nil
+	}
+	p.announcePartyRound(ct, events, "", outcomes)
+	return nil
 }
 
 // renderRoundResult turns a resolved round into the player-facing block: the
@@ -192,24 +206,64 @@ func (p *AdventurePlugin) renderRoundResult(userID id.UserID, sess *CombatSessio
 	return b.String()
 }
 
-// runCombatRound resolves one full round: the player's chosen action, then the
-// enemy turn and the round-end status tick, advancing the session until it is
-// back at a player_turn or has reached a terminal status. Returns every event
-// the round produced. Each advanceCombatSession call persists the session, so
+// runCombatRound resolves one full round of a solo fight: the player's chosen
+// action, then the enemy turn and the round-end status tick, advancing the
+// session until it is back at a player_turn or has reached a terminal status.
+// Returns every event the round produced. Each advance persists the session, so
 // a crash mid-round resumes cleanly from the last phase.
 func runCombatRound(sess *CombatSession, player, enemy *Combatant, action PlayerAction) ([]CombatEvent, error) {
-	events, err := advanceCombatSession(sess, player, enemy, action)
+	return runPartyCombatRound(sess, []*Combatant{player}, enemy, action)
+}
+
+// partyRoundStepCap bounds the drain loop below. A round is at most one step per
+// seat plus the enemy turn and the round-end tick, so a 3-player party settles
+// in 5; the cap only turns a hypothetical non-advancing phase into a loud error
+// instead of a hung goroutine holding the fight's lock.
+const partyRoundStepCap = 64
+
+// runPartyCombatRound resolves the acting seat's action and then drains every
+// phase after it that needs no human: the enemy turn, the round-end status tick,
+// and any seat that is down (which forfeits its turn silently). It comes to rest
+// on a standing player's turn, or on a terminal status.
+//
+// A latched-onto-autopilot seat is *not* drained here — resolving its turn means
+// running the picker, which needs the plugin to reach the character's spells and
+// inventory. driveCombatRound layers that on top.
+//
+// For a solo roster this is exactly the old loop: a solo player_turn always
+// belongs to a standing player, since a downed one has already ended the fight.
+func runPartyCombatRound(sess *CombatSession, players []*Combatant, enemy *Combatant, action PlayerAction) ([]CombatEvent, error) {
+	events, err := advancePartyCombatSession(sess, players, enemy, action)
 	if err != nil {
 		return events, err
 	}
-	for sess.IsActive() && sess.Phase != CombatPhasePlayerTurn {
-		more, merr := advanceCombatSession(sess, player, enemy, PlayerAction{})
+	more, err := settleCombatSession(sess, players, enemy)
+	return append(events, more...), err
+}
+
+// settleCombatSession drains every phase the engine can resolve without a human:
+// the enemy turn, the round-end status tick, and any seat that is down. It comes
+// to rest on a standing player's turn, or on a terminal status.
+//
+// It is a no-op on a session already parked on a standing player's turn, which
+// is where every solo fight sits between commands.
+func settleCombatSession(sess *CombatSession, players []*Combatant, enemy *Combatant) ([]CombatEvent, error) {
+	var events []CombatEvent
+	for i := 0; i < partyRoundStepCap; i++ {
+		if !sess.IsActive() {
+			return events, nil
+		}
+		if seat, waiting := actingSeat(sess, players, enemy); waiting && sess.seatAlive(seat) {
+			return events, nil
+		}
+		more, merr := advancePartyCombatSession(sess, players, enemy, PlayerAction{})
 		if merr != nil {
 			return events, merr
 		}
 		events = append(events, more...)
 	}
-	return events, nil
+	return events, fmt.Errorf("combat session %s: round did not settle within %d steps",
+		sess.SessionID, partyRoundStepCap)
 }
 
 // combatTurnPrompt is the "your move" footer shown after every non-terminal
@@ -405,65 +459,87 @@ func parseCombatCast(userID id.UserID, c *DnDCharacter, args string) (SpellDefin
 }
 
 func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) error {
-	userMu := p.advUserLock(ctx.Sender)
-	userMu.Lock()
-	defer userMu.Unlock()
+	// "not in a fight anymore" — this handler is only routed to when the caller
+	// already saw an active session, so a miss here means it closed under them.
+	ct, release, msg := p.beginCombatTurn(ctx.Sender, "You're not in a fight anymore.")
+	if ct == nil {
+		return p.replyDM(ctx, msg)
+	}
+	defer release()
 
-	sess, err := getActiveCombatSession(ctx.Sender)
-	if err != nil {
-		return p.replyDM(ctx, "Couldn't read combat state: "+err.Error())
-	}
-	if sess == nil {
-		// Race: the fight closed between the route check and the lock.
-		return p.replyDM(ctx, "You're not in a fight anymore.")
-	}
-
-	advChar, _ := loadAdvCharacter(ctx.Sender)
-	c, err := p.ensureCharForDnDCmd(ctx.Sender, advChar)
-	if err != nil || c == nil {
-		return p.replyDM(ctx, "Couldn't load your Adv 2.0 sheet.")
-	}
-	if !isSpellcaster(c) {
-		return p.replyDM(ctx, fmt.Sprintf(
-			"%s isn't a caster class. `!attack` or `!consume <item>` instead.", titleClass(c.Class)))
-	}
-
-	spell, slotLevel, errMsg := parseCombatCast(ctx.Sender, c, strings.TrimSpace(args))
+	action, settle, errMsg := p.castActionForSeat(ct, ct.seat, args)
 	if errMsg != "" {
 		return p.replyDM(ctx, errMsg)
 	}
-	if spell.Effect == EffectReaction {
-		return p.replyDM(ctx, fmt.Sprintf(
-			"%s is a reaction spell — those still aren't usable. Pick a damage, healing, or control spell.", spell.Name))
+	events, err := p.driveCombatRound(ct, action)
+	settle(err == nil)
+	if err != nil {
+		return p.replyDM(ctx, "Couldn't resolve the round: "+err.Error())
+	}
+	return p.replyCombatRound(ctx, ct, events)
+}
+
+// castActionForSeat resolves a `!cast` for one seat into a PlayerAction, having
+// already spent the slot and any material component. It is shared by the command
+// handler and by the autopilot that plays an absent member's turn, so both spend
+// resources through exactly one code path.
+//
+// The returned settle(ok) must be called once the round has been attempted: on
+// failure it refunds the slot. On refusal (non-empty msg) nothing was spent.
+//
+// A buff spell folds its delta into *this seat's* persisted statuses and rebuilds
+// the roster so the buff is live for the round's enemy turn. Before P5 that
+// delta went to the session's embedded copy — seat 0 — so a party member
+// buffing themselves would have buffed the leader.
+func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args string) (PlayerAction, func(bool), string) {
+	noop := func(bool) {}
+	uid := id.UserID(ct.sess.seatUserID(seat))
+
+	advChar, _ := loadAdvCharacter(uid)
+	c, err := p.ensureCharForDnDCmd(uid, advChar)
+	if err != nil || c == nil {
+		return PlayerAction{}, noop, "Couldn't load your Adv 2.0 sheet."
+	}
+	if !isSpellcaster(c) {
+		return PlayerAction{}, noop, fmt.Sprintf(
+			"%s isn't a caster class. `!attack` or `!consume <item>` instead.", titleClass(c.Class))
 	}
 
-	player, enemy, err := p.combatantsForSession(sess)
-	if err != nil {
-		return p.replyDM(ctx, "Couldn't rebuild the fight: "+err.Error())
+	spell, slotLevel, errMsg := parseCombatCast(uid, c, strings.TrimSpace(args))
+	if errMsg != "" {
+		return PlayerAction{}, noop, errMsg
+	}
+	if spell.Effect == EffectReaction {
+		return PlayerAction{}, noop, fmt.Sprintf(
+			"%s is a reaction spell — those still aren't usable. Pick a damage, healing, or control spell.", spell.Name)
+	}
+
+	refund := func(ok bool) {
+		if !ok && spell.Level > 0 {
+			_ = refundSpellSlot(uid, slotLevel)
+		}
 	}
 
 	var eff *turnActionEffect
 	if spell.Effect == EffectBuffSelf || spell.Effect == EffectBuffAlly {
 		// Buff path — resolve the buff against a throwaway combatant, fold the
-		// marginal effect into the session's persisted state, then rebuild the
-		// pair so the buff is live for this round's enemy turn.
+		// marginal effect into that seat's persisted state, then rebuild the
+		// roster so the buff is live for this round's enemy turn.
+		player := ct.players[seat]
 		as, am := player.Stats, player.Mods
 		applySpellBuff(spell, c, &as, &am, slotLevel)
 		d := diffTurnBuff(player.Stats, as, player.Mods, am)
 		if !d.any() {
-			return p.replyDM(ctx, fmt.Sprintf(
-				"%s has no effect the turn-based engine can apply yet.", spell.Name))
+			return PlayerAction{}, noop, fmt.Sprintf(
+				"%s has no effect the turn-based engine can apply yet.", spell.Name)
 		}
-		if msg := p.chargeSpellCost(ctx.Sender, spell, slotLevel); msg != "" {
-			return p.replyDM(ctx, msg)
+		if msg := p.chargeSpellCost(uid, spell, slotLevel); msg != "" {
+			return PlayerAction{}, noop, msg
 		}
-		sess.Statuses.applyBuffDelta(d)
-		player, enemy, err = p.combatantsForSession(sess)
-		if err != nil {
-			if spell.Level > 0 {
-				_ = refundSpellSlot(ctx.Sender, slotLevel)
-			}
-			return p.replyDM(ctx, "Couldn't rebuild the fight: "+err.Error())
+		ct.sess.actorStatusesPtr(seat).applyBuffDelta(d)
+		if rerr := p.rebuildRoster(ct); rerr != nil {
+			refund(false)
+			return PlayerAction{}, noop, "Couldn't rebuild the fight: " + rerr.Error()
 		}
 		label := spell.Name + " — active"
 		if d.heal > 0 {
@@ -474,13 +550,13 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 			PlayerHeal: d.heal, EnemySkip: d.enemySkip,
 		}
 	} else {
-		out, supported := resolveTurnSpell(c, spell, slotLevel, &enemy.Stats)
+		out, supported := resolveTurnSpell(c, spell, slotLevel, &ct.enemy.Stats)
 		if !supported {
-			return p.replyDM(ctx, fmt.Sprintf(
-				"%s is a utility spell — those aren't usable in turn-based fights yet. Try a damage, healing, control, or buff spell.", spell.Name))
+			return PlayerAction{}, noop, fmt.Sprintf(
+				"%s is a utility spell — those aren't usable in turn-based fights yet. Try a damage, healing, control, or buff spell.", spell.Name)
 		}
-		if msg := p.chargeSpellCost(ctx.Sender, spell, slotLevel); msg != "" {
-			return p.replyDM(ctx, msg)
+		if msg := p.chargeSpellCost(uid, spell, slotLevel); msg != "" {
+			return PlayerAction{}, noop, msg
 		}
 		eff = &turnActionEffect{
 			Label:       out.Desc,
@@ -498,15 +574,18 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 			eff.ConcentrationDmg = out.EnemyDamage
 		}
 	}
+	return PlayerAction{Kind: ActionCast, Effect: eff}, refund, ""
+}
 
-	events, err := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionCast, Effect: eff})
+// rebuildRoster re-derives the seated combatants after a mid-fight buff changed
+// a seat's persisted statuses, so the buff is live for the rest of the round.
+func (p *AdventurePlugin) rebuildRoster(ct *combatTurn) error {
+	players, enemy, err := p.partyCombatantsForSession(ct.sess)
 	if err != nil {
-		if spell.Level > 0 {
-			_ = refundSpellSlot(ctx.Sender, slotLevel)
-		}
-		return p.replyDM(ctx, "Couldn't resolve the round: "+err.Error())
+		return err
 	}
-	return p.replyDM(ctx, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
+	ct.players, ct.enemy = players, enemy
+	return nil
 }
 
 // chargeSpellCost debits a spell's material component and leveled slot for a
@@ -571,21 +650,21 @@ func matchConsumable(inv []ConsumableItem, query string) (*ConsumableItem, strin
 }
 
 func (p *AdventurePlugin) handleConsumeCmd(ctx MessageContext, args string) error {
-	userMu := p.advUserLock(ctx.Sender)
-	userMu.Lock()
-	defer userMu.Unlock()
+	const notFighting = "`!consume <item>` spends an item on your turn in an Elite or Boss fight. You're not in one — outside combat, consumables fire automatically."
 
-	sess, err := getActiveCombatSession(ctx.Sender)
-	if err != nil {
-		return p.replyDM(ctx, "Couldn't read combat state: "+err.Error())
-	}
-	if sess == nil {
-		return p.replyDM(ctx, "`!consume <item>` spends an item on your turn in an Elite or Boss fight. You're not in one — outside combat, consumables fire automatically.")
-	}
-
-	inv := p.loadConsumableInventory(ctx.Sender)
 	args = strings.TrimSpace(args)
 	if args == "" {
+		// Listing the pack reads no turn state, so it neither takes the fight's
+		// lock nor settles a phase — a player peeking at their options between
+		// rounds must not advance the fight.
+		probe, err := activeCombatSessionFor(ctx.Sender)
+		if err != nil {
+			return p.replyDM(ctx, "Couldn't read combat state: "+err.Error())
+		}
+		if probe == nil {
+			return p.replyDM(ctx, notFighting)
+		}
+		inv := p.loadConsumableInventory(ctx.Sender)
 		if len(inv) == 0 {
 			return p.replyDM(ctx, "You have no combat consumables. `!attack` / `!cast` / `!flee`.")
 		}
@@ -596,20 +675,45 @@ func (p *AdventurePlugin) handleConsumeCmd(ctx MessageContext, args string) erro
 		return p.replyDM(ctx, "Usage: `!consume <item>`. You're carrying: "+strings.Join(names, ", ")+".")
 	}
 
+	ct, release, msg := p.beginCombatTurn(ctx.Sender, notFighting)
+	if ct == nil {
+		return p.replyDM(ctx, msg)
+	}
+	defer release()
+
+	action, settle, errMsg := p.consumeActionForSeat(ct, ct.seat, args)
+	if errMsg != "" {
+		return p.replyDM(ctx, errMsg)
+	}
+	events, err := p.driveCombatRound(ct, action)
+	settle(err == nil)
+	if err != nil {
+		return p.replyDM(ctx, "Couldn't resolve the round: "+err.Error())
+	}
+	return p.replyCombatRound(ctx, ct, events)
+}
+
+// consumeActionForSeat resolves a `!consume` for one seat into a PlayerAction.
+// Shared by the command handler and by the autopilot that plays an absent
+// member's turn.
+//
+// The returned settle(ok) burns the item only once the round has resolved: a
+// removal failure leaves the player a free use (logged, rare), which beats
+// charging them for a round that errored out.
+func (p *AdventurePlugin) consumeActionForSeat(ct *combatTurn, seat int, args string) (PlayerAction, func(bool), string) {
+	noop := func(bool) {}
+	uid := id.UserID(ct.sess.seatUserID(seat))
+
+	inv := p.loadConsumableInventory(uid)
 	item, ambig := matchConsumable(inv, args)
 	if ambig != "" {
-		return p.replyDM(ctx, ambig)
+		return PlayerAction{}, noop, ambig
 	}
 	if item == nil {
-		return p.replyDM(ctx, fmt.Sprintf("No consumable matching %q in your inventory.", args))
+		return PlayerAction{}, noop, fmt.Sprintf("No consumable matching %q in your inventory.", args)
 	}
 
 	def := item.Def
-	player, enemy, err := p.combatantsForSession(sess)
-	if err != nil {
-		return p.replyDM(ctx, "Couldn't rebuild the fight: "+err.Error())
-	}
-
 	eff := &turnActionEffect{Action: "use_consumable"}
 	switch def.Effect {
 	case EffectHeal:
@@ -620,34 +724,32 @@ func (p *AdventurePlugin) handleConsumeCmd(ctx MessageContext, args string) erro
 		eff.Label = fmt.Sprintf("%s — %d damage", def.Name, eff.EnemyDamage)
 	default:
 		// Buff-type consumable — resolve the marginal effect against a
-		// throwaway combatant, fold it into the session's persisted state, and
-		// rebuild the pair so the buff is live for this round's enemy turn.
+		// throwaway combatant, fold it into that seat's persisted state, and
+		// rebuild the roster so the buff is live for this round's enemy turn.
+		player := ct.players[seat]
 		as, am := player.Stats, player.Mods
 		ApplyConsumableMods(&as, &am, []ConsumableItem{{Def: def}})
 		d := diffTurnBuff(player.Stats, as, player.Mods, am)
 		if !d.any() {
-			return p.replyDM(ctx, fmt.Sprintf(
-				"**%s** has no effect the turn-based engine can apply yet.", def.Name))
+			return PlayerAction{}, noop, fmt.Sprintf(
+				"**%s** has no effect the turn-based engine can apply yet.", def.Name)
 		}
-		sess.Statuses.applyBuffDelta(d)
-		player, enemy, err = p.combatantsForSession(sess)
-		if err != nil {
-			return p.replyDM(ctx, "Couldn't rebuild the fight: "+err.Error())
+		ct.sess.actorStatusesPtr(seat).applyBuffDelta(d)
+		if rerr := p.rebuildRoster(ct); rerr != nil {
+			return PlayerAction{}, noop, "Couldn't rebuild the fight: " + rerr.Error()
 		}
 		eff.Label = def.Name + " — active"
 		eff.PlayerHeal = d.heal
 		eff.EnemySkip = d.enemySkip
 	}
 
-	events, err := runCombatRound(sess, &player, &enemy, PlayerAction{Kind: ActionConsume, Effect: eff})
-	if err != nil {
-		return p.replyDM(ctx, "Couldn't resolve the round: "+err.Error())
+	burn := func(ok bool) {
+		if !ok {
+			return
+		}
+		if rerr := removeAdvInventoryItem(item.InventoryID); rerr != nil {
+			slog.Error("combat: consume remove inventory item failed", "user", uid, "item", def.Name, "err", rerr)
+		}
 	}
-	// Round resolved and persisted — now burn the item. A removal failure here
-	// leaves the player a free use (logged, rare); better than charging them
-	// for a round that errored out.
-	if rerr := removeAdvInventoryItem(item.InventoryID); rerr != nil {
-		slog.Error("combat: consume remove inventory item failed", "user", ctx.Sender, "item", def.Name, "err", rerr)
-	}
-	return p.replyDM(ctx, p.renderRoundResult(ctx.Sender, sess, events, player.Name, enemy))
+	return PlayerAction{Kind: ActionConsume, Effect: eff}, burn, ""
 }

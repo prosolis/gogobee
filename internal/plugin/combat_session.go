@@ -99,6 +99,18 @@ type ActorStatuses struct {
 	AssassinateReroll bool `json:"assassinate_reroll_used,omitempty"`
 	AssassinateBonus  bool `json:"assassinate_bonus_used,omitempty"`
 
+	// Autopilot latches this seat onto the auto-picker for the rest of the
+	// fight, set when its turn deadline lapses once (see partyTurnDeadline).
+	// Without the latch an away member taxes the party the full deadline every
+	// single round; with it, they cost one wait and then resolve instantly. Any
+	// combat command from that member clears it.
+	//
+	// Like the Buff* deltas it is session-layer state with no combatState
+	// counterpart, so snapshotActor carries it over from the prior snapshot
+	// rather than re-deriving it. omitempty keeps it off every solo row — a solo
+	// fight has no turn deadline, only the 1h session reaper.
+	Autopilot bool `json:"autopilot,omitempty"`
+
 	// Debuffs the enemy has stacked onto this character specifically.
 	PlayerAtkDrain int `json:"player_atk_drain,omitempty"`
 	PlayerACDebuff int `json:"player_ac_debuff,omitempty"`
@@ -210,7 +222,14 @@ func (s *ActorStatuses) applyBuffDelta(d turnBuffDelta) {
 // turn-based build deliberately omits pre-combat consumables and queued casts —
 // but the full set is seeded for robustness. Returns true if anything was set.
 func seedCombatSessionOneShots(s *CombatSession, playerMods CombatModifiers) bool {
-	st := &s.Statuses
+	return seedActorOneShots(&s.Statuses.ActorStatuses, playerMods)
+}
+
+// seedActorOneShots copies one character's fight-start one-shot resources onto
+// their persisted statuses. Seat 0's live on the session row; a party member's
+// live on their participant row, and each seat reads its own combatant's mods —
+// a party Abjurer brings their own Arcane Ward, not the leader's.
+func seedActorOneShots(st *ActorStatuses, playerMods CombatModifiers) bool {
 	st.WardCharges = playerMods.WardCharges
 	st.SporeRounds = playerMods.SporeCloud
 	st.ReflectFrac = playerMods.ReflectNext
@@ -293,6 +312,74 @@ func (s *CombatSession) actorStatusesForSeat(seat int) ActorStatuses {
 	return s.Participants[seat-1].Statuses
 }
 
+// actorStatusesPtr is actorStatusesForSeat for writers. The mid-fight buff path
+// (!cast / !consume) folds its delta into the *casting* seat's statuses; before
+// P5 it wrote unconditionally to the session's embedded copy, which is seat 0 —
+// so a party member's buff would have landed on the leader.
+func (s *CombatSession) actorStatusesPtr(seat int) *ActorStatuses {
+	if seat == 0 {
+		return &s.Statuses.ActorStatuses
+	}
+	return &s.Participants[seat-1].Statuses
+}
+
+// seatHP / seatHPMax read one seat's HP pool. Seat 0's lives on the session row
+// (PlayerHP / PlayerHPMax); seats 1+ carry their own on their participant row.
+func (s *CombatSession) seatHP(seat int) int {
+	if seat == 0 {
+		return s.PlayerHP
+	}
+	return s.Participants[seat-1].HP
+}
+
+func (s *CombatSession) seatHPMax(seat int) int {
+	if seat == 0 {
+		return s.PlayerHPMax
+	}
+	return s.Participants[seat-1].HPMax
+}
+
+// seatUserID names the player sitting at a seat.
+func (s *CombatSession) seatUserID(seat int) string {
+	if seat == 0 {
+		return s.UserID
+	}
+	return s.Participants[seat-1].UserID
+}
+
+// seatOf locates a player on the roster. The false return is the "you are not in
+// this fight" answer every party-aware command needs before it touches a turn.
+func (s *CombatSession) seatOf(userID id.UserID) (int, bool) {
+	u := string(userID)
+	if s.UserID == u {
+		return 0, true
+	}
+	for i, p := range s.Participants {
+		if p.UserID == u {
+			return i + 1, true
+		}
+	}
+	return 0, false
+}
+
+// seatAlive reports whether a seat is still standing. A downed seat forfeits its
+// turn silently rather than blocking the round on a corpse.
+func (s *CombatSession) seatAlive(seat int) bool { return s.seatHP(seat) > 0 }
+
+// seatIsAutopiloted reports whether a seat has been latched onto the auto-picker
+// by a lapsed turn deadline.
+func (s *CombatSession) seatIsAutopiloted(seat int) bool {
+	return s.actorStatusesForSeat(seat).Autopilot
+}
+
+// seatNeedsNoHuman reports whether the engine can resolve a seat's turn without
+// waiting on its player: it is down (forfeits silently) or latched onto
+// autopilot. driveCombatRound keeps stepping while this holds, so a round only
+// comes to rest on a live human's turn.
+func (s *CombatSession) seatNeedsNoHuman(seat int) bool {
+	return !s.seatAlive(seat) || s.seatIsAutopiloted(seat)
+}
+
 // Errors returned by the combat session layer.
 var (
 	ErrCombatSessionAlreadyActive = errors.New("combat session already active for player")
@@ -364,6 +451,65 @@ func startCombatSession(userID id.UserID, runID, encounterID, enemyID string, pl
 		return nil, fmt.Errorf("insert combat session: %w", err)
 	}
 	return s, nil
+}
+
+// startPartyCombatSession opens a fight for a seated roster. seats[0] owns the
+// session row (and is the expedition's leader); seats 1..N-1 get their own
+// combat_participant rows. Each seat carries the HP pool and the fight-start
+// one-shot resources (Abjuration's Arcane Ward, …) of its own character.
+//
+// A one-seat roster is exactly startCombatSession: no participant rows, no
+// roster_size bump, and the single unwrapped INSERT the solo path has always
+// issued. That is the invariant the whole balance corpus rests on.
+func (p *AdventurePlugin) startPartyCombatSession(
+	runID, encounterID, enemyID string, enemyHP int, seats []CombatSeatSetup,
+) (*CombatSession, error) {
+	if len(seats) == 0 {
+		return nil, fmt.Errorf("start combat session: empty roster")
+	}
+	owner := seats[0]
+	sess, err := startCombatSession(owner.UserID, runID, encounterID, enemyID,
+		owner.HP, owner.HPMax, enemyHP, enemyHP)
+	if err != nil {
+		return nil, err
+	}
+
+	// Seat 0's one-shots live on the session row; seeding them is a mutation of
+	// sess.Statuses that the save below flushes along with the participants.
+	dirty := seedCombatSessionOneShots(sess, owner.Mods)
+
+	if len(seats) > 1 {
+		ps := make([]CombatParticipant, 0, len(seats)-1)
+		for i, s := range seats[1:] {
+			var st ActorStatuses
+			seedActorOneShots(&st, s.Mods)
+			ps = append(ps, CombatParticipant{
+				Seat: i + 1, UserID: string(s.UserID), HP: s.HP, HPMax: s.HPMax, Statuses: st,
+			})
+		}
+		if err := insertCombatParticipants(sess.SessionID, ps); err != nil {
+			return nil, fmt.Errorf("seat party: %w", err)
+		}
+		sess.Participants = ps
+		sess.rosterSize = len(seats)
+		dirty = true
+	}
+
+	if dirty {
+		if err := saveCombatSession(sess); err != nil {
+			return nil, fmt.Errorf("seed combat session: %w", err)
+		}
+	}
+	return sess, nil
+}
+
+// CombatSeatSetup is one character's entry into a fight: who they are, the HP
+// pool they bring, and the modifiers their fight-start one-shots are read off.
+type CombatSeatSetup struct {
+	UserID id.UserID
+	HP     int
+	HPMax  int
+	Mods   CombatModifiers
 }
 
 // getActiveCombatSession returns the player's in-flight fight, or (nil, nil).

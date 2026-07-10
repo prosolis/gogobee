@@ -195,6 +195,31 @@ func phaseForSeat(seat int) string {
 	return CombatPhasePlayerTurn
 }
 
+// stepSeat is the seat that resolves the session's current phase: the acting
+// player on a player_turn, the enemy sentinel on anything else.
+//
+// It is the *single* derivation of "whose step is this". advancePartyCombatSession
+// needs it before the engine is resumed, because the seat seeds that step's RNG;
+// the command layer needs it to tell a member it is not their turn. Both read
+// only (sessionID, round, roster), so they agree by construction.
+func stepSeat(sess *CombatSession, players []*Combatant, enemy *Combatant) int {
+	if sess.Phase != CombatPhasePlayerTurn {
+		return enemySeat
+	}
+	order := turnOrder(sess, sess.Round, players, enemy)
+	return order[turnIdxForPhase(order, sess.Statuses.TurnIdx, sess.Phase)]
+}
+
+// actingSeat names the player seat currently on the clock. The false return
+// means the fight is not waiting on anybody: it is mid enemy-turn, mid
+// round-end, or over.
+func actingSeat(sess *CombatSession, players []*Combatant, enemy *Combatant) (int, bool) {
+	if !sess.IsActive() || sess.Phase != CombatPhasePlayerTurn {
+		return 0, false
+	}
+	return stepSeat(sess, players, enemy), true
+}
+
 // turnIdxForPhase reconciles a persisted cursor against the persisted phase.
 // They can disagree for exactly one reason: a fight that was in flight when
 // TurnIdx was introduced decodes as 0 regardless of whose turn it is. Phase is
@@ -362,6 +387,18 @@ func (te *turnEngine) advance() {
 // events generated this step are returned (also accumulated by commit into
 // sess.TurnLog). It does not persist — call commit then saveCombatSession, or
 // use advanceCombatSession which does both.
+// stampSeat tags every event appended since mark with the roster seat it is
+// about, so a party's play-by-play can name the right character. The primitives
+// in combat_primitives.go emit against the cursor and know nothing of seats, so
+// the tag is applied here, once per phase step, rather than at ~20 append sites.
+//
+// Solo stamps seat 0 onto seat-0 events — a no-op that omitempty erases.
+func (te *turnEngine) stampSeat(mark, seat int) {
+	for i := mark; i < len(te.st.events); i++ {
+		te.st.events[i].Seat = seat
+	}
+}
+
 func (te *turnEngine) step(action PlayerAction) ([]CombatEvent, error) {
 	if !te.sess.IsActive() {
 		return nil, errCombatSessionOver
@@ -369,9 +406,18 @@ func (te *turnEngine) step(action PlayerAction) ([]CombatEvent, error) {
 	te.st.events = nil
 	switch te.sess.Phase {
 	case CombatPhasePlayerTurn:
+		// The cursor was seated on the acting player by resumeTurnEngine, and
+		// stepPlayerTurn never moves it, so every event this phase emits — the
+		// swings, the pet, the spirit weapon, the retaliate that kills them —
+		// belongs to that seat.
+		acting := te.st.seatIdx
 		te.stepPlayerTurn(action)
+		te.stampSeat(0, acting)
 	case CombatPhaseEnemyTurn:
 		te.stepEnemyTurn()
+		// stepEnemyTurn seats its target before anything resolves, and the whole
+		// phase lands on that one character.
+		te.stampSeat(0, te.st.seatIdx)
 	case CombatPhaseRoundEnd:
 		te.stepRoundEnd()
 	case CombatPhaseOver:
@@ -707,6 +753,7 @@ func (te *turnEngine) stepRoundEnd() {
 		if st.poisonTicks <= 0 {
 			continue
 		}
+		mark := len(st.events)
 		st.playerHP = max(0, st.playerHP-st.poisonDmg)
 		st.poisonTicks--
 		st.events = append(st.events, CombatEvent{
@@ -714,9 +761,11 @@ func (te *turnEngine) stepRoundEnd() {
 			Damage: st.poisonDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
 		if st.playerHP <= 0 && !trySave(st, st.c, CombatPhaseRoundEnd) && !st.anyAlive() {
+			te.stampSeat(mark, i)
 			te.finish(CombatStatusLost)
 			return
 		}
+		te.stampSeat(mark, i)
 	}
 	// Concentration aura (Spirit Guardians et al.): the lingering spell bites
 	// the enemy each round it stays up. Concentration is per-caster, so every
@@ -730,7 +779,7 @@ func (te *turnEngine) stepRoundEnd() {
 		st.enemyHP = max(0, st.enemyHP-st.concentrationDmg)
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: CombatPhaseRoundEnd, Actor: "player", Action: "concentration_tick",
-			Damage: st.concentrationDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			Damage: st.concentrationDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Seat: i,
 		})
 		if st.enemyHP <= 0 {
 			te.finish(CombatStatusWon)
@@ -830,12 +879,7 @@ func advancePartyCombatSession(sess *CombatSession, players []*Combatant, enemy 
 	// step's RNG — so the order is derived once here and once inside
 	// resumeTurnEngine. Both derivations read only (sessionID, round, roster),
 	// so they agree by construction.
-	seat := enemySeat
-	if sess.Phase == CombatPhasePlayerTurn {
-		order := turnOrder(sess, sess.Round, players, enemy)
-		seat = order[turnIdxForPhase(order, sess.Statuses.TurnIdx, sess.Phase)]
-	}
-	rng := combatSessionStepRNG(sess, seat)
+	rng := combatSessionStepRNG(sess, stepSeat(sess, players, enemy))
 	te := resumeTurnEngine(sess, players, enemy, rng)
 	events, err := te.step(action)
 	if err != nil {

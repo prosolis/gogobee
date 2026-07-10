@@ -211,6 +211,15 @@ type CombatEvent struct {
 	// Roll is the raw d20 (1..20); RollAgainst is the target AC.
 	Roll        int
 	RollAgainst int
+	// Seat is the roster index of the character this event is about: the one
+	// who swung, whose pet struck, who the enemy hit, whose poison ticked. The
+	// turn engine stamps it (turnEngine.stampSeat); the auto-resolve engine
+	// leaves it 0, which is correct for its one and only combatant.
+	//
+	// It exists so a party's play-by-play can name the right person. Solo events
+	// are all seat 0, and the omitempty tag keeps the field out of every solo
+	// turn_log_json — rows written before N3/P5 decode unchanged.
+	Seat int `json:"Seat,omitempty"`
 }
 
 type CombatResult struct {
@@ -361,6 +370,10 @@ type actor struct {
 type combatState struct {
 	*actor          // cursor into actors; promotes the per-actor fields
 	actors []*actor // the player roster, in seating order. len == 1 for solo.
+	// seatIdx is the roster index the cursor points at. Kept in step with the
+	// embedded *actor by seat(); read only by the turn engine, to attribute the
+	// events a phase emitted to the character they happened to.
+	seatIdx int
 
 	enemyHP int
 
@@ -442,7 +455,9 @@ func newActor(c *Combatant) *actor {
 // seat points the cursor at roster index i. Every per-actor read in the
 // resolution primitives (st.playerHP, st.wardCharges, …) follows the cursor.
 // Solo combat seats index 0 once and never moves it.
-func (st *combatState) seat(i int) { st.actor = st.actors[i] }
+// seat moves the cursor to a roster index. seatIdx trails it so the turn engine
+// can tag the events a phase emits with the character they are about.
+func (st *combatState) seat(i int) { st.actor, st.seatIdx = st.actors[i], i }
 
 // anyAlive reports whether at least one seated character is still standing.
 // Solo fights read this as "the player is alive".
