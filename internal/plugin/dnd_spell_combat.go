@@ -310,6 +310,13 @@ type turnSpellOutcome struct {
 	PlayerHeal  int
 	EnemySkip   bool
 	Desc        string
+
+	// GrimHarvestSlot / GrimHarvestNecrotic are the Necromancy Mage's kill-heal
+	// stash for this cast, zero for everyone else. Unlike the fields above they
+	// outlive the casting round: the caller parks them on the seat's
+	// ActorStatuses and the close-out decides whether the cast was lethal.
+	GrimHarvestSlot     int
+	GrimHarvestNecrotic bool
 }
 
 // resolveTurnSpell resolves a spell as a turn-based player action, reusing the
@@ -344,6 +351,8 @@ func resolveTurnSpell(c *DnDCharacter, spell SpellDefinition, slotLevel int, ene
 		out.EnemyDamage = mods.SpellPreDamage
 		out.EnemySkip = mods.SpellEnemySkipFirst
 		out.Desc = mods.SpellPreDamageDesc
+		out.GrimHarvestSlot = mods.GrimHarvestSlot
+		out.GrimHarvestNecrotic = mods.GrimHarvestNecrotic
 		if out.Desc == "" {
 			out.Desc = spell.Name
 		}

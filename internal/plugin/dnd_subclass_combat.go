@@ -934,11 +934,22 @@ func grimHarvestHeal(c *DnDCharacter, result CombatResult, mods CombatModifiers)
 	if !result.PlayerWon || mods.GrimHarvestSlot <= 0 {
 		return 0
 	}
-	// The pre-combat spell killed the enemy iff the spell_cast event itself
-	// dropped EnemyHP to 0. If a later round-event finished the kill, no heal.
-	for _, ev := range result.Events {
-		if ev.Action == "spell_cast" {
-			if ev.EnemyHP > 0 {
+	// The spell killed the enemy iff the spell_cast event itself dropped EnemyHP
+	// to 0. If a later round-event (a weapon swing, the pet, a concentration
+	// aura re-tick) finished the kill, no heal.
+	//
+	// It is the *last* spell_cast that has to be lethal, not the first. The
+	// auto-resolve path casts once, pre-combat, so the two coincide there; the
+	// turn-based path can cast every round, and there the stash on the seat's
+	// statuses describes that last cast. Reading the first event would let a
+	// non-lethal opening cantrip veto a heal the killing spell had earned.
+	//
+	// No spell_cast event at all cannot happen while the stash is set — both
+	// surfaces emit one for every damaging cast — so the loop falling through
+	// is not a case, just an absence.
+	for i := len(result.Events) - 1; i >= 0; i-- {
+		if result.Events[i].Action == "spell_cast" {
+			if result.Events[i].EnemyHP > 0 {
 				return 0
 			}
 			break

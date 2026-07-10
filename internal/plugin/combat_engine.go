@@ -162,9 +162,11 @@ type CombatModifiers struct {
 	// ArcaneWardHP: flat HP buffer absorbed before player HP. Refilled at the
 	// start of each combat by Abjuration L5+ (2× Mage level, +prof at L7).
 	// Persists across rounds within a single combat; not refunded between fights.
-	// GrimHarvestSlot/Necrotic: snapshot of the queued spell stashed by
-	// applyPendingCast for the post-combat Grim Harvest hook (Necromancy L5+).
-	// Heal fires only if the spell event is what dropped the enemy to 0.
+	// GrimHarvestSlot/Necrotic: snapshot of the damaging spell stashed for the
+	// post-combat Grim Harvest hook (Necromancy L5+) — by applyPendingCast on
+	// the auto-resolve path, and by seatFightStartMods reading the seat's
+	// statuses on the turn-based one. Heal fires only if that spell's event is
+	// what dropped the enemy to 0.
 	ArcaneWardHP        int
 	GrimHarvestSlot     int
 	GrimHarvestNecrotic bool

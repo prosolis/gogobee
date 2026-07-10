@@ -602,6 +602,18 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 		if msg := p.chargeSpellCost(uid, spell, slotLevel); msg != "" {
 			return PlayerAction{}, noop, msg
 		}
+		// Park the Necromancy kill-heal stash on the casting seat. The
+		// auto-resolve path keeps it on the fight-start CombatModifiers, which
+		// a turn-based fight has nowhere to hold — it rebuilds its combatants
+		// every round. Only a damaging cast stashes (a miss leaves the slot at
+		// 0), and each one overwrites the last, so the stash always describes
+		// the seat's most recent landed spell — which is the only one that can
+		// have been lethal by the time the close-out reads it.
+		if out.GrimHarvestSlot > 0 {
+			as := ct.sess.actorStatusesPtr(seat)
+			as.GrimHarvestSlot = out.GrimHarvestSlot
+			as.GrimHarvestNecrotic = out.GrimHarvestNecrotic
+		}
 		eff = &turnActionEffect{
 			Label:       out.Desc,
 			Action:      "spell_cast",

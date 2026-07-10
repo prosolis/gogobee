@@ -95,6 +95,17 @@ type ActorStatuses struct {
 	// close-out know a rage fired. Empty when nothing was armed.
 	ArmedAbility string `json:"armed_ability,omitempty"`
 
+	// GrimHarvestSlot / GrimHarvestNecrotic snapshot the most recent damaging
+	// spell this seat cast, for the Necromancy Mage's post-combat kill-heal.
+	// The auto-resolve path carries the same pair on CombatModifiers, stashed
+	// once by applyPendingCast; the turn-based path can cast every round, so
+	// the stash lives here and each damaging cast overwrites it. Whether the
+	// heal actually fires is decided at close-out by grimHarvestHeal, which
+	// asks whether the *last* spell_cast event is the one that dropped the
+	// enemy to 0 — so a stale stash from an earlier, non-lethal cast is inert.
+	GrimHarvestSlot     int  `json:"grim_harvest_slot,omitempty"`
+	GrimHarvestNecrotic bool `json:"grim_harvest_necrotic,omitempty"`
+
 	// Once-per-fight class/race/subclass one-shots: the "already used" flags.
 	// Without persistence these reset every round on resume, letting a Halfling
 	// reroll a nat 1 or an Orc rage every single round of a turn-based fight.

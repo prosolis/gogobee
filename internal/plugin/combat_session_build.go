@@ -181,22 +181,25 @@ func (p *AdventurePlugin) partyCombatantsForSession(sess *CombatSession) ([]*Com
 	return players, &enemy, nil
 }
 
-// seatFightStartMods re-derives the fight-start modifiers a finished fight's
-// close-out still needs — today only the Berserker's rage flag, which decides
-// whether the character owes a point of exhaustion.
+// seatFightStartMods re-derives the modifiers a finished fight's close-out still
+// needs: the Berserker's rage flag, which decides whether the character owes a
+// point of exhaustion, and the Necromancy Mage's Grim Harvest stash.
 //
 // It re-applies the seat's armed ability to an empty mod set rather than
 // rebuilding the whole combatant: no Apply writes to the character (they read
 // level and HP and write only mods), so this is pure, and the passive/equipment
 // layers a full build would add are not read by any post-combat hook.
 //
-// GrimHarvestSlot stays zero here, and that is not an oversight: the turn-based
-// path never runs applyPendingCast, so a Necromancy Mage's spell is never
-// stashed and Grim Harvest cannot fire on this surface at all. Wiring the mage
-// spell hooks into the turn-based `!cast` is a separate change.
+// The Grim Harvest pair is not re-derived but read back off the seat's
+// statuses, where castActionForSeat parked it: the spell that stashed it was
+// cast mid-fight, not at fight start, and nothing in the character sheet still
+// remembers which one it was.
 func seatFightStartMods(sess *CombatSession, seat int, c *DnDCharacter) CombatModifiers {
 	var mods CombatModifiers
-	applyAbilityByID(c, sess.actorStatusesForSeat(seat).ArmedAbility, &mods)
+	st := sess.actorStatusesForSeat(seat)
+	applyAbilityByID(c, st.ArmedAbility, &mods)
+	mods.GrimHarvestSlot = st.GrimHarvestSlot
+	mods.GrimHarvestNecrotic = st.GrimHarvestNecrotic
 	return mods
 }
 
