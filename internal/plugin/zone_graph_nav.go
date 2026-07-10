@@ -315,7 +315,7 @@ func recordRoomCleared(runID string) (*DungeonRun, error) {
 	if !r.IsActive() {
 		return nil, ErrNoActiveRun
 	}
-	cleared := append(r.RoomsCleared, r.CurrentRoom)
+	cleared := appendClearedRoom(r.RoomsCleared, r.CurrentRoom)
 	clearedJSON, _ := json.Marshal(cleared)
 	if _, err := db.Get().Exec(`
 		UPDATE dnd_zone_run
@@ -376,28 +376,36 @@ func completeRunAtNode(runID string, boss bool) error {
 	return err
 }
 
-// advanceZoneRunNode moves a run to nextNode: appends to visited_nodes,
-// sets current_node, and clears any pending fork prompt. Caller is
-// expected to have already called recordRoomCleared for the prior node.
-func advanceZoneRunNode(runID, nextNode string) error {
+// advanceZoneRunNode moves a run to nextNode: records the node entry in
+// visited_nodes, sets current_node, bumps the traversal counter, and clears
+// any pending fork prompt. Caller is expected to have already called
+// recordRoomCleared for the prior node.
+//
+// Returns the moved-to room's path index so callers can label it without
+// assuming CurrentRoom+1 — an assumption that only holds while the player
+// is walking the frontier.
+func advanceZoneRunNode(runID, nextNode string) (int, error) {
 	r, err := getZoneRun(runID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if r == nil {
-		return ErrNoActiveRun
+		return 0, ErrNoActiveRun
 	}
-	visited := append(r.VisitedNodes, nextNode)
+	visited := appendVisited(r.VisitedNodes, nextNode)
 	visitedJSON, _ := json.Marshal(visited)
-	_, err = db.Get().Exec(`
+	if _, err := db.Get().Exec(`
 		UPDATE dnd_zone_run
 		   SET current_node  = ?,
 		       visited_nodes = ?,
 		       node_choices  = '{}',
+		       rooms_traversed = rooms_traversed + 1,
 		       last_action_at = CURRENT_TIMESTAMP
 		 WHERE run_id = ?`,
-		nextNode, string(visitedJSON), runID)
-	return err
+		nextNode, string(visitedJSON), runID); err != nil {
+		return 0, err
+	}
+	return pathIndexOf(visited, nextNode), nil
 }
 
 // resolveForkChoice takes a 1-based choice index against a pending

@@ -76,6 +76,14 @@ type DungeonRun struct {
 	CurrentNode   string
 	VisitedNodes  []string
 	NodeChoices   map[string]any
+
+	// Revisit R1 — monotonic count of node entries, including the entry
+	// room. Distinct from CurrentRoom: CurrentRoom answers "where am I on
+	// the path" and moves backwards when the player backtracks, while
+	// RoomsTraversed answers "how much walking has this run cost" and only
+	// ever climbs. Forward-only navigation keeps them locked together at
+	// RoomsTraversed == CurrentRoom+1; revisit is what pulls them apart.
+	RoomsTraversed int
 }
 
 // IsActive reports whether this run is still ongoing (not boss-defeated,
@@ -244,12 +252,16 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 	run.CurrentNode = entryNode
 	run.VisitedNodes = []string{entryNode}
 	run.NodeChoices = map[string]any{}
+	// Standing in the entry room is one traversal — the player walked in.
+	// Starting at 1 also keeps `rooms_traversed = 0` free as the
+	// "never backfilled" sentinel bootstrapRoomsTraversed keys on.
+	run.RoomsTraversed = 1
 	if _, err := db.Get().Exec(`
 		INSERT INTO dnd_zone_run
 			(run_id, user_id, zone_id, total_rooms,
 			 rooms_cleared, gm_mood,
-			 current_node, visited_nodes, node_choices)
-		VALUES (?, ?, ?, ?, '[]', ?, ?, ?, '{}')`,
+			 current_node, visited_nodes, node_choices, rooms_traversed)
+		VALUES (?, ?, ?, ?, '[]', ?, ?, ?, '{}', 1)`,
 		run.RunID, run.UserID, string(zoneID), run.TotalRooms, startMood,
 		entryNode, string(visitedJSON),
 	); err != nil {
@@ -272,7 +284,7 @@ func getActiveZoneRun(userID id.UserID) (*DungeonRun, error) {
 		SELECT run_id, user_id, zone_id, total_rooms,
 		       rooms_cleared, boss_defeated, abandoned,
 		       loot_collected, gm_mood, started_at, last_action_at, completed_at,
-		       current_node, visited_nodes, node_choices
+		       current_node, visited_nodes, node_choices, rooms_traversed
 		  FROM dnd_zone_run
 		 WHERE user_id = ?
 		   AND completed_at IS NULL
@@ -312,7 +324,7 @@ func getZoneRun(runID string) (*DungeonRun, error) {
 		SELECT run_id, user_id, zone_id, total_rooms,
 		       rooms_cleared, boss_defeated, abandoned,
 		       loot_collected, gm_mood, started_at, last_action_at, completed_at,
-		       current_node, visited_nodes, node_choices
+		       current_node, visited_nodes, node_choices, rooms_traversed
 		  FROM dnd_zone_run WHERE run_id = ?`, runID)
 	r, err := scanZoneRun(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -343,7 +355,7 @@ func scanZoneRun(row scanner) (*DungeonRun, error) {
 		&r.RunID, &r.UserID, &zoneID, &r.TotalRooms,
 		&clearedJSON, &bossDefeatedI, &abandonedI,
 		&lootJSON, &r.DMMood, &r.StartedAt, &r.LastActionAt, &completedAtRaw,
-		&currentNode, &visitedJSON, &choicesJSON,
+		&currentNode, &visitedJSON, &choicesJSON, &r.RoomsTraversed,
 	); err != nil {
 		return nil, err
 	}
@@ -390,14 +402,16 @@ func scanZoneRun(row scanner) (*DungeonRun, error) {
 		r.NodeChoices = map[string]any{}
 	}
 	r.CurrentNode = currentNode
-	// G9b: CurrentRoom is now derived from VisitedNodes — no longer
-	// persisted in current_room. The downstream callers that key on
-	// CurrentRoom (combat enemy/trap salts, status renders, harvest
-	// keys) stay numerically identical to the dual-write era because
-	// VisitedNodes was bumped in lockstep with current_room.
-	if n := len(r.VisitedNodes); n > 0 {
-		r.CurrentRoom = n - 1
-	}
+	// G9b: CurrentRoom is derived from VisitedNodes — no longer persisted
+	// in current_room. Revisit R1 re-derives it as the *first-entry index
+	// of CurrentNode* rather than len(VisitedNodes)-1. The two agree for
+	// every forward-only run (each advance appends the node it moves to,
+	// so the newest node is always the current one), but they diverge the
+	// moment a player backtracks. Keying on the node — not the tail — is
+	// what makes a revisited room resolve to its original identity: the
+	// enemy/trap salts, harvest keys and encounter IDs downstream all
+	// hash CurrentRoom, so room 3 must stay room 3 on the way back.
+	r.CurrentRoom = pathIndexOf(r.VisitedNodes, r.CurrentNode)
 	if r.CurrentNode == "" {
 		// Defensive: a row from before the G4 dual-write deploy that
 		// somehow survived 24h inactivity timeouts. Pin to the linear
@@ -405,6 +419,53 @@ func scanZoneRun(row scanner) (*DungeonRun, error) {
 		r.CurrentNode = deriveLegacyNodeID(r.ZoneID, r.CurrentRoom)
 	}
 	return &r, nil
+}
+
+// appendVisited records a node entry in first-entry order. A node already
+// in the path is not re-appended: VisitedNodes is an ordered *set*, and the
+// player's room numbers must not renumber themselves when they walk back
+// through a room they've already seen. The step cost of that walk is
+// carried by rooms_traversed, not by this slice.
+func appendVisited(visited []string, node string) []string {
+	for _, n := range visited {
+		if n == node {
+			return visited
+		}
+	}
+	return append(visited, node)
+}
+
+// appendClearedRoom marks a room index resolved. Idempotent: walking out of
+// a room a second time doesn't re-append. "Cleared" is a sticky property of
+// the room, not a count of exits — re-appending would let a backtracking
+// player inflate RoomsCleared past TotalRooms and skew every "N/M rooms"
+// render that reads its length.
+func appendClearedRoom(cleared []int, room int) []int {
+	for _, r := range cleared {
+		if r == room {
+			return cleared
+		}
+	}
+	return append(cleared, room)
+}
+
+// pathIndexOf returns the first-entry index of node within visited — the
+// 0-based room number the player sees in `!map`'s Path strip. Revisits do
+// not append, so a node's index is stable for the life of the run.
+//
+// A node missing from visited means a row whose current_node was hot-swapped
+// in without a matching visit record (pre-G4 rows, defensive only). Fall back
+// to the tail, which is what the pre-R1 derivation would have produced.
+func pathIndexOf(visited []string, node string) int {
+	for i, n := range visited {
+		if n == node {
+			return i
+		}
+	}
+	if n := len(visited); n > 0 {
+		return n - 1
+	}
+	return 0
 }
 
 // deriveLegacyNodeID returns the node id a linear graph would assign
@@ -439,7 +500,7 @@ func markRoomCleared(runID string) (RoomType, error) {
 	if !ok {
 		return "", fmt.Errorf("no graph for zone %q", r.ZoneID)
 	}
-	cleared := append(r.RoomsCleared, r.CurrentRoom)
+	cleared := appendClearedRoom(r.RoomsCleared, r.CurrentRoom)
 	clearedJSON, _ := json.Marshal(cleared)
 
 	edges := g.outgoingEdges(r.CurrentNode)
@@ -461,13 +522,14 @@ func markRoomCleared(runID string) (RoomType, error) {
 		return "", nil
 	}
 	nextNode := edges[0].To
-	visited := append(r.VisitedNodes, nextNode)
+	visited := appendVisited(r.VisitedNodes, nextNode)
 	visitedJSON, _ := json.Marshal(visited)
 	if _, err := db.Get().Exec(`
 		UPDATE dnd_zone_run
 		   SET rooms_cleared = ?,
 		       current_node  = ?,
 		       visited_nodes = ?,
+		       rooms_traversed = rooms_traversed + 1,
 		       last_action_at = CURRENT_TIMESTAMP
 		 WHERE run_id = ?`,
 		string(clearedJSON), nextNode, string(visitedJSON), runID,
@@ -476,6 +538,8 @@ func markRoomCleared(runID string) (RoomType, error) {
 	}
 	r.CurrentNode = nextNode
 	r.VisitedNodes = visited
+	r.RoomsTraversed++
+	r.CurrentRoom = pathIndexOf(visited, nextNode)
 	return nodeKindToRoomType(g.Nodes[nextNode].Kind), nil
 }
 

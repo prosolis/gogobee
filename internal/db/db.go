@@ -345,6 +345,13 @@ func runMigrations(d *sql.DB) error {
 		// needs no bootstrap backfill.
 		`ALTER TABLE adventure_inventory ADD COLUMN temper INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE magic_item_equipped ADD COLUMN temper INTEGER NOT NULL DEFAULT 0`,
+		// Revisit R1 (gogobee_revisit_plan.md §R1). Until now "how far along
+		// is this run" and "which room am I standing in" were the same number,
+		// both read off len(visited_nodes). Backtracking splits them: the
+		// path index stops being monotonic, so effort gets its own counter.
+		// DEFAULT 0 is wrong for in-flight rows — bootstrapRoomsTraversed
+		// backfills them from visited_nodes.
+		`ALTER TABLE dnd_zone_run ADD COLUMN rooms_traversed INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

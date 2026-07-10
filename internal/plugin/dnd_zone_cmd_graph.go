@@ -62,7 +62,7 @@ func (p *AdventurePlugin) advanceTransitionGraph(run *DungeonRun, zone ZoneDefin
 	if len(choices) == 1 && len(unlocked) == 1 {
 		// Plain auto-advance — no fork to prompt for.
 		chosen := choices[0]
-		if aerr := advanceZoneRunNode(run.RunID, chosen.To); aerr != nil {
+		if _, aerr := advanceZoneRunNode(run.RunID, chosen.To); aerr != nil {
 			err = aerr
 			return
 		}
@@ -184,7 +184,8 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 	if cerr != nil {
 		return p.SendDM(ctx.Sender, cerr.Error())
 	}
-	if aerr := advanceZoneRunNode(run.RunID, chosen.To); aerr != nil {
+	nextIdx, aerr := advanceZoneRunNode(run.RunID, chosen.To)
+	if aerr != nil {
 		return p.SendDM(ctx.Sender, "Couldn't advance: "+aerr.Error())
 	}
 	markActedToday(ctx.Sender)
@@ -194,7 +195,6 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 	nextNode := g.Nodes[chosen.To]
 	fireGraphRegionTransition(run.UserID, fromNode, nextNode)
 	nextRoom := nodeKindToRoomType(nextNode.Kind)
-	nextIdx := run.CurrentRoom + 1
 	var b strings.Builder
 	if kind := autoBreakCampOnMove(ctx.Sender); kind != "" {
 		b.WriteString(fmt.Sprintf("⛺ Camp struck (**%s**) — the party moved on.\n\n", kind))

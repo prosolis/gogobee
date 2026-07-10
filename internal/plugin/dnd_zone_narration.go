@@ -330,15 +330,25 @@ func eliteRoomEntryLine(zoneID ZoneID, runID string, roomIdx int) string {
 	return "🎭 **TwinBee:** " + line
 }
 
-// narrationCadence returns the salt index used to seed narration
-// pickers — the count of nodes visited so far (0-based, matching the
-// pre-G6 CurrentRoom semantics). Both linear-mode and graph-mode
-// advance bump len(VisitedNodes) in lockstep with CurrentRoom, so this
-// preserves existing pick determinism while letting G9 drop the legacy
-// current_room column without re-keying every flavor pool seed.
+// narrationCadence returns the salt index used to seed narration pickers —
+// the number of rooms walked so far, 0-based. This is a *progress* read, not
+// a position read (revisit R1's audit split): flavor should keep moving
+// forward as the player does, so a backtrack draws fresh lines rather than
+// replaying the ones they already read on the way in.
+//
+// Forward-only runs have RoomsTraversed == len(VisitedNodes), so this stays
+// numerically identical to the pre-R1 derivation and every existing pick
+// keeps landing on the same line. It is stable while the player stands
+// still, which is what lets a re-read of `!status` print the same prose.
+//
+// The len(VisitedNodes) fallback covers rows that predate the R1 column and
+// have yet to be swept by bootstrapRoomsTraversed.
 func narrationCadence(run *DungeonRun) int {
 	if run == nil {
 		return 0
+	}
+	if run.RoomsTraversed > 0 {
+		return run.RoomsTraversed - 1
 	}
 	if n := len(run.VisitedNodes); n > 0 {
 		return n - 1

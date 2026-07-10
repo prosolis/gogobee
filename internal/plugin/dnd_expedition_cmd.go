@@ -692,7 +692,7 @@ func (p *AdventurePlugin) autoPickStaleFork(exp *Expedition, run *DungeonRun, pf
 	if chosen == nil {
 		return false // nothing unlocked — leave it for the player / reaper
 	}
-	if err := advanceZoneRunNode(run.RunID, chosen.To); err != nil {
+	if _, err := advanceZoneRunNode(run.RunID, chosen.To); err != nil {
 		slog.Warn("expedition: auto-pick stale fork",
 			"user", run.UserID, "run", run.RunID, "err", err)
 		return false
