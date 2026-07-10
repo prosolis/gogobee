@@ -118,6 +118,11 @@ func (p *AdventurePlugin) finishPartyWin(
 				b.WriteString(drop + "\n")
 			}
 		}
+		if !elite {
+			if ep := bossEpilogueLine(zone.ID); ep != "" {
+				b.WriteString("\n" + ep + "\n")
+			}
+		}
 		switch {
 		case bossOnExpedition && seat == 0:
 			b.WriteString("🎉 **Zone cleared — the expedition is won.** `!expedition run` to march out and claim your spoils.")

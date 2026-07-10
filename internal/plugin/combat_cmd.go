@@ -381,6 +381,11 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 		if drop := p.dropZoneLoot(userID, zone.ID, monster, !elite, elite); drop != "" {
 			b.WriteString(drop + "\n")
 		}
+		if !elite {
+			if ep := bossEpilogueLine(zone.ID); ep != "" {
+				b.WriteString("\n" + ep + "\n")
+			}
+		}
 		if bossOnExpedition {
 			// The boss is the expedition's climax. Frame the close-out as
 			// the win rather than a "keep walking" nudge. One more

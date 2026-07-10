@@ -135,8 +135,62 @@ func (p *AdventurePlugin) grantJournalPage(userID id.UserID, rng *rand.Rand) str
 	if err := grantJournalPageDB(userID, page); err != nil {
 		return ""
 	}
+	// If the page turned up mid-expedition, drop a log beat so the end-of-day
+	// digest can have TwinBee react to it. No expedition (legacy !zone, or a
+	// secret room opened outside a run) simply means no digest to react in.
+	if exp, err := getActiveExpedition(userID); err == nil && exp != nil {
+		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "journal",
+			journalPages[page-1].Title, fmt.Sprintf("page %d", page))
+	}
 	return fmt.Sprintf("📖 A torn journal page — _%s_ (page %d of %d). See `!adventure journal`.",
 		journalPages[page-1].Title, page, journalTotalPages)
+}
+
+// bossEpilogues ties each zone boss's death to the Hollow King arc: a 2-3
+// sentence capstone appended to the boss-down moment. Forest of Shadows is the
+// King himself — but what falls there is a shell he shed, which is why the arc
+// (and the finale) outlives it. In-world narration, not TwinBee's voice.
+var bossEpilogues = map[ZoneID]string{
+	ZoneGoblinWarrens: "Grol dies clutching a coin no goblin minted — a king's face worn smooth by handling. Whatever paid the warren to give up its deep tunnels, it paid in a currency older than these hills.",
+	ZoneCryptValdris: "Valdris tried to cheat the grave and managed only to furnish it. In his last rattle he says a name that isn't his — _hollow, hollow_ — as if warning you of a colleague who did it better.",
+	ZoneForestShadows: "The Hollow King falls without weight, a coat slipped from its peg — and the woods do not go quiet. What you felled here was a thing he shed, not the thing he is. Somewhere, the account he owes goes on accruing.",
+	ZoneSunkenTemple: "The Aboleth's dream breaks and the drowned bells still at last. In the silence you understand what they were counting toward — and that the count did not begin with this temple, and does not end with it.",
+	ZoneManorBlackspire: "Aldric was hollowed the same way, by the same hand, and made a poor imitation: a lord kept past his death to hold a house for a guest who never came. He thanks you. It is the first thing he has meant in a century.",
+	ZoneUnderforge: "Thyrak's fires gutter out, and the half-made things on the anvils cool into what they were always going to be — regalia, and soldiers, and a crown with no head to fit. The forge was filling an order placed a long time ago.",
+	ZoneUnderdark: "Ilvaras ruled the throat that swallows everything downward, toward the door at the bottom of the world. She dies certain she served a queen. She served a direction, and the direction has a name it never told her.",
+	ZoneFeywildCrossing: "The Thornmother's garden was the loveliest cage on the road, tended for a patient guest. He can afford patience; you are learning why. She wilts, and the too-kind light dims by exactly one degree.",
+	ZoneDragonsLair: "Behind Infernax's hoard, past the last of the gold, a single crown rests on no head — guarded better than the treasure, because it was the one thing here he was ever paid to keep. The dragon dies never knowing what it was.",
+	ZoneAbyssPortal: "Belaxath guarded a door that opens outward, built by someone who only ever meant to leave through it. As the demon falls, the gate does not close. It was never meant to keep things out — only to let one thing come home.",
+}
+
+// bossEpilogueLine returns the campaign capstone for a zone boss, or "" for
+// zones with none (and for the synthetic arena, which has no ZoneID entry).
+func bossEpilogueLine(zoneID ZoneID) string {
+	return bossEpilogues[zoneID]
+}
+
+// twinBeeJournalReactions are TwinBee's morning/digest reactions to pages found
+// during the day — first-person, implicit subject, he/him, one line, curious,
+// never expository (feedback_twinbee_voice, feedback_twinbee_is_male). Picked
+// deterministically so a re-rendered digest reads the same.
+var twinBeeJournalReactions = []string{
+	"📖 Found a torn page in your kit tonight — been reading it by the fire while you sleep. This king of theirs was not a well man.",
+	"📖 Another page. Keep turning them up and I keep piecing him together, and I do not much like the shape.",
+	"📖 Read the new page twice. Whoever wrote it was frightened of something patient. I think we are walking toward it.",
+	"📖 Slipped the day's page into the others. The story's filling in at the edges, and none of the edges are kind.",
+}
+
+// twinBeeJournalReaction picks one reaction line deterministically from the day
+// and the number of pages found, so the digest is stable across re-renders.
+func twinBeeJournalReaction(day, pagesToday int) string {
+	if len(twinBeeJournalReactions) == 0 || pagesToday <= 0 {
+		return ""
+	}
+	idx := (day + pagesToday) % len(twinBeeJournalReactions)
+	if idx < 0 {
+		idx = -idx
+	}
+	return twinBeeJournalReactions[idx]
 }
 
 // handleJournalCmd renders the player's collected campaign pages.

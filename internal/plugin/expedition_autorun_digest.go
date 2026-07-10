@@ -44,11 +44,14 @@ func renderEndOfDayDigest(expID string, prevDay int) string {
 		threatLines   []string
 		milestoneLine []string
 		narrativeBits []string
+		journalPages  int
 	)
 	for _, e := range entries {
 		switch e.Type {
 		case "walk":
 			walks++
+		case "journal":
+			journalPages++
 		case "harvest":
 			// Only count successful gathers — failed rolls / errors are noise.
 			if strings.Contains(e.Summary, "success") {
@@ -112,6 +115,12 @@ func renderEndOfDayDigest(expID string, prevDay int) string {
 	for _, n := range narrativeBits {
 		b.WriteString("• ")
 		b.WriteString(n)
+		b.WriteString("\n")
+		bulleted = true
+	}
+	if react := twinBeeJournalReaction(prevDay, journalPages); react != "" {
+		b.WriteString("• ")
+		b.WriteString(react)
 		b.WriteString("\n")
 		bulleted = true
 	}

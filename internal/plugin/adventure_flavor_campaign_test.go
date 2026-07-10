@@ -172,3 +172,38 @@ func TestJournalDropChance_Sane(t *testing.T) {
 		t.Fatalf("drop chance %v out of (0,1)", journalPageDropChance)
 	}
 }
+
+func TestBossEpilogues_EveryRegisteredZoneHasOne(t *testing.T) {
+	for _, z := range allZones() {
+		if strings.TrimSpace(bossEpilogueLine(z.ID)) == "" {
+			t.Errorf("zone %s (%s) has no boss epilogue", z.ID, z.Display)
+		}
+	}
+	// The synthetic arena is not a campaign zone — it must have none.
+	if bossEpilogueLine(ZoneArena) != "" {
+		t.Errorf("arena should have no boss epilogue")
+	}
+	if bossEpilogueLine(ZoneID("nonexistent")) != "" {
+		t.Errorf("unknown zone should have no epilogue")
+	}
+}
+
+func TestTwinBeeJournalReaction_DeterministicAndGuarded(t *testing.T) {
+	if twinBeeJournalReaction(3, 0) != "" {
+		t.Errorf("zero pages should produce no reaction")
+	}
+	first := twinBeeJournalReaction(3, 2)
+	if first == "" {
+		t.Fatalf("a found page should produce a reaction")
+	}
+	if again := twinBeeJournalReaction(3, 2); again != first {
+		t.Errorf("reaction not deterministic: %q vs %q", first, again)
+	}
+	// Voice guard: TwinBee never speaks of himself in the third person
+	// (feedback_twinbee_voice). None of the pooled lines may contain "TwinBee".
+	for _, line := range twinBeeJournalReactions {
+		if strings.Contains(line, "TwinBee") {
+			t.Errorf("third-person TwinBee reference in reaction: %q", line)
+		}
+	}
+}
