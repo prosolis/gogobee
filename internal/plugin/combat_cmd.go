@@ -354,28 +354,12 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 	var b strings.Builder
 	switch sess.Status {
 	case CombatStatusWon:
-		recordZoneKillForUser(userID, sess.EnemyID)
-		applyRoomCombatThreatForUser(userID, elite)
-		// zoneCombatXP only reads PlayerWon + NearDeath off the result.
-		nearDeath := sess.PlayerHPMax > 0 && sess.PlayerHP*5 < sess.PlayerHPMax
 		tier := 1
 		if run != nil {
 			tier = int(zone.Tier)
 		}
-		if xp := zoneCombatXP(CombatResult{PlayerWon: true, NearDeath: nearDeath}, monster.CR, tier); xp > 0 {
-			if _, err := p.grantDnDXP(userID, xp); err != nil {
-				slog.Error("combat: grantDnDXP turn-based", "user", userID, "err", err)
-			}
-		}
-		bossOnExpedition := false
-		if !elite {
-			// §8.1 — zone boss defeat drops expedition threat. Silent no-op
-			// for standalone zone runs (no active expedition).
-			if exp, eerr := getActiveExpedition(userID); eerr == nil && exp != nil {
-				_ = applyBossDefeatThreat(exp.ID)
-				bossOnExpedition = true
-			}
-		}
+		bossOnExpedition := p.applyOwnerWinEffects(userID, sess.EnemyID, elite)
+		p.grantSeatWinXP(userID, sess.PlayerHP, sess.PlayerHPMax, monster, tier)
 		if line := twinBeeLine(zone.ID, DMCombatEnd, sess.RunID, cadence); line != "" {
 			b.WriteString(line + "\n")
 		}
@@ -399,11 +383,7 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 		}
 
 	case CombatStatusLost:
-		if run != nil {
-			_, _ = applyMoodEvent(sess.RunID, MoodEventPlayerDeath)
-		}
-		_ = abandonZoneRun(userID)
-		forceExtractExpeditionForRunLoss(userID, "combat death")
+		endRunOnLoss(userID, sess.RunID, true)
 		markAdventureDead(userID, "zone", zone.Display)
 		if line := twinBeeLine(zone.ID, DMPlayerDeath, sess.RunID, cadence); line != "" {
 			b.WriteString(line + "\n")
@@ -414,8 +394,7 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 		// Flee = run ends, light penalty: wounds persist (HP already saved),
 		// but no death timer. Chosen candidate from the migration plan's
 		// open question on flee outcome.
-		_ = abandonZoneRun(userID)
-		forceExtractExpeditionForRunLoss(userID, "combat flee")
+		endRunOnLoss(userID, sess.RunID, false)
 		b.WriteString(fmt.Sprintf("🏃 You broke off from **%s** and slipped away. Run ended — you keep your wounds, but you live.", enemy.Name))
 
 	default:

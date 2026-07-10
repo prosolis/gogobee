@@ -65,8 +65,7 @@ func (p *AdventurePlugin) finishPartyCombatSession(ct *combatTurn) []string {
 	case CombatStatusLost:
 		return p.finishPartyLoss(ct, zone, cadence)
 	case CombatStatusFled:
-		_ = abandonZoneRun(owner)
-		forceExtractExpeditionForRunLoss(owner, "combat flee")
+		endRunOnLoss(owner, sess.RunID, false)
 		return p.eachSeat(ct, fmt.Sprintf(
 			"🏃 The party broke off from **%s** and slipped away. Run ended — you keep your wounds, but you live.", enemy.Name))
 	default:
@@ -84,16 +83,7 @@ func (p *AdventurePlugin) finishPartyWin(
 	sess := ct.sess
 	owner := id.UserID(sess.UserID)
 
-	recordZoneKillForUser(owner, sess.EnemyID)
-	applyRoomCombatThreatForUser(owner, elite)
-
-	bossOnExpedition := false
-	if !elite {
-		if exp, eerr := getActiveExpedition(owner); eerr == nil && exp != nil {
-			_ = applyBossDefeatThreat(exp.ID)
-			bossOnExpedition = true
-		}
-	}
+	bossOnExpedition := p.applyOwnerWinEffects(owner, sess.EnemyID, elite)
 
 	tier := 1
 	if run != nil {
@@ -110,14 +100,8 @@ func (p *AdventurePlugin) finishPartyWin(
 		uid := id.UserID(sess.seatUserID(seat))
 		hp, hpMax := sess.seatHP(seat), sess.seatHPMax(seat)
 
-		// A member who went down before the killing blow still earns the kill —
-		// but at a fifth of their pool or less, the XP path calls it near-death.
-		nearDeath := hpMax > 0 && hp*5 < hpMax
-		if xp := zoneCombatXP(CombatResult{PlayerWon: true, NearDeath: nearDeath}, monster.CR, tier); xp > 0 {
-			if _, err := p.grantDnDXP(uid, xp); err != nil {
-				slog.Error("combat: party grantDnDXP", "user", uid, "err", err)
-			}
-		}
+		// A member who went down before the killing blow still earns the kill.
+		p.grantSeatWinXP(uid, hp, hpMax, monster, tier)
 
 		var b strings.Builder
 		if shared != "" && seat == 0 {
@@ -156,11 +140,7 @@ func (p *AdventurePlugin) finishPartyLoss(ct *combatTurn, zone ZoneDefinition, c
 	sess := ct.sess
 	owner := id.UserID(sess.UserID)
 
-	if run, _ := getZoneRun(sess.RunID); run != nil {
-		_, _ = applyMoodEvent(sess.RunID, MoodEventPlayerDeath)
-	}
-	_ = abandonZoneRun(owner)
-	forceExtractExpeditionForRunLoss(owner, "combat death")
+	endRunOnLoss(owner, sess.RunID, true)
 
 	line := twinBeeLine(zone.ID, DMPlayerDeath, sess.RunID, cadence)
 	out := make([]string, sess.RosterSize())
@@ -183,4 +163,63 @@ func (p *AdventurePlugin) eachSeat(ct *combatTurn, block string) []string {
 		out[i] = block
 	}
 	return out
+}
+
+// ── Shared terminal effects (item D) ─────────────────────────────────────────
+//
+// finishCombatSession (solo, combat_cmd.go) and finishPartyWin/finishPartyLoss
+// (party, above) still write their own player-facing text — the solo line says
+// "You finished", the party line says "The party stands", and the death-on-win
+// rule is deliberately roster-size-dependent (see item E). But the *effects*
+// they fire were hand-copied lists, and item A drifted exactly there. These
+// helpers are the single copy of each effect; both close-outs route through
+// them so the effect lists cannot diverge again.
+
+// applyOwnerWinEffects fires the terminal effects a win owes the run and
+// expedition — the zone-kill record, room threat, and the boss-defeat threat
+// drop — once, through the row's owner (a party member owns neither row).
+// Returns whether the kill was a zone boss on an active expedition; both
+// close-outs use it to reframe the final line as the expedition's climax.
+func (p *AdventurePlugin) applyOwnerWinEffects(owner id.UserID, enemyID string, elite bool) (bossOnExpedition bool) {
+	recordZoneKillForUser(owner, enemyID)
+	applyRoomCombatThreatForUser(owner, elite)
+	if !elite {
+		// §8.1 — a zone boss defeat drops expedition threat. Silent no-op for a
+		// standalone zone run with no active expedition.
+		if exp, eerr := getActiveExpedition(owner); eerr == nil && exp != nil {
+			_ = applyBossDefeatThreat(exp.ID)
+			bossOnExpedition = true
+		}
+	}
+	return bossOnExpedition
+}
+
+// grantSeatWinXP pays one combatant their kill XP. A seat that finished at a
+// fifth of its pool or less takes the near-death path. Full XP per person,
+// solo or party, per the accessibility-over-crunch stance.
+func (p *AdventurePlugin) grantSeatWinXP(uid id.UserID, hp, hpMax int, monster DnDMonsterTemplate, tier int) {
+	nearDeath := hpMax > 0 && hp*5 < hpMax
+	if xp := zoneCombatXP(CombatResult{PlayerWon: true, NearDeath: nearDeath}, monster.CR, tier); xp > 0 {
+		if _, err := p.grantDnDXP(uid, xp); err != nil {
+			slog.Error("combat: grantDnDXP", "user", uid, "err", err)
+		}
+	}
+}
+
+// endRunOnLoss tears down the owner's run and wrapping expedition when a fight
+// ends in death or flight. On a death (not a flee) it also stamps the run's
+// mood event. Owner-scoped, fires once; the per-seat death mark stays with the
+// caller, since it is decided per HP and gated on roster size.
+func endRunOnLoss(owner id.UserID, runID string, death bool) {
+	if death {
+		if run, _ := getZoneRun(runID); run != nil {
+			_, _ = applyMoodEvent(runID, MoodEventPlayerDeath)
+		}
+	}
+	_ = abandonZoneRun(owner)
+	reason := "combat flee"
+	if death {
+		reason = "combat death"
+	}
+	forceExtractExpeditionForRunLoss(owner, reason)
 }
