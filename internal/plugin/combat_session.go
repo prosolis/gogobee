@@ -462,11 +462,12 @@ func startCombatSession(userID id.UserID, runID, encounterID, enemyID string, pl
 // roster_size bump, and the single unwrapped INSERT the solo path has always
 // issued. That is the invariant the whole balance corpus rests on.
 func (p *AdventurePlugin) startPartyCombatSession(
-	runID, encounterID, enemyID string, enemyHP int, seats []CombatSeatSetup,
+	runID, encounterID, enemyID string, enemy *Combatant, seats []CombatSeatSetup,
 ) (*CombatSession, error) {
 	if len(seats) == 0 {
 		return nil, fmt.Errorf("start combat session: empty roster")
 	}
+	enemyHP := enemy.Stats.MaxHP
 	owner := seats[0]
 	sess, err := startCombatSession(owner.UserID, runID, encounterID, enemyID,
 		owner.HP, owner.HPMax, enemyHP, enemyHP)
@@ -492,6 +493,17 @@ func (p *AdventurePlugin) startPartyCombatSession(
 		}
 		sess.Participants = ps
 		sess.rosterSize = len(seats)
+
+		// startCombatSession parks every fight on a player_turn, because a solo
+		// order is hardcoded [player, enemy] and the player always leads. A party
+		// rolls for initiative and the monster can win it, so round 1's phase has
+		// to come from the order rather than from that assumption — otherwise the
+		// cursor snaps forward to the first player slot on resume and the enemy
+		// silently forfeits its opening turn. Round 2+ already derives this in
+		// stepRoundEnd.
+		order := turnOrder(sess, sess.Round, seatCombatants(seats), enemy)
+		sess.Phase = phaseForSeat(order[0])
+		sess.Statuses.TurnIdx = 0
 		dirty = true
 	}
 
@@ -504,12 +516,15 @@ func (p *AdventurePlugin) startPartyCombatSession(
 }
 
 // CombatSeatSetup is one character's entry into a fight: who they are, the HP
-// pool they bring, and the modifiers their fight-start one-shots are read off.
+// pool they bring, the modifiers their fight-start one-shots are read off, and
+// the built combatant itself — which the initiative roll needs, and which the
+// caller threads on to the opening block rather than rebuilding the roster.
 type CombatSeatSetup struct {
 	UserID id.UserID
 	HP     int
 	HPMax  int
 	Mods   CombatModifiers
+	C      *Combatant
 }
 
 // getActiveCombatSession returns the player's in-flight fight, or (nil, nil).

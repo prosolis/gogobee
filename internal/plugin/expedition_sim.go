@@ -795,7 +795,7 @@ func (p *AdventurePlugin) autoDriveCombat(ctx MessageContext) (bool, error) {
 	if err := p.handleFightCmd(ctx); err != nil {
 		return false, fmt.Errorf("fight: %w", err)
 	}
-	sess, err := getActiveCombatSession(ctx.Sender)
+	sess, err := activeCombatSessionFor(ctx.Sender)
 	if err != nil {
 		return false, fmt.Errorf("getActiveCombatSession: %w", err)
 	}
@@ -803,8 +803,12 @@ func (p *AdventurePlugin) autoDriveCombat(ctx MessageContext) (bool, error) {
 		// No session opened (bestiary miss, doorway already cleared).
 		return false, nil
 	}
+	// The cap counts dispatches, and a party spends one per seat per round. Scale
+	// it by the roster so a three-player boss fight gets the same 200 rounds of
+	// headroom a solo one does; solo multiplies by 1 and is unchanged.
 	sessionID := sess.SessionID
-	for i := 0; i < autoCombatRoundCap; i++ {
+	dispatchCap := autoCombatRoundCap * sess.RosterSize()
+	for i := 0; i < dispatchCap; i++ {
 		// Re-fetch by id so we can read Won/Lost/Fled — the "active"
 		// filter on getActiveCombatSession returns nil once status flips.
 		cur, err := getCombatSession(sessionID)
@@ -820,21 +824,55 @@ func (p *AdventurePlugin) autoDriveCombat(ctx MessageContext) (bool, error) {
 		case CombatStatusLost, CombatStatusFled:
 			return false, nil
 		}
-		kind, arg := p.pickAutoCombatAction(ctx.Sender, cur)
+
+		// Every combat command is refused to anyone but the seat on the clock, so
+		// a party fight has to be driven as whoever that is. Solo skips the lookup
+		// entirely: seat 0 is the only seat, and the sender is already sitting in
+		// it — the bit-identical path the balance corpus rests on.
+		turn := ctx
+		seat := 0
+		if cur.IsParty() {
+			seat, err = p.actingSeatForAutopilot(cur)
+			if err != nil {
+				return false, fmt.Errorf("iter %d: %w", i, err)
+			}
+			turn.Sender = id.UserID(cur.seatUserID(seat))
+		}
+
+		kind, arg := p.pickAutoCombatActionForSeat(turn.Sender, cur, seat)
 		var dispatchErr error
 		switch kind {
 		case "consume":
-			dispatchErr = p.handleConsumeCmd(ctx, arg)
+			dispatchErr = p.handleConsumeCmd(turn, arg)
 		case "cast":
-			dispatchErr = p.handleCombatCastCmd(ctx, arg)
+			dispatchErr = p.handleCombatCastCmd(turn, arg)
 		default:
-			dispatchErr = p.handleAttackCmd(ctx)
+			dispatchErr = p.handleAttackCmd(turn)
 		}
 		if dispatchErr != nil {
 			return false, fmt.Errorf("%s iter %d: %w", kind, i, dispatchErr)
 		}
 	}
-	return false, fmt.Errorf("combat exceeded %d rounds", autoCombatRoundCap)
+	return false, fmt.Errorf("combat exceeded %d dispatches (%d seats × %d rounds)",
+		dispatchCap, sess.RosterSize(), autoCombatRoundCap)
+}
+
+// actingSeatForAutopilot names the seat autoDriveCombat must act as next. The
+// session it reads has already been settled by the command that parked it here,
+// so it is sitting on a live player's turn; a session that is not is a bug in
+// the engine, not a state the autopilot should paper over by spinning to the
+// round cap.
+func (p *AdventurePlugin) actingSeatForAutopilot(sess *CombatSession) (int, error) {
+	players, enemy, err := p.partyCombatantsForSession(sess)
+	if err != nil {
+		return 0, fmt.Errorf("rebuild party fight: %w", err)
+	}
+	seat, waiting := actingSeat(sess, players, enemy)
+	if !waiting {
+		return 0, fmt.Errorf("combat session %s: active but waiting on nobody (phase %q)",
+			sess.SessionID, sess.Phase)
+	}
+	return seat, nil
 }
 
 // simShortRestHPPct is the HP-percentage threshold below which the sim

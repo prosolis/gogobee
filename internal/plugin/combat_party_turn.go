@@ -405,7 +405,7 @@ func partyRoundFooter(ct *combatTurn, seat, acting int) string {
 	}
 	b.WriteString(fmt.Sprintf("%s: **%d/%d**\n\n", ct.enemy.Name, ct.sess.EnemyHP, ct.sess.EnemyHPMax))
 	if seat == acting {
-		b.WriteString(fmt.Sprintf("**Round %d.** Your move — `!attack`, `!cast <spell>`, `!consume <item>`.", ct.sess.Round))
+		b.WriteString(partyMovePrompt(ct.sess.Round))
 	} else {
 		b.WriteString(fmt.Sprintf("**Round %d.** Waiting on **%s**.", ct.sess.Round, ct.players[acting].Name))
 	}

@@ -49,7 +49,7 @@ func voluntaryExtractExpedition(userID id.UserID) (*Expedition, error) {
 		return nil, ErrNoActiveExpedition
 	}
 	harsh := e.ThreatLevel > 60
-	newSupplies, _ := applyDailyBurn(e.Supplies, harsh, e.SiegeMode)
+	newSupplies, _ := applyExpeditionDailyBurn(e, harsh, e.SiegeMode)
 	e.Supplies = newSupplies
 	supJSON, _ := json.Marshal(newSupplies)
 	if _, err := db.Get().Exec(`
@@ -239,12 +239,17 @@ func (p *AdventurePlugin) handleExtractCmd(ctx MessageContext, _ string) error {
 	userMu.Lock()
 	defer userMu.Unlock()
 
-	exp, err := getActiveExpedition(ctx.Sender)
+	exp, isLeader, err := activeExpeditionFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
 	}
 	if exp == nil {
 		return p.SendDM(ctx.Sender, "No active expedition to extract from.")
+	}
+	if !isLeader {
+		// Extraction ends the expedition for the whole roster, so it is the
+		// leader's call — the same reasoning that makes `!flee` leader-only.
+		return p.SendDM(ctx.Sender, "Only your party leader can call the extraction. Ask them to `!extract`, or `!expedition leave` to walk out alone.")
 	}
 	zone, _ := getZone(exp.ZoneID)
 	updated, err := voluntaryExtractExpedition(ctx.Sender)
@@ -263,14 +268,24 @@ func (p *AdventurePlugin) handleExtractCmd(ctx MessageContext, _ string) error {
 		b.WriteString(line)
 		b.WriteString("\n\n")
 	}
-	b.WriteString(fmt.Sprintf("Loot, XP, and coins are kept. The dungeon stays where you left it — `!resume` within 7 days to come back. After %s the expedition expires.",
-		(time.Now().UTC().Add(extractResumeWindow)).Format("2006-01-02 15:04 MST")))
-	if err := p.SendDM(ctx.Sender, b.String()); err != nil {
-		return err
-	}
+
+	// The extraction ends the day for everyone standing in the dungeon, and the
+	// roster outlives a voluntary extract — `extracting` is a resumable limbo, so
+	// members are still seated and must hear about it. Only the leader can call
+	// `!resume`, so the closing line differs per reader.
+	expires := (time.Now().UTC().Add(extractResumeWindow)).Format("2006-01-02 15:04 MST")
+	p.fanOutExpeditionDM(updated, b.String(), func(uid id.UserID, body string) string {
+		if uid == id.UserID(updated.UserID) {
+			return body + fmt.Sprintf("Loot, XP, and coins are kept. The dungeon stays where you left it — `!resume` within 7 days to come back. After %s the expedition expires.", expires)
+		}
+		return body + fmt.Sprintf("Loot, XP, and coins are kept. Your leader can `!resume` within 7 days, and you'll walk back in with them. After %s the expedition expires.", expires)
+	})
+
 	// Emergence seam: surfacing from a run is when an animal may have moved
-	// into the empty house.
-	p.maybeRollPetArrivalOnEmerge(ctx.Sender)
+	// into the empty house. Every member surfaced, so every member rolls.
+	for _, uid := range expeditionAudience(updated) {
+		p.maybeRollPetArrivalOnEmerge(uid)
+	}
 	return nil
 }
 

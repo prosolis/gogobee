@@ -51,14 +51,22 @@ func restingLockoutRemaining(c *DnDCharacter) time.Duration {
 // cannot rest right now because they're mid-fight or mid-expedition. An
 // empty string means rest is allowed. Both !rest short and !rest long
 // honor this — the dungeon shouldn't be a campfire.
+//
+// Both lookups resolve through the party: a seated member owns neither the
+// session row nor the expedition row, so the owner-keyed reads would wave them
+// through to a full heal mid boss fight.
 func restBlockedReason(uid id.UserID) string {
-	if hasActiveCombatSession(uid) {
+	if sess, _ := activeCombatSessionFor(uid); sess != nil {
 		return "You're mid-fight. Finish it (or `!flee`) before resting."
 	}
-	if exp, _ := getActiveExpedition(uid); exp != nil {
-		return "You can't rest while on an expedition. Use `!expedition extract` first."
+	exp, isLeader, _ := activeExpeditionFor(uid)
+	switch {
+	case exp == nil:
+		return ""
+	case !isLeader:
+		return "You can't rest while on an expedition. Ask your leader to `!extract`, or `!expedition leave` to walk out alone."
 	}
-	return ""
+	return "You can't rest while on an expedition. Use `!expedition extract` first."
 }
 
 func (p *AdventurePlugin) handleDnDRestCmd(ctx MessageContext, args string) error {

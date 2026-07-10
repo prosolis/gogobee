@@ -140,7 +140,7 @@ func (p *AdventurePlugin) advanceToNextRegion(userID id.UserID, exp *Expedition,
 	// Burn one day of supplies (transit day).
 	siege := exp.SiegeMode
 	harsh := exp.ThreatLevel > 60 || zoneTemporalHarsh(exp)
-	newSupplies, burned := applyDailyBurn(exp.Supplies, harsh, siege)
+	newSupplies, burned := applyExpeditionDailyBurn(exp, harsh, siege)
 	exp.Supplies = newSupplies
 	if err := updateSupplies(exp.ID, exp.Supplies); err != nil {
 		return "", fmt.Errorf("apply transit supply burn: %w", err)

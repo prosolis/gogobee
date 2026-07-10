@@ -43,11 +43,15 @@ func (p *AdventurePlugin) replyDM(ctx MessageContext, text string) error {
 // ── !fight ──────────────────────────────────────────────────────────────────
 
 func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
-	userMu := p.advUserLock(ctx.Sender)
-	userMu.Lock()
-	defer userMu.Unlock()
+	// Resolve the roster before locking — a member's `!fight` opens the leader's
+	// fight, under the leader's lock, and seat 0 names that leader. fightRoster
+	// deliberately does not touch getActiveZoneRun: that lookup carries the §4.3
+	// idle reap, and it must only ever fire under the lock, on its owner's behalf.
+	roster := fightRoster(ctx.Sender)
+	release := p.lockCombatFight(roster[0], ctx.Sender)
+	defer release()
 
-	run, err := getActiveZoneRun(ctx.Sender)
+	run, _, err := activeZoneRunFor(ctx.Sender)
 	if err != nil {
 		return p.replyDM(ctx, "Couldn't read run state: "+err.Error())
 	}
@@ -89,32 +93,24 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 		return p.replyDM(ctx, "_(No bestiary entry for this encounter — file a bug. `!zone abandon` to bail.)_")
 	}
 
-	player, enemy, _, err := p.buildZoneCombatants(ctx.Sender, monster, int(zone.Tier), run.DMMood)
-	if err != nil {
-		return p.replyDM(ctx, "Couldn't set up the fight: "+err.Error())
-	}
-
-	playerHP, playerMax := dndHPSnapshot(ctx.Sender)
-	if playerHP <= 0 {
-		return p.replyDM(ctx, "You're in no shape to fight. `!rest` first.")
+	// Seat the whole party, leader first. A solo player is a one-seat roster and
+	// takes the path they always took: one build, one INSERT, no participant rows.
+	seats, enemy, senderSkip, refusal := p.buildFightSeats(ctx.Sender, roster, monster, int(zone.Tier), run.DMMood)
+	if refusal != "" {
+		return p.replyDM(ctx, refusal)
 	}
 	enemyHP := enemy.Stats.MaxHP
 
-	sess, err := startCombatSession(ctx.Sender, run.RunID, encID, monster.ID, playerHP, playerMax, enemyHP, enemyHP)
+	// Fight-start one-shot resources (Abjuration Arcane Ward, etc.) are seeded
+	// per seat onto the session and its participant rows, so they survive the
+	// turn engine's resume/commit cycle. The pet rolls per-turn inside the
+	// engine, so there's no fight-start roll.
+	sess, err := p.startPartyCombatSession(run.RunID, encID, monster.ID, enemy, seats)
 	if err != nil {
 		if err == ErrCombatSessionAlreadyActive {
 			return p.replyDM(ctx, "You're already in a fight. Finish it with `!attack` / `!flee`.")
 		}
 		return p.replyDM(ctx, "Couldn't start the fight: "+err.Error())
-	}
-
-	// Carry fight-start one-shot resources (Abjuration Arcane Ward, etc.) onto
-	// the session so they survive the turn engine's resume/commit cycle. The
-	// pet now rolls per-turn inside the engine, so there's no fight-start roll.
-	if seedCombatSessionOneShots(sess, player.Mods) {
-		if err := saveCombatSession(sess); err != nil {
-			slog.Error("combat: seed session one-shots", "user", ctx.Sender, "err", err)
-		}
 	}
 
 	var b strings.Builder
@@ -129,13 +125,51 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 		}
 		b.WriteString(fmt.Sprintf("⚔️ **Elite — %s** (HP %d, AC %d)\n", monster.Name, enemyHP, enemy.Stats.AC))
 	}
-	b.WriteString(fmt.Sprintf("You: **%d/%d HP**.\n", playerHP, playerMax))
-	if curios := activeMagicItemsLine(ctx.Sender); curios != "" {
+
+	if sess.IsParty() {
+		players := seatCombatants(seats)
+		// The enemy may have won initiative. Resolve everything the round owes
+		// before anyone is asked to act, so the opening block narrates the hit
+		// rather than showing its damage with no explanation.
+		opening, serr := settleCombatSession(sess, players, enemy)
+		if serr != nil {
+			return p.replyDM(ctx, "Couldn't resolve the round: "+serr.Error())
+		}
+		ct := &combatTurn{sess: sess, players: players, enemy: enemy, seat: 0, uid: roster[0]}
+		outcomes := p.closePartyRound(ct)
+		if !ctx.Silent {
+			// The opening block is per-reader for the same reason a round's
+			// narration is: "You: 40/40 HP" has to be the reader's own pool.
+			p.announcePartyFightStart(sess, players, enemy, b.String(), opening, outcomes)
+		}
+		// A member the roster left behind is owed an answer of their own: nothing
+		// above was addressed to them, because they are not seated.
+		if senderSkip != "" {
+			return p.replyDM(ctx, senderSkip)
+		}
+		return nil
+	}
+
+	// One seat. Usually that is a solo player fighting their own fight, and this
+	// is the block they have always been sent. It can also be a leader whose only
+	// companion was left behind — in which case the block is the leader's and the
+	// sender is owed the reason they are not in it.
+	owner := id.UserID(sess.UserID)
+	b.WriteString(fmt.Sprintf("You: **%d/%d HP**.\n", sess.PlayerHP, sess.PlayerHPMax))
+	if curios := activeMagicItemsLine(owner); curios != "" {
 		b.WriteString(curios)
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 	b.WriteString(combatTurnPrompt(sess))
+	if senderSkip != "" {
+		if !ctx.Silent {
+			if err := p.SendDM(owner, b.String()); err != nil {
+				slog.Error("combat: fight-start DM to leader failed", "user", owner, "err", err)
+			}
+		}
+		return p.replyDM(ctx, senderSkip)
+	}
 	return p.replyDM(ctx, b.String())
 }
 
@@ -280,10 +314,14 @@ func combatTurnPrompt(sess *CombatSession) string {
 // wrong surface — point them at `!expedition run` instead. Standalone
 // zone runs still advance with `!zone advance`.
 func continueHint(userID id.UserID) string {
-	if exp, err := getActiveExpedition(userID); err == nil && exp != nil {
-		return "`!expedition run` to keep going."
+	exp, isLeader, err := activeExpeditionFor(userID)
+	switch {
+	case err != nil || exp == nil:
+		return "`!zone advance` to move on."
+	case !isLeader:
+		return "Your leader marches the party on."
 	}
-	return "`!zone advance` to move on."
+	return "`!expedition run` to keep going."
 }
 
 // finishCombatSession runs the post-fight side effects once a CombatSession

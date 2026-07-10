@@ -96,7 +96,9 @@ func (p *AdventurePlugin) nightRolloverBurn(e *Expedition) (float32, error) {
 	var newSupplies ExpeditionSupplies
 	var burn float32
 	if burnOverride.Multiplier > 0 {
-		burn = e.Supplies.DailyBurn * burnOverride.Multiplier * float32(phase5BDailyBurnRatePct) / 100
+		// The temporal override replaces the harsh/siege multiplier, not the
+		// roster's: a party still eats N × 0.8 rations inside a time-warped zone.
+		burn = e.Supplies.DailyBurn * burnOverride.Multiplier * float32(expeditionBurnRatePct(e.ID)) / 100
 		newSupplies = e.Supplies
 		newSupplies.Current -= burn
 		if newSupplies.Current < 0 {
@@ -105,7 +107,7 @@ func (p *AdventurePlugin) nightRolloverBurn(e *Expedition) (float32, error) {
 		newSupplies.ForagedToday = false
 	} else {
 		harsh := e.ThreatLevel > 60 || zoneTemporalHarsh(e)
-		newSupplies, burn = applyDailyBurn(e.Supplies, harsh, e.SiegeMode)
+		newSupplies, burn = applyExpeditionDailyBurn(e, harsh, e.SiegeMode)
 	}
 	if err := updateSupplies(e.ID, newSupplies); err != nil {
 		return 0, err

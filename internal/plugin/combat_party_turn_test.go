@@ -350,10 +350,28 @@ func TestNotYourTurnMsg_NamesWhoWeAreWaitingOn(t *testing.T) {
 
 // ── Starting a fight ─────────────────────────────────────────────────────────
 
+// enemyWithHP is the monster the seats below face. Only its HP pool and its
+// Speed matter here: the pool sizes the fight, the speed feeds initiative.
+func enemyWithHP(hp int) *Combatant {
+	e := baseEnemy()
+	e.Stats.MaxHP = hp
+	return &e
+}
+
+// partySeats pairs each combatant with a seat setup, as buildFightSeats does.
+func partySeats(players []*Combatant, hp int) []CombatSeatSetup {
+	seats := make([]CombatSeatSetup, len(players))
+	for i, c := range players {
+		seats[i] = CombatSeatSetup{UserID: id.UserID(memberID(i)), HP: hp, HPMax: hp, C: c}
+	}
+	seats[0].UserID = "@leader:x"
+	return seats
+}
+
 func TestStartPartyCombatSession_SoloWritesNoParticipantRows(t *testing.T) {
 	setupEmptyTestDB(t)
 
-	sess, err := (&AdventurePlugin{}).startPartyCombatSession("run1", "room3", "goblin", 60,
+	sess, err := (&AdventurePlugin{}).startPartyCombatSession("run1", "room3", "goblin", enemyWithHP(60),
 		[]CombatSeatSetup{{UserID: "@solo:x", HP: 40, HPMax: 40}})
 	if err != nil {
 		t.Fatal(err)
@@ -375,9 +393,11 @@ func TestStartPartyCombatSession_SoloWritesNoParticipantRows(t *testing.T) {
 func TestStartPartyCombatSession_SeedsEachSeatsOwnOneShots(t *testing.T) {
 	setupEmptyTestDB(t)
 
-	sess, err := (&AdventurePlugin{}).startPartyCombatSession("run1", "room3", "goblin", 60, []CombatSeatSetup{
-		{UserID: "@leader:x", HP: 40, HPMax: 40},
-		{UserID: "@abjurer:x", HP: 30, HPMax: 30, Mods: CombatModifiers{ArcaneWardHP: 12, WardCharges: 2}},
+	leader, abjurer := basePlayer(), basePlayer()
+	sess, err := (&AdventurePlugin{}).startPartyCombatSession("run1", "room3", "goblin", enemyWithHP(60), []CombatSeatSetup{
+		{UserID: "@leader:x", HP: 40, HPMax: 40, C: &leader},
+		{UserID: "@abjurer:x", HP: 30, HPMax: 30, C: &abjurer,
+			Mods: CombatModifiers{ArcaneWardHP: 12, WardCharges: 2}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -402,6 +422,57 @@ func TestStartPartyCombatSession_SeedsEachSeatsOwnOneShots(t *testing.T) {
 	}
 }
 
+// A monster that wins initiative swings first. startCombatSession parks every
+// fight on a player_turn, which is right for the hardcoded solo order and wrong
+// for a party: the resume path would snap the cursor to the first player slot
+// and the enemy would silently forfeit round 1.
+func TestStartPartyCombatSession_EnemyThatWinsInitiativeOpensTheRound(t *testing.T) {
+	setupEmptyTestDB(t)
+	players, enemy := biasedParty()
+	// Invert the bias biasedParty stacks: the monster now outruns everyone.
+	for _, c := range players {
+		c.Mods.InitiativeBias = -1000
+	}
+	enemy.Stats.Speed = 500
+
+	sess, err := (&AdventurePlugin{}).startPartyCombatSession("run1", "room3", "goblin", enemy,
+		partySeats(players, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Phase != CombatPhaseEnemyTurn {
+		t.Fatalf("round 1 opened on phase %q; the enemy won initiative and must act first", sess.Phase)
+	}
+	if order := turnOrder(sess, 1, players, enemy); order[0] != enemySeat {
+		t.Fatalf("turn order = %v, want the enemy at the head", order)
+	}
+
+	// And the phase survives the round trip, since a resume reads it back.
+	back, err := getCombatSession(sess.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Phase != CombatPhaseEnemyTurn {
+		t.Errorf("reloaded phase = %q, want the enemy still on the clock", back.Phase)
+	}
+}
+
+// The other half of the same rule: when the party wins, nothing moved.
+func TestStartPartyCombatSession_PartyThatWinsInitiativeStillOpensOnAPlayer(t *testing.T) {
+	setupEmptyTestDB(t)
+	players, enemy := biasedParty()
+
+	sess, err := (&AdventurePlugin{}).startPartyCombatSession("run1", "room3", "goblin", enemy,
+		partySeats(players, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Phase != CombatPhasePlayerTurn || sess.Statuses.TurnIdx != 0 {
+		t.Fatalf("round 1 opened on %q/%d, want player_turn at the head of the order",
+			sess.Phase, sess.Statuses.TurnIdx)
+	}
+}
+
 // ── The round driver ─────────────────────────────────────────────────────────
 
 // The old loop rested on any player_turn. A party's downed seat still holds a
@@ -411,17 +482,16 @@ func TestSettleCombatSession_StepsPastADownedSeat(t *testing.T) {
 	setupEmptyTestDB(t)
 	players, enemy := biasedParty()
 
-	sess, err := (&AdventurePlugin{}).startPartyCombatSession("run1", "room3", "goblin", 100, []CombatSeatSetup{
-		{UserID: "@leader:x", HP: 100, HPMax: 100},
-		{UserID: "@bram:x", HP: 100, HPMax: 100},
-		{UserID: "@cass:x", HP: 100, HPMax: 100},
-	})
+	sess, err := (&AdventurePlugin{}).startPartyCombatSession("run1", "room3", "goblin", enemy,
+		partySeats(players, 100))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Bram is down, and it is his turn.
+	// Bram is down, and it is his turn. biasedParty stacks initiative so the
+	// party leads the round; force the phase back to it in case the roll disagrees.
 	sess.Participants[0].HP = 0
+	sess.Phase = CombatPhasePlayerTurn
 	sess.Statuses.TurnIdx = 1
 
 	if _, err := settleCombatSession(sess, players, enemy); err != nil {
@@ -446,7 +516,7 @@ func TestSettleCombatSession_IsANoOpOnASoloPlayerTurn(t *testing.T) {
 	setupEmptyTestDB(t)
 	p, e := basePlayer(), baseEnemy()
 
-	sess, err := (&AdventurePlugin{}).startPartyCombatSession("run1", "room3", "goblin", 60,
+	sess, err := (&AdventurePlugin{}).startPartyCombatSession("run1", "room3", "goblin", enemyWithHP(60),
 		[]CombatSeatSetup{{UserID: "@solo:x", HP: 40, HPMax: 40}})
 	if err != nil {
 		t.Fatal(err)

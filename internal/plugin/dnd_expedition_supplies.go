@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"strings"
 )
@@ -333,6 +334,45 @@ const phase5BDailyBurnRatePct = 50
 
 func applyDailyBurn(s ExpeditionSupplies, harshActive, siege bool) (ExpeditionSupplies, float32) {
 	return applyDailyBurnP(s, harshActive, siege, phase5BDailyBurnRatePct)
+}
+
+// partyBurnEfficiency is the per-head discount a party gets on rations: three
+// people eat 2.4 days' worth per day, not 3. Sharing a fire, a pot and a watch
+// rota is worth something, and it is the one place C1 asked for a party to be
+// mechanically better off than three solo runs.
+//
+// It is an exact ratio rather than the literal 0.8 because the rate is truncated
+// to an int: float32(50*3) * 0.8 evaluates a hair under 120, and int() would
+// round it to 119 — a silent, permanent tax on every party of three.
+const (
+	partyBurnEfficiencyNum = 4
+	partyBurnEfficiencyDen = 5
+)
+
+// applyExpeditionDailyBurn is applyDailyBurn with the roster folded in: a party
+// of N burns N × 0.8 days of supplies per day, against a pool that P6b's
+// addSupplyPurchase has already grown by everyone's packs.
+//
+// A solo expedition — every expedition that has ever run, and everything the
+// balance corpus measured — resolves to phase5BDailyBurnRatePct exactly, so this
+// is a no-op for it down to the float. On a roster read error it burns the solo
+// rate: undercharging a party is a bug, starving them on a SQLite hiccup is a
+// lost expedition.
+func applyExpeditionDailyBurn(e *Expedition, harshActive, siege bool) (ExpeditionSupplies, float32) {
+	return applyDailyBurnP(e.Supplies, harshActive, siege, expeditionBurnRatePct(e.ID))
+}
+
+func expeditionBurnRatePct(expeditionID string) int {
+	n, err := partySize(expeditionID)
+	if err != nil {
+		slog.Warn("expedition: party size read failed, burning at the solo rate",
+			"expedition", expeditionID, "err", err)
+		return phase5BDailyBurnRatePct
+	}
+	if n <= 1 {
+		return phase5BDailyBurnRatePct
+	}
+	return phase5BDailyBurnRatePct * n * partyBurnEfficiencyNum / partyBurnEfficiencyDen
 }
 
 // applyDailyBurnP is the rate-parameterized form used by the Phase 3-B

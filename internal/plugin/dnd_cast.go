@@ -63,8 +63,12 @@ func decodePendingCast(s string) (PendingCast, bool) {
 func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) error {
 	// In a turn-based Elite/Boss fight, !cast resolves as the player's turn
 	// for the round rather than queuing for "next combat". handleCombatCastCmd
-	// takes the per-user lock itself and re-checks the session under it.
-	if sess, _ := getActiveCombatSession(ctx.Sender); sess != nil {
+	// takes the fight's locks itself and re-checks the session under them.
+	//
+	// activeCombatSessionFor, not getActiveCombatSession: a seated party member
+	// owns no session row, and would otherwise fall through to the out-of-combat
+	// path and queue a PendingCast in the middle of their own boss fight.
+	if sess, _ := activeCombatSessionFor(ctx.Sender); sess != nil {
 		return p.handleCombatCastCmd(ctx, args)
 	}
 

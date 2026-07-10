@@ -154,14 +154,18 @@ func nodeKindToRoomType(k ZoneNodeKind) RoomType {
 // arrival teaser. The player still has to !zone advance to resolve
 // the new room — same cadence as auto-advance.
 func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
-	run, err := getActiveZoneRun(ctx.Sender)
+	run, isLeader, err := activeZoneRunFor(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't read run state: "+err.Error())
 	}
 	if run == nil {
 		return p.SendDM(ctx.Sender, "No active zone run. Use `!zone enter <id>`.")
 	}
-	if cs, _ := getActiveCombatSession(ctx.Sender); cs != nil {
+	if !isLeader {
+		// The fork is one choice for one party, and the run is the leader's row.
+		return p.SendDM(ctx.Sender, "Your party leader picks the path. `!map` to see where you're standing.")
+	}
+	if cs, _ := activeCombatSessionFor(ctx.Sender); cs != nil {
 		return p.SendDM(ctx.Sender, "⚔️ Finish your fight first — `!attack` or `!flee`.")
 	}
 	pf, derr := decodePendingFork(run.NodeChoices)
