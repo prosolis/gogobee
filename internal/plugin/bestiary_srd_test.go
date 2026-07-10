@@ -39,9 +39,23 @@ func TestEnemyAttackProfile_Registered(t *testing.T) {
 	}
 }
 
+// testCombatState seats a single actor, the shape every direct-primitive test
+// wants. The engine reads per-actor state through the embedded cursor, so a
+// combatState with a nil actor panics on the first st.playerHP touch.
+func testCombatState(playerHP, enemyHP, round int, rng *rand.Rand) *combatState {
+	a := &actor{playerHP: playerHP}
+	return &combatState{
+		actor:   a,
+		actors:  []*actor{a},
+		enemyHP: enemyHP,
+		round:   round,
+		rng:     rng,
+	}
+}
+
 func TestTurnAbilityFires(t *testing.T) {
 	enemy := baseEnemy() // MaxHP 60
-	st := &combatState{rng: rand.New(rand.NewPCG(1, 1))}
+	st := testCombatState(0, 0, 0, rand.New(rand.NewPCG(1, 1)))
 
 	cases := []struct {
 		name     string
@@ -78,10 +92,7 @@ func TestTurnAbilityFires(t *testing.T) {
 // within applyAbility with no persistent state.
 func TestApplyAbility_Slice2Effects(t *testing.T) {
 	newState := func(playerHP, enemyHP int) (*combatState, Combatant, Combatant) {
-		st := &combatState{
-			playerHP: playerHP, enemyHP: enemyHP, round: 1,
-			rng: rand.New(rand.NewPCG(7, 7)),
-		}
+		st := testCombatState(playerHP, enemyHP, 1, rand.New(rand.NewPCG(7, 7)))
 		return st, basePlayer(), baseEnemy()
 	}
 	phase := &turnCombatPhase
@@ -136,10 +147,7 @@ func TestApplyAbility_Slice2Effects(t *testing.T) {
 // all but evade), and the shared resolution primitives read that state.
 func TestApplyAbility_Slice3Effects(t *testing.T) {
 	newState := func(playerHP, enemyHP int) (*combatState, Combatant, Combatant) {
-		st := &combatState{
-			playerHP: playerHP, enemyHP: enemyHP, round: 1,
-			rng: rand.New(rand.NewPCG(9, 9)),
-		}
+		st := testCombatState(playerHP, enemyHP, 1, rand.New(rand.NewPCG(9, 9)))
 		return st, basePlayer(), baseEnemy()
 	}
 	phase := &turnCombatPhase
@@ -188,7 +196,8 @@ func TestApplyAbility_Slice3Effects(t *testing.T) {
 	}
 
 	// enemyDown lets survive_at_1 cheat death exactly once.
-	stS := &combatState{enemyHP: 0, enemySurviveArmed: true}
+	stS := testCombatState(100, 0, 1, rand.New(rand.NewPCG(13, 13)))
+	stS.enemySurviveArmed = true
 	if enemyDown(stS, "Duel") {
 		t.Error("survive_at_1: armed enemy at 0 HP should not be down")
 	}
@@ -224,10 +233,7 @@ func TestApplyAbility_Slice3Effects(t *testing.T) {
 // itself, and the shared resolution primitives / helpers read that state.
 func TestApplyAbility_Slice4Effects(t *testing.T) {
 	newState := func(playerHP, enemyHP int) (*combatState, Combatant, Combatant) {
-		st := &combatState{
-			playerHP: playerHP, enemyHP: enemyHP, round: 1,
-			rng: rand.New(rand.NewPCG(11, 11)),
-		}
+		st := testCombatState(playerHP, enemyHP, 1, rand.New(rand.NewPCG(11, 11)))
 		return st, basePlayer(), baseEnemy()
 	}
 	phase := &turnCombatPhase

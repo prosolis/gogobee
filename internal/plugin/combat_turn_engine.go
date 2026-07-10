@@ -111,17 +111,15 @@ func phaseOrdinal(phase string) uint64 {
 // resumeTurnEngine rebuilds the in-memory combatState from a persisted session.
 // rng is the deterministic source for this step (see combatSessionRNG).
 func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.Rand) *turnEngine {
-	st := &combatState{
-		playerHP:       sess.PlayerHP,
-		enemyHP:        sess.EnemyHP,
-		round:          sess.Round,
-		poisonTicks:    sess.Statuses.PoisonTicks,
-		poisonDmg:      sess.Statuses.PoisonDmg,
-		stunPlayer:     sess.Statuses.StunPlayer,
-		enraged:        sess.Statuses.Enraged,
-		armorBroken:    sess.Statuses.ArmorBroken,
-		armorBreakAmt:  sess.Statuses.ArmorBreakAmt,
-		enemySkipFirst: sess.Statuses.EnemySkipNext,
+	// The seated character's half of the persisted statuses. A single-seat
+	// roster today; P4 gives combat_session per-participant rows and this
+	// becomes one actor per member.
+	seat0 := &actor{
+		c:           player,
+		playerHP:    sess.PlayerHP,
+		poisonTicks: sess.Statuses.PoisonTicks,
+		poisonDmg:   sess.Statuses.PoisonDmg,
+		stunPlayer:  sess.Statuses.StunPlayer,
 		// Fight-scoped depleting resources + once-per-fight one-shots: restored
 		// from the persisted statuses so a charge or "already used" flag can't
 		// reset across a suspend/resume. commit writes the updated values back.
@@ -139,6 +137,20 @@ func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.R
 		firstAttackBonusUsed:  sess.Statuses.FirstAtkBonusUsed,
 		assassinateRerollUsed: sess.Statuses.AssassinateReroll,
 		assassinateBonusUsed:  sess.Statuses.AssassinateBonus,
+		// Enemy debuffs stacked onto this character specifically.
+		playerAtkDrain: sess.Statuses.PlayerAtkDrain,
+		playerACDebuff: sess.Statuses.PlayerACDebuff,
+		maxHPDrain:     sess.Statuses.MaxHPDrain,
+	}
+	st := &combatState{
+		actor:          seat0,
+		actors:         []*actor{seat0},
+		enemyHP:        sess.EnemyHP,
+		round:          sess.Round,
+		enraged:        sess.Statuses.Enraged,
+		armorBroken:    sess.Statuses.ArmorBroken,
+		armorBreakAmt:  sess.Statuses.ArmorBreakAmt,
+		enemySkipFirst: sess.Statuses.EnemySkipNext,
 		// Slice-3 stateful monster-ability effects — armed by applyAbility,
 		// round-tripped here so they survive a suspend/resume or reaper auto-play.
 		enemyEvadeNext:     sess.Statuses.EnemyEvadeNext,
@@ -147,9 +159,6 @@ func resumeTurnEngine(sess *CombatSession, player, enemy *Combatant, rng *rand.R
 		enemyRetaliateFrac: sess.Statuses.EnemyRetaliateFrac,
 		enemyRegen:         sess.Statuses.EnemyRegen,
 		enemySurviveArmed:  sess.Statuses.EnemySurviveArmed,
-		playerAtkDrain:     sess.Statuses.PlayerAtkDrain,
-		playerACDebuff:     sess.Statuses.PlayerACDebuff,
-		maxHPDrain:         sess.Statuses.MaxHPDrain,
 		// Slice-4 monster-ability effects — the former flavor-only placeholders.
 		enemySpellResist: sess.Statuses.EnemySpellResist,
 		enemyRevealNext:  sess.Statuses.EnemyRevealNext,

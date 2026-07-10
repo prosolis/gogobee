@@ -292,10 +292,23 @@ var bossCombatPhases = []CombatPhase{
 
 // ── Simulation ───────────────────────────────────────────────────────────────
 
-// combatState tracks mutable state during the simulation.
-type combatState struct {
+// actor is the per-combatant half of the simulation state — everything that
+// belongs to one player character rather than to the fight as a whole.
+//
+// It is embedded into combatState as a *pointer*, which promotes its fields:
+// `st.playerHP` still resolves, now to `st.actor.playerHP`. The embedded
+// pointer is a cursor naming whoever is currently resolving. Solo combat has a
+// one-element roster and never moves the cursor, so every read and every RNG
+// draw is bit-identical to the pre-roster engine — which is what keeps the
+// solo balance corpus (sim_results/d8prereq_corpus.jsonl lineage) valid.
+//
+// Field names are deliberately unchanged from when they lived on combatState.
+type actor struct {
+	// c is the Combatant this state belongs to. Nil only in tests that drive
+	// a primitive directly without a roster.
+	c *Combatant
+
 	playerHP int
-	enemyHP  int
 
 	// Consumable one-shots
 	healChargesLeft int // remaining heal-at-<50% triggers
@@ -304,13 +317,10 @@ type combatState struct {
 	reflectFrac     float64
 	autoCrit        bool
 
-	// Monster ability effects
-	poisonTicks   int
-	poisonDmg     int
-	stunPlayer    bool
-	enraged       bool
-	armorBroken   bool
-	armorBreakAmt float64
+	// Monster ability effects landing on this actor
+	poisonTicks int
+	poisonDmg   int
+	stunPlayer  bool
 
 	// Sovereign reprieve
 	deathSaveUsed bool
@@ -320,10 +330,6 @@ type combatState struct {
 	raged             bool // Orc Rage already triggered this fight
 	pendingRageAttack bool // next player attack gets +50% damage
 
-	// Phase 9 spell — enemy skip-first-attack (consumed on the first round
-	// the enemy would otherwise attack).
-	enemySkipFirst bool
-
 	// Phase 10 SUB2a-ii first-attack one-shots.
 	firstAttackBonusUsed  bool
 	assassinateRerollUsed bool
@@ -332,27 +338,52 @@ type combatState struct {
 	// Phase 10 SUB2b — Abjuration Arcane Ward HP buffer.
 	arcaneWardHP int
 
+	// Debuffs the enemy has stacked onto this actor specifically.
+	playerAtkDrain int // stat_drain: flat reduction to this actor's hit damage
+	playerACDebuff int // debuff: flat reduction to this actor's effective AC
+	maxHPDrain     int // max_hp_drain: reduction to this actor's effective MaxHP
+
 	// concentrationDmg — per-round damage of an active concentration AOE
-	// (Spirit Guardians et al.). Armed by a !cast of a concentration damage
-	// spell, ticked against the enemy every round_end until the fight ends
-	// or another concentration spell overwrites it. Only the turn engine
-	// reads it; SimulateCombat resolves whole fights in one pass and folds
-	// the aura's value into the picker's concentration multiplier instead.
+	// (Spirit Guardians et al.). Concentration is per-caster, so it lives
+	// here rather than on the fight.
 	concentrationDmg int
+}
+
+// combatState tracks mutable state during the simulation. The embedded *actor
+// is the cursor: the player character currently resolving. Everything declared
+// directly on combatState is shared by the whole fight — the enemy, the round
+// counter, the event log, and the RNG stream.
+type combatState struct {
+	*actor          // cursor into actors; promotes the per-actor fields
+	actors []*actor // the player roster, in seating order. len == 1 for solo.
+
+	enemyHP int
+
+	// Monster ability effects (enemy-side stance — shared across the roster)
+	enraged       bool
+	armorBroken   bool
+	armorBreakAmt float64
+
+	// Phase 9 spell — enemy skip-first-attack (consumed on the first round
+	// the enemy would otherwise attack). Holding the enemy holds it for
+	// everyone, so this is fight-scoped, not per-caster.
+	enemySkipFirst bool
 
 	// Phase 13 bestiary slice 3 — stateful monster-ability effects. Each is
 	// armed by applyAbility and read by the shared resolution primitives, so
 	// both engines honour them; the turn-based engine additionally round-trips
 	// them through CombatStatuses so they survive a suspend/resume.
+	//
+	// These describe the *enemy's* stance, so they are fight-scoped: an enemy
+	// holding a parry stance parries the next swing from anyone. The debuffs
+	// it stacks onto a specific character (stat_drain / debuff / max_hp_drain)
+	// live on actor instead.
 	enemyEvadeNext     bool    // evade: next player weapon attack auto-misses
 	enemyBlockUp       bool    // block: enemy holds a parry stance (~50% block on player hits)
 	enemyAdvantage     bool    // advantage: enemy rolls its attacks with advantage
 	enemyRetaliateFrac float64 // retaliate: fraction of a player hit reflected back
 	enemyRegen         int     // regenerate: enemy heals this much each round end
 	enemySurviveArmed  bool    // survive_at_1: enemy cheats death once, dropping to 1 HP
-	playerAtkDrain     int     // stat_drain: flat reduction to the player's hit damage
-	playerACDebuff     int     // debuff: flat reduction to the player's effective AC
-	maxHPDrain         int     // max_hp_drain: reduction to the player's effective MaxHP
 
 	// Phase 13 bestiary slice 4 — the former flavor-only placeholders, now
 	// backed by real state.
@@ -377,6 +408,47 @@ type combatState struct {
 // Auto-resolve leaves st.rng nil — behaviorally identical to the
 // pre-injection code; the turn-based engine and the timeout reaper seed
 // it per session so a fight can be resumed and replayed reproducibly.
+// newActor seats one player character, deriving its opening per-fight state
+// from that character's modifiers.
+func newActor(c *Combatant) *actor {
+	startHP := c.Stats.MaxHP
+	if c.Stats.StartHP > 0 && c.Stats.StartHP < c.Stats.MaxHP {
+		startHP = c.Stats.StartHP
+	}
+	a := &actor{
+		c:            c,
+		playerHP:     startHP,
+		wardCharges:  c.Mods.WardCharges,
+		sporeRounds:  c.Mods.SporeCloud,
+		reflectFrac:  c.Mods.ReflectNext,
+		autoCrit:     c.Mods.AutoCritFirst,
+		arcaneWardHP: c.Mods.ArcaneWardHP,
+	}
+	// HealItemCharges: explicit count overrides legacy one-shot. Backfill
+	// to 1 charge if the caller set a HealItem amount but no count.
+	a.healChargesLeft = c.Mods.HealItemCharges
+	if a.healChargesLeft == 0 && c.Mods.HealItem > 0 {
+		a.healChargesLeft = 1
+	}
+	return a
+}
+
+// seat points the cursor at roster index i. Every per-actor read in the
+// resolution primitives (st.playerHP, st.wardCharges, …) follows the cursor.
+// Solo combat seats index 0 once and never moves it.
+func (st *combatState) seat(i int) { st.actor = st.actors[i] }
+
+// anyAlive reports whether at least one seated character is still standing.
+// Solo fights read this as "the player is alive".
+func (st *combatState) anyAlive() bool {
+	for _, a := range st.actors {
+		if a.playerHP > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (st *combatState) roll(n int) int     { return rngIntN(st.rng, n) }
 func (st *combatState) randFloat() float64 { return rngFloat(st.rng) }
 
@@ -398,22 +470,17 @@ func simulateCombatWithRNG(player, enemy Combatant, phases []CombatPhase, rng *r
 	if enemy.Stats.StartHP > 0 && enemy.Stats.StartHP < enemy.Stats.MaxHP {
 		enemyStart = enemy.Stats.StartHP
 	}
+	// Solo roster: one seat, cursor parked on it for the whole fight. The
+	// resolution primitives read the cursor, so this is the degenerate case
+	// of the N-player model and draws RNG in exactly the pre-roster order.
+	seat0 := newActor(&player)
+	seat0.playerHP = playerStart
 	st := &combatState{
-		playerHP:       playerStart,
+		actor:          seat0,
+		actors:         []*actor{seat0},
 		enemyHP:        enemyStart,
-		wardCharges:    player.Mods.WardCharges,
-		sporeRounds:    player.Mods.SporeCloud,
-		reflectFrac:    player.Mods.ReflectNext,
-		autoCrit:       player.Mods.AutoCritFirst,
 		enemySkipFirst: player.Mods.SpellEnemySkipFirst,
-		arcaneWardHP:   player.Mods.ArcaneWardHP,
 		rng:            rng,
-	}
-	// HealItemCharges: explicit count overrides legacy one-shot. Backfill
-	// to 1 charge if the caller set a HealItem amount but no count.
-	st.healChargesLeft = player.Mods.HealItemCharges
-	if st.healChargesLeft == 0 && player.Mods.HealItem > 0 {
-		st.healChargesLeft = 1
 	}
 
 	result := CombatResult{
