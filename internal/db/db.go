@@ -352,6 +352,11 @@ func runMigrations(d *sql.DB) error {
 		// DEFAULT 0 is wrong for in-flight rows — bootstrapRoomsTraversed
 		// backfills them from visited_nodes.
 		`ALTER TABLE dnd_zone_run ADD COLUMN rooms_traversed INTEGER NOT NULL DEFAULT 0`,
+		// N3/P4 party combat. Every pre-existing fight is solo, and solo is
+		// exactly roster_size 1, so the DEFAULT is the correct value for every
+		// row and no bootstrap backfill is needed. The column is a read guard:
+		// loadCombatParticipants is skipped entirely when it reads 1.
+		`ALTER TABLE combat_session ADD COLUMN roster_size INTEGER NOT NULL DEFAULT 1`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -2080,12 +2085,63 @@ CREATE TABLE IF NOT EXISTS combat_session (
     status          TEXT NOT NULL DEFAULT 'active',      -- active|won|lost|fled|expired
     started_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_action_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at      DATETIME NOT NULL
+    expires_at      DATETIME NOT NULL,
+    -- N3/P4: seated player characters, seat 0 (this row) included. 1 == solo,
+    -- which is what every pre-N3 row is, so the DEFAULT needs no backfill. Read
+    -- as a guard: only a roster_size > 1 makes the loader touch
+    -- combat_participant, keeping the solo fight at one query.
+    roster_size     INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_combat_session_active
     ON combat_session(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_combat_session_expiry
     ON combat_session(status, expires_at);
+
+-- ── N3/P4 — party combat: the seats a session row cannot hold ─────────────
+-- One row per party member from seat 1 up. Seat 0 is the session's own
+-- user_id/player_hp/statuses_json, so a solo fight writes no rows here and
+-- reads none: absent == solo, which is why this table needs no backfill.
+--
+-- seat:           index into the combat roster. 1..N-1; seat 0 is the session.
+-- hp / hp_max:    this member's live pool. Seat 0's lives on combat_session.
+-- statuses_json:  serialized ActorStatuses — the per-character half of the
+--                 effect state (their concentration, their debuffs, their
+--                 once-per-fight one-shots). The enemy's stance and the round
+--                 cursor are fight-scoped and stay on combat_session.
+CREATE TABLE IF NOT EXISTS combat_participant (
+    session_id      TEXT NOT NULL,
+    seat            INTEGER NOT NULL,
+    user_id         TEXT NOT NULL,
+    hp              INTEGER NOT NULL,
+    hp_max          INTEGER NOT NULL,
+    statuses_json   TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (session_id, seat)
+);
+CREATE INDEX IF NOT EXISTS idx_combat_participant_user
+    ON combat_participant(user_id);
+
+-- ── N3/P4 — expedition parties ────────────────────────────────────────────
+-- Membership for a co-op expedition. The leader's dnd_expedition row stays
+-- the single source of truth for the shared clock, threat, and supply pool;
+-- members reference it through here rather than owning a row of their own.
+-- A solo expedition has no rows: absent == solo, so no backfill is needed.
+--
+-- There is deliberately no party_id on dnd_expedition. The expedition_id is
+-- already the party's identity, and a second key would be a second source of
+-- truth for "who is in this party" that could disagree with this table.
+--
+-- role: 'leader' | 'member'. Exactly one leader per expedition, matching
+--       dnd_expedition.user_id; enforced in code, not by constraint (the
+--       same discipline combat_session uses for one-active-per-user).
+CREATE TABLE IF NOT EXISTS expedition_party (
+    expedition_id   TEXT NOT NULL,
+    user_id         TEXT NOT NULL,
+    role            TEXT NOT NULL DEFAULT 'member',
+    joined_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (expedition_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_expedition_party_user
+    ON expedition_party(user_id);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

@@ -52,7 +52,7 @@ func TestStartCombatSession_RoundTrip(t *testing.T) {
 	got.Phase = CombatPhaseRoundEnd
 	got.PlayerHP = 40
 	got.EnemyHP = 15
-	got.Statuses = CombatStatuses{PoisonTicks: 2, PoisonDmg: 5, Enraged: true}
+	got.Statuses = CombatStatuses{ActorStatuses: ActorStatuses{PoisonTicks: 2, PoisonDmg: 5}, Enraged: true}
 	got.TurnLog = append(got.TurnLog, CombatEvent{Round: 3, Actor: "player", Action: "hit", Damage: 9})
 	if err := saveCombatSession(got); err != nil {
 		t.Fatalf("saveCombatSession: %v", err)
@@ -67,7 +67,7 @@ func TestStartCombatSession_RoundTrip(t *testing.T) {
 	if reloaded.PlayerHP != 40 || reloaded.EnemyHP != 15 {
 		t.Errorf("hp not persisted: %+v", reloaded)
 	}
-	if reloaded.Statuses != (CombatStatuses{PoisonTicks: 2, PoisonDmg: 5, Enraged: true}) {
+	if reloaded.Statuses != (CombatStatuses{ActorStatuses: ActorStatuses{PoisonTicks: 2, PoisonDmg: 5}, Enraged: true}) {
 		t.Errorf("statuses not persisted: %+v", reloaded.Statuses)
 	}
 	if len(reloaded.TurnLog) != 1 || reloaded.TurnLog[0].Action != "hit" {
@@ -223,7 +223,7 @@ func TestTurnEngine_PhaseProgression(t *testing.T) {
 
 func TestTurnEngine_PoisonTickAtRoundEnd(t *testing.T) {
 	sess := turnSession(CombatPhaseRoundEnd, 50, 80)
-	sess.Statuses = CombatStatuses{PoisonTicks: 2, PoisonDmg: 7}
+	sess.Statuses = CombatStatuses{ActorStatuses: ActorStatuses{PoisonTicks: 2, PoisonDmg: 7}}
 	player, enemy := basePlayer(), baseEnemy()
 
 	events, err := stepEngine(sess, &player, &enemy, PlayerAction{})
@@ -246,7 +246,7 @@ func TestTurnEngine_PoisonTickAtRoundEnd(t *testing.T) {
 
 func TestTurnEngine_PoisonTickCanBeLethal(t *testing.T) {
 	sess := turnSession(CombatPhaseRoundEnd, 4, 80)
-	sess.Statuses = CombatStatuses{PoisonTicks: 1, PoisonDmg: 9}
+	sess.Statuses = CombatStatuses{ActorStatuses: ActorStatuses{PoisonTicks: 1, PoisonDmg: 9}}
 	player, enemy := basePlayer(), baseEnemy()
 
 	if _, err := stepEngine(sess, &player, &enemy, PlayerAction{}); err != nil {
@@ -265,7 +265,7 @@ func TestTurnEngine_PoisonTickCanBeLethal(t *testing.T) {
 
 func TestTurnEngine_ConcentrationTickAtRoundEnd(t *testing.T) {
 	sess := turnSession(CombatPhaseRoundEnd, 50, 80)
-	sess.Statuses = CombatStatuses{ConcentrationDmg: 12}
+	sess.Statuses = CombatStatuses{ActorStatuses: ActorStatuses{ConcentrationDmg: 12}}
 	player, enemy := basePlayer(), baseEnemy()
 
 	events, err := stepEngine(sess, &player, &enemy, PlayerAction{})
@@ -288,7 +288,7 @@ func TestTurnEngine_ConcentrationTickAtRoundEnd(t *testing.T) {
 
 func TestTurnEngine_ConcentrationTickCanBeLethal(t *testing.T) {
 	sess := turnSession(CombatPhaseRoundEnd, 50, 9)
-	sess.Statuses = CombatStatuses{ConcentrationDmg: 12}
+	sess.Statuses = CombatStatuses{ActorStatuses: ActorStatuses{ConcentrationDmg: 12}}
 	player, enemy := basePlayer(), baseEnemy()
 
 	if _, err := stepEngine(sess, &player, &enemy, PlayerAction{}); err != nil {
@@ -433,7 +433,7 @@ func TestApplyBuffDelta(t *testing.T) {
 
 func TestApplySessionBuffs(t *testing.T) {
 	player := basePlayer() // AC 0, AttackBonus 0, CritRate 0.05, Speed 10, DamageReduct 1.0
-	applySessionBuffs(&player, CombatStatuses{
+	applySessionBuffs(&player, ActorStatuses{
 		BuffACBonus: 3, BuffAtkBonus: 2, BuffSpeedBonus: 5, BuffCritRate: 0.15,
 		BuffDamageBonus: 0.25, BuffDamageReductMul: 0.8, BuffPetProc: 0.5, BuffPetDmg: 6,
 	})
@@ -473,7 +473,7 @@ func TestSeedCombatSessionOneShots(t *testing.T) {
 // re-bank a depleted ward charge — on every resumed round.
 func TestTurnEngine_OneShotsRoundTrip(t *testing.T) {
 	sess := turnSession(CombatPhaseRoundEnd, 50, 50)
-	sess.Statuses = CombatStatuses{
+	sess.Statuses = CombatStatuses{ActorStatuses: ActorStatuses{
 		WardCharges: 3, SporeRounds: 2, ReflectFrac: 0.5, AutoCritFirst: true,
 		ArcaneWardHP: 10, HealChargesLeft: 1,
 		Raged: true, LuckyUsed: true, DeathSaveUsed: true, PendingRage: true,
@@ -481,7 +481,7 @@ func TestTurnEngine_OneShotsRoundTrip(t *testing.T) {
 		// Buff stat deltas are owned by the command layer — commit must leave
 		// them untouched rather than zeroing them on every step.
 		BuffACBonus: 2, BuffDamageBonus: 0.15,
-	}
+	}}
 	want := sess.Statuses // round_end with no poison mutates none of these
 	player, enemy := basePlayer(), baseEnemy()
 

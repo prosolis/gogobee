@@ -215,44 +215,98 @@ func turnIdxForPhase(order []int, idx int, phase string) int {
 // resumeTurnEngine rebuilds the in-memory combatState from a persisted session.
 // rng is the deterministic source for this step (see combatSessionStepRNG).
 //
-// Seat 0 restores the session's persisted per-character statuses. Seats 1+ open
-// fresh from their combatant's modifiers: a party's per-member statuses need the
-// combat_participant rows that P4 adds, and until then no persisted session ever
-// carries more than one seat.
-func resumeTurnEngine(sess *CombatSession, players []*Combatant, enemy *Combatant, rng *rand.Rand) *turnEngine {
-	seat0 := &actor{
-		c:           players[0],
-		playerHP:    sess.PlayerHP,
-		hpMax:       sess.PlayerHPMax,
-		poisonTicks: sess.Statuses.PoisonTicks,
-		poisonDmg:   sess.Statuses.PoisonDmg,
-		stunPlayer:  sess.Statuses.StunPlayer,
-		// Fight-scoped depleting resources + once-per-fight one-shots: restored
-		// from the persisted statuses so a charge or "already used" flag can't
-		// reset across a suspend/resume. commit writes the updated values back.
-		wardCharges:           sess.Statuses.WardCharges,
-		sporeRounds:           sess.Statuses.SporeRounds,
-		reflectFrac:           sess.Statuses.ReflectFrac,
-		autoCrit:              sess.Statuses.AutoCritFirst,
-		arcaneWardHP:          sess.Statuses.ArcaneWardHP,
-		healChargesLeft:       sess.Statuses.HealChargesLeft,
-		concentrationDmg:      sess.Statuses.ConcentrationDmg,
-		deathSaveUsed:         sess.Statuses.DeathSaveUsed,
-		luckyUsed:             sess.Statuses.LuckyUsed,
-		raged:                 sess.Statuses.Raged,
-		pendingRageAttack:     sess.Statuses.PendingRage,
-		firstAttackBonusUsed:  sess.Statuses.FirstAtkBonusUsed,
-		assassinateRerollUsed: sess.Statuses.AssassinateReroll,
-		assassinateBonusUsed:  sess.Statuses.AssassinateBonus,
+// restoreActor rebuilds one seat from its persisted state: live HP, the pool
+// ceiling, and the per-character effect set. Depleting resources and the
+// once-per-fight "already used" flags are restored rather than rearmed, so a
+// charge can't silently reset across a suspend/resume or a reaper auto-play.
+// snapshotActor is its exact inverse — keep the two field lists in step.
+func restoreActor(c *Combatant, hp, hpMax int, s ActorStatuses) *actor {
+	return &actor{
+		c:        c,
+		playerHP: hp,
+		hpMax:    hpMax,
+
+		poisonTicks: s.PoisonTicks,
+		poisonDmg:   s.PoisonDmg,
+		stunPlayer:  s.StunPlayer,
+
+		wardCharges:     s.WardCharges,
+		sporeRounds:     s.SporeRounds,
+		reflectFrac:     s.ReflectFrac,
+		autoCrit:        s.AutoCritFirst,
+		arcaneWardHP:    s.ArcaneWardHP,
+		healChargesLeft: s.HealChargesLeft,
+
+		concentrationDmg: s.ConcentrationDmg,
+
+		deathSaveUsed:         s.DeathSaveUsed,
+		luckyUsed:             s.LuckyUsed,
+		raged:                 s.Raged,
+		pendingRageAttack:     s.PendingRage,
+		firstAttackBonusUsed:  s.FirstAtkBonusUsed,
+		assassinateRerollUsed: s.AssassinateReroll,
+		assassinateBonusUsed:  s.AssassinateBonus,
+
 		// Enemy debuffs stacked onto this character specifically.
-		playerAtkDrain: sess.Statuses.PlayerAtkDrain,
-		playerACDebuff: sess.Statuses.PlayerACDebuff,
-		maxHPDrain:     sess.Statuses.MaxHPDrain,
+		playerAtkDrain: s.PlayerAtkDrain,
+		playerACDebuff: s.PlayerACDebuff,
+		maxHPDrain:     s.MaxHPDrain,
 	}
+}
+
+// snapshotActor folds one seat's live state back into its persisted form. The
+// Buff* deltas are owned by the command layer (a !cast / !consume folds them in
+// via applyBuffDelta) and are not combatState fields, so they are carried over
+// from the prior snapshot rather than re-derived.
+func snapshotActor(a *actor, prior ActorStatuses) ActorStatuses {
+	s := prior
+	s.PoisonTicks = a.poisonTicks
+	s.PoisonDmg = a.poisonDmg
+	s.StunPlayer = a.stunPlayer
+
+	s.WardCharges = a.wardCharges
+	s.SporeRounds = a.sporeRounds
+	s.ReflectFrac = a.reflectFrac
+	s.AutoCritFirst = a.autoCrit
+	s.ArcaneWardHP = a.arcaneWardHP
+	s.HealChargesLeft = a.healChargesLeft
+
+	s.ConcentrationDmg = a.concentrationDmg
+
+	s.DeathSaveUsed = a.deathSaveUsed
+	s.LuckyUsed = a.luckyUsed
+	s.Raged = a.raged
+	s.PendingRage = a.pendingRageAttack
+	s.FirstAtkBonusUsed = a.firstAttackBonusUsed
+	s.AssassinateReroll = a.assassinateRerollUsed
+	s.AssassinateBonus = a.assassinateBonusUsed
+
+	s.PlayerAtkDrain = a.playerAtkDrain
+	s.PlayerACDebuff = a.playerACDebuff
+	s.MaxHPDrain = a.maxHPDrain
+	return s
+}
+
+// Every seat restores its own persisted per-character statuses: seat 0 from the
+// session row's embedded ActorStatuses, seats 1+ from their combat_participant
+// row. Without that, a party member's once-per-fight one-shots would rearm on
+// every engine step. players[i] must be the combatant for seat i — the caller
+// owns that ordering, and it must match sess.Participants[i-1].UserID.
+func resumeTurnEngine(sess *CombatSession, players []*Combatant, enemy *Combatant, rng *rand.Rand) *turnEngine {
+	seat0 := restoreActor(players[0], sess.PlayerHP, sess.PlayerHPMax, sess.Statuses.ActorStatuses)
 	actors := make([]*actor, len(players))
 	actors[0] = seat0
 	for i := 1; i < len(players); i++ {
-		actors[i] = newActor(players[i])
+		// A roster longer than the persisted seats can only happen if a caller
+		// hands us combatants the session never seated. Open those fresh rather
+		// than panicking mid-fight; hydrateCombatParticipants already rejects
+		// the reverse (a session claiming more seats than it persisted).
+		if i-1 >= len(sess.Participants) {
+			actors[i] = newActor(players[i])
+			continue
+		}
+		p := sess.Participants[i-1]
+		actors[i] = restoreActor(players[i], p.HP, p.HPMax, p.Statuses)
 	}
 	st := &combatState{
 		actor:          seat0,
@@ -712,53 +766,45 @@ func (te *turnEngine) finish(status string) {
 //
 // The Buff* stat deltas on Statuses are NOT combatState fields — they're owned
 // by the command layer (a !cast / !consume folds them in) and applied to the
-// rebuilt combatant by applySessionBuffs — so commit mutates Statuses in place
-// rather than replacing it, leaving those deltas untouched.
-// Per-actor state is read off seat 0 rather than off the cursor, which the
-// enemy turn parks on its target and round_end walks across the roster. Seat 0
-// is the only member a session row can hold; P4's participant rows carry the
-// rest.
+// rebuilt combatant by applySessionBuffs — so snapshotActor carries them over
+// from the prior state rather than re-deriving them.
+//
+// Per-actor state is read off each seat by index, never off the cursor: the
+// enemy turn parks the cursor on its target and round_end walks it across the
+// roster, so whoever it points at when commit runs is an accident of the phase.
+// Seat 0 lands on the session row; seats 1+ on their participant rows.
 func (te *turnEngine) commit() {
 	st := te.st
-	a := st.actors[0]
 	te.sess.Round = st.round
-	te.sess.PlayerHP = a.playerHP
 	te.sess.EnemyHP = st.enemyHP
+
+	seat0 := st.actors[0]
+	te.sess.PlayerHP = seat0.playerHP
 	s := &te.sess.Statuses
-	s.PoisonTicks = a.poisonTicks
-	s.PoisonDmg = a.poisonDmg
-	s.StunPlayer = a.stunPlayer
+	s.ActorStatuses = snapshotActor(seat0, s.ActorStatuses)
+
+	for i := 1; i < len(st.actors) && i-1 < len(te.sess.Participants); i++ {
+		p := &te.sess.Participants[i-1]
+		p.HP = st.actors[i].playerHP
+		p.Statuses = snapshotActor(st.actors[i], p.Statuses)
+	}
+
+	// Fight-scoped: the enemy's own stance, and the debuffs it wears.
 	s.Enraged = st.enraged
 	s.ArmorBroken = st.armorBroken
 	s.ArmorBreakAmt = st.armorBreakAmt
 	s.EnemySkipNext = st.enemySkipFirst
-	s.WardCharges = a.wardCharges
-	s.SporeRounds = a.sporeRounds
-	s.ReflectFrac = a.reflectFrac
-	s.AutoCritFirst = a.autoCrit
-	s.ArcaneWardHP = a.arcaneWardHP
-	s.HealChargesLeft = a.healChargesLeft
-	s.ConcentrationDmg = a.concentrationDmg
-	s.DeathSaveUsed = a.deathSaveUsed
-	s.LuckyUsed = a.luckyUsed
-	s.Raged = a.raged
-	s.PendingRage = a.pendingRageAttack
-	s.FirstAtkBonusUsed = a.firstAttackBonusUsed
-	s.AssassinateReroll = a.assassinateRerollUsed
-	s.AssassinateBonus = a.assassinateBonusUsed
 	s.EnemyEvadeNext = st.enemyEvadeNext
 	s.EnemyBlockUp = st.enemyBlockUp
 	s.EnemyAdvantage = st.enemyAdvantage
 	s.EnemyRetaliateFrac = st.enemyRetaliateFrac
 	s.EnemyRegen = st.enemyRegen
 	s.EnemySurviveArmed = st.enemySurviveArmed
-	s.PlayerAtkDrain = a.playerAtkDrain
-	s.PlayerACDebuff = a.playerACDebuff
-	s.MaxHPDrain = a.maxHPDrain
 	s.EnemySpellResist = st.enemySpellResist
 	s.EnemyRevealNext = st.enemyRevealNext
 	s.EnemyFearImmune = st.enemyFearImmune
 	s.EnemyAtkBuff = st.enemyAtkBuff
+
 	te.sess.TurnLog = append(te.sess.TurnLog, st.events...)
 }
 

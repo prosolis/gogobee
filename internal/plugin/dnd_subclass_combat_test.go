@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"math/rand/v2"
 	"testing"
 
 	"maunium.net/go/mautrix/id"
@@ -653,9 +654,12 @@ func TestSimulateCombat_FirstAttackBonusImprovesEarlyHits(t *testing.T) {
 	// Probabilistic: a +4 on the opening swing should noticeably lift the
 	// player's win rate against a stiff enemy. The lift is small (a single
 	// hit's worth), so the trial count needs to be high enough that
-	// variance doesn't swamp the signal — at 1500 trials we were seeing
-	// ~14 wins of difference on bad seeds vs. the 25-win threshold.
-	const trials = 6000
+	// variance doesn't swamp the signal. At 6000 trials it still did: sweeping
+	// 40 seeds, the mean margin was +127 wins but the worst was -42, against a
+	// +50 threshold — so this test failed for roughly one seed in ten and had
+	// been doing so on a clean tree. At 24000 every one of those 40 seeds
+	// clears by at least +267.
+	const trials = 24000
 	hardEnemy := Combatant{
 		Name: "Wall",
 		Stats: CombatStats{
@@ -664,12 +668,17 @@ func TestSimulateCombat_FirstAttackBonusImprovesEarlyHits(t *testing.T) {
 		},
 		Mods: CombatModifiers{DamageReduct: 1.0},
 	}
+	// Seeded, not global: SimulateCombat(nil rng) draws from the package-global
+	// stream, so this test's verdict used to depend on how much randomness every
+	// test declared before it happened to consume. It failed intermittently on a
+	// clean tree and re-flaked whenever an unrelated change shifted the stream.
+	rng := statCompareRNG()
 	plainWins, bmWins := 0, 0
 	for i := 0; i < trials; i++ {
-		if SimulateCombat(plainBMPlayer(), hardEnemy, defaultCombatPhases).PlayerWon {
+		if simulateCombatWithRNG(plainBMPlayer(), hardEnemy, defaultCombatPhases, rng).PlayerWon {
 			plainWins++
 		}
-		if SimulateCombat(bmPrecisionPlayer(), hardEnemy, defaultCombatPhases).PlayerWon {
+		if simulateCombatWithRNG(bmPrecisionPlayer(), hardEnemy, defaultCombatPhases, rng).PlayerWon {
 			bmWins++
 		}
 	}
@@ -678,13 +687,25 @@ func TestSimulateCombat_FirstAttackBonusImprovesEarlyHits(t *testing.T) {
 	}
 }
 
+// statCompareRNG seeds the two statistical A/B subclass tests below. They
+// compare win counts between two builds over thousands of trials with a fixed
+// threshold, which is only meaningful if the stream is theirs alone. The seed
+// is arbitrary — any value where the true effect clears the threshold works;
+// this one does, and pinning it is what makes the tests reproducible.
+func statCompareRNG() *rand.Rand { return rand.New(rand.NewPCG(0x5eed, 0xc0ffee)) }
+
 // Surface check: AssassinateBonusDmg only consumed once.
 func TestResolvePlayerAttack_AssassinateBonusFirstHitOnly(t *testing.T) {
 	// Drive resolvePlayerAttack via a SimulateCombat run and confirm the
 	// total enemy damage taken on hit is the *base* damage on subsequent
 	// hits (i.e. only the first hit got the +bonus). Statistical compare
 	// against an Assassin L5 vs. an identical player without the bonus.
-	const trials = 800
+	//
+	// 800 trials was too few for the "any lift at all" threshold: over 40 seeds
+	// the mean margin was only +12.8 wins and two seeds came out negative. The
+	// bonus is genuinely small — one hit's worth, once per fight — so the trial
+	// count carries the signal. At 6000 the worst of those seeds clears by +68.
+	const trials = 6000
 	build := func(bonus int) Combatant {
 		return Combatant{
 			Name: "Assn", IsPlayer: true,
@@ -707,16 +728,18 @@ func TestResolvePlayerAttack_AssassinateBonusFirstHitOnly(t *testing.T) {
 			Mods: CombatModifiers{DamageReduct: 1.0},
 		}
 	}
+	// Seeded for the same reason as the Precision Attack test above.
+	rng := statCompareRNG()
 	plainWins, assnWins := 0, 0
 	for i := 0; i < trials; i++ {
-		if SimulateCombat(build(0), enemy(), defaultCombatPhases).PlayerWon {
+		if simulateCombatWithRNG(build(0), enemy(), defaultCombatPhases, rng).PlayerWon {
 			plainWins++
 		}
-		if SimulateCombat(build(8), enemy(), defaultCombatPhases).PlayerWon {
+		if simulateCombatWithRNG(build(8), enemy(), defaultCombatPhases, rng).PlayerWon {
 			assnWins++
 		}
 	}
-	if assnWins <= plainWins {
+	if assnWins-plainWins < 25 {
 		t.Errorf("Assassinate bonus damage didn't help: plain=%d assn=%d", plainWins, assnWins)
 	}
 }

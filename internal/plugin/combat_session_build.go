@@ -132,16 +132,17 @@ func (p *AdventurePlugin) combatantsForSession(sess *CombatSession) (player Comb
 	// onto the freshly-rebuilt player. The depleting one-shots (ward/spore/…)
 	// live on the session's Statuses and flow through the turn engine's
 	// resume/commit cycle, so only the persistent stat deltas are applied here.
-	applySessionBuffs(&player, sess.Statuses)
+	applySessionBuffs(&player, sess.Statuses.ActorStatuses)
 	return player, enemy, err
 }
 
 // applySessionBuffs re-derives the persistent stat effect of every mid-fight
-// buff onto the rebuilt player. The buffs are stored as accumulated deltas
-// (diffTurnBuff produced them against the player's state at cast time), so
+// buff onto one rebuilt character. The buffs are stored as accumulated deltas
+// (diffTurnBuff produced them against that character's state at cast time), so
 // re-applying them to a deterministic rebuild reproduces the same totals every
-// round without double-counting.
-func applySessionBuffs(player *Combatant, s CombatStatuses) {
+// round without double-counting. It takes ActorStatuses rather than the whole
+// session because buffs are per-caster: each seat folds in only its own.
+func applySessionBuffs(player *Combatant, s ActorStatuses) {
 	player.Stats.AC += s.BuffACBonus
 	player.Stats.AttackBonus += s.BuffAtkBonus
 	player.Stats.Speed += s.BuffSpeedBonus

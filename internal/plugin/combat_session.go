@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"gogobee/internal/db"
@@ -43,41 +44,34 @@ const (
 // reaper sweeps it. Matches the started_at + 1h note in the schema.
 const combatSessionTTL = time.Hour
 
-// CombatStatuses is the serialized between-round effect state for a fight: the
-// subset of combatState that genuinely persists round-to-round, plus the
-// fight-scoped buffs a mid-fight !cast / !consume layers on. Everything here
-// round-trips combatState -> Statuses -> combatState across every engine step,
-// so a fight resumes from exact mid-state after a suspend or bot restart.
+// ActorStatuses is the per-seat half of the persisted effect state: everything
+// that belongs to one character rather than to the fight. It mirrors the fields
+// of `actor` (combat_engine.go) that must survive a suspend/resume.
 //
-// All fields are scalar by design — CombatStatuses must stay comparable so the
+// The split follows P2's rule. A debuff the enemy stacked onto one character
+// (stat_drain / debuff / max_hp_drain), that character's concentration, their
+// depleting charges, and their once-per-fight one-shots are all per-actor — a
+// party of three carries three independent copies. The enemy's own stance and
+// the round cursor are fight-scoped and live on CombatStatuses.
+//
+// Seat 0's copy is embedded in the session row's statuses_json (see
+// CombatStatuses); seats 1+ each get a combat_participant row carrying this
+// struct alone. That asymmetry is deliberate: a solo fight writes exactly the
+// bytes it wrote before parties existed, and no participant rows at all.
+//
+// All fields are scalar by design — ActorStatuses must stay comparable so the
 // persistence round-trip can be asserted with ==.
-type CombatStatuses struct {
-	// Monster-ability effects — the original between-round persistence set.
-	PoisonTicks   int     `json:"poison_ticks,omitempty"`
-	PoisonDmg     int     `json:"poison_dmg,omitempty"`
-	StunPlayer    bool    `json:"stun_player,omitempty"`
-	Enraged       bool    `json:"enraged,omitempty"`
-	ArmorBroken   bool    `json:"armor_broken,omitempty"`
-	ArmorBreakAmt float64 `json:"armor_break_amt,omitempty"`
-	// EnemySkipNext carries a control-spell skip (Hold Person, Sleep) from the
-	// player_turn phase it was cast in to the enemy_turn phase that consumes it
-	// — those phases resolve as separate engine steps with separate in-memory
-	// combatState, so the flag must survive the commit between them.
-	EnemySkipNext bool `json:"enemy_skip_next,omitempty"`
+type ActorStatuses struct {
+	// Monster-ability effects landing on this character.
+	PoisonTicks int  `json:"poison_ticks,omitempty"`
+	PoisonDmg   int  `json:"poison_dmg,omitempty"`
+	StunPlayer  bool `json:"stun_player,omitempty"`
 
-	// TurnIdx is the position within the round's initiative order (see
-	// turnOrder) of whoever acts next. A solo fight's order is the fixed
-	// [player, enemy], so TurnIdx mirrors the phase and the field is dead
-	// weight — omitempty keeps it out of every solo row. Rows written before
-	// this field existed decode as 0 and are reconciled against Phase on
-	// resume, so a mid-fight upgrade lands on the right slot.
-	TurnIdx int `json:"turn_idx,omitempty"`
-
-	// Fight-scoped depleting resources — mirror the combatState charges that
-	// genuinely carry round-to-round. Seeded at fight start (Arcane Ward) or by
-	// a mid-fight !cast / !consume, restored into combatState on every resume,
-	// written back on every commit so a depleting charge can't silently reset
-	// when a fight is suspended and resumed.
+	// Depleting resources — mirror the actor charges that genuinely carry
+	// round-to-round. Seeded at fight start (Arcane Ward) or by a mid-fight
+	// !cast / !consume, restored into the actor on every resume, written back on
+	// every commit so a depleting charge can't silently reset when a fight is
+	// suspended and resumed.
 	WardCharges     int     `json:"ward_charges,omitempty"`
 	SporeRounds     int     `json:"spore_rounds,omitempty"`
 	ReflectFrac     float64 `json:"reflect_frac,omitempty"`
@@ -85,7 +79,7 @@ type CombatStatuses struct {
 	ArcaneWardHP    int     `json:"arcane_ward_hp,omitempty"`
 	HealChargesLeft int     `json:"heal_charges_left,omitempty"`
 
-	// ConcentrationDmg is the per-round damage of the player's active
+	// ConcentrationDmg is the per-round damage of this character's active
 	// concentration AOE (Spirit Guardians, Spike Growth, Call Lightning,
 	// Flaming Sphere…). A one-shot !cast lands its burst the casting round,
 	// then this re-ticks the aura at round_end every round until the fight
@@ -105,31 +99,15 @@ type CombatStatuses struct {
 	AssassinateReroll bool `json:"assassinate_reroll_used,omitempty"`
 	AssassinateBonus  bool `json:"assassinate_bonus_used,omitempty"`
 
-	// Slice-3 stateful monster-ability effects — armed by applyAbility, read by
-	// the shared resolution primitives, round-tripped through combatState so a
-	// suspended/resumed fight (or a reaper auto-play) keeps the same effect
-	// state. EnemyEvadeNext is a one-shot; the rest persist for the fight.
-	EnemyEvadeNext     bool    `json:"enemy_evade_next,omitempty"`
-	EnemyBlockUp       bool    `json:"enemy_block_up,omitempty"`
-	EnemyAdvantage     bool    `json:"enemy_advantage,omitempty"`
-	EnemyRetaliateFrac float64 `json:"enemy_retaliate_frac,omitempty"`
-	EnemyRegen         int     `json:"enemy_regen,omitempty"`
-	EnemySurviveArmed  bool    `json:"enemy_survive_armed,omitempty"`
-	PlayerAtkDrain     int     `json:"player_atk_drain,omitempty"`
-	PlayerACDebuff     int     `json:"player_ac_debuff,omitempty"`
-	MaxHPDrain         int     `json:"max_hp_drain,omitempty"`
+	// Debuffs the enemy has stacked onto this character specifically.
+	PlayerAtkDrain int `json:"player_atk_drain,omitempty"`
+	PlayerACDebuff int `json:"player_ac_debuff,omitempty"`
+	MaxHPDrain     int `json:"max_hp_drain,omitempty"`
 
-	// Slice-4 monster-ability effects — the former flavor-only placeholders.
-	// EnemyRevealNext is a one-shot; the other three persist for the fight.
-	EnemySpellResist bool `json:"enemy_spell_resist,omitempty"`
-	EnemyRevealNext  bool `json:"enemy_reveal_next,omitempty"`
-	EnemyFearImmune  bool `json:"enemy_fear_immune,omitempty"`
-	EnemyAtkBuff     int  `json:"enemy_atk_buff,omitempty"`
-
-	// Persistent stat buffs from mid-fight !cast / !consume, accumulated as
-	// deltas against the freshly-rebuilt combatant. applySessionBuffs folds
-	// these back onto the player every round; diffTurnBuff produces them.
-	// BuffDamageReductMul is multiplicative (0 = none / 1.0 neutral).
+	// Persistent stat buffs from this character's mid-fight !cast / !consume,
+	// accumulated as deltas against their freshly-rebuilt combatant.
+	// applySessionBuffs folds these back on every round; diffTurnBuff produces
+	// them. BuffDamageReductMul is multiplicative (0 = none / 1.0 neutral).
 	BuffACBonus         int     `json:"buff_ac_bonus,omitempty"`
 	BuffAtkBonus        int     `json:"buff_atk_bonus,omitempty"`
 	BuffSpeedBonus      int     `json:"buff_speed_bonus,omitempty"`
@@ -142,10 +120,65 @@ type CombatStatuses struct {
 	BuffSpiritDmg       int     `json:"buff_spirit_dmg,omitempty"`
 }
 
+// CombatStatuses is the serialized between-round effect state for a fight: the
+// fight-scoped half (the enemy's stance, the round cursor) plus seat 0's
+// ActorStatuses, embedded. Everything here round-trips combatState -> Statuses
+// -> combatState across every engine step, so a fight resumes from exact
+// mid-state after a suspend or bot restart.
+//
+// ActorStatuses is embedded anonymously and untagged, so it flattens into the
+// same one-level JSON object the field list used to produce. Rows written
+// before the split decode unchanged, and rows written after are byte-compatible
+// with a reader that predates it.
+//
+// All fields are scalar by design — CombatStatuses must stay comparable so the
+// persistence round-trip can be asserted with ==.
+type CombatStatuses struct {
+	// Seat 0's per-character state. Seats 1+ carry their own copy in
+	// combat_participant rows.
+	ActorStatuses
+
+	Enraged       bool    `json:"enraged,omitempty"`
+	ArmorBroken   bool    `json:"armor_broken,omitempty"`
+	ArmorBreakAmt float64 `json:"armor_break_amt,omitempty"`
+	// EnemySkipNext carries a control-spell skip (Hold Person, Sleep) from the
+	// player_turn phase it was cast in to the enemy_turn phase that consumes it
+	// — those phases resolve as separate engine steps with separate in-memory
+	// combatState, so the flag must survive the commit between them. Holding the
+	// enemy holds it for the whole party, hence fight-scoped.
+	EnemySkipNext bool `json:"enemy_skip_next,omitempty"`
+
+	// TurnIdx is the position within the round's initiative order (see
+	// turnOrder) of whoever acts next. A solo fight's order is the fixed
+	// [player, enemy], so TurnIdx mirrors the phase and the field is dead
+	// weight — omitempty keeps it out of every solo row. Rows written before
+	// this field existed decode as 0 and are reconciled against Phase on
+	// resume, so a mid-fight upgrade lands on the right slot.
+	TurnIdx int `json:"turn_idx,omitempty"`
+
+	// Slice-3 stateful monster-ability effects — armed by applyAbility, read by
+	// the shared resolution primitives, round-tripped through combatState so a
+	// suspended/resumed fight (or a reaper auto-play) keeps the same effect
+	// state. EnemyEvadeNext is a one-shot; the rest persist for the fight.
+	EnemyEvadeNext     bool    `json:"enemy_evade_next,omitempty"`
+	EnemyBlockUp       bool    `json:"enemy_block_up,omitempty"`
+	EnemyAdvantage     bool    `json:"enemy_advantage,omitempty"`
+	EnemyRetaliateFrac float64 `json:"enemy_retaliate_frac,omitempty"`
+	EnemyRegen         int     `json:"enemy_regen,omitempty"`
+	EnemySurviveArmed  bool    `json:"enemy_survive_armed,omitempty"`
+
+	// Slice-4 monster-ability effects — the former flavor-only placeholders.
+	// EnemyRevealNext is a one-shot; the other three persist for the fight.
+	EnemySpellResist bool `json:"enemy_spell_resist,omitempty"`
+	EnemyRevealNext  bool `json:"enemy_reveal_next,omitempty"`
+	EnemyFearImmune  bool `json:"enemy_fear_immune,omitempty"`
+	EnemyAtkBuff     int  `json:"enemy_atk_buff,omitempty"`
+}
+
 // applyBuffDelta folds one resolved buff (the result of a !cast / !consume
-// player turn) into the persisted fight-scoped state. Stat components
+// player turn) into that character's persisted state. Stat components
 // accumulate as deltas; depleting resources add to their running counters.
-func (s *CombatStatuses) applyBuffDelta(d turnBuffDelta) {
+func (s *ActorStatuses) applyBuffDelta(d turnBuffDelta) {
 	s.BuffACBonus += d.dAC
 	s.BuffAtkBonus += d.dAtk
 	s.BuffSpeedBonus += d.dSpeed
@@ -188,6 +221,17 @@ func seedCombatSessionOneShots(s *CombatSession, playerMods CombatModifiers) boo
 		st.AutoCritFirst || st.ArcaneWardHP != 0 || st.HealChargesLeft != 0
 }
 
+// CombatParticipant is one party member's seat in a fight, from seat 1 up.
+// Seat 0 is the session row itself (UserID / PlayerHP / Statuses.ActorStatuses)
+// and never appears here.
+type CombatParticipant struct {
+	Seat     int
+	UserID   string
+	HP       int
+	HPMax    int
+	Statuses ActorStatuses
+}
+
 // CombatSession is the in-memory shape of a combat_session row.
 type CombatSession struct {
 	SessionID    string
@@ -207,10 +251,47 @@ type CombatSession struct {
 	StartedAt    time.Time
 	LastActionAt time.Time
 	ExpiresAt    time.Time
+
+	// Participants are the party's seats 1..N-1, ordered by seat and contiguous
+	// (loadCombatParticipants enforces both). Empty for a solo fight — the only
+	// kind that existed before N3 — so nothing in the solo path allocates or
+	// queries for it.
+	Participants []CombatParticipant
+
+	// rosterSize mirrors the combat_session.roster_size column as scanned. It
+	// exists only so a loader can tell "solo, skip the participant query" from
+	// "party, go fetch the seats" in one round trip. In memory Participants is
+	// the single source of truth; every write re-derives the column from it.
+	rosterSize int
 }
 
 // IsActive reports whether the fight is still in flight.
 func (s *CombatSession) IsActive() bool { return s.Status == CombatStatusActive }
+
+// RosterSize is the number of seated player characters: seat 0 plus the party.
+func (s *CombatSession) RosterSize() int { return 1 + len(s.Participants) }
+
+// IsParty reports whether more than one character is seated.
+func (s *CombatSession) IsParty() bool { return len(s.Participants) > 0 }
+
+// SeatUserIDs lists every seated member's user id in seat order.
+func (s *CombatSession) SeatUserIDs() []string {
+	out := make([]string, 0, s.RosterSize())
+	out = append(out, s.UserID)
+	for _, p := range s.Participants {
+		out = append(out, p.UserID)
+	}
+	return out
+}
+
+// actorStatusesForSeat returns the persisted per-character state for a seat.
+// Seat 0 reads through to the session's embedded copy.
+func (s *CombatSession) actorStatusesForSeat(seat int) ActorStatuses {
+	if seat == 0 {
+		return s.Statuses.ActorStatuses
+	}
+	return s.Participants[seat-1].Statuses
+}
 
 // Errors returned by the combat session layer.
 var (
@@ -224,7 +305,7 @@ const combatSessionCols = `
 	session_id, user_id, run_id, encounter_id, enemy_id,
 	round, phase, player_hp, player_hp_max, enemy_hp, enemy_hp_max,
 	statuses_json, turn_log_json, status,
-	started_at, last_action_at, expires_at`
+	started_at, last_action_at, expires_at, roster_size`
 
 // newCombatSessionID — 16-char hex token. Same scheme as zone runs / expeditions.
 func newCombatSessionID() string {
@@ -296,7 +377,10 @@ func getActiveCombatSession(userID id.UserID) (*CombatSession, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
-	return s, err
+	if err != nil {
+		return nil, err
+	}
+	return s, hydrateCombatParticipants(s)
 }
 
 // hasActiveCombatSession reports whether the player is currently locked into a
@@ -324,7 +408,10 @@ func getCombatSession(sessionID string) (*CombatSession, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
-	return s, err
+	if err != nil {
+		return nil, err
+	}
+	return s, hydrateCombatParticipants(s)
 }
 
 // getCombatSessionForEncounter returns the most recent session for a
@@ -341,7 +428,10 @@ func getCombatSessionForEncounter(runID, encounterID string) (*CombatSession, er
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
-	return s, err
+	if err != nil {
+		return nil, err
+	}
+	return s, hydrateCombatParticipants(s)
 }
 
 func scanCombatSession(row scanner) (*CombatSession, error) {
@@ -354,7 +444,7 @@ func scanCombatSession(row scanner) (*CombatSession, error) {
 		&s.SessionID, &s.UserID, &s.RunID, &s.EncounterID, &s.EnemyID,
 		&s.Round, &s.Phase, &s.PlayerHP, &s.PlayerHPMax, &s.EnemyHP, &s.EnemyHPMax,
 		&statusesJSON, &logJSON, &s.Status,
-		&s.StartedAt, &s.LastActionAt, &s.ExpiresAt,
+		&s.StartedAt, &s.LastActionAt, &s.ExpiresAt, &s.rosterSize,
 	); err != nil {
 		return nil, err
 	}
@@ -377,32 +467,68 @@ func scanCombatSession(row scanner) (*CombatSession, error) {
 // saveCombatSession persists the mutable fields after a state-machine step.
 // session_id / user_id / run_id / encounter_id / enemy_id / *_hp_max are
 // immutable for a fight's lifetime and are not rewritten.
+//
+// A party fight also writes back its seats, in the same transaction as the
+// session row: a crash between the two would leave seat 0 a round ahead of the
+// rest of the roster. The solo path keeps its single unwrapped UPDATE — there
+// are no seats to desync from, and it is the path the whole balance corpus and
+// every pre-N3 fight take.
+//
+// roster_size is not rewritten here: insertCombatParticipants stamped it at
+// fight start and the roster is fixed for the fight's lifetime (a dead member
+// keeps their seat at 0 HP).
 func saveCombatSession(s *CombatSession) error {
 	statusesJSON, _ := json.Marshal(s.Statuses)
 	logJSON, _ := json.Marshal(s.TurnLog)
 	now := time.Now().UTC()
-	if _, err := db.Get().Exec(`
-		UPDATE combat_session
-		   SET round = ?, phase = ?,
-		       player_hp = ?, enemy_hp = ?,
-		       statuses_json = ?, turn_log_json = ?,
-		       status = ?, last_action_at = ?
-		 WHERE session_id = ?`,
+
+	if len(s.Participants) == 0 {
+		if _, err := db.Get().Exec(saveCombatSessionSQL,
+			s.Round, s.Phase, s.PlayerHP, s.EnemyHP,
+			string(statusesJSON), string(logJSON), s.Status, now, s.SessionID,
+		); err != nil {
+			return err
+		}
+		s.LastActionAt = now
+		return nil
+	}
+
+	tx, err := db.Get().Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(saveCombatSessionSQL,
 		s.Round, s.Phase, s.PlayerHP, s.EnemyHP,
 		string(statusesJSON), string(logJSON), s.Status, now, s.SessionID,
 	); err != nil {
+		return err
+	}
+	if err := saveCombatParticipantsTx(tx, s.SessionID, s.Participants); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 	s.LastActionAt = now
 	return nil
 }
 
+const saveCombatSessionSQL = `
+	UPDATE combat_session
+	   SET round = ?, phase = ?,
+	       player_hp = ?, enemy_hp = ?,
+	       statuses_json = ?, turn_log_json = ?,
+	       status = ?, last_action_at = ?
+	 WHERE session_id = ?`
+
 // listExpiredCombatSessions returns every active session past its expires_at.
 // The timeout reaper (reapExpiredCombatSessions) auto-plays each of these to a
 // real win/loss from persisted mid-state — per the 2026-05-13 decision, an
 // abandoned fight is finished by the engine, not flatly marked as a retreat.
 func listExpiredCombatSessions() ([]*CombatSession, error) {
-	rows, err := db.Get().Query(`SELECT `+combatSessionCols+`
+	rows, err := db.Get().Query(`SELECT ` + combatSessionCols + `
 		  FROM combat_session
 		 WHERE status = 'active'
 		   AND expires_at <= CURRENT_TIMESTAMP
@@ -420,7 +546,160 @@ func listExpiredCombatSessions() ([]*CombatSession, error) {
 		}
 		out = append(out, s)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Hydrate only after the cursor is closed: a nested query while iterating
+	// can stall on a single-connection pool.
+	rows.Close()
+	for _, s := range out {
+		if err := hydrateCombatParticipants(s); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// ── Party seats (N3/P4) ──────────────────────────────────────────────────────
+
+// hydrateCombatParticipants fills s.Participants for a party session. A solo
+// session (roster_size 1, which is every row written before N3) returns
+// immediately without touching combat_participant, so the common path stays at
+// the single query it has always been.
+func hydrateCombatParticipants(s *CombatSession) error {
+	if s == nil || s.rosterSize <= 1 {
+		return nil
+	}
+	ps, err := loadCombatParticipants(s.SessionID)
+	if err != nil {
+		return err
+	}
+	if got := 1 + len(ps); got != s.rosterSize {
+		return fmt.Errorf("combat session %s: roster_size %d but %d seats persisted",
+			s.SessionID, s.rosterSize, got)
+	}
+	s.Participants = ps
+	return nil
+}
+
+// loadCombatParticipants returns seats 1..N-1 in seat order, verifying that the
+// seats are contiguous from 1. The engine indexes the roster positionally, so a
+// gap would silently shift every member down a seat — better to fail the load.
+func loadCombatParticipants(sessionID string) ([]CombatParticipant, error) {
+	rows, err := db.Get().Query(`
+		SELECT seat, user_id, hp, hp_max, statuses_json
+		  FROM combat_participant
+		 WHERE session_id = ?
+		 ORDER BY seat ASC`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []CombatParticipant
+	for rows.Next() {
+		var (
+			p            CombatParticipant
+			statusesJSON string
+		)
+		if err := rows.Scan(&p.Seat, &p.UserID, &p.HP, &p.HPMax, &statusesJSON); err != nil {
+			return nil, err
+		}
+		if statusesJSON != "" {
+			if err := json.Unmarshal([]byte(statusesJSON), &p.Statuses); err != nil {
+				return nil, fmt.Errorf("decode participant statuses (seat %d): %w", p.Seat, err)
+			}
+		}
+		if want := len(out) + 1; p.Seat != want {
+			return nil, fmt.Errorf("combat session %s: seat %d out of order (want %d)",
+				sessionID, p.Seat, want)
+		}
+		out = append(out, p)
+	}
 	return out, rows.Err()
+}
+
+// insertCombatParticipants seats the party at fight start and stamps
+// roster_size so later loads know to come back for them. Seat 0 is the session
+// row's own user and is not written here; callers pass seats 1..N-1.
+func insertCombatParticipants(sessionID string, ps []CombatParticipant) error {
+	if len(ps) == 0 {
+		return nil
+	}
+	tx, err := db.Get().Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, p := range ps {
+		statusesJSON, _ := json.Marshal(p.Statuses)
+		if _, err := tx.Exec(`
+			INSERT INTO combat_participant (session_id, seat, user_id, hp, hp_max, statuses_json)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			sessionID, p.Seat, p.UserID, p.HP, p.HPMax, string(statusesJSON),
+		); err != nil {
+			return fmt.Errorf("insert participant seat %d: %w", p.Seat, err)
+		}
+	}
+	if _, err := tx.Exec(
+		`UPDATE combat_session SET roster_size = ? WHERE session_id = ?`,
+		1+len(ps), sessionID,
+	); err != nil {
+		return fmt.Errorf("stamp roster_size: %w", err)
+	}
+	return tx.Commit()
+}
+
+// saveCombatParticipantsTx writes back the mutable half of every seat after an
+// engine step. session_id / seat / user_id / hp_max are immutable for a fight's
+// lifetime and are not rewritten. It runs inside the caller's transaction so
+// the seats commit together with the session row that indexes them.
+func saveCombatParticipantsTx(tx *sql.Tx, sessionID string, ps []CombatParticipant) error {
+	for _, p := range ps {
+		statusesJSON, _ := json.Marshal(p.Statuses)
+		if _, err := tx.Exec(`
+			UPDATE combat_participant
+			   SET hp = ?, statuses_json = ?
+			 WHERE session_id = ? AND seat = ?`,
+			p.HP, string(statusesJSON), sessionID, p.Seat,
+		); err != nil {
+			return fmt.Errorf("save participant seat %d: %w", p.Seat, err)
+		}
+	}
+	return nil
+}
+
+// getActiveCombatSessionForMember finds the in-flight fight a player is seated
+// in at seat 1+, i.e. the one their own user_id does not key. Seat 0's fight is
+// getActiveCombatSession's job; this is the party-member equivalent, and it
+// returns (nil, nil) when there is none.
+func getActiveCombatSessionForMember(userID id.UserID) (*CombatSession, error) {
+	row := db.Get().QueryRow(`SELECT `+prefixCols("cs", combatSessionCols)+`
+		  FROM combat_session cs
+		  JOIN combat_participant cp ON cp.session_id = cs.session_id
+		 WHERE cp.user_id = ? AND cs.status = 'active'
+		 ORDER BY cs.started_at DESC
+		 LIMIT 1`, string(userID))
+	s, err := scanCombatSession(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s, hydrateCombatParticipants(s)
+}
+
+// prefixCols qualifies every column in a SELECT list with a table alias, so the
+// shared combatSessionCols can be reused inside a join without ambiguity on the
+// columns both tables carry (session_id, user_id, statuses_json).
+func prefixCols(alias, cols string) string {
+	fields := strings.Split(cols, ",")
+	for i, f := range fields {
+		fields[i] = alias + "." + strings.TrimSpace(f)
+	}
+	return strings.Join(fields, ", ")
 }
 
 // markCombatSessionExpired is the fallback terminal outcome for a stale session
