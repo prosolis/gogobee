@@ -425,7 +425,11 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 // returns the spell plus the resolved slot level. errMsg is non-empty and
 // player-facing on any validation failure. It performs NO resource spend —
 // the caller debits the slot only once the round is about to resolve.
-func parseCombatCast(userID id.UserID, c *DnDCharacter, args string) (SpellDefinition, int, string) {
+//
+// It takes the seat, not just the user, because "do you know this spell" is a
+// question about a combatant and only *usually* a question about a database row:
+// the hired companion has no rows and answers it from his synthetic sheet.
+func parseCombatCast(sess *CombatSession, seat int, userID id.UserID, c *DnDCharacter, args string) (SpellDefinition, int, string) {
 	tokens := strings.Fields(args)
 	upcast := 0
 	var spellTokens []string
@@ -473,7 +477,7 @@ func parseCombatCast(userID id.UserID, c *DnDCharacter, args string) (SpellDefin
 			return SpellDefinition{}, 0, fmt.Sprintf("At level %d, your Arcane Trickster magic only reaches level-%d spells.", c.Level, mx)
 		}
 	}
-	known, prepared, err := playerKnowsSpell(userID, spell.ID)
+	known, prepared, err := seatKnowsSpell(sess, seat, userID, spell.ID)
 	if err != nil {
 		return SpellDefinition{}, 0, "Couldn't check your spell list."
 	}
@@ -611,8 +615,7 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 		return PlayerAction{}, noop, targetErr
 	}
 
-	advChar, _ := loadAdvCharacter(uid)
-	c, err := p.ensureCharForDnDCmd(uid, advChar)
+	c, err := p.seatCastSheet(ct.sess, uid)
 	if err != nil || c == nil {
 		return PlayerAction{}, noop, "Couldn't load your Adv 2.0 sheet."
 	}
@@ -621,7 +624,7 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 			"%s isn't a caster class. `!attack` or `!consume <item>` instead.", titleClass(c.Class))
 	}
 
-	spell, slotLevel, errMsg := parseCombatCast(uid, c, strings.TrimSpace(args))
+	spell, slotLevel, errMsg := parseCombatCast(ct.sess, seat, uid, c, strings.TrimSpace(args))
 	if errMsg != "" {
 		return PlayerAction{}, noop, errMsg
 	}
@@ -632,7 +635,7 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 
 	refund := func(ok bool) {
 		if !ok && spell.Level > 0 {
-			_ = refundSpellSlot(uid, slotLevel)
+			_ = refundSeatSlot(ct.sess, seat, uid, slotLevel)
 		}
 	}
 
@@ -649,7 +652,7 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 			return PlayerAction{}, noop, fmt.Sprintf(
 				"%s has no effect the turn-based engine can apply yet.", spell.Name)
 		}
-		if msg := p.chargeSpellCost(uid, spell, slotLevel); msg != "" {
+		if msg := p.chargeSpellCost(ct.sess, seat, uid, spell, slotLevel); msg != "" {
 			return PlayerAction{}, noop, msg
 		}
 		ct.sess.actorStatusesPtr(seat).applyBuffDelta(d)
@@ -671,7 +674,7 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 			return PlayerAction{}, noop, fmt.Sprintf(
 				"%s is a utility spell — those aren't usable in turn-based fights yet. Try a damage, healing, control, or buff spell.", spell.Name)
 		}
-		if msg := p.chargeSpellCost(uid, spell, slotLevel); msg != "" {
+		if msg := p.chargeSpellCost(ct.sess, seat, uid, spell, slotLevel); msg != "" {
 			return PlayerAction{}, noop, msg
 		}
 		// Park the Necromancy kill-heal stash on the casting seat. The
@@ -735,18 +738,30 @@ func (p *AdventurePlugin) rebuildRoster(ct *combatTurn) error {
 // success the caller owns the slot and must refundSpellSlot if the round itself
 // errors. Material components (rare in a fight) are not refunded if the slot
 // debit then fails — matching the auto-resolve cast path.
-func (p *AdventurePlugin) chargeSpellCost(userID id.UserID, spell SpellDefinition, slotLevel int) string {
+func (p *AdventurePlugin) chargeSpellCost(sess *CombatSession, seat int, userID id.UserID, spell SpellDefinition, slotLevel int) string {
+	_, _, companion := seatCompanionLoadout(sess, userID)
+
+	// The companion carries no purse — he has no wallet to debit and no inventory
+	// to stock one from, so a component cost is not a price he can pay but a spell
+	// he cannot cast. Refusing here (rather than letting the debit fail on an empty
+	// account) keeps that an explicit rule instead of an accident of his balance.
 	if spell.MaterialCost > 0 {
+		if companion {
+			return fmt.Sprintf("%s needs a component %s doesn't carry.", spell.Name, companionDisplayName)
+		}
 		if p.euro == nil || !p.euro.Debit(userID, float64(spell.MaterialCost), "dnd_spell_component") {
 			return fmt.Sprintf("%s needs a %d-coin diamond component you can't afford.", spell.Name, spell.MaterialCost)
 		}
 	}
 	if spell.Level > 0 {
-		ok, serr := consumeSpellSlot(userID, slotLevel)
+		ok, serr := consumeSeatSlot(sess, seat, userID, slotLevel)
 		if serr != nil {
 			return "Couldn't consume slot: " + serr.Error()
 		}
 		if !ok {
+			if companion {
+				return fmt.Sprintf("%s is out of level-%d energy.", companionDisplayName, slotLevel)
+			}
 			return fmt.Sprintf("You're out of level-%d energy. %s", slotLevel, renderSlotsBrief(userID))
 		}
 	}

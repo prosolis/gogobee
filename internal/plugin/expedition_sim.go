@@ -1210,8 +1210,16 @@ func (p *AdventurePlugin) pickAutoCombatAction(uid id.UserID, sess *CombatSessio
 // which is seat 0. Driving a party member's turn off the leader's HP would heal
 // the wrong person and re-arm the wrong aura.
 func (p *AdventurePlugin) pickAutoCombatActionForSeat(uid id.UserID, sess *CombatSession, seat int) (kind, arg string) {
-	c, _ := LoadDnDCharacter(uid)
-	if c == nil || sess == nil {
+	if sess == nil {
+		return "attack", ""
+	}
+	// seatPickSheet, not LoadDnDCharacter: the hired companion has no character row
+	// and never will, so the raw load returned nil for him and this function bailed
+	// to "attack" on its first line — every turn, for the whole fight. That one line
+	// is why a hired Cleric swung a mace while the party died. He fights off the
+	// same synthetic sheet the rest of his seat is built from.
+	c := seatPickSheet(sess, uid)
+	if c == nil {
 		return "attack", ""
 	}
 	st := sess.actorStatusesForSeat(seat)
@@ -1240,7 +1248,7 @@ func (p *AdventurePlugin) pickAutoCombatActionForSeat(uid id.UserID, sess *Comba
 		// otherwise never spends an L2 slot on it. Force the pick once
 		// per fight (BuffSpiritProc==0) so the picker doesn't pretend
 		// it's not a damage option.
-		if id := simPickSpiritualWeapon(c, uid, st); id != "" {
+		if id := simPickSpiritualWeapon(c, sess, seat, uid, st); id != "" {
 			return "cast", id
 		}
 		// Once a concentration aura is up, a competent caster maintains it and
@@ -1248,7 +1256,7 @@ func (p *AdventurePlugin) pickAutoCombatActionForSeat(uid id.UserID, sess *Comba
 		// slot to re-arm the same aura — so the picker excludes concentration
 		// spells while one is active.
 		auraActive := st.ConcentrationDmg > 0
-		if id := simPickSpell(c, uid, auraActive); id != "" {
+		if id := simPickSpell(c, sess, seat, uid, auraActive); id != "" {
 			return "cast", id
 		}
 	}
@@ -1283,14 +1291,14 @@ func simMartialFirstClass(class DnDClass) bool {
 // above 2nd, so spending a precious L5 to add a single d8 to the proc is
 // not worth burning the bigger slot's damage potential elsewhere; sim
 // behaves like a competent player and saves the high slot.
-func simPickSpiritualWeapon(c *DnDCharacter, uid id.UserID, st ActorStatuses) string {
+func simPickSpiritualWeapon(c *DnDCharacter, sess *CombatSession, seat int, uid id.UserID, st ActorStatuses) string {
 	if c == nil || c.Class != ClassCleric {
 		return ""
 	}
 	if st.BuffSpiritProc > 0 {
 		return ""
 	}
-	known, err := listKnownSpells(uid)
+	known, err := seatKnownSpells(sess, seat, uid)
 	if err != nil {
 		return ""
 	}
@@ -1304,7 +1312,7 @@ func simPickSpiritualWeapon(c *DnDCharacter, uid id.UserID, st ActorStatuses) st
 	if !prepared {
 		return ""
 	}
-	slots, _ := getSpellSlots(uid)
+	slots, _ := seatSpellSlots(sess, seat, uid)
 	const simMaxSlot = 5
 	for sl := 2; sl <= simMaxSlot; sl++ {
 		pair, ok := slots[sl]
@@ -1377,11 +1385,11 @@ func simPickAllyHeal(c *DnDCharacter, uid id.UserID, sess *CombatSession, seat i
 
 	// The cheapest heal that is actually castable — burning a 5th-level slot to
 	// top somebody up is not what a competent player does.
-	known, err := listKnownSpells(uid)
+	known, err := seatKnownSpells(sess, seat, uid)
 	if err != nil {
 		return "", ""
 	}
-	slots, _ := getSpellSlots(uid)
+	slots, _ := seatSpellSlots(sess, seat, uid)
 	best, bestLevel := "", 99
 	for _, k := range known {
 		if !k.Prepared {
@@ -1416,12 +1424,12 @@ func simPickAllyHeal(c *DnDCharacter, uid id.UserID, sess *CombatSession, seat i
 	return best, id.UserID(sess.seatUserID(worst)).Localpart()
 }
 
-func simPickSpell(c *DnDCharacter, uid id.UserID, auraActive bool) string {
-	known, err := listKnownSpells(uid)
+func simPickSpell(c *DnDCharacter, sess *CombatSession, seat int, uid id.UserID, auraActive bool) string {
+	known, err := seatKnownSpells(sess, seat, uid)
 	if err != nil || len(known) == 0 {
 		return ""
 	}
-	slots, _ := getSpellSlots(uid)
+	slots, _ := seatSpellSlots(sess, seat, uid)
 	type cand struct {
 		id          string
 		slot        int
