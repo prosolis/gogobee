@@ -1,7 +1,9 @@
 package plugin
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -27,9 +29,11 @@ import (
 //   - Reaction spells (Shield, Counterspell, Absorb Elements) refuse with
 //     a "Phase 11" note — they require the boss turn-based engine.
 //
-// Cross-player targeting (--target @user) is deliberately deferred. SP2
-// supports self-target only. Heals on self work; ally buffs queue with the
-// caster as the target until SP3 wires up the multi-player resolution.
+// Cross-player targeting (`--target @user`, or a trailing `@user`) heals a human
+// on your expedition — see dnd_cast_target.go. Only heals may name somebody else
+// out of combat: UTILITY resolves on the caster, and everything else queues as a
+// PendingCast for the *caster's* next fight, where an ally target has nothing to
+// mean. In-combat targeting is splitCastTarget (combat_cmd.go).
 
 // PendingCast is the shape stored in dnd_character.pending_cast (JSON blob).
 // Keep this minimal — the combat layer resolves the actual numbers on fire.
@@ -97,6 +101,13 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 		return p.dndCastDrop(ctx, c)
 	}
 
+	// An ally target — `--target @alex`, or a trailing `@alex` — comes off the
+	// string before the spell parser sees it, exactly as in combat. It is
+	// resolved (and refused) further down, once we know the spell is a heal: a
+	// target on anything else is a mistake, and refusing it early would cost us
+	// the "which spell?" half of the error message.
+	args, targetName := splitOutOfCombatTarget(args)
+
 	// Parse spell name + optional --upcast N.
 	tokens := strings.Fields(args)
 	upcast := 0
@@ -109,11 +120,6 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 				if err == nil {
 					upcast = n
 				}
-				i++
-			}
-		case "--target":
-			// Reserved for SP3 — accept and ignore for now.
-			if i+1 < len(tokens) {
 				i++
 			}
 		default:
@@ -195,6 +201,23 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 		}
 	}
 
+	// Resolve an ally target now — BEFORE anything is spent. Out of combat only a
+	// heal can land on somebody else: UTILITY resolves on the caster and
+	// everything else queues as a PendingCast for *this* caster's next fight, so
+	// a target on those would be accepted and then silently dropped.
+	var targetUser id.UserID
+	if targetName != "" {
+		if spell.Effect != EffectSpellHeal {
+			return p.SendDM(ctx.Sender, fmt.Sprintf(
+				"%s isn't a healing spell — outside a fight you can only cast those on someone else. Drop the target to cast it on yourself.", spell.Name))
+		}
+		uid, errMsg := resolveCastTargetOnExpedition(ctx.Sender, targetName)
+		if errMsg != "" {
+			return p.SendDM(ctx.Sender, errMsg)
+		}
+		targetUser = uid // empty when they named themselves — self-heal as usual
+	}
+
 	// Material cost (Revivify, Raise Dead).
 	if spell.MaterialCost > 0 {
 		if p.euro == nil || !p.euro.Debit(ctx.Sender, float64(spell.MaterialCost), "dnd_spell_component") {
@@ -220,6 +243,9 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 	// debited above; if SaveDnDCharacter fails we refund.
 	switch spell.Effect {
 	case EffectSpellHeal:
+		if targetUser != "" {
+			return p.resolveAllyHealOutOfCombat(ctx, c, targetUser, spell, slotLevel)
+		}
 		return p.resolveHealOutOfCombat(ctx, c, spell, slotLevel)
 	case EffectUtility:
 		return p.resolveUtility(ctx, c, spell, slotLevel)
@@ -231,7 +257,10 @@ func (p *AdventurePlugin) handleDnDCastCmd(ctx MessageContext, args string) erro
 
 // ── Out-of-combat: HEAL ──────────────────────────────────────────────────────
 
-func (p *AdventurePlugin) resolveHealOutOfCombat(ctx MessageContext, c *DnDCharacter, spell SpellDefinition, slotLevel int) error {
+// rollOutOfCombatHeal is what the spell is worth in the caster's hands. It is a
+// property of the caster (their WIS, their domain), never of the body it lands
+// on, so an ally heal rolls exactly the same as a self-heal.
+func rollOutOfCombatHeal(c *DnDCharacter, spell SpellDefinition, slotLevel int) int {
 	dice, faces, _ := parseDamageDice(spell.DamageDice)
 	if dice == 0 {
 		dice, faces = 1, 8 // safety fallback
@@ -253,6 +282,11 @@ func (p *AdventurePlugin) resolveHealOutOfCombat(ctx MessageContext, c *DnDChara
 	}
 	heal += abilityModifier(c.WIS)
 	heal += lifeDomainHealBonus(c, spell, slotLevel)
+	return heal
+}
+
+func (p *AdventurePlugin) resolveHealOutOfCombat(ctx MessageContext, c *DnDCharacter, spell SpellDefinition, slotLevel int) error {
+	heal := rollOutOfCombatHeal(c, spell, slotLevel)
 
 	before := c.HPCurrent
 	c.HPCurrent = min(c.HPMax, c.HPCurrent+heal)
@@ -269,6 +303,51 @@ func (p *AdventurePlugin) resolveHealOutOfCombat(ctx MessageContext, c *DnDChara
 	return p.SendDM(ctx.Sender, fmt.Sprintf(
 		"🩹 **%s** — restored %d HP (%d → %d / %d). %s",
 		spell.Name, delta, before, c.HPCurrent, c.HPMax,
+		renderSlotsBrief(ctx.Sender)))
+}
+
+// resolveAllyHealOutOfCombat puts the heal on somebody else's sheet. The slot is
+// already spent, so every failure below refunds it: a heal that lands on nobody
+// must not cost the caster anything.
+func (p *AdventurePlugin) resolveAllyHealOutOfCombat(ctx MessageContext, c *DnDCharacter, target id.UserID, spell SpellDefinition, slotLevel int) error {
+	refund := func(msg string) error {
+		if spell.Level > 0 {
+			_ = refundSpellSlot(ctx.Sender, slotLevel)
+		}
+		return p.SendDM(ctx.Sender, msg)
+	}
+
+	heal := rollOutOfCombatHeal(c, spell, slotLevel)
+	before, after, maxHP, err := healPartyMember(target, heal)
+
+	targetName := charName(target)
+	if targetName == "" {
+		targetName = target.Localpart()
+	}
+	casterName := charName(ctx.Sender)
+	if casterName == "" {
+		casterName = ctx.Sender.Localpart()
+	}
+
+	switch {
+	case errors.Is(err, errHealTargetFull):
+		return refund(fmt.Sprintf("**%s** is already at full health (%d/%d). Slot kept.", targetName, before, maxHP))
+	case errors.Is(err, errHealTargetDown):
+		// The same rule the combat path holds: a heal is not a resurrection.
+		return refund(fmt.Sprintf("**%s** is down — a heal won't bring them back. Slot kept.", targetName))
+	case errors.Is(err, sql.ErrNoRows):
+		return refund(fmt.Sprintf("**%s** hasn't run `!setup` yet, so there's no sheet to heal.", targetName))
+	case err != nil:
+		return refund("Couldn't apply the heal: " + err.Error())
+	}
+
+	_ = p.SendDM(target, fmt.Sprintf(
+		"🩹 **%s** casts **%s** on you — %d HP back (%d → %d / %d).",
+		casterName, spell.Name, after-before, before, after, maxHP))
+
+	return p.SendDM(ctx.Sender, fmt.Sprintf(
+		"🩹 **%s** on **%s** — restored %d HP (%d → %d / %d). %s",
+		spell.Name, targetName, after-before, before, after, maxHP,
 		renderSlotsBrief(ctx.Sender)))
 }
 
@@ -676,6 +755,7 @@ func renderCastHelp(c *DnDCharacter) string {
 	var b strings.Builder
 	b.WriteString("**Cast a spell**\n\n")
 	b.WriteString("Usage: `!cast <spell> [--upcast N]`\n")
+	b.WriteString("       `!cast <heal> @friend` to heal someone on your expedition.\n")
 	b.WriteString("       `!cast --drop` to clear queued/concentration.\n\n")
 	b.WriteString("Run `!spells` for your full list.\n\n")
 	if pc, ok := decodePendingCast(c.PendingCast); ok {
