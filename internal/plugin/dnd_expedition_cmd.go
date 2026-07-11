@@ -384,6 +384,9 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	if isHol, _ := isHolidayToday(); isHol {
 		suppliesPurchase.StandardPacks++
 	}
+	if pk := activeOmen().SupplyFreebiePacks; pk > 0 { // N7/B3 the Omen
+		suppliesPurchase.StandardPacks += pk
+	}
 	supplies := makeSupplies(zone.Tier, suppliesPurchase)
 
 	// Debit coins; bail on debit failure (race / cap).

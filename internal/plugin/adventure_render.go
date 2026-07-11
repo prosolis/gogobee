@@ -312,6 +312,12 @@ func renderAdvMorningDM(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment,
 		sb.WriteString(fmt.Sprintf("🎉 Happy %s! In recognition of %s, today's adventures come with TwinBee's blessing — new zone & expedition runs start at +5 mood, expedition outfitting includes a complimentary standard pack, and every harvest yields one extra unit.\n\n", holidayName, holidayName))
 	}
 
+	// N7/B3 the Omen — this week's world modifier, in TwinBee's voice. Rides the
+	// existing morning DM (no net-new scheduled message); persistent one-liner so
+	// a mid-week arrival still learns the active omen.
+	sb.WriteString(omenMorningLine(activeOmen()))
+	sb.WriteString("\n\n")
+
 	// Pick a morning greeting
 	greeting, _ := advPickFlavor(MorningDM, userID, "morning_dm")
 	displayName, _ := loadDisplayName(userID)

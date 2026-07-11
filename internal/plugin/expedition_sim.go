@@ -49,6 +49,10 @@ func NewSimRunner(dataDir string) (*SimRunner, error) {
 	// etc. fire the way a competent prod player would set them up.
 	// Without this the sim under-counts class survival.
 	simAutoArmEnabled = true
+	// N7/B3 — neutralize the weekly Omen so corpus results don't depend on which
+	// wall-clock week the sweep runs in (the sim's synthetic clock never reaches
+	// activeOmen's time.Now()).
+	simOmenDisabled = true
 	euro := &EuroPlugin{}
 	p := &AdventurePlugin{euro: euro}
 	return &SimRunner{P: p, Euro: euro}, nil

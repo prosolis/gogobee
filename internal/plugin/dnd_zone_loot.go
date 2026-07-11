@@ -454,7 +454,11 @@ var advIngredientActivities = []AdvActivityType{
 // rollZoneIngredient draws one crafting ingredient from a random legacy
 // gathering table at the zone's tier. Returns nil on the common no-drop path.
 func rollZoneIngredient(zoneTier int) *AdvItem {
-	if rand.Float64() >= advIngredientDropChance {
+	chance := advIngredientDropChance
+	if m := activeOmen().ConsumableChanceMult; m > 1.0 { // N7/B3 the Omen
+		chance *= m
+	}
+	if rand.Float64() >= chance {
 		return nil
 	}
 	act := advIngredientActivities[rand.IntN(len(advIngredientActivities))]

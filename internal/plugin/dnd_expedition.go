@@ -160,6 +160,9 @@ func startExpedition(userID id.UserID, zoneID ZoneID, runID string, supplies Exp
 	if isHol, _ := isHolidayToday(); isHol {
 		startMood = 55
 	}
+	if b := activeOmen().StartMoodBonus; b > 0 { // N7/B3 the Omen
+		startMood += b
+	}
 	exp := &Expedition{
 		ID:            newExpeditionID(),
 		UserID:        string(userID),

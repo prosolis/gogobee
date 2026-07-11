@@ -463,6 +463,9 @@ func grantHarvestYield(userID id.UserID, res ZoneResource, qty int) error {
 	if isHol, _ := isHolidayToday(); isHol {
 		qty++
 	}
+	if b := activeOmen().HarvestYieldBonus; b > 0 { // N7/B3 the Omen
+		qty += b
+	}
 	tier := zoneTierFromID(res.ZoneID)
 	for i := 0; i < qty; i++ {
 		item := AdvItem{

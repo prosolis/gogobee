@@ -531,6 +531,12 @@ func (p *AdventurePlugin) arenaCompleteSession(userID id.UserID, run *ArenaRun, 
 	}
 	totalXP := int(float64(run.XPAccumulated) * xpMult)
 
+	// N7/B3 the Omen — a payout-boosting week scales gross earnings before the
+	// pot tax, so both the player's cut and the pot's rake grow proportionally.
+	if m := activeOmen().ArenaPayoutMult; m > 1.0 {
+		run.Earnings = int64(float64(run.Earnings) * m)
+	}
+
 	// Arena tax: 10% of earnings to community pot.
 	arenaTax := int64(math.Round(float64(run.Earnings) * 0.1))
 	arenaNet := run.Earnings - arenaTax

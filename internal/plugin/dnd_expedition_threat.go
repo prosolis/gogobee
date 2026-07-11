@@ -117,6 +117,14 @@ func applyDailyThreatDrift(e *Expedition) (int, string, error) {
 		return 0, "", nil
 	}
 	delta, reason := dailyThreatDrift(e.DMMood)
+	// N7/B3 the Omen — a "still waters" week subtracts from the daily threat
+	// *rise* only (guarded on delta > 0), floored so the worst case is threat
+	// holding steady for the day; it never turns a rise into active decay.
+	if r := activeOmen().ThreatDriftReduce; r > 0 && delta > 0 {
+		if delta -= r; delta < 0 {
+			delta = 0
+		}
+	}
 	if delta == 0 {
 		return 0, reason, nil
 	}
