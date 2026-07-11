@@ -616,6 +616,15 @@ func RunMaintenance() {
 		{"urban_cache", `DELETE FROM urban_cache WHERE cached_at < ?`, []interface{}{cutoff30d}},
 		{"url_cache", `DELETE FROM url_cache WHERE cached_at < ?`, []interface{}{cutoff30d}},
 
+		// Pete adventure-news queue — reap delivered rows (kept only for
+		// idempotency); undelivered rows stay so the sender can retry/park them.
+		{"pete_emit_queue", `DELETE FROM pete_emit_queue WHERE sent_at IS NOT NULL AND sent_at < ?`, []interface{}{cutoff7d}},
+		// ...and reap permanently-parked rows: the sender exhausts its retries
+		// within a few hours, so anything still unsent after 30 days is dead
+		// weight the drain query already skips — drop it so a durable outage
+		// can't accrete rows forever.
+		{"pete_emit_queue_parked", `DELETE FROM pete_emit_queue WHERE sent_at IS NULL AND created_at < ?`, []interface{}{cutoff30d}},
+
 		// Rate limits — purge entries older than today
 		{"rate_limits", `DELETE FROM rate_limits WHERE date < ?`, []interface{}{today}},
 
@@ -945,6 +954,46 @@ CREATE TABLE IF NOT EXISTS shade_log (
 
 CREATE TABLE IF NOT EXISTS shade_optout (
 	user_id TEXT PRIMARY KEY
+);
+
+-- Pete adventure-news seam: durable outbound queue of game-event facts sent to
+-- the Pete news bot. Emit enqueues (INSERT OR IGNORE on guid = idempotency); a
+-- background sender drains rows where sent_at IS NULL. Keyed on the fact guid so
+-- retries and duplicate emits collapse to one row.
+CREATE TABLE IF NOT EXISTS pete_emit_queue (
+	guid            TEXT PRIMARY KEY,
+	payload         TEXT NOT NULL,
+	created_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+	attempts        INTEGER NOT NULL DEFAULT 0,
+	next_attempt_at INTEGER NOT NULL DEFAULT 0,
+	sent_at         INTEGER
+);
+
+-- Players who opted out of being named in Pete's adventure news. Enforced at
+-- emit time (anonymize, never delete). Mirrors shade_optout.
+CREATE TABLE IF NOT EXISTS news_optout (
+	user_id      TEXT PRIMARY KEY,
+	opted_out_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+-- Realm-first ledger for adventure news: the first (kind,target) occurrence
+-- across all players. INSERT OR IGNORE returns rows-affected>0 exactly once, so
+-- the first clear of a zone/boss fires as a PRIORITY realm-first and everyone
+-- after as a BULLETIN personal clear. Seeded by the cold-start backfill so a
+-- fresh deploy doesn't re-flag historically-cleared content as first-ever.
+CREATE TABLE IF NOT EXISTS news_realm_firsts (
+	kind     TEXT NOT NULL,
+	target   TEXT NOT NULL,
+	first_at INTEGER NOT NULL,
+	PRIMARY KEY (kind, target)
+);
+
+-- Durable runtime config for adventure news (e.g. the emission kill-switch).
+-- Deliberately NOT stored in api_cache: RunMaintenance prunes that table after
+-- 7 days, which would silently revert an operator's !news off back to on.
+CREATE TABLE IF NOT EXISTS news_config (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
 );
 
 -- Birthdays

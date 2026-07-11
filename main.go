@@ -13,6 +13,7 @@ import (
 	"gogobee/internal/bot"
 	"gogobee/internal/db"
 	"gogobee/internal/dreamclient"
+	"gogobee/internal/peteclient"
 	"gogobee/internal/plugin"
 	"gogobee/internal/util"
 	"gogobee/internal/version"
@@ -55,6 +56,11 @@ func main() {
 	}
 	db.RecordStartup(version.Version, version.Commit)
 
+	// Pete adventure-news seam: wire the outbound fact client from the
+	// environment (no-op unless FEATURE_PETE_NEWS=true). The background sender
+	// is started once the run context exists (below).
+	peteclient.Init()
+
 	// Create Matrix session. AUTH_MODE selects the transport:
 	//   masdevice (default) — MAS OAuth device grant over /sync.
 	//   appservice          — as_token auth over Synapse transaction push.
@@ -96,6 +102,9 @@ func main() {
 		sess.Stop()
 		cancel()
 	}()
+
+	// Drain the Pete adventure-news emit queue in the background until shutdown.
+	peteclient.StartSender(ctx)
 
 	// Show the bot online from boot (appservice mode; no-op under masdevice, where
 	// /sync refreshes presence implicitly). Safe before the listener — outbound only.

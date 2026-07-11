@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/peteclient"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -575,4 +576,32 @@ func markAdventureDead(userID id.UserID, source, location string) {
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("dnd: kill on combat loss", "user", userID, "err", err)
 	}
+	emitDeathNews(userID, location)
+}
+
+// emitDeathNews files a PRIORITY death dispatch to Pete's adventure news. No-op
+// unless the seam is enabled. Uses the character name (never the Matrix handle);
+// skips silently if the name is unknown.
+func emitDeathNews(userID id.UserID, location string) {
+	// Gate before the char lookups: markAdventureDead fires per-member on a
+	// party wipe and in the sim harness, so skip the DB reads when disabled.
+	if !peteclient.Enabled() || !newsEmissionOn() {
+		return
+	}
+	name := charName(userID)
+	if name == "" {
+		return
+	}
+	lvl := charLevel(userID)
+	ts := nowUnix()
+	emitFact(peteclient.Fact{
+		GUID:       fmt.Sprintf("death:%s:%d", eventToken(userID, fmt.Sprintf("%d", ts)), ts),
+		EventType:  "death",
+		Tier:       "priority",
+		Subject:    name,
+		Zone:       location,
+		Level:      lvl,
+		Outcome:    "lost",
+		OccurredAt: ts,
+	}, userID, "")
 }

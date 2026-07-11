@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/peteclient"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
@@ -101,7 +102,7 @@ func (p *AchievementsPlugin) checkAndGrant(userID id.UserID) {
 }
 
 func (p *AchievementsPlugin) grant(d *sql.DB, userID id.UserID, achievementID string) {
-	_, err := d.Exec(
+	res, err := d.Exec(
 		`INSERT INTO achievements (user_id, achievement_id) VALUES (?, ?) ON CONFLICT DO NOTHING`,
 		string(userID), achievementID,
 	)
@@ -109,7 +110,43 @@ func (p *AchievementsPlugin) grant(d *sql.DB, userID id.UserID, achievementID st
 		slog.Error("achievements: grant", "user", userID, "achievement", achievementID, "err", err)
 		return
 	}
+	// Only a genuinely new grant is news; a re-check conflict (rows==0) is not.
+	if n, _ := res.RowsAffected(); n == 0 {
+		return
+	}
 	slog.Info("achievements: granted", "user", userID, "achievement", achievementID)
+	p.emitMilestoneNews(d, userID, achievementID)
+}
+
+// emitMilestoneNews files a BULLETIN milestone to Pete for RARE achievements
+// only — rarity-gated to a single holder (per the news selection thresholds) so
+// routine unlocks don't flood the feed. Character name only; no-op unless the
+// seam is enabled.
+func (p *AchievementsPlugin) emitMilestoneNews(d *sql.DB, userID id.UserID, achievementID string) {
+	var holders int
+	if err := d.QueryRow(`SELECT count(*) FROM achievements WHERE achievement_id = ?`, achievementID).Scan(&holders); err != nil || holders != 1 {
+		return
+	}
+	name := charName(userID)
+	if name == "" {
+		return
+	}
+	label := achievementID
+	for _, a := range p.achievements {
+		if a.ID == achievementID {
+			label = a.Name
+			break
+		}
+	}
+	ts := nowUnix()
+	emitFact(peteclient.Fact{
+		GUID:       fmt.Sprintf("milestone:%s:%s", eventToken(userID, achievementID), achievementID),
+		EventType:  "milestone",
+		Tier:       "bulletin",
+		Subject:    name,
+		Milestone:  label,
+		OccurredAt: ts,
+	}, userID, "")
 }
 
 func (p *AchievementsPlugin) handleAchievements(ctx MessageContext) error {
