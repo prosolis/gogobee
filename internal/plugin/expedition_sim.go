@@ -131,6 +131,38 @@ func (s *SimRunner) BuildCharacter(uid id.UserID, class DnDClass, level int) (*D
 	return c, nil
 }
 
+// PrepareRealCharacter readies an already-persisted character (loaded from a
+// copy of the prod DB) for a headless run. Unlike BuildCharacter it fabricates
+// nothing: the character keeps its real race/class/subclass/level, ability
+// scores, equipment, spellbook and inventory. It only (a) heals to full — a
+// player rests before heading out, so we don't handicap a wounded prod snapshot
+// — and (b) tops the bankroll up to `bank` so the "heavy" supply preset always
+// affords itself regardless of the player's live coin balance. Returns the
+// loaded character. The DB copy is disposable; the live prod file is untouched.
+func (s *SimRunner) PrepareRealCharacter(uid id.UserID, bank float64) (*DnDCharacter, error) {
+	c, err := LoadDnDCharacter(uid)
+	if err != nil {
+		return nil, fmt.Errorf("LoadDnDCharacter: %w", err)
+	}
+	if c == nil {
+		return nil, fmt.Errorf("no character for %s in db copy", uid)
+	}
+	if c.Class == "" {
+		return nil, fmt.Errorf("%s has no class (setup incomplete) — nothing to simulate", uid)
+	}
+	c.HPCurrent = c.HPMax
+	c.TempHP = 0
+	c.Exhaustion = 0
+	c.ShortRestCharges = c.Level
+	if err := SaveDnDCharacter(c); err != nil {
+		return nil, fmt.Errorf("SaveDnDCharacter: %w", err)
+	}
+	if bal := s.Euro.GetBalance(uid); bal < bank {
+		s.Euro.Credit(uid, bank-bal, "expedition-sim real-char bankroll top-up")
+	}
+	return c, nil
+}
+
 // stockSimConsumables drops a small tier-appropriate bundle of potions
 // + a couple offensive items into the synthetic player's inventory so
 // SelectConsumables / setupAutoHealFromInventory have something to fire

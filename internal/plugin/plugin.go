@@ -638,6 +638,14 @@ func (b *Base) SendNotice(roomID id.RoomID, text string) error {
 
 // SendReply sends a reply to a specific event.
 func (b *Base) SendReply(roomID id.RoomID, eventID id.EventID, text string) error {
+	// The sink is the headless capture seam: a reply is an outbound room
+	// message, so — like SendMessage/SendDM — it diverts here when installed and
+	// the live client is never touched. Without this branch, reply-only handlers
+	// (duels, !town, !rivals, !achievements) hit a nil client under the sink.
+	if b != nil && b.Sink != nil {
+		_, err := b.Sink.Capture(outboundMessage{ToRoom: roomID, Text: text})
+		return err
+	}
 	content := textContent(text)
 	if eventID != "" {
 		content.RelatesTo = &event.RelatesTo{

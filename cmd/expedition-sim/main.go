@@ -46,6 +46,8 @@ func main() {
 		days    = flag.Int("days", 0, "stop after N synthetic day rollovers (0 = unbounded; the -cap safety net still applies)")
 		dataDir = flag.String("data", "", "data dir for the temp sqlite db (default: OS tempdir; ignored in matrix mode)")
 		userTag = flag.String("user", "@sim:expedition", "synthetic user id (single-run mode)")
+
+		realUser = flag.String("real-user", "", "run an EXISTING character loaded from -data's DB instead of building a synthetic one. Pass the real mxid (e.g. @holymachina:parodia.dev). Requires -data to point at a (copy of a) populated gogobee.db dir. Heals the char to full + tops up the bankroll; leaves race/class/level/gear/spells as-is.")
 		logFlag = flag.Bool("log", true, "include per-row expedition log in output (single-run default true; matrix default false)")
 
 		matrix  = flag.Bool("matrix", false, "matrix mode — sweep over classes × levels × zones × runs")
@@ -90,7 +92,47 @@ func main() {
 		return
 	}
 
+	if *realUser != "" {
+		if *dataDir == "" {
+			fail("-real-user requires -data pointing at a dir containing a populated gogobee.db")
+		}
+		if *party != 1 {
+			fail("-real-user does not support -party yet (would need every seat to be a real, tier-eligible char)")
+		}
+		runReal(*realUser, *zone, *dataDir, *bank, *cap, *days, *logFlag)
+		return
+	}
+
 	runSingle(*class, *level, *zone, *userTag, *dataDir, *bank, *cap, *days, *logFlag, followers)
+}
+
+// runReal drives an existing character loaded from dataDir's gogobee.db through
+// a real expedition. dataDir should be a COPY of prod — db.Init runs additive
+// migrations against it, and the run mutates HP/coin/inventory. Never point this
+// at the live prod file or at ./data.
+func runReal(userTag, zone, dataDir string, bank float64, cap, days int, includeLog bool) {
+	runner, err := plugin.NewSimRunner(dataDir)
+	if err != nil {
+		fail("init runner:", err)
+	}
+	defer runner.Close()
+
+	uid := id.UserID(userTag)
+	c, err := runner.PrepareRealCharacter(uid, bank)
+	if err != nil {
+		fail("prepare real character:", err)
+	}
+	res, err := runner.RunExpedition(uid, plugin.ZoneID(zone), cap, days)
+	if res != nil {
+		res.Class = string(c.Class) // real subclass/race aren't in SimResult; class is the useful key
+		if !includeLog {
+			res.Log = nil
+		}
+		emitIndented(res)
+	}
+	if err != nil {
+		fail("run:", err)
+	}
 }
 
 // followerClasses expands -party / -party-classes into the class of each
