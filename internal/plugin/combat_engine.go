@@ -189,6 +189,22 @@ type Combatant struct {
 	Mods     CombatModifiers
 	IsPlayer bool
 	Ability  *MonsterAbility // non-nil for monsters with a special ability
+
+	// SeatWeight is what this seat costs the enemy: 1.0 is a full peer of the
+	// leader, and less than that is a seat that brings less to the fight. Zero
+	// means "unset" and reads as 1.0, so every existing call site — and every solo
+	// fight — is unchanged.
+	//
+	// The enemy's HP bump and its action economy scale on the SUM of these rather
+	// than on a seat count. A seat count charges the boss the same for an
+	// under-levelled friend, a hired NPC, and a peer, which is why hiring a
+	// below-median body was measurably worse than going alone: he cost a full
+	// seat's worth of boss and did not give a full seat's worth back.
+	//
+	// It is derived from the seat's identity (level, and whether it is a hireling),
+	// NOT from fight state — so every per-round rebuild recomputes the same number
+	// and there is nothing to persist. See seatWeight.
+	SeatWeight float64
 }
 
 type CombatPhase struct {

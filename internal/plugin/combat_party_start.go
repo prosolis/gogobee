@@ -58,6 +58,10 @@ func (p *AdventurePlugin) buildFightSeats(
 			senderSkip = why
 		}
 	}
+	// Parallel to `seats`, so a skipped member leaves no gap: what a seat costs the
+	// enemy is priced from these once the roster is final.
+	var levels []int
+	var companions []bool
 	for i, uid := range roster {
 		leader := i == 0
 
@@ -84,6 +88,7 @@ func (p *AdventurePlugin) buildFightSeats(
 				HPMax:  player.Stats.MaxHP,
 				Mods:   player.Mods, C: &player, EngineDriven: true,
 			})
+			levels, companions = append(levels, level), append(companions, true)
 			continue
 		}
 
@@ -122,7 +127,7 @@ func (p *AdventurePlugin) buildFightSeats(
 			trySimAutoArm(c)
 			armed = consumeArmedAbility(c)
 		}
-		player, e, _, err := p.buildZoneCombatants(uid, monster, tier, dmMood, armed)
+		player, e, dc, err := p.buildZoneCombatants(uid, monster, tier, dmMood, armed)
 		if err != nil {
 			if leader {
 				return nil, nil, "", "Couldn't set up the fight: " + err.Error()
@@ -141,7 +146,17 @@ func (p *AdventurePlugin) buildFightSeats(
 		seats = append(seats, CombatSeatSetup{
 			UserID: uid, HP: hp, HPMax: hpMax, Mods: player.Mods, C: &player, ArmedAbility: armed,
 		})
+		lvl := 0
+		if dc != nil {
+			lvl = dc.Level
+		}
+		levels, companions = append(levels, lvl), append(companions, false)
 	}
+
+	// Price each seat against the leader. It runs here, over the seats that were
+	// actually seated — a member who was skipped (downed, busy elsewhere) never
+	// joined the fight and must not be charged to the enemy.
+	applySeatWeights(seatCombatants(seats), levels, companions)
 	return seats, enemy, senderSkip, ""
 }
 

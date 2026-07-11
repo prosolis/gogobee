@@ -524,7 +524,7 @@ func (p *AdventurePlugin) startPartyCombatSession(
 	// Party-only enemy HP bump (solo roster scales by 1.0). The per-turn rebuild
 	// in partyCombatantsForSession applies the identical scalar to the enemy's
 	// Stats.MaxHP, so the persisted current HP and the rebuilt max never drift.
-	enemyHP := scaledEnemyMaxHP(enemy.Stats.MaxHP, len(seats))
+	enemyHP := scaledEnemyMaxHP(enemy.Stats.MaxHP, seatSetupWeight(seats))
 	owner := seats[0]
 	sess, err := startCombatSession(owner.UserID, runID, encounterID, enemyID,
 		owner.HP, owner.HPMax, enemyHP, enemyHP)

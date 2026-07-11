@@ -63,6 +63,10 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 		builds  []seatBuild
 		seated  []id.UserID
 		enemy   Combatant
+		// Parallel to players: what each seat is worth, priced once the roster is
+		// final. A member who sat the encounter out is in none of these.
+		levels     []int
+		companions []bool
 	)
 
 	for i, uid := range roster {
@@ -93,6 +97,7 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 			players = append(players, player)
 			builds = append(builds, seatBuild{uid: uid, mods: player.Mods, companion: true})
 			seated = append(seated, uid)
+			levels, companions = append(levels, level), append(companions, true)
 			continue
 		}
 
@@ -154,7 +159,20 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 			uid: uid, dndChar: dndChar, advChar: advChar, equip: equip, mods: player.Mods,
 		})
 		seated = append(seated, uid)
+		lvl := 0
+		if dndChar != nil {
+			lvl = dndChar.Level
+		}
+		levels, companions = append(levels, lvl), append(companions, false)
 	}
+
+	// What each seat costs the enemy, priced against the leader — over the seats
+	// that were actually seated, so a member left behind is not charged.
+	ptrs := make([]*Combatant, len(players))
+	for i := range players {
+		ptrs[i] = &players[i]
+	}
+	applySeatWeights(ptrs, levels, companions)
 
 	res := simulateParty(players, enemy, phases)
 	dumpCombatEventsIfDebug(

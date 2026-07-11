@@ -154,6 +154,8 @@ func (p *AdventurePlugin) partyCombatantsForSession(sess *CombatSession) ([]*Com
 
 	seats := sess.SeatUserIDs()
 	players := make([]*Combatant, len(seats))
+	levels := make([]int, len(seats))
+	companions := make([]bool, len(seats))
 	var enemy Combatant
 	for seat, uid := range seats {
 		// The ability this seat armed was consumed once, at fight start, and its
@@ -172,18 +174,16 @@ func (p *AdventurePlugin) partyCombatantsForSession(sess *CombatSession) ([]*Com
 			player, en, _ := p.companionCombatant(class, level, monster, int(zone.Tier), run.DMMood)
 			applySessionBuffs(&player, st)
 			players[seat] = &player
+			levels[seat], companions[seat] = level, true
 			if seat == 0 {
 				// Unreachable today (seat 0 is always the leader), but if it ever
 				// isn't, the enemy still has to come from somewhere.
 				enemy = en
-				if sess.IsParty() {
-					enemy.Stats.MaxHP = scaledEnemyMaxHP(enemy.Stats.MaxHP, sess.RosterSize())
-				}
 			}
 			continue
 		}
 
-		player, e, _, err := p.buildZoneCombatants(id.UserID(uid), monster, int(zone.Tier), run.DMMood, st.ArmedAbility)
+		player, e, dc, err := p.buildZoneCombatants(id.UserID(uid), monster, int(zone.Tier), run.DMMood, st.ArmedAbility)
 		if err != nil {
 			return nil, nil, fmt.Errorf("seat %d (%s): %w", seat, uid, err)
 		}
@@ -194,20 +194,45 @@ func (p *AdventurePlugin) partyCombatantsForSession(sess *CombatSession) ([]*Com
 		// stat deltas are applied here — and only that seat's own.
 		applySessionBuffs(&player, st)
 		players[seat] = &player
+		if dc != nil {
+			levels[seat] = dc.Level
+		}
 		if seat == 0 {
 			// The enemy build reads only (monster, tier, dmMood): every seat
 			// rebuilds the identical stat block, so seat 0's copy is the fight's.
 			// Only the *player* half of the build varies by seat.
 			enemy = e
-			// Party-only enemy HP bump, re-derived each turn from the template so
-			// it never compounds. Matches the scalar startPartyCombatSession used
-			// for the initial persist; solo (roster 1) scales by 1.0.
-			if sess.IsParty() {
-				enemy.Stats.MaxHP = scaledEnemyMaxHP(enemy.Stats.MaxHP, sess.RosterSize())
-			}
 		}
 	}
+
+	// What each seat costs the enemy, priced against the leader. This runs after
+	// the loop and not inside it, because a seat's weight is relative to seat 0's
+	// level and the enemy's HP is scaled off the *summed* weight — neither is known
+	// until every seat is built.
+	applySeatWeights(players, levels, companions)
+
+	// Party-only enemy HP bump, re-derived each turn from the template so it never
+	// compounds. Matches the scalar startPartyCombatSession used for the initial
+	// persist; solo (one seat, weight 1) scales by 1.0.
+	if sess.IsParty() {
+		enemy.Stats.MaxHP = scaledEnemyMaxHP(enemy.Stats.MaxHP, partyWeight(players))
+	}
 	return players, &enemy, nil
+}
+
+// applySeatWeights prices every seat against the leader's level. Seat 0 is the
+// leader and always weighs a full 1.0.
+func applySeatWeights(players []*Combatant, levels []int, companions []bool) {
+	if len(players) == 0 {
+		return
+	}
+	leaderLevel := levels[0]
+	for i, c := range players {
+		if c == nil {
+			continue
+		}
+		c.SeatWeight = seatWeight(levels[i], leaderLevel, companions[i])
+	}
 }
 
 // seatFightStartMods re-derives the modifiers a finished fight's close-out still

@@ -68,7 +68,7 @@ func simulatePartyWithRNG(players []Combatant, enemy Combatant, phases []CombatP
 	// scaled action economy to actually threaten each member. Solo is unchanged
 	// (scale 1.0), so SimulateCombat and the golden do not move.
 	if len(players) > 1 {
-		enemy.Stats.MaxHP = scaledEnemyMaxHP(enemy.Stats.MaxHP, len(players))
+		enemy.Stats.MaxHP = scaledEnemyMaxHP(enemy.Stats.MaxHP, partyWeightOf(players))
 	}
 	enemyStart := enemy.Stats.MaxHP
 	if enemy.Stats.StartHP > 0 && enemy.Stats.StartHP < enemy.Stats.MaxHP {
@@ -320,10 +320,13 @@ func roundInitiative(st *combatState, enemy *Combatant, phase *CombatPhase) []in
 // A corpse does not threaten anybody, and the enemy has no reason to keep spending
 // actions on one.
 func enemyActionsThisRound(st *combatState) int {
-	n := livingActors(st)
-	if n < 2 {
+	if livingActors(st) < 2 {
 		return 1
 	}
+	// The summed weight of the seats still standing — not a head count of them.
+	// A seat that brings half a peer buys the boss half a peer's worth of extra
+	// swings, and a seat that is down buys none at all.
+	n := livingWeight(st)
 	exp := partyActionExpectation(n)
 	base := int(exp)
 	if frac := exp - float64(base); frac > 0 && st.randFloat() < frac {
@@ -343,6 +346,18 @@ func livingActors(st *combatState) int {
 	return n
 }
 
+// livingWeight is livingActors in the currency the enemy actually charges in: the
+// summed SeatWeight of the seats still standing.
+func livingWeight(st *combatState) float64 {
+	total := 0.0
+	for _, a := range st.actors {
+		if a.playerHP > 0 {
+			total += combatantWeight(a.c)
+		}
+	}
+	return total
+}
+
 // partyActionExpectation is the expected number of enemy attack-actions per round
 // against a party of n. A single enemy swing (the pre-P8 behaviour) let each
 // member absorb ~1/N² of the solo incoming and cleared 100% of T5; the sim band
@@ -356,15 +371,106 @@ func livingActors(st *combatState) int {
 // N≥3 follows 2N−1, the point that gave fighter ~90% / cleric-led ~72% at
 // HP ×1.15. The whole curve is monotonic by party size and never drops a
 // composition below its solo clear rate — bringing a friend is never a penalty.
-func partyActionExpectation(n int) float64 {
+// It takes a fractional party size — the summed SeatWeight of the living seats,
+// not a head count — and interpolates linearly between the integer knots the P8
+// sweep actually tuned: (1, 1.0), (2, 2.4), and 2n−1 from 3 up. Every integer
+// input therefore returns exactly what it always returned, so a solo fight and a
+// party of peers are byte-identical and the balance corpus is untouched. Only a
+// roster of *unequal* seats lands between the knots, which is the entire point:
+// a half-strength body should buy the boss half a body's worth of extra swings.
+func partyActionExpectation(n float64) float64 {
 	switch {
-	case n < 2:
+	case n <= 1:
 		return 1
-	case n == 2:
-		return 2.4
+	case n <= 2:
+		// (1, 1.0) → (2, 2.4)
+		return 1 + 1.4*(n-1)
+	case n <= 3:
+		// (2, 2.4) → (3, 5.0); the original curve stepped here, so the segment is
+		// steeper than the 2n−1 line it joins.
+		return 2.4 + 2.6*(n-2)
 	default:
-		return float64(2*n - 1)
+		return 2*n - 1
 	}
+}
+
+// seatWeight is what one seat costs the enemy, relative to the leader.
+//
+// **Level, not stats.** A power score built from HP × damage would rank a cleric
+// below a fighter and quietly make every mixed *human* party easier — the support
+// classes would stop paying their way. Level is the class-neutral measure of what
+// a body is worth, and it is exactly the axis on which the two seats that violated
+// the peer assumption differ: an under-levelled friend, and a hireling who arrives
+// a level down by design.
+//
+// A peer of the leader weighs 1.0, so a party of equals is unchanged. Nobody weighs
+// more than a peer: out-levelling the leader does not make the boss harder for
+// everyone else.
+func seatWeight(seatLevel, leaderLevel int, companion bool) float64 {
+	if leaderLevel <= 0 || seatLevel <= 0 {
+		return 1
+	}
+	w := float64(seatLevel) / float64(leaderLevel)
+	if w > 1 {
+		w = 1
+	}
+	if companion {
+		// The layers a player accumulates and a hireling never will: no subclass, no
+		// magic items, no armed ability, and gear that is never Masterwork. Levels
+		// cannot see any of that, so it is priced here.
+		w *= companionSeatWeight
+	}
+	if w < seatWeightFloor {
+		w = seatWeightFloor
+	}
+	return w
+}
+
+const (
+	// companionSeatWeight is the hireling discount — the one tunable in this model.
+	companionSeatWeight = 0.65
+	// seatWeightFloor stops a badly under-levelled seat from becoming free. A body
+	// in the fight is always worth something to the enemy: it is one more thing that
+	// has to be killed.
+	seatWeightFloor = 0.35
+)
+
+// partyWeight sums the seats' weights. An unset weight (0) reads as a full peer,
+// which is what every combatant built before this existed is.
+func partyWeight(players []*Combatant) float64 {
+	total := 0.0
+	for _, c := range players {
+		total += combatantWeight(c)
+	}
+	return total
+}
+
+func combatantWeight(c *Combatant) float64 {
+	if c == nil {
+		return 0
+	}
+	if c.SeatWeight <= 0 {
+		return 1
+	}
+	return c.SeatWeight
+}
+
+// partyWeightOf is partyWeight for a value slice.
+func partyWeightOf(players []Combatant) float64 {
+	total := 0.0
+	for i := range players {
+		total += combatantWeight(&players[i])
+	}
+	return total
+}
+
+// seatSetupWeight is partyWeight for a roster that is still being seated.
+func seatSetupWeight(seats []CombatSeatSetup) float64 {
+	total := 0.0
+	for _, s := range seats {
+		total += combatantWeight(s.C)
+	}
+	return total
 }
 
 // partyEnemyHPScale is the party-only multiplier on the enemy's max HP. Solo
@@ -378,18 +484,27 @@ func partyActionExpectation(n int) float64 {
 // three clears the T5 martial-leader band at ~89% (fighter) / ~67% (cleric-led),
 // clearly safer than soloing (70% / 27%) but with real TPKs and member deaths —
 // not the 100% faceroll a single enemy swing produced.
-func partyEnemyHPScale(rosterSize int) float64 {
-	if rosterSize < 2 {
+// Like partyActionExpectation it takes the summed SeatWeight rather than a head
+// count, and ramps between the same knots: weight 1 (solo) pays nothing, weight 2
+// (a peer at the leader's side) pays the full 1.15 the P8 sweep tuned. Integer
+// inputs are byte-exact, so solo and a party of peers are unchanged; a roster
+// carrying a below-median body pays proportionally less, because it brought
+// proportionally less.
+func partyEnemyHPScale(weight float64) float64 {
+	if weight <= 1 {
 		return 1.0
 	}
-	return 1.15
+	if weight >= 2 {
+		return 1.15
+	}
+	return 1.0 + 0.15*(weight-1)
 }
 
 // scaledEnemyMaxHP applies the party HP scalar to a base max-HP with one rounding
 // rule, so every call site (the auto-resolve engine, the party session's initial
 // persist, and the per-turn rebuild) agrees on the same number.
-func scaledEnemyMaxHP(baseMaxHP, rosterSize int) int {
-	return int(float64(baseMaxHP) * partyEnemyHPScale(rosterSize))
+func scaledEnemyMaxHP(baseMaxHP int, weight float64) int {
+	return int(float64(baseMaxHP) * partyEnemyHPScale(weight))
 }
 
 // enemyActionPlan is the shared action budget both combat engines resolve an

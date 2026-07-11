@@ -105,7 +105,7 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 	// this is a no-op there); mirror it here so the entry banner and the opening
 	// round resolve against the same ceiling startPartyCombatSession persisted and
 	// the rebuilt rounds use.
-	enemyHP := scaledEnemyMaxHP(enemy.Stats.MaxHP, len(seats))
+	enemyHP := scaledEnemyMaxHP(enemy.Stats.MaxHP, seatSetupWeight(seats))
 
 	// Fight-start one-shot resources (Abjuration Arcane Ward, etc.) are seeded
 	// per seat onto the session and its participant rows, so they survive the
