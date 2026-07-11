@@ -55,6 +55,14 @@ func (p *AdventurePlugin) finishPartyCombatSession(ct *combatTurn) []string {
 	// so does the bookkeeping that outlives the fight — a Berserker who raged and
 	// lost is still exhausted. Both fan out; neither is the owner's alone.
 	for seat := range sess.RosterSize() {
+		// The companion has no sheet to persist HP onto and no bookkeeping that
+		// outlives the fight — he arrives fresh next time. Skipping him here is
+		// not just tidiness: postCombatBookkeepingForSeat logs at ERROR when a
+		// seat has no sheet, so leaving him in would file an error for every
+		// party fight he is ever hired for.
+		if isCompanionUser(sess.seatUserID(seat)) {
+			continue
+		}
 		persistDnDHPAfterCombat(id.UserID(sess.seatUserID(seat)), sess.seatHP(seat))
 		p.postCombatBookkeepingForSeat(sess, seat)
 	}
@@ -99,6 +107,16 @@ func (p *AdventurePlugin) finishPartyWin(
 	for seat := range sess.RosterSize() {
 		uid := id.UserID(sess.seatUserID(seat))
 		hp, hpMax := sess.seatHP(seat), sess.seatHPMax(seat)
+
+		// The hired companion takes no cut. He earns no XP (there is no sheet to
+		// put it on), rolls no loot (dropZoneLoot writes real inventory rows for
+		// whatever id it is handed, and a bot with a magic sword is nobody's
+		// intent), and takes no death row. His seat renders nothing: he is not
+		// reading this. He was paid up front.
+		if isCompanionSeat(uid) {
+			out[seat] = ""
+			continue
+		}
 
 		// A member who went down before the killing blow still earns the kill.
 		p.grantSeatWinXP(uid, hp, hpMax, monster, tier)
@@ -148,7 +166,17 @@ func (p *AdventurePlugin) finishPartyLoss(ct *combatTurn, zone ZoneDefinition, c
 	line := twinBeeLine(zone.ID, DMPlayerDeath, sess.RunID, cadence)
 	out := make([]string, sess.RosterSize())
 	for seat := range sess.RosterSize() {
-		markAdventureDead(id.UserID(sess.seatUserID(seat)), "zone", zone.Display)
+		uid := id.UserID(sess.seatUserID(seat))
+		// The companion does not die. markAdventureDead is a silent no-op for him
+		// today (no player_meta row to mark), but relying on that accident is how
+		// he ends up in the graveyard the first time someone gives him a row —
+		// and emitDeathNews would have the news bot file a death notice about
+		// itself. Say it out loud instead.
+		if isCompanionSeat(uid) {
+			out[seat] = ""
+			continue
+		}
+		markAdventureDead(uid, "zone", zone.Display)
 		var b strings.Builder
 		if line != "" && seat == 0 {
 			b.WriteString(line + "\n")

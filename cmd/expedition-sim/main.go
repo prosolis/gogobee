@@ -48,7 +48,7 @@ func main() {
 		userTag = flag.String("user", "@sim:expedition", "synthetic user id (single-run mode)")
 
 		realUser = flag.String("real-user", "", "run an EXISTING character loaded from -data's DB instead of building a synthetic one. Pass the real mxid (e.g. @holymachina:parodia.dev). Requires -data to point at a (copy of a) populated gogobee.db dir. Heals the char to full + tops up the bankroll; leaves race/class/level/gear/spells as-is.")
-		logFlag = flag.Bool("log", true, "include per-row expedition log in output (single-run default true; matrix default false)")
+		logFlag  = flag.Bool("log", true, "include per-row expedition log in output (single-run default true; matrix default false)")
 
 		matrix  = flag.Bool("matrix", false, "matrix mode — sweep over classes × levels × zones × runs")
 		classes = flag.String("classes", "", "comma-separated class ids (matrix mode)")
@@ -62,6 +62,7 @@ func main() {
 
 		party        = flag.Int("party", 1, "seat a party of N (1 = solo, the historical path). Followers are invited on Day 1 and buy their own supplies")
 		partyClasses = flag.String("party-classes", "", "comma-separated classes for the N-1 followers (default: clones of -class)")
+		companion    = flag.String("companion", "", "hire Pete into the party: \"auto\" fills the missing role, or name a class (cleric, fighter, …). Empty = no companion. He takes a seat but no loot/XP.")
 
 		jobs = flag.Int("jobs", 0, "matrix mode — concurrent worker count (each worker is a subprocess so it gets its own sqlite). 0 = runtime.NumCPU()")
 	)
@@ -88,7 +89,7 @@ func main() {
 				includeLog = *logFlag
 			}
 		})
-		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, *days, includeLog, *jobs, *trace, *petLevel, *party, *partyClasses)
+		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, *days, includeLog, *jobs, *trace, *petLevel, *party, *partyClasses, *companion)
 		return
 	}
 
@@ -103,7 +104,7 @@ func main() {
 		return
 	}
 
-	runSingle(*class, *level, *zone, *userTag, *dataDir, *bank, *cap, *days, *logFlag, followers)
+	runSingle(*class, *level, *zone, *userTag, *dataDir, *bank, *cap, *days, *logFlag, followers, *companion)
 }
 
 // runReal drives an existing character loaded from dataDir's gogobee.db through
@@ -161,7 +162,7 @@ func followerClasses(leaderClass string, party int, spec string) []string {
 	return out
 }
 
-func runSingle(class string, level int, zone, userTag, dataDir string, bank float64, cap, days int, includeLog bool, followers []string) {
+func runSingle(class string, level int, zone, userTag, dataDir string, bank float64, cap, days int, includeLog bool, followers []string, companion string) {
 	dir := dataDir
 	if dir == "" {
 		var err error
@@ -172,7 +173,7 @@ func runSingle(class string, level int, zone, userTag, dataDir string, bank floa
 		defer os.RemoveAll(dir)
 	}
 
-	res, err := runOne(dir, id.UserID(userTag), plugin.DnDClass(class), level, plugin.ZoneID(zone), bank, cap, days, followers)
+	res, err := runOne(dir, id.UserID(userTag), plugin.DnDClass(class), level, plugin.ZoneID(zone), bank, cap, days, followers, companion)
 	if err != nil {
 		if res != nil {
 			if !includeLog {
@@ -199,7 +200,7 @@ type matrixJob struct {
 	rep   int
 }
 
-func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days int, includeLog bool, jobs int, trace bool, petLevel, party int, partyClasses string) {
+func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days int, includeLog bool, jobs int, trace bool, petLevel, party int, partyClasses, companion string) {
 	cs := splitNonEmpty(classes)
 	ls := parseLevels(levels)
 	zs := splitNonEmpty(zones)
@@ -230,7 +231,7 @@ func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days 
 	var wg sync.WaitGroup
 	for i := 0; i < jobs; i++ {
 		wg.Add(1)
-		go matrixWorker(exe, workCh, resCh, &wg, bank, cap, days, includeLog, trace, petLevel, party, partyClasses)
+		go matrixWorker(exe, workCh, resCh, &wg, bank, cap, days, includeLog, trace, petLevel, party, partyClasses, companion)
 	}
 	go func() {
 		for _, j := range work {
@@ -249,7 +250,7 @@ func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days 
 	}
 }
 
-func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult, wg *sync.WaitGroup, bank float64, cap, days int, includeLog, trace bool, petLevel, party int, partyClasses string) {
+func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult, wg *sync.WaitGroup, bank float64, cap, days int, includeLog, trace bool, petLevel, party int, partyClasses, companion string) {
 	defer wg.Done()
 	for j := range in {
 		uid := fmt.Sprintf("@sim:%s-l%d-%s-%d", j.class, j.level, j.zone, j.rep)
@@ -274,6 +275,9 @@ func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult,
 		// Left empty, each cell's followers clone that cell's own -class.
 		if partyClasses != "" {
 			args = append(args, "-party-classes", partyClasses)
+		}
+		if companion != "" {
+			args = append(args, "-companion", companion)
 		}
 		if trace {
 			args = append(args, "-trace")
@@ -314,7 +318,7 @@ func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult,
 	}
 }
 
-func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zone plugin.ZoneID, bank float64, cap, days int, followers []string) (*plugin.SimResult, error) {
+func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zone plugin.ZoneID, bank float64, cap, days int, followers []string, companion string) (*plugin.SimResult, error) {
 	runner, err := plugin.NewSimRunner(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("init runner: %w", err)
@@ -338,6 +342,7 @@ func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zon
 		runner.Euro.Credit(muid, bank, "expedition-sim bankroll")
 		members = append(members, muid)
 	}
+	runner.Companion = companion
 	return runner.RunPartyExpedition(uid, members, zone, cap, days)
 }
 

@@ -526,9 +526,90 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 // the roster so the buff is live for the round's enemy turn. Before P5 that
 // delta went to the session's embedded copy — seat 0 — so a party member
 // buffing themselves would have buffed the leader.
+// splitCastTarget peels an optional ally target off the end of a `!cast` argument
+// — `cure wounds @alex`, or just `cure wounds alex` — and resolves it to a seat.
+//
+// It resolves against the people *in this fight* rather than the room, which is
+// both cheaper (no ResolveUser round-trip, no RoomID to thread down here) and
+// more correct: the only legal target of a combat heal is somebody sitting in the
+// combat. Anything it does not recognise is left on the string for the spell
+// parser, so `!cast cure wounds` and `!cast fireball 3` behave exactly as before.
+//
+// Both spellings work: the `--target @alex` flag that `!help` has advertised all
+// along (and that parseCombatCast has been silently swallowing since SP2 —
+// "reserved for SP3, accept and ignore"), and a plain trailing `@alex`.
+//
+// Returns (remainingArgs, seat, errMsg). seat is -1 when no target was named.
+func splitCastTarget(ct *combatTurn, caster int, args string) (string, int, string) {
+	args = strings.TrimSpace(args)
+	if args == "" || !ct.isParty() {
+		return args, -1, ""
+	}
+	fields := strings.Fields(args)
+
+	// `--target <who>` anywhere in the string.
+	explicit, name := false, ""
+	for i := 0; i < len(fields); i++ {
+		if !strings.EqualFold(fields[i], "--target") {
+			continue
+		}
+		if i+1 >= len(fields) {
+			return args, -1, "`--target` needs a name: `!cast cure wounds --target @alex`."
+		}
+		explicit, name = true, strings.TrimPrefix(fields[i+1], "@")
+		fields = append(fields[:i], fields[i+2:]...)
+		break
+	}
+
+	if name == "" {
+		last := fields[len(fields)-1]
+		// A bare number is a slot level (`!cast fireball 3`), never a target.
+		if _, err := strconv.Atoi(last); err == nil {
+			return args, -1, ""
+		}
+		explicit = strings.HasPrefix(last, "@")
+		name = strings.TrimPrefix(last, "@")
+		if name == "" {
+			return args, -1, ""
+		}
+		fields = fields[:len(fields)-1]
+	}
+	// From here `fields` is the spell tokens with the target removed.
+	rest := strings.Join(fields, " ")
+
+	for i, c := range ct.players {
+		uid := ct.sess.seatUserID(i)
+		if !strings.EqualFold(c.Name, name) &&
+			!strings.EqualFold(uid, name) &&
+			!strings.EqualFold(id.UserID(uid).Localpart(), name) {
+			continue
+		}
+		if i == caster {
+			// Targeting yourself is just casting it on yourself, which is what the
+			// engine does by default. Drop the target and carry on.
+			return rest, -1, ""
+		}
+		return rest, i, ""
+	}
+	// An explicit @mention that matches nobody in the fight is a mistake worth
+	// naming — silently casting it on yourself would waste the slot.
+	if explicit {
+		return args, -1, fmt.Sprintf("**%s** isn't in this fight. Cast it on someone who is.", name)
+	}
+	return args, -1, ""
+}
+
 func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args string) (PlayerAction, func(bool), string) {
 	noop := func(bool) {}
 	uid := id.UserID(ct.sess.seatUserID(seat))
+
+	// §1 — a heal may name somebody else in the fight: `!cast cure wounds @alex`.
+	// Split the target off before the spell is parsed, so the spell parser sees
+	// the same string it always has.
+	args, targetSeat, targetErr := splitCastTarget(ct, seat, args)
+	if targetErr != "" {
+		return PlayerAction{}, noop, targetErr
+	}
 
 	advChar, _ := loadAdvCharacter(uid)
 	c, err := p.ensureCharForDnDCmd(uid, advChar)
@@ -611,6 +692,20 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 			EnemyDamage: out.EnemyDamage,
 			PlayerHeal:  out.PlayerHeal,
 			EnemySkip:   out.EnemySkip,
+		}
+		// §1 — redirect the heal onto the named ally. The roll is the same; only
+		// the body it lands on changes. This is the line that makes a cleric a
+		// cleric: until it existed, every heal in the engine was a self-heal, and
+		// the class whose whole job is keeping other people upright could not put
+		// a single hit point on a friend.
+		if targetSeat >= 0 && targetSeat != seat {
+			if out.PlayerHeal <= 0 {
+				return PlayerAction{}, refund, fmt.Sprintf(
+					"%s isn't something you can cast on someone else. Drop the target to cast it yourself.", spell.Name)
+			}
+			eff.AllyHeal, eff.AllySeat = out.PlayerHeal, targetSeat
+			eff.PlayerHeal = 0
+			eff.Label = fmt.Sprintf("%s → %s (+%d HP)", spell.Name, ct.players[targetSeat].Name, out.PlayerHeal)
 		}
 		// Concentration AOE damage spells linger: the burst lands this round
 		// (EnemyDamage) and the same value re-ticks every round_end after, via

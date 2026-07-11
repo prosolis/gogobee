@@ -160,6 +160,29 @@ func (p *AdventurePlugin) partyCombatantsForSession(sess *CombatSession) ([]*Com
 		// id parked on their statuses. Re-applying it here — not re-consuming —
 		// is what makes a rage last the whole fight instead of one round.
 		st := sess.actorStatusesForSeat(seat)
+
+		// The hired companion has no sheet to load — by design, because a
+		// player_meta row for him is the thing that would turn him into a real
+		// character everywhere. Synthesize his seat instead. This branch is
+		// load-bearing: buildZoneCombatants would fail on him, and one
+		// unbuildable seat fails the whole rebuild, which is what every human's
+		// !attack in the fight depends on.
+		if isCompanionUser(uid) {
+			class, level := companionLoadoutForRun(sess.RunID)
+			player, en, _ := p.companionCombatant(class, level, monster, int(zone.Tier), run.DMMood)
+			applySessionBuffs(&player, st)
+			players[seat] = &player
+			if seat == 0 {
+				// Unreachable today (seat 0 is always the leader), but if it ever
+				// isn't, the enemy still has to come from somewhere.
+				enemy = en
+				if sess.IsParty() {
+					enemy.Stats.MaxHP = scaledEnemyMaxHP(enemy.Stats.MaxHP, sess.RosterSize())
+				}
+			}
+			continue
+		}
+
 		player, e, _, err := p.buildZoneCombatants(id.UserID(uid), monster, int(zone.Tier), run.DMMood, st.ArmedAbility)
 		if err != nil {
 			return nil, nil, fmt.Errorf("seat %d (%s): %w", seat, uid, err)

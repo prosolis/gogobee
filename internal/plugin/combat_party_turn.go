@@ -166,6 +166,15 @@ func (p *AdventurePlugin) beginCombatTurn(sender id.UserID, noFightMsg string) (
 		return fail(notYourTurnMsg(players, acting, waiting))
 	}
 
+	// An engine-driven seat has nobody to hand the wheel back to. A command
+	// arriving from one is not a player returning to the keyboard — it is a driver
+	// impersonating a seat, which is precisely the confusion that used to strand
+	// the companion: his own auto-played turn came back through here looking like
+	// a keystroke and cleared the latch that was moving him. Refuse it outright.
+	if sess.seatIsEngineDriven(seat) {
+		return fail("That seat isn't yours to play.")
+	}
+
 	// They typed, so they are here. Hand back the wheel.
 	sess.actorStatusesPtr(seat).Autopilot = false
 
@@ -315,6 +324,33 @@ func (p *AdventurePlugin) nudgeStalledPartyTurn(sessionID string) {
 	p.announcePartyRound(ct, events, preamble, p.closePartyRound(ct))
 }
 
+// driveEngineSeat plays one engine-driven seat's turn and persists the result.
+// It is the seat-driver equivalent of a player typing `!attack`, for a seat that
+// will never type anything.
+//
+// It exists because the alternative — dispatching a combat command as that seat —
+// sends the turn back through beginCombatTurn, which reads any command from a
+// seat as "that player is back". For a human that is correct. For a seat with no
+// human it is fatal: it drops the latch that is the only thing moving them.
+func (p *AdventurePlugin) driveEngineSeat(sess *CombatSession, seat int) error {
+	players, enemy, err := p.partyCombatantsForSession(sess)
+	if err != nil {
+		return fmt.Errorf("rebuild for engine seat: %w", err)
+	}
+	ct := &combatTurn{
+		sess: sess, players: players, enemy: enemy,
+		seat: seat, uid: id.UserID(sess.seatUserID(seat)),
+	}
+	if _, err := p.runAutoSeatTurn(ct, seat); err != nil {
+		return err
+	}
+	if err := saveCombatSession(sess); err != nil {
+		return fmt.Errorf("save after engine seat turn: %w", err)
+	}
+	p.closePartyRound(ct)
+	return nil
+}
+
 // turnDeadlineLapsed reports whether the fight has sat on one member's turn past
 // partyTurnDeadline. LastActionAt is stamped by every saveCombatSession, and the
 // save that parked the fight on this seat's player_turn was the last one — so it
@@ -387,6 +423,12 @@ func (p *AdventurePlugin) announcePartyRound(ct *combatTurn, events []CombatEven
 	names := ct.seatNames()
 	acting, waiting := actingSeat(ct.sess, ct.players, ct.enemy)
 	for seat, uid := range ct.sess.SeatUserIDs() {
+		// The combat fan-out is seat-keyed, so it does not pass through
+		// expeditionAudience and does not inherit its companion filter. He fights;
+		// he is not written to about it.
+		if isCompanionUser(uid) {
+			continue
+		}
 		// Rendered once per reader: the flavor pool speaks in the second person,
 		// so each member's own events must be theirs and nobody else's.
 		body := RenderPartyTurnRound(events, names, ct.enemy.Name, seat)

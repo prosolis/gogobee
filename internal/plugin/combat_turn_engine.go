@@ -65,6 +65,19 @@ type turnActionEffect struct {
 	EnemyDamage int
 	PlayerHeal  int
 	EnemySkip   bool // control spell: enemy forfeits its attack this round
+
+	// AllyHeal heals ANOTHER seat instead of the caster — the thing the engine
+	// could not do until §1, and the reason a party cleric was a cleric in name
+	// only. Every heal in the engine wrote to the acting seat: MistyHealProc,
+	// HealItem, PlayerHeal above. Nothing could put a hit point on a friend, so
+	// the class whose entire identity is keeping other people alive could not.
+	// N3 shipped that way and no test noticed, because there was no party golden.
+	//
+	// Zero means no ally heal, which keeps every existing construction of this
+	// struct meaning exactly what it meant before. AllySeat is only read when
+	// AllyHeal > 0, so its zero value is never mistaken for "seat 0".
+	AllyHeal int
+	AllySeat int
 	// ConcentrationDmg arms a per-round aura tick when a concentration damage
 	// spell is cast: EnemyDamage is the burst that lands this round, this is
 	// what re-ticks at every round_end after. Zero for one-shot spells; a
@@ -559,6 +572,25 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 		// healed back past the lowered ceiling.
 		hpCap := max(1, st.hpMax-st.maxHPDrain)
 		st.playerHP = min(hpCap, st.playerHP+eff.PlayerHeal)
+	}
+	// §1 — heal somebody else. The caster's cursor stays where it is; only the
+	// target's HP moves.
+	//
+	// A downed seat is NOT raised. Death in this engine is terminal for the fight
+	// (the close-out marks them, the hospital takes them), and a heal that
+	// resurrected a corpse would quietly rewrite the loss rules every close-out
+	// path depends on. Healing keeps people up; it does not bring them back.
+	if eff.AllyHeal > 0 && eff.AllySeat >= 0 && eff.AllySeat < len(st.actors) {
+		if tgt := st.actors[eff.AllySeat]; tgt.playerHP > 0 {
+			cap := max(1, tgt.hpMax-tgt.maxHPDrain)
+			before := tgt.playerHP
+			tgt.playerHP = min(cap, tgt.playerHP+eff.AllyHeal)
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: turnCombatPhase.Name, Actor: "player", Action: "ally_heal",
+				Damage: tgt.playerHP - before, PlayerHP: tgt.playerHP, EnemyHP: st.enemyHP,
+				Seat: eff.AllySeat, Desc: eff.Label,
+			})
+		}
 	}
 	// Arm / replace the concentration aura. A new concentration cast overwrites
 	// the old one (5e: one concentration at a time); non-concentration casts

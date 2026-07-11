@@ -307,8 +307,20 @@ func roundInitiative(st *combatState, enemy *Combatant, phase *CombatPhase) []in
 // between — a per-round coin-flip for the extra action is the only way to land
 // the band in the gap. The single draw is taken only for a party, so the solo RNG
 // stream is untouched.
+// §2(b): the budget counts the seats still STANDING, re-derived every round —
+// not the seats that walked in.
+//
+// It used to read len(st.actors), which includes the dead. So a party that lost a
+// member kept paying for them: the survivor faced a boss still swinging at
+// two-player cadence, alone. That is a death spiral with the arrow pointing the
+// wrong way — the moment a party is losing, the engine hits it harder — and it is
+// the single nastiest thing the companion sweep turned up, because it is not a
+// companion bug at all. It has been live for every human party since N3.
+//
+// A corpse does not threaten anybody, and the enemy has no reason to keep spending
+// actions on one.
 func enemyActionsThisRound(st *combatState) int {
-	n := len(st.actors)
+	n := livingActors(st)
 	if n < 2 {
 		return 1
 	}
@@ -318,6 +330,17 @@ func enemyActionsThisRound(st *combatState) int {
 		base++
 	}
 	return base
+}
+
+// livingActors counts the seats still standing.
+func livingActors(st *combatState) int {
+	n := 0
+	for _, a := range st.actors {
+		if a.playerHP > 0 {
+			n++
+		}
+	}
+	return n
 }
 
 // partyActionExpectation is the expected number of enemy attack-actions per round

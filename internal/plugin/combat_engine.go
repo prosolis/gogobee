@@ -220,7 +220,14 @@ type CombatEvent struct {
 	//
 	// It exists so a party's play-by-play can name the right person. Solo events
 	// are all seat 0, and the omitempty tag keeps the field out of every solo
-	// turn_log_json — rows written before N3/P5 decode unchanged.
+	// turn_log_json — rows written before N3/P5 decode unchanged, and a fight in
+	// flight across a deploy resumes byte-identically (TestP5Fields_StayOffSoloRows).
+	//
+	// The omitempty makes seat 0 and "no seat" identical on the wire, which is
+	// fine for persistence and actively misleading in a diagnostic trace — it hid
+	// a companion who never swung, making the fight look like it had one seat.
+	// Do NOT fix that here; the wire format is load-bearing. The sim's trace
+	// serializes through simTraceEvent, which always emits the seat.
 	Seat int `json:"Seat,omitempty"`
 }
 

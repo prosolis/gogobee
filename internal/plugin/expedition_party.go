@@ -82,30 +82,126 @@ func partyMembers(expeditionID string) ([]PartyMember, error) {
 	return out, rows.Err()
 }
 
-// partyMemberIDs is partyMembers reduced to user ids, leader first. It is what
-// the fan-out seams (digest, briefing, recap) want: a solo expedition yields
-// just the owner, so a caller can loop unconditionally.
-func partyMemberIDs(expeditionID, ownerID string) ([]id.UserID, error) {
-	members, err := partyMembers(expeditionID)
+// PartySeatKind is what a seat *is*. The three answers differ in ways that matter
+// at almost every seam, and conflating any two of them has already cost us a bug:
+// a companion is a seat but not a mouth and not a mailbox; a leader owns the
+// expedition row that everyone else references.
+type PartySeatKind int
+
+const (
+	SeatLeader PartySeatKind = iota
+	SeatMember
+	SeatCompanion
+)
+
+// PartySeat is one body on an expedition.
+type PartySeat struct {
+	UserID id.UserID
+	Kind   PartySeatKind
+}
+
+// IsHuman reports whether there is a person behind this seat — someone who can be
+// DM'd, can earn loot, eats supplies, and can die.
+func (s PartySeat) IsHuman() bool { return s.Kind != SeatCompanion }
+
+// expeditionParty is THE answer to "who is on this expedition". Every other view
+// — who gets mail, who sits down in a fight, who eats — is derived from it.
+//
+// It ALWAYS includes the owner. That is the whole point, and it is not a
+// convenience: a solo expedition has **no expedition_party rows at all** (the
+// roster only materializes on the first invite — see partyMembers), so any code
+// that answers "who is in this party?" by reading the roster table gets *nobody*
+// for a solo player, and then quietly falls back to whatever looked sensible at
+// the call site.
+//
+// That is not hypothetical. It is exactly how the hired companion came out at
+// **level 1** for every solo player — the one player the feature exists for. The
+// level was averaged over the party; the party read as empty; the fallback was 1.
+// He then walked into a tier-4 zone as a level-1 body, died on contact, and left
+// the leader fighting a boss that had been inflated on his account. A 1500-run
+// sweep is what found it, because nothing else could.
+//
+// So: there is no way to ask this function for the party and be handed an empty
+// list. If the expedition exists, it has at least a leader.
+func expeditionParty(expeditionID, ownerID string) ([]PartySeat, error) {
+	rows, err := partyMembers(expeditionID)
 	if err != nil {
 		return nil, err
 	}
-	if len(members) == 0 {
-		return []id.UserID{id.UserID(ownerID)}, nil
+	if len(rows) == 0 {
+		// Solo: no roster rows. The owner IS the party.
+		if ownerID == "" {
+			return nil, nil
+		}
+		return []PartySeat{{UserID: id.UserID(ownerID), Kind: SeatLeader}}, nil
 	}
-	out := make([]id.UserID, 0, len(members))
-	for _, m := range members {
-		out = append(out, id.UserID(m.UserID))
+	out := make([]PartySeat, 0, len(rows))
+	for _, m := range rows {
+		kind := SeatMember
+		switch {
+		case isCompanionUser(m.UserID):
+			kind = SeatCompanion
+		case m.IsLeader():
+			kind = SeatLeader
+		}
+		out = append(out, PartySeat{UserID: id.UserID(m.UserID), Kind: kind})
 	}
 	return out, nil
 }
 
-// partySize is the number of seated players: 1 for a solo expedition.
+// partyHumans is the party minus the companion: everyone with a person behind
+// them. This is the set that gets mail, earns loot, eats supplies, and can die.
+func partyHumans(expeditionID, ownerID string) ([]PartySeat, error) {
+	seats, err := expeditionParty(expeditionID, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	out := seats[:0]
+	for _, s := range seats {
+		if s.IsHuman() {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+// partyMemberIDs is the whole party as ids, leader first — every body, companion
+// included. Callers that want only people want partyHumans.
+func partyMemberIDs(expeditionID, ownerID string) ([]id.UserID, error) {
+	seats, err := expeditionParty(expeditionID, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]id.UserID, 0, len(seats))
+	for _, s := range seats {
+		out = append(out, s.UserID)
+	}
+	return out, nil
+}
+
+// partySize is the number of seated *players*: 1 for a solo expedition.
+//
+// A hired companion is not counted, and both of this function's consumers want
+// it that way:
+//
+//   - expeditionBurnRatePct scales the daily supply burn by party size. Pete
+//     never bought a pack — members buy their own on !expedition accept, and he
+//     accepts nothing — so counting him would bill the leader a 60% higher burn
+//     for a mouth that brought its own rations. He is on expenses.
+//   - the "your party is still waiting on you" gate blocks a leader from
+//     starting a new run while an extracted party is pending. A roster holding
+//     nobody but Pete is not a party waiting on anyone, and counting him would
+//     lock the leader out of the game until they abandoned the run.
+//
+// The combat roster is a different question with a different answer: Pete IS a
+// body in the fight, so CombatSession.RosterSize() counts him and the enemy-HP
+// scalar feels him. Seats and mouths are not the same set.
 func partySize(expeditionID string) (int, error) {
 	var n int
 	err := db.Get().QueryRow(
-		`SELECT COUNT(*) FROM expedition_party WHERE expedition_id = ?`,
-		expeditionID).Scan(&n)
+		`SELECT COUNT(*) FROM expedition_party
+		  WHERE expedition_id = ? AND user_id <> ?`,
+		expeditionID, string(companionUserID())).Scan(&n)
 	if err != nil {
 		return 0, err
 	}

@@ -51,6 +51,11 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 		advChar *AdventureCharacter
 		equip   map[EquipmentSlot]*AdvEquipment
 		mods    CombatModifiers
+		// companion marks the hired NPC seat: it fights, but it owns none of the
+		// character-scoped effects the close-out loop applies, and its dndChar /
+		// advChar / equip are nil precisely so a missed guard panics loudly here
+		// rather than silently writing rows for a bot.
+		companion bool
 	}
 
 	var (
@@ -67,6 +72,22 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 		// cost them their seat.
 		bail := func(err error) (PartyCombatResult, []id.UserID, error) {
 			return PartyCombatResult{}, nil, err
+		}
+
+		// The hired companion fights here too — the auto-resolve path is where
+		// most expedition rooms are actually decided. He is synthesized rather
+		// than loaded, and his seatBuild is flagged so the close-out loop below
+		// gives him no XP, no loot, and no post-combat persistence.
+		if isCompanionSeat(uid) {
+			class, level := companionLoadout(companionExpeditionFor(roster[0]))
+			player, e, _ := p.companionCombatant(class, level, monster, tier, dmMood)
+			if leader {
+				enemy = e
+			}
+			players = append(players, player)
+			builds = append(builds, seatBuild{uid: uid, mods: player.Mods, companion: true})
+			seated = append(seated, uid)
+			continue
 		}
 
 		advChar, err := loadAdvCharacter(uid)
@@ -137,6 +158,14 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 	for i, b := range builds {
 		seatRes := res.Seats[i]
 
+		// The companion swings and then goes back to filing copy: no inventory to
+		// deduct from, no sheet to persist to, no XP to earn. Every call below
+		// would either write rows for a bot or log an error about the rows it
+		// hasn't got.
+		if b.companion {
+			continue
+		}
+
 		// Remove the actual heal items consumed during combat (one inventory item
 		// per heal_item event this seat fired). Cheapest-tier first.
 		consumeFiredHealingItems(b.uid, countHealEventsFired(seatRes))
@@ -193,6 +222,12 @@ func (p *AdventurePlugin) closeOutZoneWin(
 ) (leaderDrop string, downed []id.UserID) {
 	party := len(seated) > 1
 	for i, uid := range seated {
+		// The companion takes no cut and cannot die. He is not in the downed list
+		// either: that list is what the room narration mourns, and the party did
+		// not lose a friend when the hireling took a nap.
+		if isCompanionSeat(uid) {
+			continue
+		}
 		if res.Seats[i].PlayerEndHP > 0 {
 			drop := p.dropZoneLoot(uid, zone.ID, monster, isBoss, elite)
 			if i == 0 {
@@ -217,6 +252,12 @@ func (p *AdventurePlugin) closeOutZoneWin(
 // fight.
 func closeOutZoneLoss(res PartyCombatResult, seated []id.UserID, zone ZoneDefinition, deathSource string) (killed []id.UserID) {
 	for i, uid := range seated {
+		// The companion is not killed and is not counted among the dead — he is
+		// not in the graveyard, and a wipe that lists him would have the news bot
+		// reporting its own funeral.
+		if isCompanionSeat(uid) {
+			continue
+		}
 		if res.Seats[i].PlayerEndHP <= 0 {
 			markAdventureDead(uid, deathSource, zone.Display)
 			killed = append(killed, uid)

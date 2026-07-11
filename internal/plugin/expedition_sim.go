@@ -34,6 +34,11 @@ func simInlineBossCombat() bool { return os.Getenv("GOGOBEE_SIM_INLINE_BOSS") ==
 type SimRunner struct {
 	P    *AdventurePlugin
 	Euro *EuroPlugin
+	// Companion hires Pete into the party on Day 1: "" = none, "auto" = fill the
+	// missing role, or an explicit class id. He takes a combat seat and no loot,
+	// which is exactly the thing the sweep is here to measure — whether an extra
+	// below-median body lifts the trailing case without carrying it.
+	Companion string
 }
 
 // NewSimRunner initializes a fresh sqlite DB in dataDir and constructs
@@ -400,7 +405,42 @@ type SimCombatSummary struct {
 	// SetSimIncludeTrace(true) has been called, and only on the LAST
 	// combat per expedition (the boss room) to keep JSONL size bounded.
 	// Used by J2 caster-survival analysis.
-	Events []CombatEvent `json:",omitempty"`
+	Events []simTraceEvent `json:",omitempty"`
+}
+
+// simTraceEvent is CombatEvent with the seat ALWAYS emitted.
+//
+// CombatEvent.Seat is `omitempty` for wire-compat reasons that are correct for
+// persistence and wrong for a trace: seat 0 and "no seat" serialize identically,
+// so a party trace silently reads as a solo fight. That is not hypothetical — it
+// is what made a hired companion who never took a turn look, in the JSON, like a
+// fight that only ever had one seat, and it cost an hour of chasing the wrong bug.
+// A diagnostic that cannot tell you who acted is not a diagnostic.
+type simTraceEvent struct {
+	Round       int
+	Seat        int // always present, even when 0
+	Phase       string
+	Actor       string
+	Action      string
+	Damage      int
+	PlayerHP    int
+	EnemyHP     int
+	Roll        int
+	RollAgainst int
+	Desc        string `json:",omitempty"`
+}
+
+// simTraceEvents converts a TurnLog for the trace.
+func simTraceEvents(events []CombatEvent) []simTraceEvent {
+	out := make([]simTraceEvent, len(events))
+	for i, e := range events {
+		out[i] = simTraceEvent{
+			Round: e.Round, Seat: e.Seat, Phase: e.Phase, Actor: e.Actor, Action: e.Action,
+			Damage: e.Damage, PlayerHP: e.PlayerHP, EnemyHP: e.EnemyHP,
+			Roll: e.Roll, RollAgainst: e.RollAgainst, Desc: e.Desc,
+		}
+	}
+	return out
 }
 
 // simIncludeTrace gates per-round event capture on SimCombatSummary.
@@ -516,6 +556,22 @@ func (s *SimRunner) RunPartyExpedition(uid id.UserID, members []id.UserID, zoneI
 			return res, fmt.Errorf("expedition vanished while seating the party")
 		}
 	}
+	// Hire the companion on Day 1, after the humans are seated so the role fill
+	// sees the party it is filling a hole in. He is not in `members` — he buys no
+	// packs and takes no seat in the human roster — but fightRoster reads
+	// expeditionSeats, so he shows up in every fight from here on.
+	if s.Companion != "" {
+		class, ok := parseCompanionClass(s.Companion)
+		if !ok {
+			class = companionRoleFill(companionPartyClasses(exp.ID))
+		}
+		if err := hireCompanion(exp.ID, class, companionPartyLevel(exp.ID)); err != nil {
+			res.Outcome = "halted"
+			res.StopCode = "companion:" + err.Error()
+			return res, err
+		}
+	}
+
 	roster := append([]id.UserID{uid}, members...)
 	res.PartySize = len(roster)
 	for _, m := range members {
@@ -942,7 +998,7 @@ func simCombatSummaries(uid id.UserID) []SimCombatSummary {
 		out = append(out, s)
 	}
 	if simIncludeTrace && len(out) > 0 {
-		out[len(out)-1].Events = lastEvents
+		out[len(out)-1].Events = simTraceEvents(lastEvents)
 	}
 	return out
 }
@@ -1036,6 +1092,18 @@ func (p *AdventurePlugin) autoDriveCombat(ctx MessageContext) (bool, error) {
 				return false, fmt.Errorf("iter %d: %w", i, err)
 			}
 			turn.Sender = id.UserID(cur.seatUserID(seat))
+		}
+
+		// An engine-driven seat is never dispatched as a chat command. There is no
+		// character for the handlers to load, and a command arriving from that
+		// seat's id reads to beginCombatTurn as a player returning to the keyboard
+		// — which is how the driver used to clear the very latch that was moving
+		// the seat. Drive it directly instead.
+		if cur.seatIsEngineDriven(seat) {
+			if err := p.driveEngineSeat(cur, seat); err != nil {
+				return false, fmt.Errorf("engine seat %d: %w", seat, err)
+			}
+			continue
 		}
 
 		kind, arg := p.pickAutoCombatActionForSeat(turn.Sender, cur, seat)
@@ -1157,6 +1225,14 @@ func (p *AdventurePlugin) pickAutoCombatActionForSeat(uid id.UserID, sess *Comba
 			}
 		}
 	}
+	// §1 — a healer with a hurt friend heals the friend. This is what a competent
+	// player does, and until the engine could target another seat it was not an
+	// option the picker even had. It runs before the damage picks: a party member
+	// about to die is a more urgent use of a slot than another Fireball.
+	if id, target := simPickAllyHeal(c, uid, sess, seat); id != "" {
+		return "cast", id + " @" + target
+	}
+
 	if isSpellcaster(c) && !simMartialFirstClass(c.Class) {
 		// Cleric: Spiritual Weapon is a BuffSelf that fires a spectral
 		// bonus-action attack each round via SpiritWeaponProc/Dmg mods —
@@ -1261,6 +1337,85 @@ func simPickSpiritualWeapon(c *DnDCharacter, uid id.UserID, st ActorStatuses) st
 //   - Among feasible candidates, prefer higher slot level (preserves
 //     high-slot supremacy and burns the big slots first); tie-break on
 //     expected damage from the dice string.
+//
+// simHealAllyThresholdPct is how hurt a friend has to be before a healer spends a
+// slot on them rather than on damage. Deliberately lower than the self-heal
+// threshold: a heal is a wasted turn if the target was going to live anyway, and
+// the party's damage output is what ends the fight.
+const simHealAllyThresholdPct = 45
+
+// simPickAllyHeal returns the heal spell and target name a competent healer would
+// use on the worst-hurt *other* seat, or ("", "") if nobody needs it, the caster
+// cannot heal, or the fight is solo.
+//
+// This is the picker half of §1. Before the engine could target another seat there
+// was nothing for it to choose, so an autopiloted or engine-driven healer simply
+// swung a weapon while their friends died beside them.
+func simPickAllyHeal(c *DnDCharacter, uid id.UserID, sess *CombatSession, seat int) (spellID, target string) {
+	if sess == nil || !sess.IsParty() || c == nil || !isSpellcaster(c) {
+		return "", ""
+	}
+
+	// Who is worst off? Only living seats — the engine will not raise the downed,
+	// and a heal aimed at a corpse is a lost turn.
+	worst, worstPct := -1, 101
+	for i := range sess.RosterSize() {
+		if i == seat {
+			continue
+		}
+		hp, hpMax := sess.seatHP(i), sess.seatHPMax(i)
+		if hp <= 0 || hpMax <= 0 {
+			continue
+		}
+		if pct := hp * 100 / hpMax; pct < worstPct {
+			worst, worstPct = i, pct
+		}
+	}
+	if worst < 0 || worstPct >= simHealAllyThresholdPct {
+		return "", ""
+	}
+
+	// The cheapest heal that is actually castable — burning a 5th-level slot to
+	// top somebody up is not what a competent player does.
+	known, err := listKnownSpells(uid)
+	if err != nil {
+		return "", ""
+	}
+	slots, _ := getSpellSlots(uid)
+	best, bestLevel := "", 99
+	for _, k := range known {
+		if !k.Prepared {
+			continue
+		}
+		sp, ok := lookupSpell(k.SpellID)
+		if !ok || sp.Effect != EffectSpellHeal || sp.CastTime == CastReaction {
+			continue
+		}
+		onList := false
+		for _, cl := range sp.Classes {
+			if cl == c.Class {
+				onList = true
+				break
+			}
+		}
+		if !onList || sp.Level == 0 {
+			continue // heals are slot spells; a level-0 "heal" is not a thing we cast
+		}
+		if pair, ok := slots[sp.Level]; !ok || pair[0]-pair[1] <= 0 {
+			continue
+		}
+		if sp.Level < bestLevel {
+			best, bestLevel = sp.ID, sp.Level
+		}
+	}
+	if best == "" {
+		return "", ""
+	}
+	// Target by the seat's own Matrix localpart: splitCastTarget resolves against
+	// the seats in this fight, so this round-trips without a room lookup.
+	return best, id.UserID(sess.seatUserID(worst)).Localpart()
+}
+
 func simPickSpell(c *DnDCharacter, uid id.UserID, auraActive bool) string {
 	known, err := listKnownSpells(uid)
 	if err != nil || len(known) == 0 {

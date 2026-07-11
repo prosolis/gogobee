@@ -33,7 +33,9 @@ func fightRoster(sender id.UserID) []id.UserID {
 	if err != nil || e == nil {
 		return []id.UserID{sender}
 	}
-	return expeditionAudience(e)
+	// Seats, not audience: the hired companion fights even though he never
+	// receives a DM about it.
+	return expeditionSeats(e)
 }
 
 // buildFightSeats turns a roster into the seats that will actually sit down, and
@@ -58,6 +60,25 @@ func (p *AdventurePlugin) buildFightSeats(
 	}
 	for i, uid := range roster {
 		leader := i == 0
+
+		// The hired companion. He must be handled before everything below:
+		// dndHPSnapshot returns (0,0) for a user with no sheet, so the very next
+		// check would quietly sit him out of every fight he was paid for, and
+		// buildZoneCombatants would then fail on him anyway.
+		//
+		// He is latched onto autopilot at seat time rather than after the away-player
+		// deadline — nobody is going to type for him, and waiting three minutes to
+		// discover that would stall the fight and then announce him to the party as
+		// an absent player.
+		if isCompanionSeat(uid) {
+			class, level := companionLoadout(companionExpeditionFor(roster[0]))
+			player, _, _ := p.companionCombatant(class, level, monster, tier, dmMood)
+			seats = append(seats, CombatSeatSetup{
+				UserID: uid, HP: player.Stats.MaxHP, HPMax: player.Stats.MaxHP,
+				Mods: player.Mods, C: &player, EngineDriven: true,
+			})
+			continue
+		}
 
 		// Both refusals below are cheap and neither needs the build, so they run
 		// before it: consuming a seat's armed ability and *then* sitting them out
@@ -159,6 +180,12 @@ func (p *AdventurePlugin) announcePartyFightStart(
 		names[i] = c.Name
 	}
 	for seat, uid := range sess.SeatUserIDs() {
+		// Seat-keyed fan-out, so it bypasses expeditionAudience's filter — the
+		// companion sits down but is never written to. (He also has no magic items
+		// to line up, and activeMagicItemsLine would go looking for them.)
+		if isCompanionUser(uid) {
+			continue
+		}
 		var b strings.Builder
 		b.WriteString(header)
 		b.WriteString(fmt.Sprintf("You: **%d/%d HP**.\n", sess.seatHP(seat), sess.seatHPMax(seat)))

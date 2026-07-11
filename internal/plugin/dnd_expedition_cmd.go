@@ -95,6 +95,10 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 		return p.expeditionCmdParty(ctx)
 	case "leave":
 		return p.expeditionCmdLeave(ctx)
+	case "hire":
+		return p.expeditionCmdHire(ctx, rest)
+	case "dismiss":
+		return p.expeditionCmdDismiss(ctx)
 	case "extract":
 		return p.handleExtractCmd(ctx, "")
 	case "resume":
@@ -122,7 +126,9 @@ func expeditionHelpText() string {
 	b.WriteString("`!expedition invite @user` — they buy their own supplies into the party pool\n")
 	b.WriteString("`!expedition accept` / `!expedition decline` — answer an invite\n")
 	b.WriteString("`!expedition party` — who's with you\n")
-	b.WriteString("`!expedition leave` — turn back for town (members only)\n\n")
+	b.WriteString("`!expedition leave` — turn back for town (members only)\n")
+	b.WriteString("`!expedition hire [class]` — pay Pete to fill the role you're missing\n")
+	b.WriteString("`!expedition dismiss` — send Pete home\n\n")
 	b.WriteString("**Mid-expedition:**\n")
 	b.WriteString("`!extract` — bail safely (resumable for 7 days)\n")
 	b.WriteString("`!resume [loadout]` — resume an extracted expedition\n")

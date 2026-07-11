@@ -401,6 +401,15 @@ func runMigrations(d *sql.DB) error {
 		// there is no read-modify-write race and no second field to disagree.
 		// DEFAULT 0 == "no renown", correct for every pre-existing row, no bootstrap.
 		`ALTER TABLE player_meta ADD COLUMN renown_xp INTEGER NOT NULL DEFAULT 0`,
+
+		// The hireable companion (pete_adventure_news_plan.md, "Pete as a
+		// character"). Pete's roster seat records the class and level he was
+		// hired at, so a party that levels mid-expedition doesn't silently
+		// re-roll its hireling into a different class three rooms in. Both are
+		// empty/0 on every player row and are only ever read for the one seat
+		// where isCompanionSeat holds — a player's row never consults them.
+		`ALTER TABLE expedition_party ADD COLUMN companion_class TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE expedition_party ADD COLUMN companion_level INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

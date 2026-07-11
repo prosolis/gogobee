@@ -246,6 +246,10 @@ func (p *AdventurePlugin) expeditionCmdParty(ctx MessageContext) error {
 		b.WriteString(fmt.Sprintf("**%s** — alone.\n", p.DisplayName(id.UserID(exp.UserID))))
 	}
 	for _, m := range members {
+		if isCompanionUser(m.UserID) {
+			b.WriteString(companionRosterLine(exp.ID))
+			continue
+		}
 		role := "member"
 		if m.IsLeader() {
 			role = "leader"
@@ -260,6 +264,9 @@ func (p *AdventurePlugin) expeditionCmdParty(ctx MessageContext) error {
 	b.WriteString(fmt.Sprintf("\nSupplies: **%.1f / %.1f SU**", exp.Supplies.Current, exp.Supplies.Max))
 	if inviteWindowOpen(exp) {
 		b.WriteString("\n\n_`!expedition invite @user` while it's still Day 1._")
+		if !companionSeated(exp.ID) {
+			b.WriteString("\n_Short a body? `!expedition hire` brings Pete along._")
+		}
 	}
 	return p.SendDM(ctx.Sender, b.String())
 }

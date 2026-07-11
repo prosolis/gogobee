@@ -121,13 +121,31 @@ type ActorStatuses struct {
 	// fight, set when its turn deadline lapses once (see partyTurnDeadline).
 	// Without the latch an away member taxes the party the full deadline every
 	// single round; with it, they cost one wait and then resolve instantly. Any
-	// combat command from that member clears it.
+	// combat command from that member clears it — they typed, so they are back.
 	//
 	// Like the Buff* deltas it is session-layer state with no combatState
 	// counterpart, so snapshotActor carries it over from the prior snapshot
 	// rather than re-deriving it. omitempty keeps it off every solo row — a solo
 	// fight has no turn deadline, only the 1h session reaper.
 	Autopilot bool `json:"autopilot,omitempty"`
+
+	// EngineDriven marks a seat that has NO human behind it and never will: a
+	// hired companion today, an NPC ally or a Pete-led expedition tomorrow. It is
+	// the answer to "who owns this turn", and it is deliberately NOT the same
+	// question as Autopilot.
+	//
+	// Autopilot means "a human is away"; it is provisional, and a keystroke ends
+	// it. EngineDriven means "there is nobody to come back", and nothing clears it.
+	// Collapsing the two is a bug with teeth: the expedition autopilot drives a
+	// party by dispatching each seat's turn as a command from that seat, so an
+	// engine seat's own auto-played move arrived back at beginCombatTurn looking
+	// exactly like a player returning to the keyboard, and cleared the very latch
+	// that was moving it. The seat then stood in the fight doing nothing for the
+	// rest of the fight — while the enemy it had inflated by 15% killed the party.
+	//
+	// So the property lives on the seat, not on an identity check, and no command
+	// path can unset it.
+	EngineDriven bool `json:"engine_driven,omitempty"`
 
 	// Debuffs the enemy has stacked onto this character specifically.
 	PlayerAtkDrain int `json:"player_atk_drain,omitempty"`
@@ -256,7 +274,8 @@ func seedActorOneShots(st *ActorStatuses, seat CombatSeatSetup) bool {
 	st.ArcaneWardHP = playerMods.ArcaneWardHP
 	st.HealChargesLeft = playerMods.HealItemCharges
 	st.ArmedAbility = seat.ArmedAbility
-	return st.WardCharges != 0 || st.SporeRounds != 0 || st.ReflectFrac != 0 ||
+	st.EngineDriven = seat.EngineDriven
+	return st.EngineDriven || st.WardCharges != 0 || st.SporeRounds != 0 || st.ReflectFrac != 0 ||
 		st.AutoCritFirst || st.ArcaneWardHP != 0 || st.HealChargesLeft != 0 ||
 		st.ArmedAbility != ""
 }
@@ -387,16 +406,30 @@ func (s *CombatSession) seatOf(userID id.UserID) (int, bool) {
 // turn silently rather than blocking the round on a corpse.
 func (s *CombatSession) seatAlive(seat int) bool { return s.seatHP(seat) > 0 }
 
-// seatIsAutopiloted reports whether a seat has been latched onto the auto-picker
-// by a lapsed turn deadline.
+// seatIsEngineDriven reports whether a seat has no human behind it at all — a
+// hired companion, an NPC ally. Permanent for the life of the fight; no command
+// clears it. Contrast seatIsAutopiloted, which is a human who stepped away.
+func (s *CombatSession) seatIsEngineDriven(seat int) bool {
+	return s.actorStatusesForSeat(seat).EngineDriven
+}
+
+// seatIsAutopiloted reports whether the engine, rather than a person, decides
+// this seat's action — because its human is away (a lapsed turn deadline) or
+// because it never had one.
+//
+// Every driver in the codebase reads this, which is exactly why the two reasons
+// share one accessor: the picker does not care WHY nobody is typing. What differs
+// is who is allowed to take the wheel back, and that question is asked in
+// beginCombatTurn against seatIsEngineDriven — never here.
 func (s *CombatSession) seatIsAutopiloted(seat int) bool {
-	return s.actorStatusesForSeat(seat).Autopilot
+	st := s.actorStatusesForSeat(seat)
+	return st.Autopilot || st.EngineDriven
 }
 
 // seatNeedsNoHuman reports whether the engine can resolve a seat's turn without
-// waiting on its player: it is down (forfeits silently) or latched onto
-// autopilot. driveCombatRound keeps stepping while this holds, so a round only
-// comes to rest on a live human's turn.
+// waiting on its player: it is down (forfeits silently), latched onto autopilot,
+// or has no human to wait for. driveCombatRound keeps stepping while this holds,
+// so a round only comes to rest on a live human's turn.
 func (s *CombatSession) seatNeedsNoHuman(seat int) bool {
 	return !s.seatAlive(seat) || s.seatIsAutopiloted(seat)
 }
@@ -553,6 +586,12 @@ type CombatSeatSetup struct {
 	// if they armed nothing. It is persisted onto the seat's statuses so every
 	// later rebuild can re-apply the ability without re-spending it.
 	ArmedAbility string
+	// EngineDriven seats this combatant with no human behind it — the hired
+	// companion today. It resolves from the opening round rather than after the
+	// 3-minute away-player deadline (nobody is coming, so waiting out a deadline
+	// would idle the fight and then announce him to the party as absent), and no
+	// command can hand the wheel back to a player who does not exist.
+	EngineDriven bool
 }
 
 // getActiveCombatSession returns the player's in-flight fight, or (nil, nil).
