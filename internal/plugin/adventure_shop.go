@@ -1146,13 +1146,38 @@ func dailyCuriosStock() []MagicItem {
 	rng := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
 	rng.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
 
-	n := curiosStockSize
-	if n > len(ids) {
-		n = len(ids)
+	target := curiosStockSize
+	if target > len(ids) {
+		target = len(ids)
 	}
-	stock := make([]MagicItem, 0, n)
-	for _, id := range ids[:n] {
+	stock := make([]MagicItem, 0, target)
+	seen := make(map[string]bool)
+
+	// N7/E4 — a live season features its curated items at the front of the shelf,
+	// displacing the day's rotation. They are existing registry items, so no
+	// net-new power enters the economy for the week; only which items rotate in.
+	if s, ok := activeSeason(); ok {
+		for _, id := range s.CurioIDs {
+			if mi, ok := magicItemRegistry[id]; ok && !seen[id] {
+				stock = append(stock, mi)
+				seen[id] = true
+			}
+		}
+		if len(stock) > target {
+			target = len(stock)
+		}
+	}
+
+	// Fill the remaining slots from the day's deterministic rotation.
+	for _, id := range ids {
+		if len(stock) >= target {
+			break
+		}
+		if seen[id] {
+			continue
+		}
 		stock = append(stock, magicItemRegistry[id])
+		seen[id] = true
 	}
 	// Stable display order: rarity ascending, then name.
 	sort.Slice(stock, func(i, j int) bool {
@@ -1167,7 +1192,11 @@ func dailyCuriosStock() []MagicItem {
 
 func (p *AdventurePlugin) luigiCuriosView(userID id.UserID, balance float64) string {
 	var sb strings.Builder
-	sb.WriteString("🔮 **Curios** — fresh stock daily at dawn\n")
+	if s, ok := activeSeason(); ok {
+		sb.WriteString(fmt.Sprintf("%s **Curios** — %s stock, this week only\n", s.Emoji, s.Name))
+	} else {
+		sb.WriteString("🔮 **Curios** — fresh stock daily at dawn\n")
+	}
 	sb.WriteString(fmt.Sprintf("💰 Balance: €%.0f\n\n", balance))
 
 	factor := p.shopSessionPriceFactor(userID)

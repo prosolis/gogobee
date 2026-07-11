@@ -318,6 +318,14 @@ func renderAdvMorningDM(userID id.UserID, equip map[EquipmentSlot]*AdvEquipment,
 	sb.WriteString(omenMorningLine(activeOmen()))
 	sb.WriteString("\n\n")
 
+	// N7/E4 — a live season adds a "what's live this week" banner under the Omen
+	// line (its themed omen already rode the line above). Same morning DM, no
+	// net-new scheduled message.
+	if s, ok := activeSeason(); ok {
+		sb.WriteString(seasonBannerLine(s))
+		sb.WriteString("\n\n")
+	}
+
 	// Pick a morning greeting
 	greeting, _ := advPickFlavor(MorningDM, userID, "morning_dm")
 	displayName, _ := loadDisplayName(userID)

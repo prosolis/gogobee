@@ -84,6 +84,11 @@ func activeOmen() omen {
 	if simOmenDisabled {
 		return omen{Key: "none", Name: "None"}
 	}
+	// N7/E4 — a live season's themed omen overrides the weekly rotation. Kept
+	// behind the simOmenDisabled guard above so the balance sim never sees it.
+	if s, ok := activeSeason(); ok {
+		return s.Omen
+	}
 	y, w := time.Now().UTC().ISOWeek()
 	return omenForWeek(y, w)
 }

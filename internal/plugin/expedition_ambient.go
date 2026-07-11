@@ -230,7 +230,7 @@ func ambientEventMonologue() ambientEvent {
 // it's cheap to test in isolation and free of package-level state.
 func ambientEvents() []ambientEvent {
 	always := func(*Expedition) bool { return true }
-	return []ambientEvent{
+	events := []ambientEvent{
 		ambientEventMonologue(),
 		{
 			Kind:     "small_find",
@@ -280,6 +280,19 @@ func ambientEvents() []ambientEvent {
 			},
 		},
 	}
+	// N7/E4 — a live season adds a themed road visitor. Non-combat: it leaves a
+	// keepsake and a coin gift, resolved in applyAmbientEffect. The pool and
+	// reward come from activeSeason(); the ambient seam is production-only, so
+	// this never reaches the balance sim.
+	if s, ok := activeSeason(); ok && len(s.Visitor.FlavorPool) > 0 {
+		events = append(events, ambientEvent{
+			Kind:     "season_visitor",
+			Pool:     s.Visitor.FlavorPool,
+			Weight:   s.Visitor.Weight,
+			Eligible: func(*Expedition) bool { return true },
+		})
+	}
+	return events
 }
 
 // pickAmbientEvent runs a weighted pick over eligible events. avoidKind
@@ -395,6 +408,39 @@ func (p *AdventurePlugin) applyAmbientEffect(e *Expedition, ev ambientEvent) str
 			return ""
 		}
 		return "+1 HP"
+	case "season_visitor":
+		// N7/E4 — the visitor leaves a sellable keepsake and a coin gift. Re-read
+		// the season so the reward matches the current window even if it turned
+		// over between pick and apply; bail quietly if it just ended.
+		s, ok := activeSeason()
+		if !ok {
+			return ""
+		}
+		v := s.Visitor
+		uid := id.UserID(e.UserID)
+		if err := addAdvInventoryItem(uid, AdvItem{
+			Name:  v.Keepsake,
+			Type:  "trophy",
+			Tier:  1,
+			Value: v.KeepsakeValue,
+		}); err != nil {
+			slog.Warn("expedition: ambient season keepsake", "user", uid, "err", err)
+			return ""
+		}
+		if v.Coins > 0 {
+			if p.euro != nil {
+				p.euro.Credit(uid, float64(v.Coins), "expedition ambient: "+s.Key+" visitor")
+			}
+			if _, err := db.Get().Exec(`
+				UPDATE dnd_expedition
+				   SET coins_earned = coins_earned + ?,
+				       last_activity = CURRENT_TIMESTAMP
+				 WHERE expedition_id = ?`, v.Coins, e.ID); err != nil {
+				slog.Warn("expedition: ambient season coin tally", "expedition", e.ID, "err", err)
+			}
+			return fmt.Sprintf("You keep the %s. +%d coins", v.Keepsake, v.Coins)
+		}
+		return fmt.Sprintf("You keep the %s.", v.Keepsake)
 	}
 	return ""
 }
