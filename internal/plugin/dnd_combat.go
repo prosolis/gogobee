@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -305,6 +306,13 @@ func ensureDnDCharacterForCombat(userID id.UserID, char *AdventureCharacter) (*D
 	c := autoBuildCharacter(userID, char)
 	c.AutoMigrated = true
 	c.PendingSetup = false
+	// Seed the canonical player_meta row before handing back a confirmed
+	// character. Auto-migration otherwise mints a player_meta-less character
+	// (the camcast straggler) that fails every legacy-layer command with
+	// "sql: no rows". No-op for legacy players who already have the row.
+	if err := ensurePlayerMetaSeed(userID); err != nil {
+		return nil, false, fmt.Errorf("seed player_meta: %w", err)
+	}
 	if err := SaveDnDCharacter(c); err != nil {
 		return nil, false, err
 	}
