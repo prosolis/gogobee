@@ -297,7 +297,7 @@ func (p *AdventurePlugin) dndSetupConfirm(ctx MessageContext) error {
 	if name := charName(ctx.Sender); name != "" {
 		ts := nowUnix()
 		emitFact(peteclient.Fact{
-			GUID:       "arrival:" + userHash(ctx.Sender),
+			GUID:       "arrival:" + eventToken(ctx.Sender, "arrival"),
 			EventType:  "arrival",
 			Tier:       "bulletin",
 			Subject:    name,

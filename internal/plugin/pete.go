@@ -1,10 +1,13 @@
 package plugin
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"gogobee/internal/db"
@@ -19,17 +22,22 @@ import (
 // — Pete owns the voice. See pete_adventure_news_plan.md / _voice.md.
 
 const (
-	newsEnabledKey = "adventure_news_enabled"
-	// foreverTTL makes CacheGet a persistent flag: the row never "expires".
-	foreverTTL = 100 * 365 * 24 * 3600
-	anonName   = "an adventurer"
+	newsEnabledKey  = "adventure_news_enabled"
+	newsGUIDSaltKey = "adventure_news_guid_salt"
+	anonName        = "an adventurer"
 )
 
 // newsEmissionOn is the runtime kill-switch (default on). An operator flips it
 // with `!news off` without a redeploy; FEATURE_PETE_NEWS is the source-level
-// master switch checked separately by peteclient.Enabled.
+// master switch checked separately by peteclient.Enabled. Persisted in the
+// durable news_config table (NOT api_cache, which RunMaintenance prunes).
 func newsEmissionOn() bool {
-	return db.CacheGet(newsEnabledKey, foreverTTL) != "0"
+	var v string
+	err := db.Get().QueryRow(`SELECT value FROM news_config WHERE key = ?`, newsEnabledKey).Scan(&v)
+	if err != nil {
+		return true // no row → default on
+	}
+	return v != "0"
 }
 
 // setNewsEmission persists the runtime kill-switch.
@@ -38,7 +46,10 @@ func setNewsEmission(on bool) {
 	if !on {
 		v = "0"
 	}
-	db.CacheSet(newsEnabledKey, v)
+	db.Exec("news emission set",
+		`INSERT INTO news_config (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		newsEnabledKey, v)
 }
 
 // isNewsOptedOut reports whether a player asked not to be named in the news.
@@ -61,12 +72,66 @@ func setNewsOptout(userID id.UserID, out bool) {
 	db.Exec("news optout clear", `DELETE FROM news_optout WHERE user_id = ?`, string(userID))
 }
 
-// userHash is a stable, one-way digest of a Matrix user id. It keys per-player
-// event GUIDs (which become PUBLIC permalink paths on Pete) WITHOUT leaking the
-// Matrix handle. Not reversible, stable across restarts.
-func userHash(userID id.UserID) string {
-	sum := sha256.Sum256([]byte(userID))
-	return hex.EncodeToString(sum[:6]) // 12 hex chars — ample for 4–thousands of players
+var (
+	guidSaltOnce sync.Once
+	guidSalt     []byte
+)
+
+// newsGUIDSalt returns the secret, server-side salt that keys every public event
+// token. It is 32 random bytes, generated once and persisted in the durable
+// news_config table, cached in-process. Secret from anyone outside the server
+// (external users never see it), stable across restarts (so a re-emit or the
+// cold-start backfill reproduces the same GUID). No operator action needed.
+func newsGUIDSalt() []byte {
+	guidSaltOnce.Do(func() {
+		var stored string
+		if err := db.Get().QueryRow(
+			`SELECT value FROM news_config WHERE key = ?`, newsGUIDSaltKey).Scan(&stored); err == nil {
+			if b, e := hex.DecodeString(stored); e == nil && len(b) > 0 {
+				guidSalt = b
+				return
+			}
+		}
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			// crypto/rand should never fail; if it does, refuse to fall back to a
+			// predictable salt (that would reopen the enumeration attack). Leave the
+			// salt empty and let eventToken sort it out.
+			return
+		}
+		salt := hex.EncodeToString(b)
+		// Persist. OR IGNORE so a concurrent first-writer wins cleanly; we then
+		// re-read the row so every caller agrees on the same salt.
+		db.Exec("news guid salt seed",
+			`INSERT OR IGNORE INTO news_config (key, value) VALUES (?, ?)`, newsGUIDSaltKey, salt)
+		_ = db.Get().QueryRow(`SELECT value FROM news_config WHERE key = ?`, newsGUIDSaltKey).Scan(&salt)
+		guidSalt, _ = hex.DecodeString(salt)
+	})
+	return guidSalt
+}
+
+// eventToken is the per-event, one-way identifier embedded in a public GUID
+// (which becomes a PUBLIC permalink path on Pete). It is HMAC-SHA256 over the
+// Matrix user id AND an event-specific discriminator, keyed by the secret
+// newsGUIDSalt.
+//
+// Two properties matter and both come from HMAC being a PRF under a secret key:
+//   - Not computable from a Matrix handle. An attacker who knows @alice:server
+//     cannot derive any of her tokens without the salt — so her events (including
+//     ones anonymized after `!news optout`) can't be enumerated from her handle.
+//   - Per-event, so tokens are mutually unlinkable. Even for the same user, two
+//     events yield unrelated tokens; a story that names her (opted-in, or a duel
+//     opponent) exposes only that one event's token and can't be walked back to
+//     her other, anonymized events.
+//
+// The discriminator must uniquely identify the logical event so a re-emit or the
+// backfill reproduces the same token (idempotency rides on the GUID).
+func eventToken(userID id.UserID, discriminator string) string {
+	mac := hmac.New(sha256.New, newsGUIDSalt())
+	mac.Write([]byte(userID))
+	mac.Write([]byte{0}) // domain separator: keep id and discriminator from bleeding
+	mac.Write([]byte(discriminator))
+	return hex.EncodeToString(mac.Sum(nil)[:9]) // 18 hex chars — ample, non-reversible
 }
 
 // charName returns a player's in-game character name, never their Matrix handle.
@@ -74,6 +139,15 @@ func userHash(userID id.UserID) string {
 func charName(userID id.UserID) string {
 	name, _ := loadDisplayName(userID)
 	return strings.TrimSpace(name)
+}
+
+// charLevel returns a player's current character level for a news Fact, or 0 if
+// no character loads (Level is omitempty, so 0 is dropped from the payload).
+func charLevel(userID id.UserID) int {
+	if dc, _ := LoadDnDCharacter(userID); dc != nil {
+		return dc.Level
+	}
+	return 0
 }
 
 // classRaceLabel renders a character's race + class for the arrival fact, e.g.
@@ -184,7 +258,9 @@ func claimRealmFirst(kind, target string) bool {
 }
 
 // emitZoneClearNews files a zone-clear dispatch (boss down = zone cleared). The
-// realm's first clear of a zone is PRIORITY; later clears are BULLETIN. Character
+// realm's first clear of a zone is a PRIORITY "zone_first"; later clears are a
+// BULLETIN "zone_clear". The event_type and the GUID prefix track the tier so
+// Pete templates and labels a repeat as a repeat, not a first-ever. Character
 // name only; no-op unless the seam is enabled.
 func emitZoneClearNews(userID id.UserID, exp *Expedition) {
 	if !peteclient.Enabled() || !newsEmissionOn() {
@@ -201,18 +277,16 @@ func emitZoneClearNews(userID id.UserID, exp *Expedition) {
 			region = r.Name
 		}
 	}
-	lvl := 0
-	if dc, _ := LoadDnDCharacter(userID); dc != nil {
-		lvl = dc.Level
-	}
-	tier := "bulletin"
+	lvl := charLevel(userID)
+	eventType, tier := "zone_clear", "bulletin"
 	if claimRealmFirst("zone", string(exp.ZoneID)) {
-		tier = "priority"
+		eventType, tier = "zone_first", "priority"
 	}
 	ts := nowUnix()
+	disc := fmt.Sprintf("%s:%d", exp.ZoneID, ts)
 	emitFact(peteclient.Fact{
-		GUID:       fmt.Sprintf("zone:%s:%s:%d", userHash(userID), exp.ZoneID, ts),
-		EventType:  "zone_first",
+		GUID:       fmt.Sprintf("%s:%s:%s:%d", eventType, eventToken(userID, disc), exp.ZoneID, ts),
+		EventType:  eventType,
 		Tier:       tier,
 		Subject:    name,
 		Zone:       zone.Display,

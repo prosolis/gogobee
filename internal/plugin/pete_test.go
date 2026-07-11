@@ -1,7 +1,10 @@
 package plugin
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
+	"sync"
 	"testing"
 
 	"gogobee/internal/db"
@@ -98,10 +101,10 @@ func TestPeteNewsBackfill(t *testing.T) {
 	if got := queuedCount(t, "death:%"); got != 1 {
 		t.Errorf("death dispatches queued = %d, want 1", got)
 	}
-	if got := queuedCount(t, "achv:%"); got != 1 {
+	if got := queuedCount(t, "milestone:%"); got != 1 {
 		t.Errorf("achievement dispatches queued = %d, want 1", got)
 	}
-	if got := queuedCount(t, "zone:%"); got != 1 {
+	if got := queuedCount(t, "zone_first:%"); got != 1 {
 		t.Errorf("zone-first dispatches queued = %d, want 1", got)
 	}
 	// Realm-first ledger seeded so a later live clear tiers as a repeat.
@@ -113,6 +116,80 @@ func TestPeteNewsBackfill(t *testing.T) {
 	p.bootstrapPeteNewsBackfill()
 	if got := queuedCount(t, "%"); got != 3 {
 		t.Errorf("total queued after re-run = %d, want 3 (idempotent)", got)
+	}
+}
+
+// TestEventToken: the public GUID token is salted (not a bare sha256 an attacker
+// can recompute from the handle), stable per logical event (idempotency), and
+// per-event so a user's tokens don't link to each other.
+func TestEventToken(t *testing.T) {
+	dir := t.TempDir()
+	db.Close()
+	if err := db.Init(dir); err != nil {
+		t.Fatalf("db.Init: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	// The salt is cached process-wide via sync.Once; reset it so it derives (and
+	// persists) against this test's fresh DB rather than an earlier test's.
+	guidSaltOnce = sync.Once{}
+	guidSalt = nil
+
+	u := id.UserID("@alice:example.org")
+
+	// Not the old unsalted digest: an attacker with the handle can't recompute it.
+	bare := sha256.Sum256([]byte(u))
+	if got := eventToken(u, "arrival"); got == hex.EncodeToString(bare[:9]) {
+		t.Error("token matches unsalted sha256(handle) — enumeration attack reopened")
+	}
+
+	// Stable for the same (user, discriminator): a re-emit dedups.
+	if eventToken(u, "arrival") != eventToken(u, "arrival") {
+		t.Error("token not stable for the same event — idempotency broken")
+	}
+
+	// Per-event: two different events for the same user yield unrelated tokens, so
+	// a named event can't be walked back to the user's anonymized events.
+	if eventToken(u, "arrival") == eventToken(u, "death:123") {
+		t.Error("tokens collide across events — linkage attack reopened")
+	}
+
+	// Different users, same discriminator, still differ.
+	if eventToken(u, "arrival") == eventToken(id.UserID("@bob:example.org"), "arrival") {
+		t.Error("token collides across users")
+	}
+
+	// The salt persisted, so it survives a restart (a re-emit after reboot dedups).
+	var salt string
+	if err := db.Get().QueryRow(`SELECT value FROM news_config WHERE key = ?`, newsGUIDSaltKey).Scan(&salt); err != nil || salt == "" {
+		t.Fatalf("guid salt not persisted: %v", err)
+	}
+}
+
+// TestEmitZoneClearTaxonomy: the realm's first clear of a zone emits a PRIORITY
+// zone_first; a later clear emits a BULLETIN zone_clear — distinct event_type and
+// GUID prefix, so Pete never files a repeat as a first-ever.
+func TestEmitZoneClearTaxonomy(t *testing.T) {
+	dir := t.TempDir()
+	db.Close()
+	if err := db.Init(dir); err != nil {
+		t.Fatalf("db.Init: %v", err)
+	}
+	t.Cleanup(db.Close)
+	enablePeteSeam(t)
+
+	db.Exec("seed player", `INSERT INTO player_meta (user_id, display_name) VALUES (?, ?)`,
+		"@zapp:x", "Zapp")
+	exp := &Expedition{ZoneID: "goblin_warren"}
+
+	emitZoneClearNews(id.UserID("@zapp:x"), exp) // realm-first
+	emitZoneClearNews(id.UserID("@zapp:x"), exp) // repeat
+
+	if got := queuedCount(t, "zone_first:%"); got != 1 {
+		t.Errorf("zone_first queued = %d, want 1 (the realm-first)", got)
+	}
+	if got := queuedCount(t, "zone_clear:%"); got != 1 {
+		t.Errorf("zone_clear queued = %d, want 1 (the repeat)", got)
 	}
 }
 

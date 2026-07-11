@@ -618,8 +618,9 @@ func (p *AdventurePlugin) settleDuel(ctx MessageContext, ch *advDuelChallenge, c
 	// fires once). Character names only; no-op unless the seam is enabled.
 	if wn, ln := charName(winnerID), charName(loserID); wn != "" && ln != "" {
 		ts := nowUnix()
+		disc := fmt.Sprintf("rival:%d", ts)
 		emitFact(peteclient.Fact{
-			GUID:       fmt.Sprintf("rival:%s:%s:%d", userHash(winnerID), userHash(loserID), ts),
+			GUID:       fmt.Sprintf("rival_result:%s:%s:%d", eventToken(winnerID, disc), eventToken(loserID, disc), ts),
 			EventType:  "rival_result",
 			Tier:       "bulletin",
 			Subject:    wn,

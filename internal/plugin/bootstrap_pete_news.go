@@ -93,12 +93,9 @@ func (p *AdventurePlugin) backfillZoneFirsts() int {
 			continue
 		}
 		zone := zoneOrFallback(ZoneID(f.zoneID))
-		lvl := 0
-		if dc, _ := LoadDnDCharacter(uid); dc != nil {
-			lvl = dc.Level
-		}
+		lvl := charLevel(uid)
 		emitFact(peteclient.Fact{
-			GUID:       fmt.Sprintf("zone:%s:%s:%d", userHash(uid), f.zoneID, ts.Unix()),
+			GUID:       fmt.Sprintf("zone_first:%s:%s:%d", eventToken(uid, fmt.Sprintf("%s:%d", f.zoneID, ts.Unix())), f.zoneID, ts.Unix()),
 			EventType:  "zone_first",
 			Tier:       "priority",
 			Subject:    name,
@@ -150,12 +147,9 @@ func backfillDeaths() int {
 		if err != nil {
 			continue
 		}
-		lvl := 0
-		if dc, _ := LoadDnDCharacter(uid); dc != nil {
-			lvl = dc.Level
-		}
+		lvl := charLevel(uid)
 		emitFact(peteclient.Fact{
-			GUID:       fmt.Sprintf("death:%s:%s", userHash(uid), d.date),
+			GUID:       fmt.Sprintf("death:%s:%s", eventToken(uid, d.date), d.date),
 			EventType:  "death",
 			Tier:       "priority",
 			Subject:    name,
@@ -219,7 +213,7 @@ func (p *AdventurePlugin) backfillSoloAchievements() int {
 			ts = nowUnix()
 		}
 		emitFact(peteclient.Fact{
-			GUID:       fmt.Sprintf("achv:%s:%s", userHash(uid), s.achID),
+			GUID:       fmt.Sprintf("milestone:%s:%s", eventToken(uid, s.achID), s.achID),
 			EventType:  "milestone",
 			Tier:       "bulletin",
 			Subject:    name,

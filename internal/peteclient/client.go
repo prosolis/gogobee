@@ -30,7 +30,7 @@ import (
 // only names permitted to appear in Pete's rendered output. See
 // pete_adventure_news_voice.md for the field contract.
 type Fact struct {
-	GUID       string   `json:"guid"` // stable idempotency key, e.g. "death:<hash>:<ts>"
+	GUID       string   `json:"guid"` // stable idempotency key, e.g. "death:<token>:<ts>"; prefix == event_type
 	EventType  string   `json:"event_type"`
 	Tier       string   `json:"tier"` // "priority" | "bulletin"
 	Actors     []string `json:"actors"`
@@ -72,7 +72,7 @@ var std *Client
 const (
 	senderTick    = 15 * time.Second
 	senderBatch   = 20
-	maxAttempts   = 8               // ~ up to a few hours of backoff, then park
+	maxAttempts   = 8 // ~ up to a few hours of backoff, then park
 	backoffBase   = 30 * time.Second
 	backoffCapSec = 3600
 	sendTimeout   = 15 * time.Second
@@ -175,6 +175,12 @@ func (c *Client) drain(ctx context.Context) {
 			return
 		}
 		if err := c.send(ctx, []byte(it.payload)); err != nil {
+			if ctx.Err() != nil {
+				// Shutdown canceled the in-flight send — Pete didn't reject
+				// anything. Don't burn a durable retry attempt; the row is picked
+				// up on the next boot's drain.
+				return
+			}
 			db.Exec("pete emit retry",
 				`UPDATE pete_emit_queue
 				 SET attempts = attempts + 1, next_attempt_at = unixepoch() + ?

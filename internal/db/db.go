@@ -616,6 +616,10 @@ func RunMaintenance() {
 		{"urban_cache", `DELETE FROM urban_cache WHERE cached_at < ?`, []interface{}{cutoff30d}},
 		{"url_cache", `DELETE FROM url_cache WHERE cached_at < ?`, []interface{}{cutoff30d}},
 
+		// Pete adventure-news queue — reap delivered rows (kept only for
+		// idempotency); undelivered rows stay so the sender can retry/park them.
+		{"pete_emit_queue", `DELETE FROM pete_emit_queue WHERE sent_at IS NOT NULL AND sent_at < ?`, []interface{}{cutoff7d}},
+
 		// Rate limits — purge entries older than today
 		{"rate_limits", `DELETE FROM rate_limits WHERE date < ?`, []interface{}{today}},
 
@@ -977,6 +981,14 @@ CREATE TABLE IF NOT EXISTS news_realm_firsts (
 	target   TEXT NOT NULL,
 	first_at INTEGER NOT NULL,
 	PRIMARY KEY (kind, target)
+);
+
+-- Durable runtime config for adventure news (e.g. the emission kill-switch).
+-- Deliberately NOT stored in api_cache: RunMaintenance prunes that table after
+-- 7 days, which would silently revert an operator's !news off back to on.
+CREATE TABLE IF NOT EXISTS news_config (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
 );
 
 -- Birthdays

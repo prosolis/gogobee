@@ -140,7 +140,7 @@ func (p *AchievementsPlugin) emitMilestoneNews(d *sql.DB, userID id.UserID, achi
 	}
 	ts := nowUnix()
 	emitFact(peteclient.Fact{
-		GUID:       fmt.Sprintf("achv:%s:%s", userHash(userID), achievementID),
+		GUID:       fmt.Sprintf("milestone:%s:%s", eventToken(userID, achievementID), achievementID),
 		EventType:  "milestone",
 		Tier:       "bulletin",
 		Subject:    name,

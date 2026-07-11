@@ -587,13 +587,10 @@ func emitDeathNews(userID id.UserID, location string) {
 	if name == "" {
 		return
 	}
-	lvl := 0
-	if dc, _ := LoadDnDCharacter(userID); dc != nil {
-		lvl = dc.Level
-	}
+	lvl := charLevel(userID)
 	ts := nowUnix()
 	emitFact(peteclient.Fact{
-		GUID:       fmt.Sprintf("death:%s:%d", userHash(userID), ts),
+		GUID:       fmt.Sprintf("death:%s:%d", eventToken(userID, fmt.Sprintf("%d", ts)), ts),
 		EventType:  "death",
 		Tier:       "priority",
 		Subject:    name,
