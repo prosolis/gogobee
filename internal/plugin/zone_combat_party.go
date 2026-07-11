@@ -152,6 +152,11 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 		// Combatant once, before the fight runs. The queued spell can also debuff
 		// the shared enemy, so every seat's cast lands on the one stat block.
 		applyPendingCast(uid, dndChar, &player.Stats, &player.Mods, &enemy.Stats)
+		// §6 — and if they queued nothing, they still cast. This engine has no
+		// action picker, so before this a caster on autopilot swung a weapon for
+		// the whole fight and their spellbook may as well not have existed. The
+		// slot is really spent; see autoCastForAutoResolve.
+		p.autoCastForAutoResolve(uid, dndChar, &player.Stats, &player.Mods, &enemy.Stats)
 		setupAutoHealFromInventory(p.loadConsumableInventory(uid), &player.Mods)
 
 		players = append(players, player)
