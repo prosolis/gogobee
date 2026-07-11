@@ -120,6 +120,10 @@ func (p *AdventurePlugin) eventTicker() {
 			// Reclaim invites nobody answered (N3/P6b). Every read already
 			// filters on the TTL; this just stops the rows accumulating.
 			purgeExpiredInvites()
+
+			// World boss (N6/C3): auto-spawn the monthly Siege on the 1st and
+			// resolve one whose 72h window has lapsed. Own dedup inside.
+			p.worldBossTick()
 		}
 	}
 }

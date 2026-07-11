@@ -2256,6 +2256,32 @@ CREATE TABLE IF NOT EXISTS adventure_shadow (
     last_advanced TEXT NOT NULL DEFAULT '',
     born_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- World boss (N6/C3) — the monthly communal "Siege". One event at a time is
+-- live (status='active'); the ticker resolves it at hp_current<=0 (defeated) or
+-- after ends_at (survived). History rows are retained (autoincrement id), so
+-- world_boss_contrib keys on boss_id. Deliberately its own tables, outside the
+-- player_meta save fan-out, so a character save can't clobber the shared pool.
+CREATE TABLE IF NOT EXISTS world_boss (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL,
+    tier       INTEGER NOT NULL DEFAULT 5,
+    hp_max     INTEGER NOT NULL,
+    hp_current INTEGER NOT NULL,
+    status     TEXT    NOT NULL DEFAULT 'active',
+    starts_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ends_at    DATETIME NOT NULL,
+    resolved_at DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS world_boss_contrib (
+    boss_id         INTEGER NOT NULL,
+    user_id         TEXT    NOT NULL,
+    fights          INTEGER NOT NULL DEFAULT 0,
+    damage          INTEGER NOT NULL DEFAULT 0,
+    last_fight_date TEXT    NOT NULL DEFAULT '',
+    PRIMARY KEY (boss_id, user_id)
+);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.
