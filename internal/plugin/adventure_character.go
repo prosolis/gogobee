@@ -1,6 +1,9 @@
 package plugin
 
 import (
+	"database/sql"
+	"errors"
+	"strings"
 	"time"
 
 	"gogobee/internal/db"
@@ -534,6 +537,41 @@ func createAdvCharacter(userID id.UserID, displayName string) error {
 	}
 
 	return tx.Commit()
+}
+
+// ensurePlayerMetaSeed guarantees the canonical player_meta seed row (and tier-0
+// equipment) exists for userID, creating it only when absent. The auto-migration
+// path (ensureDnDCharacterForCombat) writes a confirmed dnd_character without
+// touching the legacy layer; without this, a brand-new player whose first-ever
+// action auto-migrates — e.g. !rest or !cast before !setup — ends up with a
+// player_meta-less character that fails every legacy-layer command with
+// "sql: no rows" (the camcast straggler). Conditional on absence and thus
+// idempotent: legacy players who already have player_meta keep their equipment
+// untouched — createAdvCharacter's tier-0 equipment insert has no conflict guard
+// and would otherwise duplicate their gear.
+func ensurePlayerMetaSeed(userID id.UserID) error {
+	d := db.Get()
+	var one int
+	err := d.QueryRow(`SELECT 1 FROM player_meta WHERE user_id = ?`, string(userID)).Scan(&one)
+	if err == nil {
+		return nil // already seeded
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	return createAdvCharacter(userID, localpartOf(userID))
+}
+
+// localpartOf returns the mxid localpart (between @ and :) as a display-name
+// fallback — matches Base.DisplayName's offline behavior. The seed's display
+// name is overlaid by later player_meta upserts; this is just a sane default
+// for a character born without a Matrix client in reach.
+func localpartOf(userID id.UserID) string {
+	s := string(userID)
+	if i := strings.Index(s, ":"); i > 0 {
+		return s[1:i]
+	}
+	return strings.TrimPrefix(s, "@")
 }
 
 // saveAdvCharacter persists every mutable AdventureCharacter field to
