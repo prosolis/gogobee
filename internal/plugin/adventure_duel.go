@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/peteclient"
 
 	"github.com/google/uuid"
 	"maunium.net/go/mautrix/id"
@@ -612,6 +613,21 @@ func (p *AdventurePlugin) settleDuel(ctx MessageContext, ch *advDuelChallenge, c
 
 	upsertRivalRecord(winnerID, loserID, true)
 	upsertRivalRecord(loserID, winnerID, false)
+
+	// One BULLETIN dispatch per settled duel (from the winner's side, so it
+	// fires once). Character names only; no-op unless the seam is enabled.
+	if wn, ln := charName(winnerID), charName(loserID); wn != "" && ln != "" {
+		ts := nowUnix()
+		emitFact(peteclient.Fact{
+			GUID:       fmt.Sprintf("rival:%s:%s:%d", userHash(winnerID), userHash(loserID), ts),
+			EventType:  "rival_result",
+			Tier:       "bulletin",
+			Subject:    wn,
+			Opponent:   ln,
+			Outcome:    "won",
+			OccurredAt: ts,
+		}, winnerID, loserID)
+	}
 
 	p.announceDuel(ctx, winnerID, loserID, ch.Stake, winnerShare, potShare, res.decisive)
 	return nil

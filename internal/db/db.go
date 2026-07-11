@@ -947,6 +947,38 @@ CREATE TABLE IF NOT EXISTS shade_optout (
 	user_id TEXT PRIMARY KEY
 );
 
+-- Pete adventure-news seam: durable outbound queue of game-event facts sent to
+-- the Pete news bot. Emit enqueues (INSERT OR IGNORE on guid = idempotency); a
+-- background sender drains rows where sent_at IS NULL. Keyed on the fact guid so
+-- retries and duplicate emits collapse to one row.
+CREATE TABLE IF NOT EXISTS pete_emit_queue (
+	guid            TEXT PRIMARY KEY,
+	payload         TEXT NOT NULL,
+	created_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+	attempts        INTEGER NOT NULL DEFAULT 0,
+	next_attempt_at INTEGER NOT NULL DEFAULT 0,
+	sent_at         INTEGER
+);
+
+-- Players who opted out of being named in Pete's adventure news. Enforced at
+-- emit time (anonymize, never delete). Mirrors shade_optout.
+CREATE TABLE IF NOT EXISTS news_optout (
+	user_id      TEXT PRIMARY KEY,
+	opted_out_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+-- Realm-first ledger for adventure news: the first (kind,target) occurrence
+-- across all players. INSERT OR IGNORE returns rows-affected>0 exactly once, so
+-- the first clear of a zone/boss fires as a PRIORITY realm-first and everyone
+-- after as a BULLETIN personal clear. Seeded by the cold-start backfill so a
+-- fresh deploy doesn't re-flag historically-cleared content as first-ever.
+CREATE TABLE IF NOT EXISTS news_realm_firsts (
+	kind     TEXT NOT NULL,
+	target   TEXT NOT NULL,
+	first_at INTEGER NOT NULL,
+	PRIMARY KEY (kind, target)
+);
+
 -- Birthdays
 CREATE TABLE IF NOT EXISTS birthdays (
 	user_id TEXT PRIMARY KEY,

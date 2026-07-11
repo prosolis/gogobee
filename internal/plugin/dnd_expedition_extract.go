@@ -177,6 +177,9 @@ func (p *AdventurePlugin) finalizeExpeditionOnZoneClear(userID id.UserID, runID 
 	if sl := p.shadowOnPlayerZoneClear(userID, exp.ZoneID); sl != "" {
 		lines = append(lines, sl)
 	}
+	// News: boss down means the zone is cleared. Realm-first → PRIORITY,
+	// repeat → BULLETIN. No-op unless the Pete seam is enabled.
+	emitZoneClearNews(userID, exp)
 	return lines
 }
 

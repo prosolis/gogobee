@@ -184,6 +184,7 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "town", Description: "Town registry — civic pride, housing street, and the pet showcase", Usage: "!town", Category: "Games"},
 		{Name: "graveyard", Description: "Recent deaths across the guild", Usage: "!graveyard", Category: "Games"},
 		{Name: "rivals", Description: "Your rival duel record, or `!rivals board` for room-wide standings", Usage: "!rivals [board]", Category: "Games"},
+		{Name: "news", Description: "Pete's Adventure News — opt out of being named, or opt back in", Usage: "!news [optout|optin]", Category: "Games"},
 	}
 }
 
@@ -247,6 +248,10 @@ func (p *AdventurePlugin) Init() error {
 	// arrival roll. Both idempotent via JobCompleted gates.
 	bootstrapCasterSpellBackfill()
 	bootstrapGrantStarterPet()
+	// Pete adventure-news cold-start: replay the back-catalogue (realm-firsts,
+	// deaths, single-holder achievements) the first boot the seam is live, so
+	// launch doesn't open onto an empty section. One-shot, kept (see gap #7).
+	p.bootstrapPeteNewsBackfill()
 	// Phase R1 orphan-archive used to run here on every Init, but it
 	// over-archived: it treats any active dnd_zone_run row not linked to
 	// an active expedition as a legacy `!adventure dungeon` orphan, which
@@ -437,6 +442,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	}
 	if p.IsCommand(ctx.Body, "rivals") {
 		return p.handleRivalsTopCmd(ctx, p.GetArgs(ctx.Body, "rivals"))
+	}
+	if p.IsCommand(ctx.Body, "news") {
+		return p.handleNewsCmd(ctx)
 	}
 
 	// 1. Arena commands (work in rooms and DMs)

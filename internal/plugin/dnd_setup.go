@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/peteclient"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -289,6 +290,22 @@ func (p *AdventurePlugin) dndSetupConfirm(ctx MessageContext) error {
 	// Phase 9: caster classes get a default known-spell list and slot pool.
 	// Idempotent — !setup confirm after a respec wipe will repopulate.
 	_ = ensureSpellsForCharacter(c)
+
+	// A new character walked through the gates — file a welcome dispatch to
+	// Pete. GUID keyed on the user alone so a later respec/re-confirm can't
+	// re-announce the same arrival. No-op unless the seam is enabled.
+	if name := charName(ctx.Sender); name != "" {
+		ts := nowUnix()
+		emitFact(peteclient.Fact{
+			GUID:       "arrival:" + userHash(ctx.Sender),
+			EventType:  "arrival",
+			Tier:       "bulletin",
+			Subject:    name,
+			ClassRace:  classRaceLabel(c),
+			Level:      c.Level,
+			OccurredAt: ts,
+		}, ctx.Sender, "")
+	}
 
 	return p.SendDM(ctx.Sender, renderSetupComplete(c))
 }
