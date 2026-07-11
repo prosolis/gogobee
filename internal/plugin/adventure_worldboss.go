@@ -553,3 +553,214 @@ func (p *AdventurePlugin) announceWorldBossSurvived(boss *worldBossState, tribut
 	}
 	p.announceWorldBoss(msg)
 }
+
+// ── Player command (W2) ──────────────────────────────────────────────────────
+
+// handleWorldBossCmd routes `!adventure worldboss [status|fight|spawn]` (alias
+// `!adventure siege …`). Bare / "status" shows the board; "fight" takes today's
+// bout; "spawn" is an operator override.
+func (p *AdventurePlugin) handleWorldBossCmd(ctx MessageContext, args string) error {
+	switch strings.ToLower(strings.TrimSpace(args)) {
+	case "", "status":
+		return p.worldBossStatusDM(ctx)
+	case "fight":
+		return p.fightWorldBoss(ctx)
+	case "spawn":
+		return p.worldBossOperatorSpawn(ctx)
+	}
+	return p.SendDM(ctx.Sender, "Usage: `!adventure worldboss [status|fight]`")
+}
+
+// worldBossOperatorSpawn lets an admin start a Siege on demand (the override half
+// of the "both" spawn decision). Silent to non-admins, like the other admin
+// commands.
+func (p *AdventurePlugin) worldBossOperatorSpawn(ctx MessageContext) error {
+	if !p.IsAdmin(ctx.Sender) {
+		return nil
+	}
+	key := "manual-" + time.Now().UTC().Format("2006-01-02T15:04")
+	boss, err := p.spawnWorldBoss(key)
+	if err != nil {
+		return p.SendDM(ctx.Sender, fmt.Sprintf("Could not spawn the Siege: %v", err))
+	}
+	return p.SendDM(ctx.Sender, fmt.Sprintf(
+		"Spawned **%s** (Tier %d, %s HP). It camps for 72 hours.",
+		boss.Name, boss.Tier, groupInt(boss.HPMax)))
+}
+
+// fightWorldBoss runs one player's daily bout against the Siege: an arena-style
+// solo fight whose damage is subtracted from the shared pool win or lose. Real
+// HP cost, no death — a loss leaves the fighter battered (floored at 1 HP) but
+// standing. The per-user lock serialises a player's own repeat submits, so the
+// once-per-day gate can't be raced by a double-tap.
+func (p *AdventurePlugin) fightWorldBoss(ctx MessageContext) error {
+	userMu := p.advUserLock(ctx.Sender)
+	userMu.Lock()
+	defer userMu.Unlock()
+
+	boss, err := loadActiveWorldBoss()
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Something went wrong reaching the Siege. Try again in a moment.")
+	}
+	if boss == nil {
+		return p.SendDM(ctx.Sender, "No Siege is camped outside town right now.")
+	}
+
+	char, err := loadAdvCharacter(ctx.Sender)
+	if err != nil || char == nil {
+		return p.SendDM(ctx.Sender, "You need an adventurer first — type `!adventure` to begin.")
+	}
+	if !char.Alive {
+		return p.SendDM(ctx.Sender, "You're dead. The Siege will have to wait until you're back on your feet.")
+	}
+
+	today := time.Now().UTC().Format("2006-01-02")
+	if worldBossBoutUsedToday(boss.ID, ctx.Sender, today) {
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"You've already taken your bout against **%s** today. Come back tomorrow — one fight per day.", boss.Name))
+	}
+
+	bout, err := p.resolveWorldBossBout(ctx.Sender, boss, today)
+	if err != nil {
+		slog.Error("worldboss: bout failed", "user", ctx.Sender, "err", err)
+		return p.SendDM(ctx.Sender, "The Siege combat hit an error. Try again in a moment.")
+	}
+
+	playerName, _ := loadDisplayName(ctx.Sender)
+	if playerName == "" {
+		playerName = "You"
+	}
+	phaseMessages := append([]string{
+		fmt.Sprintf("⚔️ **The Siege — %s** (Tier %d)", boss.Name, boss.Tier),
+	}, RenderCombatLog(bout.Combat, playerName, boss.Name)...)
+
+	var footer string
+	if bout.Killed {
+		footer = fmt.Sprintf("💥 You deal **%d** damage — the killing blow! **%s** falls!", bout.Damage, boss.Name)
+	} else {
+		footer = fmt.Sprintf("💥 You deal **%d** damage. **%s** has **%s / %s HP** left.",
+			bout.Damage, boss.Name, groupInt(bout.Remaining), groupInt(boss.HPMax))
+	}
+	if bout.Battered {
+		footer += "\nYou stagger out of the fight at 1 HP — rest up before your next outing."
+	}
+
+	<-p.sendZoneCombatMessages(ctx.Sender, phaseMessages, footer)
+
+	if bout.Killed {
+		p.resolveWorldBossDefeated(boss)
+	}
+	return nil
+}
+
+// worldBossBoutUsedToday reports whether a player has already spent their daily
+// bout against this boss.
+func worldBossBoutUsedToday(bossID int64, userID id.UserID, dateKey string) bool {
+	c, err := loadWorldBossContrib(bossID, userID)
+	return err == nil && c != nil && c.LastFightDate == dateKey
+}
+
+// worldBossBoutResult is the outcome of one resolved bout, before narration.
+type worldBossBoutResult struct {
+	Damage    int
+	Remaining int
+	Killed    bool
+	Battered  bool
+	Combat    CombatResult
+}
+
+// resolveWorldBossBout runs the arena-style fight, applies the real HP cost with
+// the no-death floor, subtracts the damage dealt from the shared pool, and
+// records the contribution. It performs no DM or games-room I/O, so it is the
+// testable core of fightWorldBoss.
+func (p *AdventurePlugin) resolveWorldBossBout(userID id.UserID, boss *worldBossState, dateKey string) (worldBossBoutResult, error) {
+	monster := worldBossTemplate(boss.Name, boss.Tier)
+	result, err := p.runZoneCombat(userID, monster, boss.Tier, bossCombatPhases, 50)
+	if err != nil {
+		return worldBossBoutResult{}, err
+	}
+
+	// No death / no hospital: floor the fighter at 1 HP so a loss never reads as
+	// a corpse. runZoneCombat already persisted the real HP cost.
+	battered := worldBossFloorHP(userID)
+
+	dmg := result.EnemyEntryHP - result.EnemyEndHP
+	if dmg < 0 {
+		dmg = 0
+	}
+	remaining, killed, err := applyWorldBossDamage(boss.ID, dmg)
+	if err != nil {
+		return worldBossBoutResult{}, err
+	}
+	if err := upsertWorldBossContrib(boss.ID, userID, dmg, dateKey); err != nil {
+		slog.Warn("worldboss: contrib upsert failed", "user", userID, "err", err)
+	}
+	return worldBossBoutResult{
+		Damage: dmg, Remaining: remaining, Killed: killed, Battered: battered, Combat: result,
+	}, nil
+}
+
+// worldBossFloorHP raises a player to 1 HP if the bout left them at zero, and
+// reports whether it had to. Keeps "no death" honest without undoing the real
+// HP cost of a bout the player mostly survived.
+func worldBossFloorHP(userID id.UserID) bool {
+	cur, _ := dndHPSnapshot(userID)
+	if cur > 0 {
+		return false
+	}
+	if _, err := db.Get().Exec(
+		`UPDATE dnd_character SET hp_current = 1, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
+		string(userID)); err != nil {
+		slog.Warn("worldboss: hp floor failed", "user", userID, "err", err)
+	}
+	return true
+}
+
+// worldBossStatusDM renders the current Siege board to the caller.
+func (p *AdventurePlugin) worldBossStatusDM(ctx MessageContext) error {
+	boss, err := loadActiveWorldBoss()
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Something went wrong reaching the Siege. Try again in a moment.")
+	}
+	if boss == nil {
+		return p.SendDM(ctx.Sender,
+			"No Siege is camped outside town right now. The next one arrives at the start of the month.")
+	}
+
+	var sb strings.Builder
+	pct := 0
+	if boss.HPMax > 0 {
+		pct = boss.HPCurrent * 100 / boss.HPMax
+	}
+	fmt.Fprintf(&sb, "⚔️ **The Siege — %s** (Tier %d)\n", boss.Name, boss.Tier)
+	fmt.Fprintf(&sb, "Pool: **%s / %s HP** (%d%%)\n", groupInt(boss.HPCurrent), groupInt(boss.HPMax), pct)
+	if left := time.Until(boss.EndsAt); left > 0 {
+		h := int(left.Hours())
+		m := int(left.Minutes()) % 60
+		fmt.Fprintf(&sb, "Time left: **%dh %dm**\n", h, m)
+	}
+
+	today := time.Now().UTC().Format("2006-01-02")
+	if c, _ := loadWorldBossContrib(boss.ID, ctx.Sender); c != nil {
+		line := fmt.Sprintf("\nYou: %d fight(s), %s damage dealt.", c.Fights, groupInt(c.Damage))
+		if c.LastFightDate == today {
+			line += " Your bout is spent for today."
+		} else {
+			line += " Your bout is ready — `!adventure worldboss fight`."
+		}
+		sb.WriteString(line + "\n")
+	} else {
+		sb.WriteString("\nYou haven't fought yet — `!adventure worldboss fight`.\n")
+	}
+
+	if contribs, _ := loadWorldBossContribs(boss.ID); len(contribs) > 0 {
+		sb.WriteString("\n**Top of the muster:**\n")
+		for i, c := range contribs {
+			if i >= 5 {
+				break
+			}
+			fmt.Fprintf(&sb, "%d. %s — %d fight(s)\n", i+1, p.DisplayName(c.UserID), c.Fights)
+		}
+	}
+	return p.SendDM(ctx.Sender, sb.String())
+}

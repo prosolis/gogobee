@@ -269,3 +269,102 @@ func TestResolveWorldBossSurvived_DebitsPot(t *testing.T) {
 		t.Errorf("pot = %d, want 800 after 20%% tribute", bal)
 	}
 }
+
+// ── W2: the bout ─────────────────────────────────────────────────────────────
+
+func fightableChar(t *testing.T, uid id.UserID) {
+	t.Helper()
+	if err := createAdvCharacter(uid, "boxer"); err != nil {
+		t.Fatalf("createAdvCharacter: %v", err)
+	}
+	c := &DnDCharacter{
+		UserID: uid, Race: RaceHuman, Class: ClassFighter, Level: 12,
+		STR: 18, DEX: 14, CON: 16, INT: 10, WIS: 10, CHA: 10,
+		HPMax: 120, HPCurrent: 120, ArmorClass: 18,
+	}
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatalf("SaveDnDCharacter: %v", err)
+	}
+}
+
+func TestWorldBossFloorHP(t *testing.T) {
+	newWorldBossTestDB(t)
+	uid := id.UserID("@floor:test.invalid")
+	fightableChar(t, uid)
+	if worldBossFloorHP(uid) {
+		t.Error("floor should be a no-op above 0 HP")
+	}
+	if _, err := db.Get().Exec(`UPDATE dnd_character SET hp_current = 0 WHERE user_id = ?`, string(uid)); err != nil {
+		t.Fatal(err)
+	}
+	if !worldBossFloorHP(uid) {
+		t.Error("floor should raise a 0-HP fighter")
+	}
+	if cur, _ := dndHPSnapshot(uid); cur != 1 {
+		t.Errorf("hp after floor = %d, want 1", cur)
+	}
+}
+
+func TestResolveWorldBossBout_SubtractsAndRecords(t *testing.T) {
+	newWorldBossTestDB(t)
+	uid := id.UserID("@bout:test.invalid")
+	fightableChar(t, uid)
+	now := time.Now().UTC()
+	// Big pool so one bout can only chip it — assert the partial subtract + contrib.
+	bossID, err := insertWorldBoss("Kravok", 3, 100000, now, now.Add(worldBossWindow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boss, _ := loadWorldBoss(bossID)
+	p := &AdventurePlugin{}
+	bout, err := p.resolveWorldBossBout(uid, boss, "2026-07-05")
+	if err != nil {
+		t.Fatalf("bout: %v", err)
+	}
+	if bout.Damage < 0 {
+		t.Errorf("damage negative: %d", bout.Damage)
+	}
+	if bout.Killed {
+		t.Error("a 100k pool should survive one bout")
+	}
+	if bout.Remaining != 100000-bout.Damage {
+		t.Errorf("remaining %d != max-dmg %d", bout.Remaining, 100000-bout.Damage)
+	}
+	c, _ := loadWorldBossContrib(bossID, uid)
+	if c == nil || c.Fights != 1 || c.Damage != bout.Damage || c.LastFightDate != "2026-07-05" {
+		t.Errorf("contrib mismatch: %+v (bout dmg %d)", c, bout.Damage)
+	}
+	if !worldBossBoutUsedToday(bossID, uid, "2026-07-05") {
+		t.Error("bout should read as used for that day")
+	}
+	if worldBossBoutUsedToday(bossID, uid, "2026-07-06") {
+		t.Error("a different day should still be available")
+	}
+}
+
+func TestResolveWorldBossBout_FellsTinyPool(t *testing.T) {
+	newWorldBossTestDB(t)
+	uid := id.UserID("@kill:test.invalid")
+	fightableChar(t, uid)
+	now := time.Now().UTC()
+	bossID, err := insertWorldBoss("Wisp", 3, 1, now, now.Add(worldBossWindow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boss, _ := loadWorldBoss(bossID)
+	p := &AdventurePlugin{}
+	bout, err := p.resolveWorldBossBout(uid, boss, "2026-07-05")
+	if err != nil {
+		t.Fatalf("bout: %v", err)
+	}
+	// A L12 fighter lands at least one blow on a T3 dummy over a full boss fight,
+	// felling a 1-HP pool.
+	if !bout.Killed || bout.Remaining != 0 {
+		t.Errorf("tiny pool not felled: killed=%v remaining=%d dmg=%d", bout.Killed, bout.Remaining, bout.Damage)
+	}
+	// Resolution is the caller's job — the bout leaves the boss active.
+	after, _ := loadWorldBoss(bossID)
+	if after.Status != "active" {
+		t.Errorf("bout should not self-resolve; status=%q", after.Status)
+	}
+}

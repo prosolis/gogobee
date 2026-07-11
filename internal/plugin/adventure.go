@@ -537,6 +537,10 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleJournalCmd(ctx)
 	case lower == "shadow":
 		return p.handleShadowCmd(ctx)
+	case lower == "worldboss" || strings.HasPrefix(lower, "worldboss "):
+		return p.handleWorldBossCmd(ctx, strings.TrimSpace(args[len("worldboss"):]))
+	case lower == "siege" || strings.HasPrefix(lower, "siege "):
+		return p.handleWorldBossCmd(ctx, strings.TrimSpace(args[len("siege"):]))
 	}
 
 	return p.SendDM(ctx.Sender, "Unknown command. Type `!adventure help` to see available commands.")
@@ -570,6 +574,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure treasures`" + ` — List your treasures · ` + "`treasures lock`" + ` to refuse swaps
 ` + "`!adventure journal`" + ` — Read the campaign pages you've recovered
 ` + "`!adventure shadow`" + ` — See how your rival's run compares to yours
+` + "`!adventure worldboss`" + ` — The monthly Siege: one communal bout a day (` + "`fight`" + ` to join)
 ` + "`!hospital`" + ` — Visit St. Guildmore's Memorial Hospital (same-day revival when dead)
 ` + "`!thom`" + ` — Visit Thom Krooke (housing and loans)
 ` + "`!adventure help`" + ` — This message
