@@ -420,6 +420,12 @@ func (p *AdventurePlugin) midnightReset() error {
 
 	dmsSent := 0
 	for _, char := range chars {
+		// Advance this player's Shadow (N6/D3) once for the day, before any
+		// streak/idle branching below — the rival runs whether or not the
+		// player did, which is the whole point of the race pressure. Own table,
+		// own idempotency guard; never touches char, never fails the reset.
+		p.advanceShadow(&char)
+
 		// Died inside the window — no shame, no streak change. Covers both
 		// currently-dead players and players revived at midnight (Alive
 		// already flipped to true by the reminder loop before this runs).

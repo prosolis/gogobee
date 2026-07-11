@@ -535,6 +535,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleVaultCmd(ctx, strings.TrimSpace(args[len("vault"):]))
 	case lower == "journal":
 		return p.handleJournalCmd(ctx)
+	case lower == "shadow":
+		return p.handleShadowCmd(ctx)
 	}
 
 	return p.SendDM(ctx.Sender, "Unknown command. Type `!adventure help` to see available commands.")
@@ -567,6 +569,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure mastery`" + ` — Per-slot equipment mastery progress and active bonus
 ` + "`!adventure treasures`" + ` — List your treasures · ` + "`treasures lock`" + ` to refuse swaps
 ` + "`!adventure journal`" + ` — Read the campaign pages you've recovered
+` + "`!adventure shadow`" + ` — See how your rival's run compares to yours
 ` + "`!hospital`" + ` — Visit St. Guildmore's Memorial Hospital (same-day revival when dead)
 ` + "`!thom`" + ` — Visit Thom Krooke (housing and loans)
 ` + "`!adventure help`" + ` — This message

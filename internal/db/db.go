@@ -2215,6 +2215,47 @@ CREATE TABLE IF NOT EXISTS expedition_invite (
 );
 CREATE INDEX IF NOT EXISTS idx_expedition_invite_user
     ON expedition_invite(user_id);
+
+-- ── N6/D3 — the Shadow: a simulated rival adventurer ──────────────────────
+-- One row per player, born lazily the first midnight after their character
+-- exists. The Shadow "runs" the same zone progression on a simulated schedule
+-- (~1.3x the player's own clear pace), advanced once per UTC day by the
+-- midnight ticker. Pure theatre: no combat, no punishment — only race
+-- pressure surfaced in the morning briefing and a payoff at each zone clear.
+--
+-- Absent == the player has no Shadow yet, which is true of every row that
+-- existed before N6, so there is nothing to backfill. The ticker mints the
+-- row on first advance. This table is deliberately NOT part of the
+-- player_meta save fan-out: the ticker owns it, so a character save can never
+-- clobber the Shadow's advance (the same isolation journal_pages earns by
+-- being grant-only, made structural here).
+--
+-- name:          the rival's proper name, seeded deterministically from the
+--                player's display name at birth.
+-- progress:      cumulative zone-units the Shadow has run (fractional, so a
+--                slow player still sees it creep between clears).
+-- zones_cleared: floor(progress) at the last advance — the committed count,
+--                stored so the next advance can tell which zones were newly
+--                finished.
+-- pending_mask:  zones (by progression index bit) the Shadow cleared before
+--                the player did — a journal page waits in each until the
+--                player clears that zone's boss.
+-- crowed_mask:   zones the player beat the Shadow to and has already been
+--                crowed a bonus for — set-once, so re-running a zone the
+--                Shadow hasn't reached can't farm the crow XP.
+-- day_counter:   the Shadow's own day count, for flavour variety.
+-- last_advanced: UTC date of the last advance; the per-day idempotency guard.
+CREATE TABLE IF NOT EXISTS adventure_shadow (
+    user_id       TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    progress      REAL NOT NULL DEFAULT 0,
+    zones_cleared INTEGER NOT NULL DEFAULT 0,
+    pending_mask  INTEGER NOT NULL DEFAULT 0,
+    crowed_mask   INTEGER NOT NULL DEFAULT 0,
+    day_counter   INTEGER NOT NULL DEFAULT 0,
+    last_advanced TEXT NOT NULL DEFAULT '',
+    born_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 // SeedSchedulerDefaults inserts default scheduler jobs if they don't exist.

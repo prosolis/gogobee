@@ -170,7 +170,14 @@ func (p *AdventurePlugin) finalizeExpeditionOnZoneClear(userID id.UserID, runID 
 	exp.Status = ExpeditionStatusComplete
 	_ = retireAllRegionRuns(exp)
 	p.rollZoneTreasure(userID, exp.ZoneID, advTreasureWeightZoneClear)
-	return p.AwardCompletionMilestones(exp, false)
+	lines := p.AwardCompletionMilestones(exp, false)
+	// N6/D3: the Shadow's payoff for this zone — a crow (player was first) or a
+	// waiting journal page (the Shadow cleared it first). Appended after the
+	// milestone lines so the campaign beat reads last.
+	if sl := p.shadowOnPlayerZoneClear(userID, exp.ZoneID); sl != "" {
+		lines = append(lines, sl)
+	}
+	return lines
 }
 
 // midZoneRegionClear reports whether the just-completed run (runID) is the

@@ -400,6 +400,9 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)
+	if sl := p.shadowBriefingLine(e); sl != "" {
+		body += "\n" + sl + "\n"
+	}
 	if restSummary != "" {
 		body += "\n💤 _" + restSummary + "_\n"
 	}
@@ -513,6 +516,9 @@ func (p *AdventurePlugin) deliverBriefingEventAnchored(e *Expedition, priorBrief
 
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)
+	if sl := p.shadowBriefingLine(e); sl != "" {
+		body += "\n" + sl + "\n"
+	}
 	if forced {
 		body += "\n_The autopilot stalled overnight; the day rolled over without rest._\n"
 	}
