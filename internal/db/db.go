@@ -619,6 +619,11 @@ func RunMaintenance() {
 		// Pete adventure-news queue — reap delivered rows (kept only for
 		// idempotency); undelivered rows stay so the sender can retry/park them.
 		{"pete_emit_queue", `DELETE FROM pete_emit_queue WHERE sent_at IS NOT NULL AND sent_at < ?`, []interface{}{cutoff7d}},
+		// ...and reap permanently-parked rows: the sender exhausts its retries
+		// within a few hours, so anything still unsent after 30 days is dead
+		// weight the drain query already skips — drop it so a durable outage
+		// can't accrete rows forever.
+		{"pete_emit_queue_parked", `DELETE FROM pete_emit_queue WHERE sent_at IS NULL AND created_at < ?`, []interface{}{cutoff30d}},
 
 		// Rate limits — purge entries older than today
 		{"rate_limits", `DELETE FROM rate_limits WHERE date < ?`, []interface{}{today}},

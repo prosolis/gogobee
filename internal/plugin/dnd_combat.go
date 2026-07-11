@@ -583,6 +583,11 @@ func markAdventureDead(userID id.UserID, source, location string) {
 // unless the seam is enabled. Uses the character name (never the Matrix handle);
 // skips silently if the name is unknown.
 func emitDeathNews(userID id.UserID, location string) {
+	// Gate before the char lookups: markAdventureDead fires per-member on a
+	// party wipe and in the sim harness, so skip the DB reads when disabled.
+	if !peteclient.Enabled() || !newsEmissionOn() {
+		return
+	}
 	name := charName(userID)
 	if name == "" {
 		return

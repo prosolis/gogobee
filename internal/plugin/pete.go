@@ -266,6 +266,14 @@ func emitZoneClearNews(userID id.UserID, exp *Expedition) {
 	if !peteclient.Enabled() || !newsEmissionOn() {
 		return
 	}
+	// Claim the realm-first BEFORE the name guard, so an unnamed straggler's
+	// genuine first clear still seeds news_realm_firsts. Otherwise the next
+	// named clearer would claim it and be mis-announced as the first-ever.
+	// Mirrors backfillZoneFirsts, which claims before its own name check.
+	eventType, tier := "zone_clear", "bulletin"
+	if claimRealmFirst("zone", string(exp.ZoneID)) {
+		eventType, tier = "zone_first", "priority"
+	}
 	name := charName(userID)
 	if name == "" {
 		return
@@ -278,10 +286,6 @@ func emitZoneClearNews(userID id.UserID, exp *Expedition) {
 		}
 	}
 	lvl := charLevel(userID)
-	eventType, tier := "zone_clear", "bulletin"
-	if claimRealmFirst("zone", string(exp.ZoneID)) {
-		eventType, tier = "zone_first", "priority"
-	}
 	ts := nowUnix()
 	disc := fmt.Sprintf("%s:%d", exp.ZoneID, ts)
 	emitFact(peteclient.Fact{
