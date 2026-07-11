@@ -40,7 +40,7 @@ func twinBeeMaxTier() int {
 		if !c.Alive {
 			continue
 		}
-		combined := dndLevelForUser(c.UserID) + c.MiningSkill + c.ForagingSkill + c.FishingSkill
+		combined := combinedAdvLevel(&c)
 		if combined > bestLevel {
 			bestLevel = combined
 		}
@@ -283,7 +283,7 @@ func (p *AdventurePlugin) distributeTwinBeeRewards(result *TwinBeeResult) TwinBe
 		weight := 4 // minimum (level 1 in all 4 skills)
 		for _, c := range chars {
 			if c.UserID == uid {
-				weight = dndLevelForUser(c.UserID) + c.MiningSkill + c.ForagingSkill + c.FishingSkill
+				weight = combinedAdvLevel(&c)
 				if weight < 4 {
 					weight = 4
 				}
