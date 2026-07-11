@@ -79,7 +79,20 @@ func renderDnDSheet(c *DnDCharacter, adv *AdventureCharacter, meta *PlayerMeta, 
 	if adv != nil && adv.DisplayName != "" {
 		name = adv.DisplayName
 	}
-	b.WriteString(fmt.Sprintf("⚔️ **%s** — Level %d %s %s\n", name, c.Level, ri.Display, ci.Display))
+	renownLevel := 0
+	if adv != nil {
+		renownLevel = adv.RenownLevel()
+	}
+	nameLine := name
+	if m := renownMarker(renownLevel); m != "" {
+		nameLine = fmt.Sprintf("%s %s", name, m)
+	}
+	b.WriteString(fmt.Sprintf("⚔️ **%s** — Level %d %s %s\n", nameLine, c.Level, ri.Display, ci.Display))
+	if renownLevel > 0 {
+		if rank := renownRankFor(renownLevel); rank != "" {
+			b.WriteString(fmt.Sprintf("    _Renown %d — %s_\n", renownLevel, rank))
+		}
+	}
 	if c.Subclass != "" {
 		if si, ok := subclassInfo(c.Subclass); ok {
 			b.WriteString(fmt.Sprintf("    _%s_\n", si.Display))

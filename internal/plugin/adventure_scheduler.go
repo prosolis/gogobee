@@ -163,6 +163,7 @@ func (p *AdventurePlugin) sendMorningDMs() {
 		treasures, _ := loadAdvTreasureBonuses(char.UserID)
 		buffs, _ := loadAdvActiveBuffs(char.UserID)
 		bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, false)
+		applyRenownBonuses(bonuses, char.RenownLevel()) // N7/B2 — activity path only, never combat
 		balance := p.euro.GetBalance(char.UserID)
 
 		holidayLabel := ""

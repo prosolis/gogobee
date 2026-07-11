@@ -161,6 +161,16 @@ func (p *AdventurePlugin) handleDnDLevelCmd(ctx MessageContext) error {
 	b.WriteString(fmt.Sprintf("⚔️ Level **%d** %s %s\n", c.Level, ri.Display, ci.Display))
 	if c.Level >= dndMaxLevel {
 		b.WriteString("XP: capped at L20.")
+		if rl := advChar.RenownLevel(); rl > 0 {
+			into, cost := renownXPIntoLevel(advChar.RenownXP)
+			b.WriteString(fmt.Sprintf("\n✦ **Renown %d**", rl))
+			if rank := renownRankFor(rl); rank != "" {
+				b.WriteString(fmt.Sprintf(" — _%s_", rank))
+			}
+			b.WriteString(fmt.Sprintf("\nRenown XP: %d / %d to Renown %d", into, cost, rl+1))
+		} else {
+			b.WriteString("\n_Overflow XP now earns **Renown** — prestige past the cap._")
+		}
 	} else {
 		next := dndXPToNextLevel(c.Level)
 		pct := int(100.0 * float64(c.XP) / float64(next))

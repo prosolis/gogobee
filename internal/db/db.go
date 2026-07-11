@@ -393,6 +393,14 @@ func runMigrations(d *sql.DB) error {
 		// character save, so a monotonic false→true flag can't be clobbered.
 		// DEFAULT 0 correct for every pre-existing row, so no bootstrap.
 		`ALTER TABLE player_meta ADD COLUMN epilogue_cleared INTEGER NOT NULL DEFAULT 0`,
+		// N7/B2 Renown (gogobee_engagement_plan.md §B2). At the L20 cap, overflow
+		// XP that grantDnDXP used to drop instead accumulates here as cumulative
+		// prestige XP. renown_xp is monotonic and written by an atomic += (the
+		// journal_pages pattern), never the bulk character save; renown_level is
+		// DERIVED from it (renown_xp / renownXPPerLevel) rather than stored, so
+		// there is no read-modify-write race and no second field to disagree.
+		// DEFAULT 0 == "no renown", correct for every pre-existing row, no bootstrap.
+		`ALTER TABLE player_meta ADD COLUMN renown_xp INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

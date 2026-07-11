@@ -127,14 +127,25 @@ func (p *AdventurePlugin) grantDnDXP(userID id.UserID, amount int) ([]LevelUpEve
 		events = append(events, LevelUpEvent{NewLevel: c.Level, HPGain: gain})
 	}
 
-	// Cap at L20 — overflow XP is silently dropped.
-	if c.Level >= dndMaxLevel {
+	// N7/B2 Renown — persist the character; at the cap, overflow XP that used to
+	// be dropped converts to Renown in the SAME transaction as the save, so a
+	// crash can neither lose the overflow nor double-credit it on the next grant.
+	// Renown is title + cosmetic + capped loot/XP perks, never combat stats, so
+	// the balance corpus stays valid.
+	var renownFrom, renownTo int
+	if c.Level >= dndMaxLevel && c.XP > 0 {
+		overflow := c.XP
 		c.XP = 0
-	}
-
-	if err := SaveDnDCharacter(c); err != nil {
+		from, to, err := saveDnDCharacterWithOverflow(c, overflow)
+		if err != nil {
+			return events, err
+		}
+		renownFrom, renownTo = renownLevelFor(from), renownLevelFor(to)
+	} else if err := SaveDnDCharacter(c); err != nil {
 		return events, err
 	}
+
+	p.announceRenown(userID, renownFrom, renownTo)
 
 	if len(events) > 0 {
 		// Phase 10 SUB3a-ii — Battle Master Relentless (L15) raises the

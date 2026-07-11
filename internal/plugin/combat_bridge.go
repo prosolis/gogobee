@@ -171,7 +171,12 @@ func (p *AdventurePlugin) loadCombatBonuses(userID id.UserID, char *AdventureCha
 	treasures, _ := loadAdvTreasureBonuses(userID)
 	buffs, _ := loadAdvActiveBuffs(userID)
 	hasGrudge := char.GrudgeLocation != ""
-	return computeAdvBonuses(treasures, buffs, char.CurrentStreak, hasGrudge)
+	b := computeAdvBonuses(treasures, buffs, char.CurrentStreak, hasGrudge)
+	// N7/B2 — renown pays out on loot/XP here too. Safe despite this feeding
+	// combat_stats: applyRenownBonuses touches only LootQuality/XPMultiplier,
+	// which combat stat derivation never reads (see adventure_renown.go).
+	applyRenownBonuses(b, char.RenownLevel())
+	return b
 }
 
 // loadConsumableInventory scans inventory for items matching consumable definitions.

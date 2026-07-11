@@ -118,6 +118,18 @@ type AdventureCharacter struct {
 	// N5/D1c the finale reward-once flag. True after the first finale clear;
 	// overlay-read, written by the atomic markEpilogueClearedDB.
 	EpilogueCleared bool
+	// N7/B2 Renown — cumulative overflow XP earned past the L20 cap. Overlay-read
+	// from player_meta.renown_xp, written by the atomic addRenownXP, never the
+	// bulk character save. RenownLevel() derives the prestige level from it.
+	RenownXP int
+}
+
+// RenownLevel is the derived prestige level (renown_xp / renownXPPerLevel).
+func (c *AdventureCharacter) RenownLevel() int {
+	if c == nil {
+		return 0
+	}
+	return renownLevelFor(c.RenownXP)
 }
 
 type AdvEquipment struct {

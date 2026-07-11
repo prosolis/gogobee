@@ -332,8 +332,22 @@ func LoadDnDCharacter(userID id.UserID) (*DnDCharacter, error) {
 	return c, nil
 }
 
+// sqlExecer is the subset of *sql.DB / *sql.Tx that saveDnDCharacterExec needs,
+// so the upsert can run either standalone or inside a caller's transaction.
+type sqlExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 // SaveDnDCharacter upserts the row.
 func SaveDnDCharacter(c *DnDCharacter) error {
+	return saveDnDCharacterExec(db.Get(), c)
+}
+
+// saveDnDCharacterExec runs the dnd_character upsert against any executor. Used
+// directly by SaveDnDCharacter and inside grantDnDXP's overflow→renown
+// transaction (adventure_renown.go), so the character save and the renown
+// credit commit atomically.
+func saveDnDCharacterExec(ex sqlExecer, c *DnDCharacter) error {
 	pending := 0
 	if c.PendingSetup {
 		pending = 1
@@ -346,7 +360,7 @@ func SaveDnDCharacter(c *DnDCharacter) error {
 	if c.OnboardingSent {
 		onboard = 1
 	}
-	_, err := db.Get().Exec(`
+	_, err := ex.Exec(`
 		INSERT INTO dnd_character (user_id, race, class, dnd_level, dnd_xp,
 		    str_score, dex_score, con_score, int_score, wis_score, cha_score,
 		    hp_current, hp_max, temp_hp, armor_class,

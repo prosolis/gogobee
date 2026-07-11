@@ -974,6 +974,7 @@ type AdvLeaderboardEntry struct {
 	ForagingSkill int
 	FishingSkill  int
 	CurrentStreak int
+	Renown        int // N7/B2 — prestige level, cosmetic marker only
 }
 
 func renderAdvLeaderboard(chars []AdvLeaderboardEntry) string {
@@ -987,16 +988,21 @@ func renderAdvLeaderboard(chars []AdvLeaderboardEntry) string {
 		Score  int
 		Levels string
 		Streak int
+		Renown int
 	}
 	var entries []entry
 	for _, c := range chars {
+		// Renown adds to the ranking score so a capped, prestigious player still
+		// climbs — it's the only progression they have left past L20.
 		score := (c.Level + c.MiningSkill + c.ForagingSkill + c.FishingSkill) * 10
+		score += c.Renown * 10
 		name, _ := loadDisplayName(c.UserID)
 		entries = append(entries, entry{
 			Name:   name,
 			Score:  score,
 			Levels: fmt.Sprintf("⚔️%d ⛏️%d 🌿%d 🎣%d", c.Level, c.MiningSkill, c.ForagingSkill, c.FishingSkill),
 			Streak: c.CurrentStreak,
+			Renown: c.Renown,
 		})
 	}
 
@@ -1028,7 +1034,11 @@ func renderAdvLeaderboard(chars []AdvLeaderboardEntry) string {
 		if e.Streak >= 7 {
 			streak = fmt.Sprintf(" 🔥%d", e.Streak)
 		}
-		sb.WriteString(fmt.Sprintf("%s **%s** — %s (score: %d%s)\n", prefix, e.Name, e.Levels, e.Score, streak))
+		renownBadge := ""
+		if m := renownMarker(e.Renown); m != "" {
+			renownBadge = " " + m
+		}
+		sb.WriteString(fmt.Sprintf("%s **%s**%s — %s (score: %d%s)\n", prefix, e.Name, renownBadge, e.Levels, e.Score, streak))
 	}
 
 	return sb.String()

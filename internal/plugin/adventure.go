@@ -646,6 +646,7 @@ func (p *AdventurePlugin) handleMenu(ctx MessageContext) error {
 	treasures, _ := loadAdvTreasureBonuses(char.UserID)
 	buffs, _ := loadAdvActiveBuffs(char.UserID)
 	bonuses := computeAdvBonuses(treasures, buffs, char.CurrentStreak, false)
+	applyRenownBonuses(bonuses, char.RenownLevel()) // N7/B2 — activity path only, never combat
 	balance := p.euro.GetBalance(char.UserID)
 
 	text := renderAdvMorningDM(char.UserID, equip, balance, bonuses, holName)
@@ -796,6 +797,7 @@ func (p *AdventurePlugin) handleLeaderboard(ctx MessageContext) error {
 			ForagingSkill: c.ForagingSkill,
 			FishingSkill:  c.FishingSkill,
 			CurrentStreak: c.CurrentStreak,
+			Renown:        renownLevelForUser(c.UserID),
 		})
 	}
 	text := renderAdvLeaderboard(entries)

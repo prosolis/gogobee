@@ -1349,6 +1349,9 @@ func applyPlayerMetaOverlay(c *AdventureCharacter) {
 	if cleared, err := loadEpilogueCleared(uid); err == nil {
 		c.EpilogueCleared = cleared
 	}
+	if xp, err := loadRenownXP(uid); err == nil {
+		c.RenownXP = xp
+	}
 	if s, err := loadHouseState(uid); err == nil {
 		c.HouseTier = s.Tier
 		c.HouseLoanBalance = s.LoanBalance
