@@ -368,3 +368,50 @@ func TestResolveWorldBossBout_FellsTinyPool(t *testing.T) {
 		t.Errorf("bout should not self-resolve; status=%q", after.Status)
 	}
 }
+
+// TestWorldBossTick_ResolvesZeroHPBossAsDefeated: a killing blow that committed
+// the pool to 0 but (crash/redeploy) never resolved the status must be resolved
+// as DEFEATED by the ticker net — never fall through to the survive/pot-debit
+// path. No contributors here, so resolution never touches euro.
+func TestWorldBossTick_ResolvesZeroHPBossAsDefeated(t *testing.T) {
+	newWorldBossTestDB(t)
+	now := time.Now().UTC()
+	communityPotAdd(1000)
+	bossID, err := insertWorldBoss("Ghost", 3, 100, now, now.Add(worldBossWindow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Get().Exec(`UPDATE world_boss SET hp_current = 0 WHERE id = ?`, bossID); err != nil {
+		t.Fatal(err)
+	}
+	p := &AdventurePlugin{}
+	p.worldBossTick()
+	after, _ := loadWorldBoss(bossID)
+	if after.Status != "defeated" {
+		t.Errorf("status = %q, want defeated (ticker safety net)", after.Status)
+	}
+	if bal := communityPotBalance(); bal != 1000 {
+		t.Errorf("pot = %d, want 1000 — a defeat mints, it must not debit the pot", bal)
+	}
+}
+
+// TestWorldBossTick_ResolvesLapsedBossAsSurvived: a boss whose window lapsed with
+// the pool still up survives and loots the pot.
+func TestWorldBossTick_ResolvesLapsedBossAsSurvived(t *testing.T) {
+	newWorldBossTestDB(t)
+	now := time.Now().UTC()
+	communityPotAdd(1000)
+	bossID, err := insertWorldBoss("Titan", 4, 500, now.Add(-worldBossWindow), now.Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &AdventurePlugin{}
+	p.worldBossTick()
+	after, _ := loadWorldBoss(bossID)
+	if after.Status != "survived" {
+		t.Errorf("status = %q, want survived", after.Status)
+	}
+	if bal := communityPotBalance(); bal != 800 {
+		t.Errorf("pot = %d, want 800 after 20%% tribute", bal)
+	}
+}

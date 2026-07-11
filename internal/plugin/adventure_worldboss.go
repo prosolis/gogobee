@@ -156,10 +156,11 @@ func insertWorldBoss(name string, tier, hpMax int, startsAt, endsAt time.Time) (
 
 // applyWorldBossDamage subtracts damage from the shared pool atomically, clamped
 // at zero, only while the boss is still active. Returns the pool's new value and
-// whether this hit felled it (crossed to zero on this call). A concurrent hit
-// that also crosses zero will see killed=false — only the writer that moved the
-// pool to exactly zero, or found it already there, owns resolution; the caller
-// re-reads to decide.
+// whether the pool is now down (killed). The UPDATE and the re-read are separate
+// statements, so two concurrent killers can BOTH observe killed=true — that is
+// fine: resolveWorldBossDefeated dedupes on the status='active' guard in
+// setWorldBossStatus, so only one payout ever fires. killed is just "should the
+// caller attempt resolution".
 func applyWorldBossDamage(bossID int64, dmg int) (remaining int, killed bool, err error) {
 	if dmg < 0 {
 		dmg = 0
@@ -409,6 +410,14 @@ func (p *AdventurePlugin) worldBossTick() {
 	}
 	now := time.Now().UTC()
 	if boss != nil {
+		// Safety net: a killing blow commits the pool to 0 inline, but if the
+		// process died (or was redeployed) before the bout resolved the status,
+		// the boss is left active/0-HP. Resolve it as the defeat it was — never
+		// let the survive branch below debit the pot for a boss the town killed.
+		if boss.HPCurrent <= 0 {
+			p.resolveWorldBossDefeated(boss)
+			return
+		}
 		if now.After(boss.EndsAt) {
 			p.resolveWorldBossSurvived(boss)
 		}
@@ -626,6 +635,14 @@ func (p *AdventurePlugin) fightWorldBoss(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, "The Siege combat hit an error. Try again in a moment.")
 	}
 
+	// Resolve a defeat BEFORE streaming the (multi-second) narration. The pool is
+	// already committed to 0; flipping the status now closes the window where a
+	// crash or the ticker's survive path could resolve a killed boss as a
+	// survival and debit the pot instead of paying bounties.
+	if bout.Killed {
+		p.resolveWorldBossDefeated(boss)
+	}
+
 	playerName, _ := loadDisplayName(ctx.Sender)
 	if playerName == "" {
 		playerName = "You"
@@ -646,10 +663,6 @@ func (p *AdventurePlugin) fightWorldBoss(ctx MessageContext) error {
 	}
 
 	<-p.sendZoneCombatMessages(ctx.Sender, phaseMessages, footer)
-
-	if bout.Killed {
-		p.resolveWorldBossDefeated(boss)
-	}
 	return nil
 }
 
@@ -688,12 +701,17 @@ func (p *AdventurePlugin) resolveWorldBossBout(userID id.UserID, boss *worldBoss
 	if dmg < 0 {
 		dmg = 0
 	}
+	// Record the contribution (which also sets the once-per-day gate) BEFORE
+	// draining the shared pool. If this write fails we must not have already
+	// drained the pool — otherwise the player could refight a pool they emptied
+	// and lose the credit for it. A hard error here aborts the bout; the HP cost
+	// was already paid, but the pool is untouched and the player can retry.
+	if err := upsertWorldBossContrib(boss.ID, userID, dmg, dateKey); err != nil {
+		return worldBossBoutResult{}, err
+	}
 	remaining, killed, err := applyWorldBossDamage(boss.ID, dmg)
 	if err != nil {
 		return worldBossBoutResult{}, err
-	}
-	if err := upsertWorldBossContrib(boss.ID, userID, dmg, dateKey); err != nil {
-		slog.Warn("worldboss: contrib upsert failed", "user", userID, "err", err)
 	}
 	return worldBossBoutResult{
 		Damage: dmg, Remaining: remaining, Killed: killed, Battered: battered, Combat: result,
