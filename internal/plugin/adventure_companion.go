@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -410,6 +411,153 @@ func companionLoadout(expeditionID string) (DnDClass, int) {
 		return ClassFighter, 1
 	}
 	return DnDClass(class), level
+}
+
+// ── his spell slots, which live on the expedition ────────────────────────────
+//
+// A human caster's slots are dnd_spell_slots rows: one pool, spent across every
+// fight of the run, refilled only at camp. Rationing it is the caster's game. The
+// companion has no rows, so his pool lives on his roster row — the same row his
+// class and level live on, and with the same lifetime.
+//
+// It must NOT live on his combat seat. A seat is per-session and every fight opens
+// a new one, so a seat-scoped pool refills itself between fights: an infinite
+// caster. That is not a theory — the first cut did exactly that, and the sim
+// measured a gearless, level-penalized hireling out-clearing a human cleric of the
+// leader's own level by 15pp.
+
+// companionSlotsCSV encodes/decodes the ledger. CSV of six ints rather than JSON
+// because it is six ints.
+func companionSlotsDecode(s string) [6]int {
+	var out [6]int
+	for i, f := range strings.Split(s, ",") {
+		if i >= len(out) {
+			break
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(f))
+		if err != nil || n < 0 {
+			continue
+		}
+		out[i] = n
+	}
+	return out
+}
+
+func companionSlotsEncode(used [6]int) string {
+	parts := make([]string, len(used))
+	for i, n := range used {
+		parts[i] = strconv.Itoa(n)
+	}
+	return strings.Join(parts, ",")
+}
+
+// companionSlotsForRun reads the ledger for the companion on the expedition that
+// owns runID. A run with no companion (or no expedition) reads as an empty pool,
+// which is the correct answer: nobody spent anything.
+func companionSlotsForRun(runID string) [6]int {
+	var raw string
+	err := db.Get().QueryRow(`
+		SELECT p.companion_slots_used
+		  FROM expedition_party p
+		  JOIN dnd_expedition e ON e.expedition_id = p.expedition_id
+		 WHERE e.run_id = ? AND p.user_id = ?`,
+		runID, string(companionUserID())).Scan(&raw)
+	if err != nil {
+		return [6]int{}
+	}
+	return companionSlotsDecode(raw)
+}
+
+// setCompanionSlotsForRun writes it back.
+func setCompanionSlotsForRun(runID string, used [6]int) error {
+	_, err := db.Get().Exec(`
+		UPDATE expedition_party
+		   SET companion_slots_used = ?
+		 WHERE user_id = ?
+		   AND expedition_id = (SELECT expedition_id FROM dnd_expedition WHERE run_id = ?)`,
+		companionSlotsEncode(used), string(companionUserID()), runID)
+	return err
+}
+
+// refreshCompanionSlots empties the ledger — his half of the camp rest that calls
+// refreshSpellSlots for every human. Keyed by expedition, because camp is.
+func refreshCompanionSlots(expeditionID string) error {
+	_, err := db.Get().Exec(`
+		UPDATE expedition_party SET companion_slots_used = ''
+		 WHERE expedition_id = ? AND user_id = ?`,
+		expeditionID, string(companionUserID()))
+	return err
+}
+
+// ── his body, which is also carried across the run ───────────────────────────
+//
+// companionUnsetHP is "no wound recorded" — a fresh hire, or a companion who has
+// just broken camp. Seating reads it as full.
+const companionUnsetHP = -1
+
+// companionHPFor reads the HP he carries into his next fight, or companionUnsetHP
+// when he is unhurt. A run with no companion reads unset, which is harmless: there
+// is nobody to seat.
+func companionHPFor(expeditionID string) int {
+	hp := companionUnsetHP
+	err := db.Get().QueryRow(`
+		SELECT companion_hp FROM expedition_party
+		 WHERE expedition_id = ? AND user_id = ?`,
+		expeditionID, string(companionUserID())).Scan(&hp)
+	if err != nil {
+		return companionUnsetHP
+	}
+	return hp
+}
+
+// companionSeatHP is what he actually sits down with: his carried wound, clamped
+// into [1, maxHP].
+//
+// The floor of 1 is deliberate. He can be dropped *inside* a fight — the engine
+// counts him out like any other seat — but he does not stay dead between them,
+// because there is no companion-death mechanic and inventing one here would be a
+// second feature smuggled into a bug fix. Coming back on 1 HP is a real penalty
+// (one hit and he is down again) without pretending to be a corpse rule.
+func companionSeatHP(expeditionID string, maxHP int) int {
+	hp := companionHPFor(expeditionID)
+	if hp == companionUnsetHP || hp > maxHP {
+		return maxHP
+	}
+	if hp < 1 {
+		return 1
+	}
+	return hp
+}
+
+// setCompanionHP records the HP he walked out of a fight with.
+func setCompanionHP(expeditionID string, hp int) error {
+	_, err := db.Get().Exec(`
+		UPDATE expedition_party SET companion_hp = ?
+		 WHERE expedition_id = ? AND user_id = ?`,
+		hp, expeditionID, string(companionUserID()))
+	return err
+}
+
+// setCompanionHPForRun is setCompanionHP for the turn-based close-out, which
+// holds a run id rather than an expedition id.
+func setCompanionHPForRun(runID string, hp int) error {
+	_, err := db.Get().Exec(`
+		UPDATE expedition_party
+		   SET companion_hp = ?
+		 WHERE user_id = ?
+		   AND expedition_id = (SELECT expedition_id FROM dnd_expedition WHERE run_id = ?)`,
+		hp, string(companionUserID()), runID)
+	return err
+}
+
+// refreshCompanionHP is his half of the camp heal: back to full, like every human
+// at a standard rest.
+func refreshCompanionHP(expeditionID string) error {
+	_, err := db.Get().Exec(`
+		UPDATE expedition_party SET companion_hp = ?
+		 WHERE expedition_id = ? AND user_id = ?`,
+		companionUnsetHP, expeditionID, string(companionUserID()))
+	return err
 }
 
 // companionLoadoutForRun is companionLoadout keyed by the zone run instead of

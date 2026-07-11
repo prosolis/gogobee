@@ -116,14 +116,10 @@ func TestCompanionSpells_SpendsHisSeatNotTheDatabase(t *testing.T) {
 		t.Fatalf("effect = %+v, want an ally heal", action.Effect)
 	}
 
-	// The slot came off his seat's ledger.
-	if used := ct.sess.actorStatusesPtr(1).SlotsUsed[1]; used != 1 {
-		t.Errorf("companion spent %d level-1 slots on his seat, want 1", used)
-	}
-	// ...and not off the leader's, which is the bug the seat-scoping exists to
-	// prevent: one shared @pete id across every expedition that hires him.
-	if used := ct.sess.actorStatusesPtr(0).SlotsUsed[1]; used != 0 {
-		t.Errorf("the companion's cast debited the LEADER's seat (%d slots)", used)
+	// The slot came off the expedition's ledger — which is where it has to live, so
+	// that it is still spent in the NEXT fight of the same run.
+	if used := companionSlotsForRun(ct.sess.RunID); used[1] != 1 {
+		t.Errorf("companion spent %v level-1 slots on the run's ledger, want 1", used[1])
 	}
 
 	for _, table := range []string{"dnd_character", "dnd_known_spells", "dnd_spell_slots", "player_meta"} {
@@ -148,7 +144,7 @@ func TestCompanionSpells_RunsOutOfSlots(t *testing.T) {
 	runID := hireForFight(t, "exp-dry", leader, ClassCleric, 6)
 	ct := petePartyFight(t, p, runID, leader, 20)
 
-	total := companionSlotPool(ClassCleric, 6, ActorStatuses{})[1][0]
+	total := companionSlotPool(ClassCleric, 6, [6]int{})[1][0]
 	if total <= 0 {
 		t.Fatal("a level-6 cleric has no level-1 slots — the slot table did not resolve")
 	}
@@ -167,6 +163,95 @@ func TestCompanionSpells_RunsOutOfSlots(t *testing.T) {
 	}
 	if ok, _ := consumeSeatSlot(ct.sess, 1, companionUserID(), 1); !ok {
 		t.Error("a refunded slot was not castable again")
+	}
+}
+
+// His pool does NOT refill between fights, and it DOES come back at camp.
+//
+// This is the one the sweep caught and the unit tests did not. The first cut of
+// the spellbook parked his ledger on his combat seat — and a seat is per-session,
+// so every fight opened a fresh one and he walked in with full slots. A human
+// cleric rations a single pool across the whole run; rationing it IS the caster's
+// game. Handed an infinite pool, a gearless level-penalized hireling out-cleared a
+// same-level human cleric by 15pp in the sim.
+func TestCompanionSpells_PoolIsRationedAcrossTheRun(t *testing.T) {
+	setupEmptyTestDB(t)
+	p := &AdventurePlugin{}
+	leader := id.UserID("@lead:example.org")
+	runID := hireForFight(t, "exp-ration", leader, ClassCleric, 6)
+
+	// Fight one: spend every level-1 slot he owns.
+	first := petePartyFight(t, p, runID, leader, 20)
+	total := companionSlotPool(ClassCleric, 6, [6]int{})[1][0]
+	for range total {
+		if ok, err := consumeSeatSlot(first.sess, 1, companionUserID(), 1); err != nil || !ok {
+			t.Fatalf("consume: %v (%v)", ok, err)
+		}
+	}
+
+	// Fight two, same run — a NEW combat session, which is exactly what used to
+	// hand him a fresh pool.
+	if err := markCombatSessionExpired(first.sess.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	second := petePartyFight(t, p, runID, leader, 20)
+	if ok, _ := consumeSeatSlot(second.sess, 1, companionUserID(), 1); ok {
+		t.Error("the companion's spell slots refilled between fights — he is an infinite caster")
+	}
+
+	// ...and camp gives them back, the same way it does for every human.
+	if err := refreshCompanionSlots("exp-ration"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := consumeSeatSlot(second.sess, 1, companionUserID(), 1); !ok {
+		t.Error("camp did not restore the companion's slots — his pool only ever goes down")
+	}
+}
+
+// He carries his wounds between fights, and camp patches him up.
+//
+// He used to re-seat at full max HP for every single fight — "he arrives fresh
+// next time" was the close-out's stated intent — which is an infinite body. A
+// player bleeds across a 30-room run and only heals at camp; the hireling soaked
+// his share of every fight and then reset. In the sim his party fled 5 runs out of
+// 640 where the same party with a *human* cleric fled 56.
+func TestCompanion_CarriesWoundsBetweenFights(t *testing.T) {
+	setupEmptyTestDB(t)
+	leader := id.UserID("@lead:example.org")
+	seedExpedition(t, "exp-hp", leader, "active")
+	seatLeaderFixture(t, "exp-hp")
+	if err := hireCompanion("exp-hp", ClassCleric, 6); err != nil {
+		t.Fatal(err)
+	}
+
+	// A fresh hire is at full.
+	if got := companionSeatHP("exp-hp", 100); got != 100 {
+		t.Errorf("a fresh hire seats at %d/100 HP, want full", got)
+	}
+
+	// He walks out of a fight on 30 HP; he walks into the next one on 30 HP.
+	if err := setCompanionHP("exp-hp", 30); err != nil {
+		t.Fatal(err)
+	}
+	if got := companionSeatHP("exp-hp", 100); got != 30 {
+		t.Errorf("he re-seated at %d/100 HP after ending a fight on 30 — the wound did not carry", got)
+	}
+
+	// Dropped in a fight, he comes back on his feet but barely — not as a corpse
+	// (there is no companion-death rule) and not at full.
+	if err := setCompanionHP("exp-hp", 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := companionSeatHP("exp-hp", 100); got != 1 {
+		t.Errorf("after being dropped he seats at %d/100 HP, want 1", got)
+	}
+
+	// Camp puts him right, exactly as it does every human.
+	if err := refreshCompanionHP("exp-hp"); err != nil {
+		t.Fatal(err)
+	}
+	if got := companionSeatHP("exp-hp", 100); got != 100 {
+		t.Errorf("camp left him on %d/100 HP — his body only ever goes down", got)
 	}
 }
 

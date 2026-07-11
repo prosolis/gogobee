@@ -55,12 +55,16 @@ func (p *AdventurePlugin) finishPartyCombatSession(ct *combatTurn) []string {
 	// so does the bookkeeping that outlives the fight — a Berserker who raged and
 	// lost is still exhausted. Both fan out; neither is the owner's alone.
 	for seat := range sess.RosterSize() {
-		// The companion has no sheet to persist HP onto and no bookkeeping that
-		// outlives the fight — he arrives fresh next time. Skipping him here is
-		// not just tidiness: postCombatBookkeepingForSeat logs at ERROR when a
-		// seat has no sheet, so leaving him in would file an error for every
-		// party fight he is ever hired for.
+		// The companion has no sheet, so none of the sheet-keyed bookkeeping below
+		// applies to him — and postCombatBookkeepingForSeat logs at ERROR for a
+		// seat with no sheet, which would file one for every party fight he is ever
+		// hired for. But his HP is not bookkeeping: it is the fight's result. It
+		// lands on his roster row, because that is the only row he has.
+		//
+		// He used to be skipped outright, and "he arrives fresh next time" was the
+		// stated intent. It is a free lunch — see companionSeatHP.
 		if isCompanionUser(sess.seatUserID(seat)) {
+			_ = setCompanionHPForRun(sess.RunID, sess.seatHP(seat))
 			continue
 		}
 		persistDnDHPAfterCombat(id.UserID(sess.seatUserID(seat)), sess.seatHP(seat))

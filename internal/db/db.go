@@ -410,6 +410,32 @@ func runMigrations(d *sql.DB) error {
 		// where isCompanionSeat holds — a player's row never consults them.
 		`ALTER TABLE expedition_party ADD COLUMN companion_class TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE expedition_party ADD COLUMN companion_level INTEGER NOT NULL DEFAULT 0`,
+
+		// The companion's spell-slot ledger, "used" per slot level, as a compact
+		// CSV of six ints (index 0 unused; cantrips cost nothing).
+		//
+		// It has to live on the *expedition*, next to the class and level it is a
+		// pool for. A human caster's slots are dnd_spell_slots rows that persist
+		// across every fight of the run and only come back at camp, so rationing a
+		// pool across a 30-room day IS the caster's game. The first cut of this
+		// parked the companion's ledger on his combat seat instead — and a seat is
+		// per-session, so he walked into every single fight with a full pool. The
+		// sim caught it: a level-penalized, gearless hireling out-cleared a human
+		// cleric of the leader's own level by 15pp.
+		`ALTER TABLE expedition_party ADD COLUMN companion_slots_used TEXT NOT NULL DEFAULT ''`,
+
+		// The companion's body, carried across the run. -1 means "unset" — he is
+		// at full, which is what a fresh hire is.
+		//
+		// He used to re-seat at full max HP for *every* fight, because he has no
+		// dnd_character row for his HP to persist onto and the close-out skipped
+		// him ("he arrives fresh next time"). That is an infinite body: a player
+		// bleeds across a 30-room run and only heals at camp, while the hireling
+		// soaked half the incoming damage and reset. Measured, it is most of why a
+		// gearless, level-penalized hireling out-cleared a human cleric of the
+		// leader's own level — his party fled 5 runs out of 640 where the human
+		// party fled 56.
+		`ALTER TABLE expedition_party ADD COLUMN companion_hp INTEGER NOT NULL DEFAULT -1`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

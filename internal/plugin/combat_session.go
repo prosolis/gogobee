@@ -147,21 +147,6 @@ type ActorStatuses struct {
 	// path can unset it.
 	EngineDriven bool `json:"engine_driven,omitempty"`
 
-	// SlotsUsed is the companion's spell-slot ledger, indexed by slot level (1–5;
-	// index 0 is unused, cantrips cost nothing). Zero for every human seat.
-	//
-	// A human's slots live in dnd_spell_slots, keyed by user id. The companion has
-	// no rows there by design (see combat_seat_spells.go), so his spend is tracked
-	// on the seat. The seat is also the *correct* home rather than merely the
-	// available one: every expedition hires the same @pete, so a store keyed on his
-	// user id would have two parties sharing one pool of slots.
-	//
-	// An array and not a map: ActorStatuses is a comparable value that gets copied
-	// (`s := prior` in snapshotActor) and compared field-wise in the participant
-	// tests. A map would alias across those copies and make the struct
-	// uncomparable — both of which are how the next person gets hurt.
-	SlotsUsed [6]int `json:"slots_used,omitempty"`
-
 	// Debuffs the enemy has stacked onto this character specifically.
 	PlayerAtkDrain int `json:"player_atk_drain,omitempty"`
 	PlayerACDebuff int `json:"player_ac_debuff,omitempty"`

@@ -86,15 +86,17 @@ func companionKnownSpells(class DnDClass, level int) []knownSpellRow {
 }
 
 // companionSlotPool is his slot table (total, used) — the class/level progression
-// every caster shares, less what he has already spent this fight.
-func companionSlotPool(class DnDClass, level int, st ActorStatuses) map[int][2]int {
+// every caster shares, less what he has already spent. `used` is the expedition's
+// ledger, NOT a per-fight one: he rations one pool across the run and gets it back
+// at camp, exactly as a human caster does.
+func companionSlotPool(class DnDClass, level int, used [6]int) map[int][2]int {
 	out := map[int][2]int{}
 	for lvl, total := range slotsForClassLevel(class, level) {
-		used := 0
-		if lvl >= 0 && lvl < len(st.SlotsUsed) {
-			used = min(st.SlotsUsed[lvl], total)
+		spent := 0
+		if lvl >= 0 && lvl < len(used) {
+			spent = min(used[lvl], total)
 		}
-		out[lvl] = [2]int{total, used}
+		out[lvl] = [2]int{total, spent}
 	}
 	return out
 }
@@ -110,7 +112,7 @@ func seatKnownSpells(sess *CombatSession, seat int, uid id.UserID) ([]knownSpell
 // seatSpellSlots is getSpellSlots for a seat.
 func seatSpellSlots(sess *CombatSession, seat int, uid id.UserID) (map[int][2]int, error) {
 	if class, level, ok := seatCompanionLoadout(sess, uid); ok {
-		return companionSlotPool(class, level, sess.actorStatusesForSeat(seat)), nil
+		return companionSlotPool(class, level, companionSlotsForRun(sess.RunID)), nil
 	}
 	return getSpellSlots(uid)
 }
@@ -133,24 +135,27 @@ func seatKnowsSpell(sess *CombatSession, seat int, uid id.UserID, spellID string
 }
 
 // consumeSeatSlot is consumeSpellSlot for a seat. The companion's spend lands on
-// his seat's persisted statuses rather than a table, so it survives the round
-// commit and a mid-fight restart — and so two players who have each hired him are
-// not sharing one slot pool, which a store keyed on his (single, shared) user id
-// would have given them.
+// the expedition's ledger — one pool for the whole run, refilled at camp — so he
+// rations his slots the way a human caster has to. Keying it by expedition also
+// keeps two parties who have each hired him from sharing a pool, which anything
+// keyed on his (single, shared) user id would have done.
 func consumeSeatSlot(sess *CombatSession, seat int, uid id.UserID, slotLevel int) (bool, error) {
 	class, level, ok := seatCompanionLoadout(sess, uid)
 	if !ok {
 		return consumeSpellSlot(uid, slotLevel)
 	}
-	if slotLevel < 1 || slotLevel >= len(ActorStatuses{}.SlotsUsed) {
+	used := companionSlotsForRun(sess.RunID)
+	if slotLevel < 1 || slotLevel >= len(used) {
 		return false, nil
 	}
-	st := sess.actorStatusesPtr(seat)
-	pair, exists := companionSlotPool(class, level, *st)[slotLevel]
+	pair, exists := companionSlotPool(class, level, used)[slotLevel]
 	if !exists || pair[0]-pair[1] <= 0 {
 		return false, nil
 	}
-	st.SlotsUsed[slotLevel]++
+	used[slotLevel]++
+	if err := setCompanionSlotsForRun(sess.RunID, used); err != nil {
+		return false, err
+	}
 	return true, nil
 }
 
@@ -160,10 +165,10 @@ func refundSeatSlot(sess *CombatSession, seat int, uid id.UserID, slotLevel int)
 	if _, _, ok := seatCompanionLoadout(sess, uid); !ok {
 		return refundSpellSlot(uid, slotLevel)
 	}
-	st := sess.actorStatusesPtr(seat)
-	if slotLevel < 1 || slotLevel >= len(st.SlotsUsed) || st.SlotsUsed[slotLevel] <= 0 {
+	used := companionSlotsForRun(sess.RunID)
+	if slotLevel < 1 || slotLevel >= len(used) || used[slotLevel] <= 0 {
 		return nil
 	}
-	st.SlotsUsed[slotLevel]--
-	return nil
+	used[slotLevel]--
+	return setCompanionSlotsForRun(sess.RunID, used)
 }

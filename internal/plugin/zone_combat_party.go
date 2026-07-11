@@ -79,8 +79,14 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 		// than loaded, and his seatBuild is flagged so the close-out loop below
 		// gives him no XP, no loot, and no post-combat persistence.
 		if isCompanionSeat(uid) {
-			class, level := companionLoadout(companionExpeditionFor(roster[0]))
+			expID := companionExpeditionFor(roster[0])
+			class, level := companionLoadout(expID)
 			player, e, _ := p.companionCombatant(class, level, monster, tier, dmMood)
+			// The wounds he carries into this fight. His synthetic sheet is always
+			// written at full HP, so applyDnDHPScaling left StartHP at the
+			// "enter at MaxHP" sentinel and he healed himself for free between every
+			// room of the run. See companionSeatHP.
+			player.Stats.StartHP = companionSeatHP(expID, player.Stats.MaxHP)
 			if leader {
 				enemy = e
 			}
@@ -162,7 +168,12 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 		// deduct from, no sheet to persist to, no XP to earn. Every call below
 		// would either write rows for a bot or log an error about the rows it
 		// hasn't got.
+		//
+		// His HP is the exception, and it is not bookkeeping — it is the fight's
+		// result. Without it he re-enters the next room at full while the humans
+		// beside him carry every wound to camp.
 		if b.companion {
+			_ = setCompanionHP(companionExpeditionFor(roster[0]), seatRes.PlayerEndHP)
 			continue
 		}
 

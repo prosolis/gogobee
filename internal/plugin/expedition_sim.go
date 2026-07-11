@@ -1237,7 +1237,13 @@ func (p *AdventurePlugin) pickAutoCombatActionForSeat(uid id.UserID, sess *Comba
 	// player does, and until the engine could target another seat it was not an
 	// option the picker even had. It runs before the damage picks: a party member
 	// about to die is a more urgent use of a slot than another Fireball.
-	if id, target := simPickAllyHeal(c, uid, sess, seat); id != "" {
+	// A healer heals whoever is worst off — the friend bleeding out beside them, or
+	// themselves. An empty target is a self-cast, and `!cast <spell>` with no
+	// @mention is exactly how a player writes that.
+	if id, target := simPickHeal(c, uid, sess, seat); id != "" {
+		if target == "" {
+			return "cast", id
+		}
 		return "cast", id + " @" + target
 	}
 
@@ -1352,15 +1358,27 @@ func simPickSpiritualWeapon(c *DnDCharacter, sess *CombatSession, seat int, uid 
 // the party's damage output is what ends the fight.
 const simHealAllyThresholdPct = 45
 
-// simPickAllyHeal returns the heal spell and target name a competent healer would
-// use on the worst-hurt *other* seat, or ("", "") if nobody needs it, the caster
-// cannot heal, or the fight is solo.
+// simPickHeal returns the heal spell a competent healer would cast this turn, and
+// the seat to put it on — which may be the healer's own. An empty spell id means
+// nobody needs healing, or this character cannot heal.
 //
-// This is the picker half of §1. Before the engine could target another seat there
-// was nothing for it to choose, so an autopiloted or engine-driven healer simply
-// swung a weapon while their friends died beside them.
-func simPickAllyHeal(c *DnDCharacter, uid id.UserID, sess *CombatSession, seat int) (spellID, target string) {
-	if sess == nil || !sess.IsParty() || c == nil || !isSpellcaster(c) {
+// Returning target "" means "cast it on yourself": the caller drops the @mention,
+// and the engine's ordinary self-heal path takes it.
+//
+// It considers the caster's own seat, and it runs for a solo fight, and BOTH of
+// those are recent. Until now the rule skipped `i == seat` and bailed on
+// `!sess.IsParty()`, which together meant something nobody had said out loud: **no
+// autopiloted caster in this game had ever cast a heal on themselves.** A solo
+// cleric carried cure_wounds for a whole 30-room run and used it exactly never,
+// while dying with a full pool of level-1 slots. That is a strong candidate for
+// why the class corpus has cleric at 46–56% against fighter's 82%
+// ([[project_d8prereq_baseline]], §6 of the combat-engine plan) — the picker was
+// not playing the class.
+//
+// The healer heals whoever is worst off. Usually that is the friend bleeding out
+// next to them. Sometimes it is them.
+func simPickHeal(c *DnDCharacter, uid id.UserID, sess *CombatSession, seat int) (spellID, target string) {
+	if sess == nil || c == nil || !isSpellcaster(c) {
 		return "", ""
 	}
 
@@ -1368,9 +1386,6 @@ func simPickAllyHeal(c *DnDCharacter, uid id.UserID, sess *CombatSession, seat i
 	// and a heal aimed at a corpse is a lost turn.
 	worst, worstPct := -1, 101
 	for i := range sess.RosterSize() {
-		if i == seat {
-			continue
-		}
 		hp, hpMax := sess.seatHP(i), sess.seatHPMax(i)
 		if hp <= 0 || hpMax <= 0 {
 			continue
@@ -1382,12 +1397,28 @@ func simPickAllyHeal(c *DnDCharacter, uid id.UserID, sess *CombatSession, seat i
 	if worst < 0 || worstPct >= simHealAllyThresholdPct {
 		return "", ""
 	}
+	// Healing yourself is not an ally-target at all — it is the plain self-heal the
+	// engine has always had. Hand the caller no target and let it say so.
+	if worst == seat {
+		return simPickHealSpell(c, uid, sess, seat), ""
+	}
 
-	// The cheapest heal that is actually castable — burning a 5th-level slot to
-	// top somebody up is not what a competent player does.
+	best := simPickHealSpell(c, uid, sess, seat)
+	if best == "" {
+		return "", ""
+	}
+	// Target by the seat's own Matrix localpart: splitCastTarget resolves against
+	// the seats in this fight, so this round-trips without a room lookup.
+	return best, id.UserID(sess.seatUserID(worst)).Localpart()
+}
+
+// simPickHealSpell is the cheapest heal this caster can actually cast right now,
+// or "". Burning a 5th-level slot to top somebody up is not what a competent
+// player does, so it takes the lowest castable slot.
+func simPickHealSpell(c *DnDCharacter, uid id.UserID, sess *CombatSession, seat int) string {
 	known, err := seatKnownSpells(sess, seat, uid)
 	if err != nil {
-		return "", ""
+		return ""
 	}
 	slots, _ := seatSpellSlots(sess, seat, uid)
 	best, bestLevel := "", 99
@@ -1416,12 +1447,7 @@ func simPickAllyHeal(c *DnDCharacter, uid id.UserID, sess *CombatSession, seat i
 			best, bestLevel = sp.ID, sp.Level
 		}
 	}
-	if best == "" {
-		return "", ""
-	}
-	// Target by the seat's own Matrix localpart: splitCastTarget resolves against
-	// the seats in this fight, so this round-trips without a room lookup.
-	return best, id.UserID(sess.seatUserID(worst)).Localpart()
+	return best
 }
 
 func simPickSpell(c *DnDCharacter, sess *CombatSession, seat int, uid id.UserID, auraActive bool) string {

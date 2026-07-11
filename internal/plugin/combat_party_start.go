@@ -71,11 +71,18 @@ func (p *AdventurePlugin) buildFightSeats(
 		// discover that would stall the fight and then announce him to the party as
 		// an absent player.
 		if isCompanionSeat(uid) {
-			class, level := companionLoadout(companionExpeditionFor(roster[0]))
+			expID := companionExpeditionFor(roster[0])
+			class, level := companionLoadout(expID)
 			player, _, _ := p.companionCombatant(class, level, monster, tier, dmMood)
+			// He carries his wounds between fights, like everyone else. Seating him at
+			// full max HP — which is what this did — hands the party an infinite body:
+			// he soaks a share of every fight's incoming and then resets, while the
+			// humans beside him bleed all the way to camp.
 			seats = append(seats, CombatSeatSetup{
-				UserID: uid, HP: player.Stats.MaxHP, HPMax: player.Stats.MaxHP,
-				Mods: player.Mods, C: &player, EngineDriven: true,
+				UserID: uid,
+				HP:     companionSeatHP(expID, player.Stats.MaxHP),
+				HPMax:  player.Stats.MaxHP,
+				Mods:   player.Mods, C: &player, EngineDriven: true,
 			})
 			continue
 		}
