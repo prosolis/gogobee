@@ -1610,6 +1610,20 @@ CREATE TABLE IF NOT EXISTS adventure_rival_challenges (
 );
 CREATE INDEX IF NOT EXISTS idx_rival_challenges_user ON adventure_rival_challenges(challenged_id, expires_at);
 
+-- Duels (N6/C2): player-initiated, staked, no-death combat bouts. Both stakes
+-- are escrowed while the row lives; expiry/decline refunds the challenger. W/L
+-- history reuses adventure_rival_records. No bootstrap — absent row == no duel.
+CREATE TABLE IF NOT EXISTS adventure_duel_challenges (
+	challenge_id  TEXT PRIMARY KEY,
+	challenger_id TEXT NOT NULL,
+	challenged_id TEXT NOT NULL,
+	stake         INTEGER NOT NULL,
+	expires_at    DATETIME NOT NULL,
+	created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_duel_challenges_user ON adventure_duel_challenges(challenged_id, expires_at);
+CREATE INDEX IF NOT EXISTS idx_duel_challenges_expiry ON adventure_duel_challenges(expires_at);
+
 CREATE TABLE IF NOT EXISTS community_pot (
 	id         INTEGER PRIMARY KEY DEFAULT 1,
 	balance    INTEGER NOT NULL DEFAULT 0,

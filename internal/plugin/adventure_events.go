@@ -124,6 +124,10 @@ func (p *AdventurePlugin) eventTicker() {
 			// World boss (N6/C3): auto-spawn the monthly Siege on the 1st and
 			// resolve one whose 72h window has lapsed. Own dedup inside.
 			p.worldBossTick()
+
+			// Duels (N6/C2): refund and clear any challenge whose 24h accept
+			// window lapsed.
+			p.expireDuelChallenges()
 		}
 	}
 }

@@ -169,6 +169,7 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "rest", Description: "Rest up (`short`: quick breather, 1h cooldown — `long`: full night, 24h, needs housing or inn)", Usage: "!rest short|long", Category: "Games"},
 		{Name: "arm", Description: "Ready an ability so it fires the moment your next fight starts", Usage: "!arm <ability>", Category: "Games"},
 		{Name: "roll", Description: "Roll dice (NdN+M format, e.g. 2d6+3, d20, 4d6-1)", Usage: "!roll <dice>", Category: "Games"},
+		{Name: "duel", Description: "Challenge another adventurer to a staked, no-death bout", Usage: "!duel @user [stake]", Category: "Games"},
 		{Name: "stats", Description: "Show your ability scores", Usage: "!stats", Category: "Games"},
 		{Name: "level", Description: "Show your level and XP progress", Usage: "!level", Category: "Games"},
 		{Name: "cast", Description: "Cast a spell (queues for next combat, or resolves now if out of combat)", Usage: "!cast <spell> [--upcast N] [--target @user]", Category: "Games"},
@@ -336,6 +337,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	}
 	if p.IsCommand(ctx.Body, "rest") {
 		return p.handleDnDRestCmd(ctx, p.GetArgs(ctx.Body, "rest"))
+	}
+	if p.IsCommand(ctx.Body, "duel") {
+		return p.handleDuelCmd(ctx, p.GetArgs(ctx.Body, "duel"))
 	}
 	if p.IsCommand(ctx.Body, "arm") {
 		return p.handleDnDArmCmd(ctx, p.GetArgs(ctx.Body, "arm"))
@@ -513,6 +517,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.SendDM(ctx.Sender, advHelpText)
 	case lower == "rivals":
 		return p.handleRivalsCmd(ctx)
+	case lower == "duel" || strings.HasPrefix(lower, "duel "):
+		return p.handleDuelCmd(ctx, strings.TrimSpace(args[len("duel"):]))
 	case lower == "babysit" || strings.HasPrefix(lower, "babysit "):
 		return p.handleBabysitCmd(ctx, strings.TrimSpace(strings.TrimPrefix(lower, "babysit")))
 	case lower == "blacksmith" || lower == "repair":
@@ -562,6 +568,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure leaderboard`" + ` — View the leaderboard
 ` + "`!adventure respond`" + ` — Respond to a mid-day event
 ` + "`!adventure rivals`" + ` — View rival duel records
+` + "`!duel @user [stake]`" + ` — Challenge another adventurer to a staked, no-death bout (` + "`!duel accept`" + `/` + "`decline`" + `/` + "`status`" + `)
 ` + "`!adventure babysit`" + ` — Adventurer Babysitting Service
 ` + "`!adventure babysit auto`" + ` — Toggle auto-babysit (protects streaks on missed days)
 ` + "`!adventure babysit focus <skill>`" + ` — Pick the skill auto-babysit trains (mining/fishing/foraging)
