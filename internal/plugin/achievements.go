@@ -1206,7 +1206,37 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 				return false
 			},
 		},
+		// N7/B4 — the Renown wing (gogobee_engagement_plan.md §B4). Passive checks
+		// against the derived Renown level (N7/B2); no event hook needed.
+		{
+			ID: "renown_1", Name: "Beyond the Cap", Description: "Earned your first level of Renown. The story was supposed to be over.",
+			Emoji: "✦",
+			Check: func(d *sql.DB, u id.UserID) bool { return renownAtLeast(d, u, 1) },
+		},
+		{
+			ID: "renown_5", Name: "Storied", Description: "Reached Renown 5. They tell versions of your runs that never happened.",
+			Emoji: "✦",
+			Check: func(d *sql.DB, u id.UserID) bool { return renownAtLeast(d, u, 5) },
+		},
+		{
+			ID: "renown_10", Name: "Fabled", Description: "Reached Renown 10. Somewhere a bard is getting rich off your name.",
+			Emoji: "✦",
+			Check: func(d *sql.DB, u id.UserID) bool { return renownAtLeast(d, u, 10) },
+		},
 	}
+}
+
+// renownAtLeast reports whether the player's derived Renown level (N7/B2) has
+// reached level, reading player_meta.renown_xp through the passed handle.
+func renownAtLeast(d *sql.DB, userID id.UserID, level int) bool {
+	var xp int
+	if err := d.QueryRow(
+		`SELECT renown_xp FROM player_meta WHERE user_id = ?`,
+		string(userID),
+	).Scan(&xp); err != nil {
+		return false
+	}
+	return renownLevelFor(xp) >= level
 }
 
 // ── Expedition achievement helpers ──────────────────────────────────────────

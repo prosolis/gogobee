@@ -147,6 +147,32 @@ func TestAddRenownXP_Accumulates(t *testing.T) {
 	}
 }
 
+// TestRenownAtLeast — the B4 achievement gate reads the derived level correctly.
+func TestRenownAtLeast(t *testing.T) {
+	newRenownTestDB(t)
+	uid := id.UserID("@renown_ach:example")
+	if err := createAdvCharacter(uid, "Achiever"); err != nil {
+		t.Fatal(err)
+	}
+	d := db.Get()
+	if renownAtLeast(d, uid, 1) {
+		t.Errorf("no renown yet, should not meet level 1")
+	}
+	if _, _, err := addRenownXP(uid, renownXPPerLevel*5); err != nil {
+		t.Fatal(err)
+	}
+	if !renownAtLeast(d, uid, 5) {
+		t.Errorf("renown 5 should meet level 5")
+	}
+	if renownAtLeast(d, uid, 6) {
+		t.Errorf("renown 5 should not meet level 6")
+	}
+	// Absent player → false, not a crash.
+	if renownAtLeast(d, id.UserID("@nobody:nowhere.invalid"), 1) {
+		t.Errorf("absent player should not meet any renown level")
+	}
+}
+
 // TestRenownOverlay — applyPlayerMetaOverlay populates RenownXP and RenownLevel.
 func TestRenownOverlay(t *testing.T) {
 	newRenownTestDB(t)
