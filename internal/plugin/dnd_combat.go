@@ -605,3 +605,51 @@ func emitDeathNews(userID id.UserID, location string) {
 		OccurredAt: ts,
 	}, userID, "")
 }
+
+// emitRetreatNews files a BULLETIN when an expedition ends with the player
+// walking out alive.
+//
+// Until this existed the news had no way to say "it went badly but nobody
+// died", so it never said it. Pete's whole taxonomy was arrival, companion_hire,
+// death, milestone, rival_result and zone_first — every one of them a win, a
+// death, or an introduction. A run that simply fell apart emitted nothing, and
+// the feed showed a realm where adventurers only ever triumph or die.
+//
+// That was not a rare gap. Before §6, a cleric retreated on 167 of 500
+// simulated expeditions: a third of that class's runs ended in a way the news
+// was structurally incapable of reporting. Casters did not look unlucky in the
+// feed — they looked absent.
+//
+// Bulletin, not priority: a retreat is a bad day, not a funeral. A death already
+// files its own priority dispatch from markAdventureDead, and a wipe that killed
+// someone must not ALSO be reported as a retreat — hence the reason gate rather
+// than an "expedition ended" catch-all. An idle reap is excluded too: a player
+// who closed their laptop did not flee anything, and Pete announcing that they
+// were driven from the field would be a lie about a person by name.
+func emitRetreatNews(userID id.UserID, reason string, zoneID ZoneID, day int) {
+	switch reason {
+	case lossCombatRetreat, lossCombatFlee:
+	default:
+		return // a death tells its own story; an idle reap is not a story
+	}
+	if !peteclient.Enabled() || !newsEmissionOn() {
+		return
+	}
+	name := charName(userID)
+	if name == "" {
+		return
+	}
+	zone := zoneOrFallback(zoneID)
+	ts := nowUnix()
+	emitFact(peteclient.Fact{
+		GUID:       fmt.Sprintf("retreat:%s:%d", eventToken(userID, fmt.Sprintf("%d", ts)), ts),
+		EventType:  "retreat",
+		Tier:       "bulletin",
+		Subject:    name,
+		Zone:       zone.Display,
+		Level:      charLevel(userID),
+		Count:      day, // the day they got to before it fell apart
+		Outcome:    "retreated",
+		OccurredAt: ts,
+	}, userID, "")
+}

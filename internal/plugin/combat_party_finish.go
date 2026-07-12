@@ -252,9 +252,9 @@ func endRunOnLoss(owner id.UserID, runID string, death bool) {
 		}
 	}
 	_ = abandonZoneRun(owner)
-	reason := "combat flee"
+	reason := lossCombatFlee
 	if death {
-		reason = "combat death"
+		reason = lossCombatDeath
 	}
 	forceExtractExpeditionForRunLoss(owner, reason)
 }
