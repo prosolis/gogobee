@@ -50,15 +50,39 @@ func TestAutoCast_CasterCastsAndPaysForIt(t *testing.T) {
 	if !p.autoCastForAutoResolve(uid, c, &stats, &mods, &enemy) {
 		t.Fatal("a level-10 cleric with a full slot pool cast nothing")
 	}
-	// The spell has to actually land as damage — otherwise we spent a slot on air.
-	if mods.SpellPreDamage <= 0 && enemy.MaxHP >= 100 {
-		t.Fatalf("cast produced no damage: preDamage=%d enemyHP=%d", mods.SpellPreDamage, enemy.MaxHP)
-	}
-	// And it has to be PAID for. pickBestDamageSpell reads the theoretical class
-	// slot table; if we had reused it here the spell would be infinite — the same
-	// free-lunch bug that gave the companion an unlimited body.
+	// It has to be PAID for. pickBestDamageSpell reads the theoretical class slot
+	// table; if we had reused it here the spell would be infinite — the same
+	// free-lunch bug that gave the companion an unlimited body. The slot is spent
+	// whether or not the spell connects, exactly as it is at a real table.
 	if used := usedSlots(t, uid); used != 1 {
 		t.Fatalf("slots used = %d, want exactly 1 — the spell must cost a real slot", used)
+	}
+}
+
+// The slot has to buy damage. Not on any GIVEN cast — under the room slot cap a
+// cleric reaches for inflict_wounds, which is an attack-roll spell and is
+// allowed to miss — but a caster who spends its pool and never scratches
+// anything would be strictly worse than swinging the mace.
+func TestAutoCast_SpellActuallyDealsDamage(t *testing.T) {
+	setupEmptyTestDB(t)
+	p := &AdventurePlugin{}
+	uid, c := autocastCleric(t, "damage")
+
+	landed := 0
+	for i := 0; i < 40; i++ {
+		var mods CombatModifiers
+		stats := CombatStats{MaxHP: 100, AC: 14}
+		enemy := CombatStats{MaxHP: 1000, AC: 10}
+		if !p.autoCastForAutoResolve(uid, c, &stats, &mods, &enemy) {
+			continue
+		}
+		if mods.SpellPreDamage > 0 || enemy.MaxHP < 1000 {
+			landed++
+		}
+	}
+	if landed == 0 {
+		t.Fatal("40 casts against AC 10 and not one dealt a point of damage — " +
+			"the caster is spending slots on air")
 	}
 }
 
@@ -180,5 +204,51 @@ func TestAutoCast_DoesNotBurnTheBigSlots(t *testing.T) {
 	if slot != spell.Level {
 		t.Fatalf("%s cast at slot %d, native level %d — an ordinary room must not upcast",
 			spell.ID, slot, spell.Level)
+	}
+}
+
+// The boss kit survives the walk in. This is the regression the first cut of §6
+// shipped and the sweep caught: with no cap, a caster spent its whole pool on
+// goblins and reached the boss empty — room deaths fell but boss deaths tripled
+// (mage 19 → 61, sorcerer 15 → 65). "Never upcast" is not a reserve, because a
+// mage's native-level spells ARE its boss kit.
+//
+// So: grind a full expedition's worth of rooms, and every slot above the cap
+// must still be sitting there untouched when the dragon opens its eyes.
+func TestAutoCast_ReservesTheBossSlots(t *testing.T) {
+	for _, class := range []DnDClass{ClassMage, ClassSorcerer, ClassCleric, ClassWarlock} {
+		t.Run(string(class), func(t *testing.T) {
+			setupEmptyTestDB(t)
+			p := &AdventurePlugin{}
+			s := &SimRunner{P: p}
+			uid := id.UserID("@autocast-reserve-" + string(class) + ":example.org")
+			c, err := s.BuildCharacter(uid, class, 12)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// A long expedition: far more rooms than the caster has slots.
+			for i := 0; i < 60; i++ {
+				var mods CombatModifiers
+				stats := CombatStats{MaxHP: 100, AC: 14}
+				enemy := CombatStats{MaxHP: 1000, AC: 14}
+				p.autoCastForAutoResolve(uid, c, &stats, &mods, &enemy)
+			}
+
+			slots, err := getSpellSlots(uid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for lvl, pair := range slots {
+				if lvl <= roomSlotCap {
+					continue
+				}
+				if pair[1] != 0 {
+					t.Errorf("level-%d slots: %d of %d spent in ordinary rooms — "+
+						"that is the boss's kit, and the caster will arrive empty",
+						lvl, pair[1], pair[0])
+				}
+			}
+		})
 	}
 }

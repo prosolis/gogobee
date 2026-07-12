@@ -66,9 +66,27 @@ func (p *AdventurePlugin) autoCastForAutoResolve(
 	return true
 }
 
+// roomSlotCap is the highest slot level an ordinary room may spend. Cantrips are
+// free and always available; anything above this is reserved for the elite and
+// the boss.
+//
+// The first cut of §6 had no cap — "never upcast" was supposed to be enough. It
+// was not, and the sweep said so: room deaths fell for every caster (mage 131 →
+// 105) while elite and boss deaths exploded (mage 7 → 38 and 19 → 61, sorcerer
+// 14 → 51 and 15 → 65). Casters were winning the trash rooms and arriving at the
+// thing that matters with an empty pool. Native-level is not a reserve, because
+// a mage's native-level spells ARE its boss kit; only a level cap is.
+//
+// 2 is where the two demands stop overlapping. Every caster owns a damage spell
+// at or below it (a cleric's guiding_bolt and inflict_wounds are both 1st), so
+// the rooms still get a real spell — but a fireball, a spirit_guardians, a
+// flame_strike, and every slot the turn engine would upcast into stays in the
+// caster's pocket until there is something worth spending it on.
+const roomSlotCap = 2
+
 // pickAutoResolveSpell is the best damage spell this caster can actually cast
-// right now: known, prepared, on their list, and backed by a slot they still
-// hold.
+// right now: known, prepared, on their list, at or under the room slot cap, and
+// backed by a slot they still hold.
 //
 // It casts at the spell's NATIVE level and never upcasts. simPickSpell upcasts
 // aggressively — correct there, because it runs in the turn engine at an elite
@@ -115,8 +133,12 @@ func pickAutoResolveSpell(uid id.UserID, c *DnDCharacter) (SpellDefinition, int,
 		if !onList {
 			continue
 		}
-		// A cantrip is free; a leveled spell needs a slot still in hand.
+		// A cantrip is free; a leveled spell needs a slot still in hand, and the
+		// room only gets to reach for the small ones.
 		if sp.Level > 0 {
+			if sp.Level > roomSlotCap {
+				continue
+			}
 			if pair, ok := slots[sp.Level]; !ok || pair[0]-pair[1] <= 0 {
 				continue
 			}
