@@ -189,6 +189,22 @@ type Combatant struct {
 	Mods     CombatModifiers
 	IsPlayer bool
 	Ability  *MonsterAbility // non-nil for monsters with a special ability
+
+	// SeatWeight is what this seat costs the enemy: 1.0 is a full peer of the
+	// leader, and less than that is a seat that brings less to the fight. Zero
+	// means "unset" and reads as 1.0, so every existing call site — and every solo
+	// fight — is unchanged.
+	//
+	// The enemy's HP bump and its action economy scale on the SUM of these rather
+	// than on a seat count. A seat count charges the boss the same for an
+	// under-levelled friend, a hired NPC, and a peer, which is why hiring a
+	// below-median body was measurably worse than going alone: he cost a full
+	// seat's worth of boss and did not give a full seat's worth back.
+	//
+	// It is derived from the seat's identity (level, and whether it is a hireling),
+	// NOT from fight state — so every per-round rebuild recomputes the same number
+	// and there is nothing to persist. See seatWeight.
+	SeatWeight float64
 }
 
 type CombatPhase struct {
@@ -220,7 +236,14 @@ type CombatEvent struct {
 	//
 	// It exists so a party's play-by-play can name the right person. Solo events
 	// are all seat 0, and the omitempty tag keeps the field out of every solo
-	// turn_log_json — rows written before N3/P5 decode unchanged.
+	// turn_log_json — rows written before N3/P5 decode unchanged, and a fight in
+	// flight across a deploy resumes byte-identically (TestP5Fields_StayOffSoloRows).
+	//
+	// The omitempty makes seat 0 and "no seat" identical on the wire, which is
+	// fine for persistence and actively misleading in a diagnostic trace — it hid
+	// a companion who never swung, making the fight look like it had one seat.
+	// Do NOT fix that here; the wire format is load-bearing. The sim's trace
+	// serializes through simTraceEvent, which always emits the seat.
 	Seat int `json:"Seat,omitempty"`
 }
 

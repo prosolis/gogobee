@@ -325,6 +325,13 @@ func applyCampRest(e *Expedition, kind string) string {
 	if kind == CampTypeStandard || kind == CampTypeFortified || kind == CampTypeBase {
 		_ = refreshAllResources(uid)
 		_ = refreshSpellSlots(uid)
+		// The companion sleeps at the same fire. His slots and his wounds are not
+		// dnd_spell_slots / dnd_character rows — he has none — so nothing above
+		// reaches him, and without these two his pool and his body would only ever
+		// go down. Camp is where a caster gets their slots back and a body gets
+		// patched up, and he is at the camp.
+		_ = refreshCompanionSlots(e.ID)
+		_ = refreshCompanionHP(e.ID)
 		_ = ReplenishHarvestNodes(e)
 	}
 

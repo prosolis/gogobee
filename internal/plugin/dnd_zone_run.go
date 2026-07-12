@@ -323,7 +323,7 @@ func getActiveZoneRun(userID id.UserID) (*DungeonRun, error) {
 		// but only when this run is the active expedition's current run so
 		// a standalone (non-expedition) stale run still reaps cleanly.
 		if exp, _ := getActiveExpedition(userID); exp != nil && exp.RunID == r.RunID {
-			forceExtractExpeditionForRunLoss(userID, "run idle-timeout (§4.3 stale-run reap)")
+			forceExtractExpeditionForRunLoss(userID, lossIdleTimeout)
 		}
 		return nil, nil
 	}

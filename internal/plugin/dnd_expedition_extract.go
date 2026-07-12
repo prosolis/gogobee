@@ -95,21 +95,40 @@ func forcedExtractExpedition(expID, reason string) (*Expedition, int, error) {
 	return e, tax, nil
 }
 
+// The reasons a run can end badly. They were bare strings at four call sites;
+// they are constants now because the news seam has to tell them apart — a
+// retreat is a story and a death is a different story, and an idle reap is
+// neither.
+const (
+	lossCombatDeath   = "combat death"
+	lossCombatRetreat = "combat retreat" // solo: ran out the phase clock and withdrew
+	lossCombatFlee    = "combat flee"    // party: the turn engine broke off
+	lossIdleTimeout   = "run idle-timeout (§4.3 stale-run reap)"
+)
+
 // forceExtractExpeditionForRunLoss bridges run-loss call sites (turn-based
 // elite/boss death or flee, exploration combat death, patrol-interrupt
 // death) into the forced-extract flow. Those sites already abandon the
 // zone run, but without flipping the wrapping expedition the ambient
 // ticker keeps DMing about a dungeon the player walked away from. No-op
 // when there is no active expedition for this user.
+//
+// It is also the one chokepoint every bad ending passes through, which makes it
+// where the retreat dispatch is filed. Read the expedition BEFORE the extract:
+// forcedExtractExpedition stamps it 'abandoned' and zeroes the live fields, so
+// afterwards there is no day count left to report.
 func forceExtractExpeditionForRunLoss(userID id.UserID, reason string) {
 	exp, err := getActiveExpedition(userID)
 	if err != nil || exp == nil {
 		return
 	}
+	day, zoneID := exp.CurrentDay, exp.ZoneID
 	if _, _, err := forcedExtractExpedition(exp.ID, reason); err != nil {
 		slog.Warn("expedition: force-extract on run loss",
 			"user", userID, "expedition", exp.ID, "reason", reason, "err", err)
+		return
 	}
+	emitRetreatNews(userID, reason, zoneID, day)
 }
 
 // finalizeExpeditionOnZoneClear bridges the run-complete seam (boss down,

@@ -51,6 +51,11 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 		advChar *AdventureCharacter
 		equip   map[EquipmentSlot]*AdvEquipment
 		mods    CombatModifiers
+		// companion marks the hired NPC seat: it fights, but it owns none of the
+		// character-scoped effects the close-out loop applies, and its dndChar /
+		// advChar / equip are nil precisely so a missed guard panics loudly here
+		// rather than silently writing rows for a bot.
+		companion bool
 	}
 
 	var (
@@ -58,6 +63,10 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 		builds  []seatBuild
 		seated  []id.UserID
 		enemy   Combatant
+		// Parallel to players: what each seat is worth, priced once the roster is
+		// final. A member who sat the encounter out is in none of these.
+		levels     []int
+		companions []bool
 	)
 
 	for i, uid := range roster {
@@ -67,6 +76,29 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 		// cost them their seat.
 		bail := func(err error) (PartyCombatResult, []id.UserID, error) {
 			return PartyCombatResult{}, nil, err
+		}
+
+		// The hired companion fights here too — the auto-resolve path is where
+		// most expedition rooms are actually decided. He is synthesized rather
+		// than loaded, and his seatBuild is flagged so the close-out loop below
+		// gives him no XP, no loot, and no post-combat persistence.
+		if isCompanionSeat(uid) {
+			expID := companionExpeditionFor(roster[0])
+			class, level := companionLoadout(expID)
+			player, e, _ := p.companionCombatant(class, level, monster, tier, dmMood)
+			// The wounds he carries into this fight. His synthetic sheet is always
+			// written at full HP, so applyDnDHPScaling left StartHP at the
+			// "enter at MaxHP" sentinel and he healed himself for free between every
+			// room of the run. See companionSeatHP.
+			player.Stats.StartHP = companionSeatHP(expID, player.Stats.MaxHP)
+			if leader {
+				enemy = e
+			}
+			players = append(players, player)
+			builds = append(builds, seatBuild{uid: uid, mods: player.Mods, companion: true})
+			seated = append(seated, uid)
+			levels, companions = append(levels, level), append(companions, true)
+			continue
 		}
 
 		advChar, err := loadAdvCharacter(uid)
@@ -120,6 +152,11 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 		// Combatant once, before the fight runs. The queued spell can also debuff
 		// the shared enemy, so every seat's cast lands on the one stat block.
 		applyPendingCast(uid, dndChar, &player.Stats, &player.Mods, &enemy.Stats)
+		// §6 — and if they queued nothing, they still cast. This engine has no
+		// action picker, so before this a caster on autopilot swung a weapon for
+		// the whole fight and their spellbook may as well not have existed. The
+		// slot is really spent; see autoCastForAutoResolve.
+		p.autoCastForAutoResolve(uid, dndChar, &player.Stats, &player.Mods, &enemy.Stats)
 		setupAutoHealFromInventory(p.loadConsumableInventory(uid), &player.Mods)
 
 		players = append(players, player)
@@ -127,7 +164,20 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 			uid: uid, dndChar: dndChar, advChar: advChar, equip: equip, mods: player.Mods,
 		})
 		seated = append(seated, uid)
+		lvl := 0
+		if dndChar != nil {
+			lvl = dndChar.Level
+		}
+		levels, companions = append(levels, lvl), append(companions, false)
 	}
+
+	// What each seat costs the enemy, priced against the leader — over the seats
+	// that were actually seated, so a member left behind is not charged.
+	ptrs := make([]*Combatant, len(players))
+	for i := range players {
+		ptrs[i] = &players[i]
+	}
+	applySeatWeights(ptrs, levels, companions)
 
 	res := simulateParty(players, enemy, phases)
 	dumpCombatEventsIfDebug(
@@ -136,6 +186,19 @@ func (p *AdventurePlugin) runZoneCombatRoster(
 
 	for i, b := range builds {
 		seatRes := res.Seats[i]
+
+		// The companion swings and then goes back to filing copy: no inventory to
+		// deduct from, no sheet to persist to, no XP to earn. Every call below
+		// would either write rows for a bot or log an error about the rows it
+		// hasn't got.
+		//
+		// His HP is the exception, and it is not bookkeeping — it is the fight's
+		// result. Without it he re-enters the next room at full while the humans
+		// beside him carry every wound to camp.
+		if b.companion {
+			_ = setCompanionHP(companionExpeditionFor(roster[0]), seatRes.PlayerEndHP)
+			continue
+		}
 
 		// Remove the actual heal items consumed during combat (one inventory item
 		// per heal_item event this seat fired). Cheapest-tier first.
@@ -193,6 +256,12 @@ func (p *AdventurePlugin) closeOutZoneWin(
 ) (leaderDrop string, downed []id.UserID) {
 	party := len(seated) > 1
 	for i, uid := range seated {
+		// The companion takes no cut and cannot die. He is not in the downed list
+		// either: that list is what the room narration mourns, and the party did
+		// not lose a friend when the hireling took a nap.
+		if isCompanionSeat(uid) {
+			continue
+		}
 		if res.Seats[i].PlayerEndHP > 0 {
 			drop := p.dropZoneLoot(uid, zone.ID, monster, isBoss, elite)
 			if i == 0 {
@@ -217,6 +286,12 @@ func (p *AdventurePlugin) closeOutZoneWin(
 // fight.
 func closeOutZoneLoss(res PartyCombatResult, seated []id.UserID, zone ZoneDefinition, deathSource string) (killed []id.UserID) {
 	for i, uid := range seated {
+		// The companion is not killed and is not counted among the dead — he is
+		// not in the graveyard, and a wipe that lists him would have the news bot
+		// reporting its own funeral.
+		if isCompanionSeat(uid) {
+			continue
+		}
 		if res.Seats[i].PlayerEndHP <= 0 {
 			markAdventureDead(uid, deathSource, zone.Display)
 			killed = append(killed, uid)

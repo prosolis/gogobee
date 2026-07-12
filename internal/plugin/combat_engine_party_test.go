@@ -142,10 +142,21 @@ func TestP8PartyScaling_SoloExemptPartyScaled(t *testing.T) {
 	if got := partyActionExpectation(2); got != 2.4 {
 		t.Fatalf("duo action expectation = %v, want 2.4", got)
 	}
+	// The curve now takes a fractional weight rather than a head count, so that a
+	// below-median seat costs the enemy less than a peer does. Every INTEGER input
+	// must still return exactly what it always returned — that is what keeps solo
+	// and a party of peers byte-identical, and the balance corpus with them.
 	for n := 3; n <= 5; n++ {
-		if got, want := partyActionExpectation(n), float64(2*n-1); got != want {
+		if got, want := partyActionExpectation(float64(n)), float64(2*n-1); got != want {
 			t.Fatalf("party of %d: action expectation = %v, want %v", n, got, want)
 		}
+	}
+	// A duo carrying a half-strength body sits between soloing and a true duo.
+	if got := partyActionExpectation(1.5); got <= 1 || got >= 2.4 {
+		t.Fatalf("weight 1.5 action expectation = %v, want strictly between 1 and 2.4", got)
+	}
+	if got := partyEnemyHPScale(1.5); got <= 1.0 || got >= 1.15 {
+		t.Fatalf("weight 1.5 HP scale = %v, want strictly between 1.0 and 1.15", got)
 	}
 	if got := partyEnemyHPScale(3); got != 1.15 {
 		t.Fatalf("party HP scale = %v, want 1.15", got)

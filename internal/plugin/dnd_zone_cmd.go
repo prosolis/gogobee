@@ -1207,9 +1207,9 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		// seat off HP, which for a solo walker is the same `!TimedOut` rule.
 		closeOutZoneLoss(pres, seated, zone, "zone")
 		if !result.TimedOut {
-			forceExtractExpeditionForRunLoss(userID, "combat death")
+			forceExtractExpeditionForRunLoss(userID, lossCombatDeath)
 		} else {
-			forceExtractExpeditionForRunLoss(userID, "combat retreat")
+			forceExtractExpeditionForRunLoss(userID, lossCombatRetreat)
 		}
 		if line := twinBeeLine(zone.ID, DMPlayerDeath, run.RunID, narrationCadence(run)); line != "" {
 			ob.WriteString(line)

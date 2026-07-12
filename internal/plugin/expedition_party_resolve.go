@@ -108,13 +108,45 @@ func seatedExpeditionFor(userID id.UserID) (*Expedition, error) {
 // degrades to the owner rather than dropping the message — a player who misses
 // their briefing because SQLite hiccuped is a worse outcome than a member who
 // misses theirs.
+//
+// A hired companion is dropped here, and this is the chokepoint that keeps him
+// out of every DM seam at once: the briefing, the recap, the digest, the
+// extraction notice — and, crucially, the per-member side effects that ride the
+// fan-out rather than the message. maybeRollPetArrivalOnEmerge would offer Pete
+// a pet and park a pending interaction awaiting a reply that never comes;
+// maybeFireAnchoredEvent would claim him a daily event slot and DM him a
+// choice. He is not a person; he does not get mail. See isCompanionSeat.
 func expeditionAudience(e *Expedition) []id.UserID {
+	if e == nil || e.UserID == "" {
+		return nil
+	}
+	seats, err := partyHumans(e.ID, e.UserID)
+	if err != nil {
+		slog.Warn("expedition: party roster read failed, DMing owner only",
+			"expedition", e.ID, "err", err)
+		return []id.UserID{id.UserID(e.UserID)}
+	}
+	out := make([]id.UserID, 0, len(seats))
+	for _, s := range seats {
+		out = append(out, s.UserID)
+	}
+	return out
+}
+
+// expeditionSeats is every body that sits down in a fight: the whole roster,
+// hired companion included. It is deliberately NOT expeditionAudience — that one
+// drops the companion because he does not get mail, and a combat roster built
+// from it would seat everyone the leader paid for except the one he paid for.
+//
+// Mail and seats are different sets. Anything that sends is an audience;
+// anything that fights is a seat.
+func expeditionSeats(e *Expedition) []id.UserID {
 	if e == nil || e.UserID == "" {
 		return nil
 	}
 	ids, err := partyMemberIDs(e.ID, e.UserID)
 	if err != nil {
-		slog.Warn("expedition: party roster read failed, DMing owner only",
+		slog.Warn("expedition: party roster read failed, seating owner only",
 			"expedition", e.ID, "err", err)
 		return []id.UserID{id.UserID(e.UserID)}
 	}

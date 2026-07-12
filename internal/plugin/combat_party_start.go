@@ -33,7 +33,9 @@ func fightRoster(sender id.UserID) []id.UserID {
 	if err != nil || e == nil {
 		return []id.UserID{sender}
 	}
-	return expeditionAudience(e)
+	// Seats, not audience: the hired companion fights even though he never
+	// receives a DM about it.
+	return expeditionSeats(e)
 }
 
 // buildFightSeats turns a roster into the seats that will actually sit down, and
@@ -56,8 +58,39 @@ func (p *AdventurePlugin) buildFightSeats(
 			senderSkip = why
 		}
 	}
+	// Parallel to `seats`, so a skipped member leaves no gap: what a seat costs the
+	// enemy is priced from these once the roster is final.
+	var levels []int
+	var companions []bool
 	for i, uid := range roster {
 		leader := i == 0
+
+		// The hired companion. He must be handled before everything below:
+		// dndHPSnapshot returns (0,0) for a user with no sheet, so the very next
+		// check would quietly sit him out of every fight he was paid for, and
+		// buildZoneCombatants would then fail on him anyway.
+		//
+		// He is latched onto autopilot at seat time rather than after the away-player
+		// deadline — nobody is going to type for him, and waiting three minutes to
+		// discover that would stall the fight and then announce him to the party as
+		// an absent player.
+		if isCompanionSeat(uid) {
+			expID := companionExpeditionFor(roster[0])
+			class, level := companionLoadout(expID)
+			player, _, _ := p.companionCombatant(class, level, monster, tier, dmMood)
+			// He carries his wounds between fights, like everyone else. Seating him at
+			// full max HP — which is what this did — hands the party an infinite body:
+			// he soaks a share of every fight's incoming and then resets, while the
+			// humans beside him bleed all the way to camp.
+			seats = append(seats, CombatSeatSetup{
+				UserID: uid,
+				HP:     companionSeatHP(expID, player.Stats.MaxHP),
+				HPMax:  player.Stats.MaxHP,
+				Mods:   player.Mods, C: &player, EngineDriven: true,
+			})
+			levels, companions = append(levels, level), append(companions, true)
+			continue
+		}
 
 		// Both refusals below are cheap and neither needs the build, so they run
 		// before it: consuming a seat's armed ability and *then* sitting them out
@@ -94,7 +127,7 @@ func (p *AdventurePlugin) buildFightSeats(
 			trySimAutoArm(c)
 			armed = consumeArmedAbility(c)
 		}
-		player, e, _, err := p.buildZoneCombatants(uid, monster, tier, dmMood, armed)
+		player, e, dc, err := p.buildZoneCombatants(uid, monster, tier, dmMood, armed)
 		if err != nil {
 			if leader {
 				return nil, nil, "", "Couldn't set up the fight: " + err.Error()
@@ -113,7 +146,17 @@ func (p *AdventurePlugin) buildFightSeats(
 		seats = append(seats, CombatSeatSetup{
 			UserID: uid, HP: hp, HPMax: hpMax, Mods: player.Mods, C: &player, ArmedAbility: armed,
 		})
+		lvl := 0
+		if dc != nil {
+			lvl = dc.Level
+		}
+		levels, companions = append(levels, lvl), append(companions, false)
 	}
+
+	// Price each seat against the leader. It runs here, over the seats that were
+	// actually seated — a member who was skipped (downed, busy elsewhere) never
+	// joined the fight and must not be charged to the enemy.
+	applySeatWeights(seatCombatants(seats), levels, companions)
 	return seats, enemy, senderSkip, ""
 }
 
@@ -159,6 +202,12 @@ func (p *AdventurePlugin) announcePartyFightStart(
 		names[i] = c.Name
 	}
 	for seat, uid := range sess.SeatUserIDs() {
+		// Seat-keyed fan-out, so it bypasses expeditionAudience's filter — the
+		// companion sits down but is never written to. (He also has no magic items
+		// to line up, and activeMagicItemsLine would go looking for them.)
+		if isCompanionUser(uid) {
+			continue
+		}
 		var b strings.Builder
 		b.WriteString(header)
 		b.WriteString(fmt.Sprintf("You: **%d/%d HP**.\n", sess.seatHP(seat), sess.seatHPMax(seat)))

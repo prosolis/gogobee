@@ -105,7 +105,7 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 	// this is a no-op there); mirror it here so the entry banner and the opening
 	// round resolve against the same ceiling startPartyCombatSession persisted and
 	// the rebuilt rounds use.
-	enemyHP := scaledEnemyMaxHP(enemy.Stats.MaxHP, len(seats))
+	enemyHP := scaledEnemyMaxHP(enemy.Stats.MaxHP, seatSetupWeight(seats))
 
 	// Fight-start one-shot resources (Abjuration Arcane Ward, etc.) are seeded
 	// per seat onto the session and its participant rows, so they survive the
@@ -425,7 +425,11 @@ func (p *AdventurePlugin) finishCombatSession(userID id.UserID, sess *CombatSess
 // returns the spell plus the resolved slot level. errMsg is non-empty and
 // player-facing on any validation failure. It performs NO resource spend —
 // the caller debits the slot only once the round is about to resolve.
-func parseCombatCast(userID id.UserID, c *DnDCharacter, args string) (SpellDefinition, int, string) {
+//
+// It takes the seat, not just the user, because "do you know this spell" is a
+// question about a combatant and only *usually* a question about a database row:
+// the hired companion has no rows and answers it from his synthetic sheet.
+func parseCombatCast(sess *CombatSession, seat int, userID id.UserID, c *DnDCharacter, args string) (SpellDefinition, int, string) {
 	tokens := strings.Fields(args)
 	upcast := 0
 	var spellTokens []string
@@ -473,7 +477,7 @@ func parseCombatCast(userID id.UserID, c *DnDCharacter, args string) (SpellDefin
 			return SpellDefinition{}, 0, fmt.Sprintf("At level %d, your Arcane Trickster magic only reaches level-%d spells.", c.Level, mx)
 		}
 	}
-	known, prepared, err := playerKnowsSpell(userID, spell.ID)
+	known, prepared, err := seatKnowsSpell(sess, seat, userID, spell.ID)
 	if err != nil {
 		return SpellDefinition{}, 0, "Couldn't check your spell list."
 	}
@@ -526,12 +530,92 @@ func (p *AdventurePlugin) handleCombatCastCmd(ctx MessageContext, args string) e
 // the roster so the buff is live for the round's enemy turn. Before P5 that
 // delta went to the session's embedded copy — seat 0 — so a party member
 // buffing themselves would have buffed the leader.
+// splitCastTarget peels an optional ally target off the end of a `!cast` argument
+// — `cure wounds @alex`, or just `cure wounds alex` — and resolves it to a seat.
+//
+// It resolves against the people *in this fight* rather than the room, which is
+// both cheaper (no ResolveUser round-trip, no RoomID to thread down here) and
+// more correct: the only legal target of a combat heal is somebody sitting in the
+// combat. Anything it does not recognise is left on the string for the spell
+// parser, so `!cast cure wounds` and `!cast fireball 3` behave exactly as before.
+//
+// Both spellings work: the `--target @alex` flag that `!help` has advertised all
+// along (and that parseCombatCast has been silently swallowing since SP2 —
+// "reserved for SP3, accept and ignore"), and a plain trailing `@alex`.
+//
+// Returns (remainingArgs, seat, errMsg). seat is -1 when no target was named.
+func splitCastTarget(ct *combatTurn, caster int, args string) (string, int, string) {
+	args = strings.TrimSpace(args)
+	if args == "" || !ct.isParty() {
+		return args, -1, ""
+	}
+	fields := strings.Fields(args)
+
+	// `--target <who>` anywhere in the string.
+	explicit, name := false, ""
+	for i := 0; i < len(fields); i++ {
+		if !strings.EqualFold(fields[i], "--target") {
+			continue
+		}
+		if i+1 >= len(fields) {
+			return args, -1, "`--target` needs a name: `!cast cure wounds --target @alex`."
+		}
+		explicit, name = true, strings.TrimPrefix(fields[i+1], "@")
+		fields = append(fields[:i], fields[i+2:]...)
+		break
+	}
+
+	if name == "" {
+		last := fields[len(fields)-1]
+		// A bare number is a slot level (`!cast fireball 3`), never a target.
+		if _, err := strconv.Atoi(last); err == nil {
+			return args, -1, ""
+		}
+		explicit = strings.HasPrefix(last, "@")
+		name = strings.TrimPrefix(last, "@")
+		if name == "" {
+			return args, -1, ""
+		}
+		fields = fields[:len(fields)-1]
+	}
+	// From here `fields` is the spell tokens with the target removed.
+	rest := strings.Join(fields, " ")
+
+	for i, c := range ct.players {
+		uid := ct.sess.seatUserID(i)
+		if !strings.EqualFold(c.Name, name) &&
+			!strings.EqualFold(uid, name) &&
+			!strings.EqualFold(id.UserID(uid).Localpart(), name) {
+			continue
+		}
+		if i == caster {
+			// Targeting yourself is just casting it on yourself, which is what the
+			// engine does by default. Drop the target and carry on.
+			return rest, -1, ""
+		}
+		return rest, i, ""
+	}
+	// An explicit @mention that matches nobody in the fight is a mistake worth
+	// naming — silently casting it on yourself would waste the slot.
+	if explicit {
+		return args, -1, fmt.Sprintf("**%s** isn't in this fight. Cast it on someone who is.", name)
+	}
+	return args, -1, ""
+}
+
 func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args string) (PlayerAction, func(bool), string) {
 	noop := func(bool) {}
 	uid := id.UserID(ct.sess.seatUserID(seat))
 
-	advChar, _ := loadAdvCharacter(uid)
-	c, err := p.ensureCharForDnDCmd(uid, advChar)
+	// §1 — a heal may name somebody else in the fight: `!cast cure wounds @alex`.
+	// Split the target off before the spell is parsed, so the spell parser sees
+	// the same string it always has.
+	args, targetSeat, targetErr := splitCastTarget(ct, seat, args)
+	if targetErr != "" {
+		return PlayerAction{}, noop, targetErr
+	}
+
+	c, err := p.seatCastSheet(ct.sess, uid)
 	if err != nil || c == nil {
 		return PlayerAction{}, noop, "Couldn't load your Adv 2.0 sheet."
 	}
@@ -540,7 +624,7 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 			"%s isn't a caster class. `!attack` or `!consume <item>` instead.", titleClass(c.Class))
 	}
 
-	spell, slotLevel, errMsg := parseCombatCast(uid, c, strings.TrimSpace(args))
+	spell, slotLevel, errMsg := parseCombatCast(ct.sess, seat, uid, c, strings.TrimSpace(args))
 	if errMsg != "" {
 		return PlayerAction{}, noop, errMsg
 	}
@@ -551,7 +635,7 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 
 	refund := func(ok bool) {
 		if !ok && spell.Level > 0 {
-			_ = refundSpellSlot(uid, slotLevel)
+			_ = refundSeatSlot(ct.sess, seat, uid, slotLevel)
 		}
 	}
 
@@ -568,7 +652,7 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 			return PlayerAction{}, noop, fmt.Sprintf(
 				"%s has no effect the turn-based engine can apply yet.", spell.Name)
 		}
-		if msg := p.chargeSpellCost(uid, spell, slotLevel); msg != "" {
+		if msg := p.chargeSpellCost(ct.sess, seat, uid, spell, slotLevel); msg != "" {
 			return PlayerAction{}, noop, msg
 		}
 		ct.sess.actorStatusesPtr(seat).applyBuffDelta(d)
@@ -590,7 +674,7 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 			return PlayerAction{}, noop, fmt.Sprintf(
 				"%s is a utility spell — those aren't usable in turn-based fights yet. Try a damage, healing, control, or buff spell.", spell.Name)
 		}
-		if msg := p.chargeSpellCost(uid, spell, slotLevel); msg != "" {
+		if msg := p.chargeSpellCost(ct.sess, seat, uid, spell, slotLevel); msg != "" {
 			return PlayerAction{}, noop, msg
 		}
 		// Park the Necromancy kill-heal stash on the casting seat. The
@@ -611,6 +695,20 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 			EnemyDamage: out.EnemyDamage,
 			PlayerHeal:  out.PlayerHeal,
 			EnemySkip:   out.EnemySkip,
+		}
+		// §1 — redirect the heal onto the named ally. The roll is the same; only
+		// the body it lands on changes. This is the line that makes a cleric a
+		// cleric: until it existed, every heal in the engine was a self-heal, and
+		// the class whose whole job is keeping other people upright could not put
+		// a single hit point on a friend.
+		if targetSeat >= 0 && targetSeat != seat {
+			if out.PlayerHeal <= 0 {
+				return PlayerAction{}, refund, fmt.Sprintf(
+					"%s isn't something you can cast on someone else. Drop the target to cast it yourself.", spell.Name)
+			}
+			eff.AllyHeal, eff.AllySeat = out.PlayerHeal, targetSeat
+			eff.PlayerHeal = 0
+			eff.Label = fmt.Sprintf("%s → %s (+%d HP)", spell.Name, ct.players[targetSeat].Name, out.PlayerHeal)
 		}
 		// Concentration AOE damage spells linger: the burst lands this round
 		// (EnemyDamage) and the same value re-ticks every round_end after, via
@@ -640,18 +738,30 @@ func (p *AdventurePlugin) rebuildRoster(ct *combatTurn) error {
 // success the caller owns the slot and must refundSpellSlot if the round itself
 // errors. Material components (rare in a fight) are not refunded if the slot
 // debit then fails — matching the auto-resolve cast path.
-func (p *AdventurePlugin) chargeSpellCost(userID id.UserID, spell SpellDefinition, slotLevel int) string {
+func (p *AdventurePlugin) chargeSpellCost(sess *CombatSession, seat int, userID id.UserID, spell SpellDefinition, slotLevel int) string {
+	_, _, companion := seatCompanionLoadout(sess, userID)
+
+	// The companion carries no purse — he has no wallet to debit and no inventory
+	// to stock one from, so a component cost is not a price he can pay but a spell
+	// he cannot cast. Refusing here (rather than letting the debit fail on an empty
+	// account) keeps that an explicit rule instead of an accident of his balance.
 	if spell.MaterialCost > 0 {
+		if companion {
+			return fmt.Sprintf("%s needs a component %s doesn't carry.", spell.Name, companionDisplayName)
+		}
 		if p.euro == nil || !p.euro.Debit(userID, float64(spell.MaterialCost), "dnd_spell_component") {
 			return fmt.Sprintf("%s needs a %d-coin diamond component you can't afford.", spell.Name, spell.MaterialCost)
 		}
 	}
 	if spell.Level > 0 {
-		ok, serr := consumeSpellSlot(userID, slotLevel)
+		ok, serr := consumeSeatSlot(sess, seat, userID, slotLevel)
 		if serr != nil {
 			return "Couldn't consume slot: " + serr.Error()
 		}
 		if !ok {
+			if companion {
+				return fmt.Sprintf("%s is out of level-%d energy.", companionDisplayName, slotLevel)
+			}
 			return fmt.Sprintf("You're out of level-%d energy. %s", slotLevel, renderSlotsBrief(userID))
 		}
 	}
