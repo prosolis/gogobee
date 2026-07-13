@@ -579,9 +579,14 @@ func markAdventureDead(userID id.UserID, source, location string) {
 	emitDeathNews(userID, location)
 }
 
-// emitDeathNews files a PRIORITY death dispatch to Pete's adventure news. No-op
+// emitDeathNews files a BULLETIN death dispatch to Pete's adventure news. No-op
 // unless the seam is enabled. Uses the character name (never the Matrix handle);
 // skips silently if the name is unknown.
+//
+// Bulletin, not priority: the room watched the character go down in TwinBee's
+// narration, and a priority fact is what makes Pete post a live beat — he'd be
+// breaking the news to the people who were there. The site row and the digest
+// still carry it.
 func emitDeathNews(userID id.UserID, location string) {
 	// Gate before the char lookups: markAdventureDead fires per-member on a
 	// party wipe and in the sim harness, so skip the DB reads when disabled.
@@ -597,7 +602,7 @@ func emitDeathNews(userID id.UserID, location string) {
 	emitFact(peteclient.Fact{
 		GUID:       fmt.Sprintf("death:%s:%d", eventToken(userID, fmt.Sprintf("%d", ts)), ts),
 		EventType:  "death",
-		Tier:       "priority",
+		Tier:       "bulletin",
 		Subject:    name,
 		Zone:       location,
 		Level:      lvl,

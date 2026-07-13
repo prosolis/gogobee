@@ -258,10 +258,16 @@ func claimRealmFirst(kind, target string) bool {
 }
 
 // emitZoneClearNews files a zone-clear dispatch (boss down = zone cleared). The
-// realm's first clear of a zone is a PRIORITY "zone_first"; later clears are a
-// BULLETIN "zone_clear". The event_type and the GUID prefix track the tier so
-// Pete templates and labels a repeat as a repeat, not a first-ever. Character
-// name only; no-op unless the seam is enabled.
+// realm's first clear of a zone is a "zone_first"; later clears are a
+// "zone_clear". The event_type and the GUID prefix track which, so Pete
+// templates and labels a repeat as a repeat, not a first-ever. Character name
+// only; no-op unless the seam is enabled.
+//
+// BULLETIN either way: TwinBee announces the clear in the room as it happens,
+// and priority tier is what makes Pete post a live beat — so a priority
+// zone_first would just echo TwinBee back at the same people. Bulletin still
+// gets the story onto the site and into the daily digest, where it reads as a
+// roundup rather than a repeat.
 func emitZoneClearNews(userID id.UserID, exp *Expedition) {
 	if !peteclient.Enabled() || !newsEmissionOn() {
 		return
@@ -270,9 +276,9 @@ func emitZoneClearNews(userID id.UserID, exp *Expedition) {
 	// genuine first clear still seeds news_realm_firsts. Otherwise the next
 	// named clearer would claim it and be mis-announced as the first-ever.
 	// Mirrors backfillZoneFirsts, which claims before its own name check.
-	eventType, tier := "zone_clear", "bulletin"
+	eventType := "zone_clear"
 	if claimRealmFirst("zone", string(exp.ZoneID)) {
-		eventType, tier = "zone_first", "priority"
+		eventType = "zone_first"
 	}
 	name := charName(userID)
 	if name == "" {
@@ -291,7 +297,7 @@ func emitZoneClearNews(userID id.UserID, exp *Expedition) {
 	emitFact(peteclient.Fact{
 		GUID:       fmt.Sprintf("%s:%s:%s:%d", eventType, eventToken(userID, disc), exp.ZoneID, ts),
 		EventType:  eventType,
-		Tier:       tier,
+		Tier:       "bulletin",
 		Subject:    name,
 		Zone:       zone.Display,
 		Region:     region,
