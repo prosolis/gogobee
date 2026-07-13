@@ -383,44 +383,10 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	}
 
 	zone := zoneForCaps
-	// Holiday perk: a complimentary standard pack is added to the supplies
-	// snapshot without inflating the coin cost. Bypasses the per-tier cap
-	// on purpose — it's a freebie on top of whatever the player bought.
-	suppliesPurchase := purchase
-	if isHol, _ := isHolidayToday(); isHol {
-		suppliesPurchase.StandardPacks++
-	}
-	if pk := activeOmen().SupplyFreebiePacks; pk > 0 { // N7/B3 the Omen
-		suppliesPurchase.StandardPacks += pk
-	}
-	supplies := makeSupplies(zone.Tier, suppliesPurchase)
-
-	// Debit coins; bail on debit failure (race / cap).
-	if !p.euro.Debit(ctx.Sender, cost, "expedition outfitting: "+string(zoneID)) {
-		return p.SendDM(ctx.Sender, "Couldn't debit outfitting cost (try again).")
-	}
-
-	exp, err := startExpedition(ctx.Sender, zoneID, "", supplies)
+	_, supplies, startLine, err := p.beginExpedition(ctx.Sender, c.Level, zone, purchase, "expedition outfitting")
 	if err != nil {
-		// Refund on persistence failure.
-		p.euro.Credit(ctx.Sender, cost, "expedition outfitting refund")
-		return p.SendDM(ctx.Sender, "Couldn't start expedition: "+err.Error())
+		return p.SendDM(ctx.Sender, err.Error())
 	}
-
-	// R2 — auto-spawn the DungeonRun for the starting region. Per-room
-	// harvest depends on this; the existing zone-run !advance/!retreat
-	// commands now operate on this run while the expedition is active.
-	if _, err := ensureRegionRun(exp, c.Level); err != nil {
-		// Refund and tear the expedition row back down — without a
-		// linked run, harvest and rooms can't function.
-		_ = abandonExpedition(ctx.Sender)
-		p.euro.Credit(ctx.Sender, cost, "expedition outfitting refund (run-spawn failed)")
-		return p.SendDM(ctx.Sender, "Couldn't outfit the first region: "+err.Error())
-	}
-
-	// Log the start with prewritten flavor.
-	startLine := flavor.Pick(flavor.ExpeditionStart)
-	_ = appendExpeditionLog(exp.ID, 1, "narrative", "expedition started", startLine)
 	markActedToday(ctx.Sender)
 
 	var b strings.Builder
@@ -440,6 +406,65 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	}
 	b.WriteString("Use `!expedition status` for the daily briefing format. Day 1 begins now.")
 	return p.SendDM(ctx.Sender, b.String())
+}
+
+// beginExpedition performs the non-interactive half of starting an expedition:
+// supply freebies, the coin debit, persistence, the starting region's run, and
+// the opening log entry. It refunds and tears down on every failure path, so a
+// caller holding an error owes the player nothing.
+//
+// Callers own the balance check, the eligibility guards, and the player-facing
+// messaging. This is the shared transaction under `!expedition start` and the
+// boredom ticker (gogobee_boredom_plan.md §4); the returned errors are written
+// as complete player-facing sentences so both callers can surface them as-is.
+//
+// It deliberately does NOT call markActedToday — an expedition the player did
+// not ask for must not spend their daily action or count as them showing up.
+func (p *AdventurePlugin) beginExpedition(uid id.UserID, charLevel int, zone ZoneDefinition, purchase SupplyPurchase, reason string) (*Expedition, ExpeditionSupplies, string, error) {
+	if p.euro == nil {
+		return nil, ExpeditionSupplies{}, "", fmt.Errorf("Coin system unavailable — try again later.")
+	}
+	cost := float64(purchase.Cost())
+
+	// Holiday perk: a complimentary standard pack is added to the supplies
+	// snapshot without inflating the coin cost. Bypasses the per-tier cap
+	// on purpose — it's a freebie on top of whatever the player bought.
+	suppliesPurchase := purchase
+	if isHol, _ := isHolidayToday(); isHol {
+		suppliesPurchase.StandardPacks++
+	}
+	if pk := activeOmen().SupplyFreebiePacks; pk > 0 { // N7/B3 the Omen
+		suppliesPurchase.StandardPacks += pk
+	}
+	supplies := makeSupplies(zone.Tier, suppliesPurchase)
+
+	// Debit coins; bail on debit failure (race / cap).
+	if !p.euro.Debit(uid, cost, reason+": "+string(zone.ID)) {
+		return nil, ExpeditionSupplies{}, "", fmt.Errorf("Couldn't debit outfitting cost (try again).")
+	}
+
+	exp, err := startExpedition(uid, zone.ID, "", supplies)
+	if err != nil {
+		// Refund on persistence failure.
+		p.euro.Credit(uid, cost, "expedition outfitting refund")
+		return nil, ExpeditionSupplies{}, "", fmt.Errorf("Couldn't start expedition: %s", err)
+	}
+
+	// R2 — auto-spawn the DungeonRun for the starting region. Per-room
+	// harvest depends on this; the existing zone-run !advance/!retreat
+	// commands now operate on this run while the expedition is active.
+	if _, err := ensureRegionRun(exp, charLevel); err != nil {
+		// Refund and tear the expedition row back down — without a
+		// linked run, harvest and rooms can't function.
+		_ = abandonExpedition(uid)
+		p.euro.Credit(uid, cost, "expedition outfitting refund (run-spawn failed)")
+		return nil, ExpeditionSupplies{}, "", fmt.Errorf("Couldn't outfit the first region: %s", err)
+	}
+
+	// Log the start with prewritten flavor.
+	startLine := flavor.Pick(flavor.ExpeditionStart)
+	_ = appendExpeditionLog(exp.ID, 1, "narrative", "expedition started", startLine)
+	return exp, supplies, startLine, nil
 }
 
 // raidContentWarning returns a TwinBee-voiced heads-up for zones whose

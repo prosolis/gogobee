@@ -190,7 +190,17 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 		slog.Error("adventure: robbie: failed to send DM", "user", userID, "err", err)
 	}
 
-	// Room announcement
+	// Room announcement — but not for a player who isn't there.
+	//
+	// A bored adventurer (gogobee_boredom_plan.md) auto-harvests ore and junk
+	// into inventory on every run, and Robbie takes all of it, every day. Left
+	// alone, each abandoned character would file a public bulletin every single
+	// day, indefinitely, about somebody who stopped playing weeks ago. He still
+	// visits and still pays — that income is what keeps the neglected adventurer
+	// walking — he just doesn't announce a house with nobody in it.
+	if playerIsIdle(userID, time.Now().UTC()) {
+		return
+	}
 	gr := gamesRoom()
 	if gr != "" {
 		announcement := renderRobbieRoomAnnouncement(displayName, len(takenItems), totalPayout, masterworkTaken, gaveCard)

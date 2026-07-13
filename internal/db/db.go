@@ -306,6 +306,18 @@ func runMigrations(d *sql.DB) error {
 		`ALTER TABLE player_meta ADD COLUMN title TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE player_meta ADD COLUMN treasures_locked INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE player_meta ADD COLUMN crafts_succeeded INTEGER NOT NULL DEFAULT 0`,
+		// Bored adventurers (gogobee_boredom_plan.md §1). The idle clock for
+		// autonomous expedition starts. Deliberately NOT last_active_at: that
+		// one is auto-bumped by saveAdvCharacter, so the autopilot's own writes
+		// would refresh a bored character's idle clock and it would never
+		// qualify again. Written only by markPlayerAction, from a real player
+		// action against Adventure (any interface, not just Matrix chatter).
+		`ALTER TABLE player_meta ADD COLUMN last_player_action_at DATETIME`,
+		`ALTER TABLE player_meta ADD COLUMN last_boredom_at DATETIME`,
+		// Marks an expedition the adventurer started by itself. The idle reaper
+		// reads it: an expedition nobody asked for must not shield its player
+		// from the shame DM or hold their streak (gogobee_boredom_plan.md §6).
+		`ALTER TABLE dnd_expedition ADD COLUMN boredom INTEGER NOT NULL DEFAULT 0`,
 		// Adv 2.0 Phase G1 — branching zone graph run-state columns.
 		// current_node / visited_nodes / node_choices live alongside the
 		// legacy current_room / room_seq_json during the migration; the

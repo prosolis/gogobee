@@ -281,6 +281,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.expeditionAmbientTicker()
 	go p.expeditionAutoRunTicker()
 	go p.expeditionExtractionSweepTicker()
+	go p.expeditionBoredomTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()
@@ -320,6 +321,15 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	// next inbound message. Fast-paths to a no-op for users with no active
 	// expedition.
 	p.maybeDeliverDeferredBriefing(ctx.Sender, time.Now().UTC())
+
+	// Bored adventurers (gogobee_boredom_plan.md §1) — the idle clock that
+	// decides when a character gives up waiting and leaves on its own. Stamped
+	// only for a real action against Adventure: idle chatter in a room is not
+	// tending your adventurer, and no ticker or autopilot path may touch this,
+	// or a bored character would refresh its own clock and never qualify again.
+	if p.isPlayerAdventureAction(ctx) {
+		markPlayerAction(ctx.Sender)
+	}
 
 	// 0. D&D layer commands (Phase 1 — work in rooms and DMs)
 	if p.IsCommand(ctx.Body, "setup") {

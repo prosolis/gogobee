@@ -405,8 +405,9 @@ func (p *AdventurePlugin) midnightReset() error {
 		return fmt.Errorf("load chars: %w", err)
 	}
 
-	today := time.Now().UTC().Format("2006-01-02")
-	yesterday := time.Now().UTC().Add(-24 * time.Hour).Format("2006-01-02")
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
+	yesterday := now.Add(-24 * time.Hour).Format("2006-01-02")
 
 	// Unified activity oracle — same source the daily report uses. Unions
 	// adventure_activity_log + dnd_zone_run + dnd_expedition_log, so
@@ -457,25 +458,32 @@ func (p *AdventurePlugin) midnightReset() error {
 			continue
 		}
 
-		// Activity happened on the player's behalf without an explicit tap —
-		// autopilot walked rooms, expedition log gained beats, a fight session
-		// is still locked open. Hold the streak: no bump, no shame, no decay.
-		// The player engaged earlier to kick this off; autopilot is a feature,
-		// not a way to game streaks, and absence of taps shouldn't strip
-		// progress they earned through real play.
-		if len(todayActs[char.UserID]) > 0 || len(yesterdayActs[char.UserID]) > 0 {
-			continue
-		}
-		// Safety net for live state the activity logs don't reflect yet
-		// (e.g. an active expedition that's been quiet today, or a combat
-		// session locked open across midnight without a log append).
-		if exp, err := getActiveExpedition(char.UserID); err != nil {
-			slog.Warn("adventure: failed to check active expedition for idle reaper", "user", char.UserID, "err", err)
-		} else if exp != nil {
-			continue
-		}
-		if hasActiveCombatSession(char.UserID) {
-			continue
+		// Every hold below rests on one premise: the player engaged earlier to
+		// kick this off, so the autopilot finishing the job shouldn't cost them
+		// their streak. A boredom expedition has no such origin — nobody kicked
+		// it off, and its player still hasn't come back. It earns them nothing
+		// and shields them from nothing (gogobee_boredom_plan.md §6).
+		if !isBoredomDriven(char.UserID, now) {
+			// Activity happened on the player's behalf without an explicit tap —
+			// autopilot walked rooms, expedition log gained beats, a fight session
+			// is still locked open. Hold the streak: no bump, no shame, no decay.
+			// The player engaged earlier to kick this off; autopilot is a feature,
+			// not a way to game streaks, and absence of taps shouldn't strip
+			// progress they earned through real play.
+			if len(todayActs[char.UserID]) > 0 || len(yesterdayActs[char.UserID]) > 0 {
+				continue
+			}
+			// Safety net for live state the activity logs don't reflect yet
+			// (e.g. an active expedition that's been quiet today, or a combat
+			// session locked open across midnight without a log append).
+			if exp, err := getActiveExpedition(char.UserID); err != nil {
+				slog.Warn("adventure: failed to check active expedition for idle reaper", "user", char.UserID, "err", err)
+			} else if exp != nil {
+				continue
+			}
+			if hasActiveCombatSession(char.UserID) {
+				continue
+			}
 		}
 
 		// Truly idle — shame DM + streak halve.

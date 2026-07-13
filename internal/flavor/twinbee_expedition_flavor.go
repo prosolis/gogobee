@@ -26,6 +26,25 @@ var ExpeditionStart = []string{
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// EXPEDITION START — BOREDOM (the adventurer left without you)
+//
+// Fired by the boredom ticker after a long silence. The player is not
+// reading this live; it's a note left on the table. Deadpan, faintly
+// reproachful, never cruel — and never pretending the gear got checked,
+// because it didn't (gogobee_boredom_plan.md §5).
+// ─────────────────────────────────────────────────────────────────────────────
+
+var ExpeditionBoredomStart = []string{
+	"You didn't come. That's alright — it happens, and I'm not going to make it a thing. But the sword was getting heavy on the wall and I've packed what we had. Which was not much. Noted for the record, not as a complaint.",
+	"I waited. Then I waited past the point where waiting was the sensible option, and somewhere in there the waiting turned into leaving. We're going. Same kit as last time, because last time is when you last touched it.",
+	"Here's the situation: there's a dungeon, there's daylight, and there's nobody telling me not to. I've made a decision. I hope it was the one you'd have made, though I concede I have no way of checking.",
+	"Supplies: the cheapest available. Equipment: whatever was already on the rack. Plan: walk in, see what happens. I'm aware of how that sounds. I'm going anyway.",
+	"The gear hasn't moved since you left it. I checked. I checked twice, actually, in case the first check was wrong, and it wasn't. So we go as we are — which is to say, as we were.",
+	"Restlessness is not a stat I can show you on the sheet, but it accumulates, and it has. Off we go. Lightly provisioned and unimproved, but off.",
+	"I've done the arithmetic on standing still and it doesn't come out well. So: a dungeon, one supply pack, and the same armour that's been good enough up to now. 'Good enough' is doing a lot of work in that sentence.",
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MORNING BRIEFINGS — Generic
 // ─────────────────────────────────────────────────────────────────────────────
 
