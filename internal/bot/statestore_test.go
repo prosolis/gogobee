@@ -4,13 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"maunium.net/go/mautrix"
-	"maunium.net/go/mautrix/appservice"
+	"maunium.net/go/mautrix/crypto/cryptohelper"
 	"maunium.net/go/mautrix/id"
 )
 
@@ -53,9 +54,24 @@ func (f *fakeHS) start(t *testing.T) *mautrix.Client {
 
 func newTestStore(t *testing.T, hs *fakeHS) *lazyStateStore {
 	t.Helper()
-	store := newLazyStateStore(mautrix.NewMemoryStateStore().(appservice.StateStore))
+	store := newLazyStateStore(mautrix.NewMemoryStateStore().(innerStateStore))
 	store.client = hs.start(t)
 	return store
+}
+
+// The store is handed to the crypto helper, which type-asserts it and refuses to
+// start if it comes up short. That assertion is the whole bot's startup path, so
+// pin it here rather than discovering it as a crash loop in prod.
+func TestStoreSatisfiesCryptoHelper(t *testing.T) {
+	store := newTestStore(t, &fakeHS{})
+
+	client := store.client
+	client.StateStore = store
+
+	dir := t.TempDir()
+	if _, err := cryptohelper.NewCryptoHelper(client, []byte("test"), filepath.Join(dir, "crypto.db")); err != nil {
+		t.Fatalf("crypto helper rejected the state store, so the bot would not start: %v", err)
+	}
 }
 
 const roomID = id.RoomID("!room:example.org")

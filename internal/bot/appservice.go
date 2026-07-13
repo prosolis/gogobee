@@ -110,7 +110,11 @@ func newAppserviceSession(cfg Config) (*Session, error) {
 	// use, since there is no /sync to backfill it. Must be installed before the
 	// first BotClient() call: makeClient copies as.StateStore into the client, and
 	// caches the client.
-	store := newLazyStateStore(as.StateStore)
+	inner, ok := as.StateStore.(innerStateStore)
+	if !ok {
+		return nil, fmt.Errorf("appservice state store %T does not implement crypto.StateStore", as.StateStore)
+	}
+	store := newLazyStateStore(inner)
 	as.StateStore = store
 
 	client := as.BotClient() // as_token auth + SetAppServiceUserID (?user_id=) assertion
