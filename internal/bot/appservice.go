@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -107,7 +106,15 @@ func newAppserviceSession(cfg Config) (*Session, error) {
 		return nil, fmt.Errorf("registration sender_localpart resolves to %s but BOT_USER_ID is %s", as.BotMXID(), userID)
 	}
 
+	// Resolve room state (is it encrypted, who is in it) from the server on first
+	// use, since there is no /sync to backfill it. Must be installed before the
+	// first BotClient() call: makeClient copies as.StateStore into the client, and
+	// caches the client.
+	store := newLazyStateStore(as.StateStore)
+	as.StateStore = store
+
 	client := as.BotClient() // as_token auth + SetAppServiceUserID (?user_id=) assertion
+	store.client = client
 	// Assert the device via ?org.matrix.msc3202.device_id= on E2EE requests, and
 	// satisfy cryptohelper.Init's syncer check: with this set, Init permits a nil
 	// Syncer (we drive the crypto machine from transactions, not /sync). The param
@@ -172,29 +179,6 @@ func newAppserviceSession(cfg Config) (*Session, error) {
 		mach.HandleMemberEvent(ctx, evt)
 	})
 
-	// Without /sync there is no state backfill, so the client's StateStore starts
-	// empty. Before we hand off a decrypted event (whose reply may need to be
-	// encrypted), resolve the room once: mark it encrypted and populate its member
-	// list. Otherwise outbound sends go plaintext (IsEncrypted=false) and, worse,
-	// the group session is shared to nobody (GetRoomJoinedOrInvitedMembers empty)
-	// so recipients can't decrypt the bot's replies.
-	var resolved sync.Map // roomID -> struct{}, resolved once
-	resolveRoom := func(ctx context.Context, roomID id.RoomID) {
-		if _, done := resolved.LoadOrStore(roomID, struct{}{}); done {
-			return
-		}
-		var enc event.EncryptionEventContent
-		if err := client.StateEvent(ctx, roomID, event.StateEncryption, "", &enc); err == nil && enc.Algorithm != "" {
-			_ = as.StateStore.SetEncryptionEvent(ctx, roomID, &enc)
-		}
-		if members, err := client.Members(ctx, roomID); err == nil {
-			_ = as.StateStore.ReplaceCachedMembers(ctx, roomID, members.Chunk)
-		} else {
-			slog.Warn("appservice: failed to fetch room members; will retry", "room", roomID, "err", err)
-			resolved.Delete(roomID) // allow a later event to retry
-		}
-	}
-
 	// recoverSession handles an event whose megolm session we don't have yet. The
 	// keys are often merely in flight (a to-device m.room_key racing the room
 	// event), so wait briefly; if they never land, ask the sender to re-share and
@@ -236,7 +220,6 @@ func newAppserviceSession(cfg Config) (*Session, error) {
 	// Decrypt inbound encrypted room events and re-dispatch the plaintext so the
 	// normal message/reaction handlers fire (mirrors cryptohelper.HandleEncrypted).
 	ep.On(event.EventEncrypted, func(ctx context.Context, evt *event.Event) {
-		resolveRoom(ctx, evt.RoomID)
 		decrypted, err := ch.Decrypt(ctx, evt)
 		if err != nil {
 			if errors.Is(err, cryptohelper.NoSessionFound) {
