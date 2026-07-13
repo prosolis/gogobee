@@ -263,6 +263,11 @@ func (p *AdventurePlugin) Init() error {
 	// Revive any characters whose DeadUntil has expired
 	p.catchUpRespawns(chars)
 
+	// Seed the boredom idle clock before the ticker that reads it can wake:
+	// an unseeded column reads as "idle since character creation" for every
+	// pre-existing player.
+	bootstrapBoredomClock()
+
 	// Start schedulers — single shared stopCh allows graceful shutdown.
 	if p.stopCh == nil {
 		p.stopCh = make(chan struct{})

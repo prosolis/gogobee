@@ -100,14 +100,33 @@ var advActionCommands = map[string]bool{
 // something to their adventurer — an Adventure command, or a reply to a prompt
 // we're holding open for them (shop, blacksmith, pet, treasure). Both count:
 // answering "2" to a shop menu is as much an action as typing `!shop`.
+//
+// This runs on every message the bot sees, in every room, so the command test
+// is a single tokenise-and-look-up rather than 50 passes of IsCommand over the
+// body. It matches util.IsCommand's rule exactly: trimmed, lowercased, the
+// command is the whole body or is followed by a space.
+//
+// The pending-prompt check honours ExpiresAt. Nothing sweeps p.pending, so an
+// abandoned prompt (offered, never answered) sits there forever — without the
+// expiry test, every idle remark that player ever makes in any room would read
+// as tending their adventurer, and the clock would never run down.
 func (p *AdventurePlugin) isPlayerAdventureAction(ctx MessageContext) bool {
-	for name := range advActionCommands {
-		if p.IsCommand(ctx.Body, name) {
+	body := strings.ToLower(strings.TrimSpace(ctx.Body))
+	if strings.HasPrefix(body, p.Prefix) {
+		word := strings.TrimPrefix(body, p.Prefix)
+		if i := strings.IndexByte(word, ' '); i >= 0 {
+			word = word[:i]
+		}
+		if advActionCommands[word] {
 			return true
 		}
 	}
-	if _, pending := p.pending.Load(string(ctx.Sender)); pending {
-		return true
+	if v, ok := p.pending.Load(string(ctx.Sender)); ok {
+		pi, isPrompt := v.(*advPendingInteraction)
+		// A zero ExpiresAt is a prompt with no deadline, not an expired one.
+		if isPrompt && (pi.ExpiresAt.IsZero() || time.Now().Before(pi.ExpiresAt)) {
+			return true
+		}
 	}
 	return false
 }

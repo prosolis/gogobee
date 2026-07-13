@@ -189,3 +189,73 @@ func TestLastExpeditionByZoneScans(t *testing.T) {
 			"the picker relies on this to rotate zones", got[ZoneGoblinWarrens], got[ZoneCryptValdris])
 	}
 }
+
+// The deploy this column ships in: last_player_action_at is NULL for everyone
+// alive, and created_at is when the character was *made* — months ago for the
+// regulars. Without a seed, the very first tick after restart reads the whole
+// server as idle-since-creation and marches all of them into a dungeon, coins
+// debited, including the player who typed a command a minute before the deploy.
+func TestBootstrapSeedsClockSoADeployDoesNotEmptyTheTown(t *testing.T) {
+	newBoredomTestDB(t)
+	now := time.Now().UTC()
+	longAgo := now.Add(-90 * 24 * time.Hour)
+	recent := now.Add(-30 * time.Minute)
+
+	// A regular: made months ago, played half an hour before the deploy.
+	seedBoredomPlayerActive(t, "@regular:test", longAgo, &recent, nil)
+	// Genuinely abandoned: made months ago, last touched the game months ago.
+	seedBoredomPlayerActive(t, "@lapsed:test", longAgo, &longAgo, nil)
+
+	bootstrapBoredomClock()
+
+	uids, err := loadBoredomCandidates(now)
+	if err != nil {
+		t.Fatalf("loadBoredomCandidates: %v", err)
+	}
+	got := map[id.UserID]bool{}
+	for _, u := range uids {
+		got[u] = true
+	}
+	if got["@regular:test"] {
+		t.Error("a player who acted 30 minutes ago was sent into a dungeon by the deploy")
+	}
+	if !got["@lapsed:test"] {
+		t.Error("the abandoned character is exactly who this feature is for, and it skipped them")
+	}
+	if playerIsIdle("@regular:test", now) {
+		t.Error("playerIsIdle still reads an active player as idle — Robbie would go silent for them")
+	}
+}
+
+// Same seed, but the character is already out on a bored expedition
+// (last_boredom_at set). Its own autopilot bumps last_active_at every day, so
+// re-seeding from it on each restart would hand the character a fresh idle
+// clock and boredom would never fire again.
+func TestBootstrapLeavesAlreadyBoredCharactersAlone(t *testing.T) {
+	newBoredomTestDB(t)
+	now := time.Now().UTC()
+	longAgo := now.Add(-90 * 24 * time.Hour)
+	autopilotWrite := now.Add(-10 * time.Minute)
+	wentOut := now.Add(-48 * time.Hour)
+
+	seedBoredomPlayerActive(t, "@bored:test", longAgo, &autopilotWrite, &wentOut)
+	bootstrapBoredomClock()
+
+	if !playerIsIdle("@bored:test", now) {
+		t.Fatal("restart re-seeded a bored character's clock off its own autopilot writes; it would never get bored again")
+	}
+}
+
+// seedBoredomPlayerActive seeds a row that predates the boredom column:
+// last_player_action_at NULL, with a last_active_at the autopilot/saves have
+// been keeping current.
+func seedBoredomPlayerActive(t *testing.T, uid id.UserID, created time.Time, lastActive, lastBoredom *time.Time) {
+	t.Helper()
+	_, err := db.Get().Exec(
+		`INSERT INTO player_meta (user_id, display_name, alive, created_at, last_active_at, last_player_action_at, last_boredom_at)
+		 VALUES (?, ?, 1, ?, ?, NULL, ?)`,
+		string(uid), "Test", created, lastActive, lastBoredom)
+	if err != nil {
+		t.Fatalf("seed player_meta: %v", err)
+	}
+}
