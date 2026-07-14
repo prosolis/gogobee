@@ -155,6 +155,63 @@ func mischiefNextTier(key string) (mischiefTier, bool) {
 	return mischiefTier{}, false
 }
 
+// mischiefPrevTier is the rung an escalated contract came FROM. Grunt is the
+// bottom: nothing escalates into it.
+func mischiefPrevTier(key string) (mischiefTier, bool) {
+	for i, t := range mischiefTiers {
+		if t.Key == key && i > 0 {
+			return mischiefTiers[i-1], true
+		}
+	}
+	return mischiefTier{}, false
+}
+
+// mischiefOutlay splits what a contract collected into the buyer's stake and the
+// escalator's. It exists because `paid` carries BOTH — escalateMischiefContract
+// adds the delta to it so the purse cap keeps biting — and every path that gives
+// money back has to give each of them back their own. Crediting the whole of
+// `paid` to the buyer turns being escalated on top of into a windfall: buy an
+// elite for €350, have someone bump it to a boss (+€850), let the target extract,
+// and the 90% fizzle refund hands the buyer €1080 of somebody else's money.
+//
+// The escalator's stake is derived, not stored. An escalation is exactly one rung
+// and happens at most once (escalation_count = 0 is in the UPDATE's WHERE), so it
+// is always the fee gap between the contract's tier and the one below it.
+func mischiefOutlay(c *mischiefContract) (buyer, escalator int) {
+	if c.EscalatedBy == "" || c.EscalationCount == 0 {
+		return c.Paid, 0
+	}
+	cur, okCur := mischiefTierByKey(c.Tier)
+	prev, okPrev := mischiefPrevTier(c.Tier)
+	if !okCur || !okPrev {
+		return c.Paid, 0
+	}
+	delta := cur.Fee - prev.Fee
+	if delta <= 0 || delta > c.Paid {
+		return c.Paid, 0 // nonsense ladder; don't invent money out of it
+	}
+	return c.Paid - delta, delta
+}
+
+// trackMischiefSink books a sink against the people whose money it actually was.
+// The escalator's stake sits inside c.Paid, so charging the whole rake to the
+// buyer would credit them with tax they never paid — and credit the escalator,
+// who funded most of a boss contract, with none.
+func trackMischiefSink(c *mischiefContract, amount int) {
+	buyerPaid, escPaid := mischiefOutlay(c)
+	total := buyerPaid + escPaid
+	if amount <= 0 || total <= 0 {
+		return
+	}
+	escShare := amount * escPaid / total
+	if escShare > 0 {
+		trackTaxPaid(c.EscalatedBy, escShare)
+	}
+	if buyerShare := amount - escShare; buyerShare > 0 {
+		trackTaxPaid(c.BuyerID, buyerShare)
+	}
+}
+
 // mischiefBlessingFee is what one ward costs against a contract of this fee. It
 // reads the contract's CURRENT basis, so an escalation raises the price of
 // protecting its target too — the room's counterplay tracks the threat.
@@ -803,13 +860,21 @@ func (p *AdventurePlugin) mischiefBlessCmd(ctx MessageContext, fields []string) 
 	communityPotAdd(fee)
 	trackTaxPaid(ctx.Sender, fee)
 
-	p.announceMischiefBlessing(c, ctx.Sender, c.BlessingCount+1)
+	// Read the tally back rather than deriving it from the pre-UPDATE snapshot: two
+	// blessers landing together would both compute BlessingCount+1 off a count of 0
+	// and both announce "1 of 3" for a contract that is now carrying 2.
+	count := c.BlessingCount + 1
+	if fresh, err := mischiefContractByID(c.ID); err == nil && fresh != nil {
+		count = fresh.BlessingCount
+	}
+
+	p.announceMischiefBlessing(c, ctx.Sender, count)
 	p.SendDM(targetID, fmt.Sprintf(
 		"🕯️ **%s** has paid for a ward on you. Whatever's coming, I've made you harder to put down.",
 		p.DisplayName(ctx.Sender)))
 	return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf(
 		"🕯️ Done — **%s** goes into that fight tougher than they would have. (%d/%d wards)",
-		p.DisplayName(targetID), c.BlessingCount+1, mischiefBlessingCap))
+		p.DisplayName(targetID), count, mischiefBlessingCap))
 }
 
 // mischiefEscalateCmd — the "helping" half. Anyone but the target can pay the
@@ -921,10 +986,13 @@ func (p *AdventurePlugin) dmMischiefVictim(c *mischiefContract, tier mischiefTie
 		"😈 **Word's reached me, and you're not going to like it.**\n"+
 			"%s has paid to have a **%s** find you out there. It's already looking. I make it about %s.\n\n"+
 			"I can't call it off, and I can't come out there. What the town *can* do is ward you — "+
-			"anyone who likes you can `!mischief bless @%s` (%s each, up to %d).\n"+
+			"anyone who likes you can `!mischief bless %s` (%s each, up to %d).\n"+
 			"Walk away from it and their money is yours: **%s**. And we all find out who paid.",
 		who, strings.ToLower(tier.Display), formatDuration(time.Until(c.WindowEndsAt)),
-		p.DisplayName(c.TargetID), fmtEuro(mischiefBlessingFee(c.Fee)), mischiefBlessingCap,
+		// The full MXID, not the display name: handleMischiefCmd splits on whitespace,
+		// so a copy-pasted `bless @Misty Blue` would resolve on "@Misty" — or on
+		// somebody else entirely. ResolveUser takes an "@user:server" verbatim.
+		c.TargetID, fmtEuro(mischiefBlessingFee(c.Fee)), mischiefBlessingCap,
 		fmtEuro(mischiefPurse(c.Fee, tier.PayoutPct))))
 }
 

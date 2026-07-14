@@ -141,44 +141,108 @@ func (p *AdventurePlugin) fireOneMischiefDelivery(contract *mischiefContract) {
 // row would otherwise be immortal: the target can never be targeted again, and
 // the buyer's money never comes back.
 //
-// The buyer is made whole in full rather than rake-charged. A stranded delivery
-// is our crash, not a bet they lost.
+// Everyone who paid is made whole in full rather than rake-charged. A stranded
+// delivery is our crash, not a bet they lost — and the escalator paid too, so the
+// refund splits on mischiefOutlay.
+//
+// The ward comes back off the sheet here as well. The crash is exactly the case
+// runMischiefInterrupt's `defer clearMischiefBlessings` cannot cover, and a ward
+// left behind is a permanent free cushion on the target until something else
+// happens to reset TempHP.
 func (p *AdventurePlugin) sweepStaleMischief(now time.Time) {
 	for _, c := range loadStaleMischiefDeliveries(now.Add(-mischiefDeliveryGrace)) {
 		contract := c
 		if !abandonStaleMischief(contract.ID) {
 			continue
 		}
-		p.euro.Credit(contract.BuyerID, float64(contract.Paid), "mischief_refund_stranded")
+		p.clearStrandedMischiefWard(&contract)
+
+		buyerPaid, escPaid := mischiefOutlay(&contract)
+		p.euro.Credit(contract.BuyerID, float64(buyerPaid), "mischief_refund_stranded")
 		p.SendDM(contract.BuyerID, fmt.Sprintf(
 			"😾 Your **%s** never reached **%s** — something went wrong on our end. Fully refunded: %s.",
-			contract.Tier, p.DisplayName(contract.TargetID), fmtEuro(contract.Paid)))
+			contract.Tier, p.DisplayName(contract.TargetID), fmtEuro(buyerPaid)))
+		if escPaid > 0 {
+			p.euro.Credit(contract.EscalatedBy, float64(escPaid), "mischief_refund_stranded")
+			p.SendDM(contract.EscalatedBy, fmt.Sprintf(
+				"😾 The **%s** you paid to upgrade never reached **%s** — something went wrong on our end. "+
+					"Fully refunded: %s.",
+				contract.Tier, p.DisplayName(contract.TargetID), fmtEuro(escPaid)))
+		}
 		slog.Warn("mischief: swept stranded delivery",
 			"contract", contract.ID, "target", contract.TargetID)
 	}
 }
 
-// fizzleMischief refunds the buyer (minus the rake) when the monster arrives to
-// an empty dungeon. The CAS is what makes the refund safe: a contract that was
-// simultaneously claimed for delivery cannot also be refunded here.
+// clearStrandedMischiefWard takes back a ward whose delivery died before it could
+// clear its own. The amount is re-derived exactly as applyMischiefBlessings
+// derived it, off the target's current MaxHP.
+//
+// If the crash landed BEFORE the ward was ever applied, this over-subtracts into
+// a well-rested cushion the target had of their own. That window is a handful of
+// DB reads wide against a whole fight, clearMischiefBlessings floors at 0, and the
+// alternative — leaving a stranded ward on the sheet forever — is the strictly
+// worse failure.
+func (p *AdventurePlugin) clearStrandedMischiefWard(c *mischiefContract) {
+	if c.BlessingCount <= 0 {
+		return
+	}
+	dc, err := LoadDnDCharacter(c.TargetID)
+	if err != nil || dc == nil {
+		return
+	}
+	if ward := mischiefBlessingTempHP(dc.HPMax, c.BlessingCount); ward > 0 {
+		p.clearMischiefBlessings(c.TargetID, ward)
+	}
+}
+
+// fizzleMischief refunds everyone who put money on the contract (minus the rake)
+// when the monster arrives to an empty dungeon. The CAS is what makes the refund
+// safe: a contract that was simultaneously claimed for delivery cannot also be
+// refunded here.
+//
+// The buyer and the escalator are refunded SEPARATELY, off mischiefOutlay. They
+// are two people who each parted with their own money, and c.Paid is the sum.
 func (p *AdventurePlugin) fizzleMischief(c *mischiefContract) {
 	if !fizzleMischiefContract(c.ID) {
 		return
 	}
-	refund := int(float64(c.Paid) * mischiefFizzleRefund)
-	rake := c.Paid - refund
-	if refund > 0 {
-		p.euro.Credit(c.BuyerID, float64(refund), "mischief_fizzle_refund")
-	}
-	if rake > 0 {
-		communityPotAdd(rake)
-		trackTaxPaid(c.BuyerID, rake)
-	}
+	buyerPaid, escPaid := mischiefOutlay(c)
+
+	refund, rake := p.rakedMischiefRefund(c.BuyerID, buyerPaid, "mischief_fizzle_refund")
 	p.SendDM(c.BuyerID, fmt.Sprintf(
 		"😾 Your **%s** got to the dungeon and found nobody home — **%s** was already out of there.\n"+
 			"You're refunded %s. The other %s stays with the town, for its trouble.",
 		c.Tier, p.DisplayName(c.TargetID), fmtEuro(refund), fmtEuro(rake)))
+
+	if escPaid > 0 {
+		escRefund, escRake := p.rakedMischiefRefund(c.EscalatedBy, escPaid, "mischief_fizzle_refund")
+		p.SendDM(c.EscalatedBy, fmt.Sprintf(
+			"😾 The **%s** you paid to upgrade found nobody home — **%s** was already out of there.\n"+
+				"You're refunded %s. The other %s stays with the town, for its trouble.",
+			c.Tier, p.DisplayName(c.TargetID), fmtEuro(escRefund), fmtEuro(escRake)))
+		refund += escRefund
+	}
 	emitMischiefFizzledNews(c, refund)
+}
+
+// rakedMischiefRefund gives one stakeholder their stake back minus the fizzle
+// rake, and sinks the rake against THEIR name. Returns what they got back and
+// what the town kept.
+func (p *AdventurePlugin) rakedMischiefRefund(who id.UserID, paid int, reason string) (refund, rake int) {
+	if paid <= 0 {
+		return 0, 0
+	}
+	refund = int(float64(paid) * mischiefFizzleRefund)
+	rake = paid - refund
+	if refund > 0 {
+		p.euro.Credit(who, float64(refund), reason)
+	}
+	if rake > 0 {
+		communityPotAdd(rake)
+		trackTaxPaid(who, rake)
+	}
+	return refund, rake
 }
 
 // deliverMischief runs the purchased fight and closes it out. By the time this
@@ -229,13 +293,21 @@ func (p *AdventurePlugin) deliverMischief(c *mischiefContract, exp *Expedition) 
 }
 
 // refundClaimedMischief unwinds a contract that was already claimed for delivery
-// but couldn't be staged. The buyer gets everything back — this is our fault,
-// not a fizzle they gambled on.
+// but couldn't be staged. Everyone who paid gets everything back — this is our
+// fault, not a fizzle they gambled on. The escalator is a payer too; see
+// mischiefOutlay.
 func (p *AdventurePlugin) refundClaimedMischief(c *mischiefContract, reason string) {
 	resolveMischiefContract(c.ID, mischiefStatusFizzled, mischiefStatusFizzled)
-	p.euro.Credit(c.BuyerID, float64(c.Paid), "mischief_refund_unstageable")
+	buyerPaid, escPaid := mischiefOutlay(c)
+	p.euro.Credit(c.BuyerID, float64(buyerPaid), "mischief_refund_unstageable")
 	p.SendDM(c.BuyerID, fmt.Sprintf(
-		"😾 Your **%s** never made it out of the gate. Fully refunded: %s.", c.Tier, fmtEuro(c.Paid)))
+		"😾 Your **%s** never made it out of the gate. Fully refunded: %s.", c.Tier, fmtEuro(buyerPaid)))
+	if escPaid > 0 {
+		p.euro.Credit(c.EscalatedBy, float64(escPaid), "mischief_refund_unstageable")
+		p.SendDM(c.EscalatedBy, fmt.Sprintf(
+			"😾 The **%s** you paid to upgrade never made it out of the gate. Fully refunded: %s.",
+			c.Tier, fmtEuro(escPaid)))
+	}
 	slog.Warn("mischief: contract unstageable", "contract", c.ID, "reason", reason)
 }
 
@@ -399,11 +471,13 @@ func (p *AdventurePlugin) resolveMischiefSurvived(
 	purse := mischiefPurse(c.Fee, tier.PayoutPct)
 	p.euro.Credit(c.TargetID, float64(purse), "mischief_survived")
 
-	// Everything the buyer spent that isn't the purse — the rake, plus the whole
-	// sign surcharge — is a sink. That is what makes the payout cap bite.
+	// Everything spent on the contract that isn't the purse — the rake, plus the
+	// whole sign surcharge — is a sink. That is what makes the payout cap bite. It
+	// is booked against the buyer AND the escalator in proportion to what each of
+	// them actually put in; c.Paid is the sum of the two.
 	if rake := c.Paid - purse; rake > 0 {
 		communityPotAdd(rake)
-		trackTaxPaid(c.BuyerID, rake)
+		trackMischiefSink(c, rake)
 	}
 
 	// Extras by tier. Treasure rolls against the zone they're actually in — the
@@ -488,7 +562,7 @@ func (p *AdventurePlugin) resolveMischiefDowned(
 	}
 
 	communityPotAdd(c.Paid)
-	trackTaxPaid(c.BuyerID, c.Paid)
+	trackMischiefSink(c, c.Paid)
 
 	resolveMischiefContract(c.ID, mischiefStatusDelivered, mischiefOutcomeDowned)
 

@@ -745,6 +745,55 @@ func TestMischiefEscalation_RaisesBasisAndOutlayTogether(t *testing.T) {
 	}
 }
 
+// A fizzle refunds `paid`, and after an escalation `paid` is TWO people's money.
+// Refunding all of it to the buyer is a money pump: buy an elite for €350, have
+// somebody bump it to a boss (+€850), let the target walk out of the dungeon, and
+// the 90% refund hands the buyer €1080 — a €730 profit funded entirely by the
+// escalator, who gets nothing and is never told.
+func TestMischiefFizzle_RefundsTheEscalatorTheirOwnMoney(t *testing.T) {
+	newMischiefTestDB(t)
+	p, _ := mischiefWindowPlugin(t)
+	target := id.UserID("@hunted:x")
+	buyer := id.UserID("@buyer:x")
+	piler := id.UserID("@piler:x")
+	p.euro.Credit(piler, 5000, "test")
+	exp := seedMischiefTarget(t, target, 5, 60)
+
+	c := seedContract(t, buyer, target, "elite", false)
+	elite, _ := mischiefTierByKey("elite")
+	boss, _ := mischiefTierByKey("boss")
+	delta := boss.Fee - elite.Fee
+
+	if err := p.mischiefEscalateCmd(mischiefCtx(piler), []string{string(target)}); err != nil {
+		t.Fatalf("escalate: %v", err)
+	}
+	// They extract before the boss arrives. Nobody's monster ever lands.
+	if _, _, err := forcedExtractExpedition(exp.ID, "went home"); err != nil {
+		t.Fatalf("forcedExtractExpedition: %v", err)
+	}
+	due := time.Now().UTC().AddDate(0, 0, 1).Truncate(24 * time.Hour).Add(12 * time.Hour)
+	p.fireMischiefDeliveries(due)
+
+	if got, _ := mischiefContractByID(c.ID); got.Status != mischiefStatusFizzled {
+		t.Fatalf("contract status %s, want fizzled", got.Status)
+	}
+
+	// Each stakeholder is refunded 90% of THEIR OWN stake — not 90% of the pooled
+	// `paid`, which is what the buyer would otherwise pocket.
+	wantBuyer := int(float64(c.Paid) * mischiefFizzleRefund)
+	wantPiler := int(float64(delta) * mischiefFizzleRefund)
+	if bal := int(p.euro.GetBalance(buyer)); bal != wantBuyer {
+		t.Errorf("buyer refunded %d, want %d — they were handed the escalator's stake", bal, wantBuyer)
+	}
+	if spent := 5000 - int(p.euro.GetBalance(piler)); spent != delta-wantPiler {
+		t.Errorf("escalator is out %d, want %d (their 10%% rake) — their refund went elsewhere",
+			spent, delta-wantPiler)
+	}
+	if pot, want := communityPotBalance(), (c.Paid-wantBuyer)+(delta-wantPiler); pot != want {
+		t.Errorf("pot raked %d, want %d", pot, want)
+	}
+}
+
 // Boss tier is the "end their expedition" button, and the weekly cap on it is the
 // target's protection. An escalation into boss is still a boss landing on them, so
 // it answers to the same cap — otherwise the cap is bought around for the price of
