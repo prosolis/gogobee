@@ -377,7 +377,7 @@ func TestMischiefDelivery_GruntIsSurvivable(t *testing.T) {
 	bracket := mischiefBracketZone(5)
 	chain, ambush := mischiefMonsters("grunt", bracket, rand.New(rand.NewPCG(1, 2)))
 
-	_, monster, survived := p.runMischiefInterrupt(uid, exp, bracket, chain, ambush)
+	_, monster, survived := p.runMischiefInterrupt(uid, exp, bracket, chain, ambush, 0)
 	if !survived {
 		t.Fatalf("a level-5 fighter at full HP died to a grunt (%s) — the tier is mispriced", monster)
 	}
@@ -492,7 +492,12 @@ func TestMischiefDelivery_FizzlesWhenTargetWentHome(t *testing.T) {
 		t.Fatalf("forcedExtractExpedition: %v", err)
 	}
 
-	p.fireMischiefDeliveries(time.Now().UTC().Add(mischiefWindow + time.Minute))
+	// Tomorrow at noon UTC: past the contract's window, and deliberately nowhere
+	// near the 06:00 briefing or the 21:00 recap. fireMischiefDeliveries refuses to
+	// run inside those quiet windows, so a wall-clock `now` here makes this test
+	// fail for two hours of every real day.
+	due := time.Now().UTC().AddDate(0, 0, 1).Truncate(24 * time.Hour).Add(12 * time.Hour)
+	p.fireMischiefDeliveries(due)
 
 	got, _ := mischiefContractByID(c.ID)
 	if got.Status != mischiefStatusFizzled {
@@ -560,5 +565,285 @@ func TestMischiefDelivery_SurvivalFloorsADroppedPartyMember(t *testing.T) {
 	}
 	if mc, _ := loadAdvCharacter(member); mc == nil || !mc.Alive {
 		t.Error("a bought monster killed a party member — mischief maims, it never murders")
+	}
+}
+
+// ── M2: the window (bless / escalate) ────────────────────────────────────────
+
+// mischiefWindowPlugin is a plugin wired for command-level tests: a euro ledger
+// and a sink, so `!mischief bless/escalate` can be driven the way a player drives
+// them (the CAS races these commands lose are the whole point of M2, and they only
+// exist on the command path).
+func mischiefWindowPlugin(t *testing.T) (*AdventurePlugin, *captureSink) {
+	t.Helper()
+	sink := &captureSink{}
+	p := &AdventurePlugin{euro: NewEuroPlugin(nil)}
+	p.Sink = sink
+	return p, sink
+}
+
+func mischiefCtx(sender id.UserID) MessageContext {
+	return MessageContext{Sender: sender, RoomID: id.RoomID("!room:x"), EventID: id.EventID("$e")}
+}
+
+// The cap lives in the UPDATE, not in the read that precedes it. A room that
+// piles four wards on in the same second must still land exactly three — and the
+// player who lost that race must get their money back rather than pay for
+// nothing.
+func TestMischiefBlessing_CapIsEnforcedByTheUpdate(t *testing.T) {
+	newMischiefTestDB(t)
+	c := seedContract(t, "@buyer:x", "@target:x", "elite", false)
+
+	for i := 1; i <= mischiefBlessingCap; i++ {
+		if !blessMischiefContract(c.ID) {
+			t.Fatalf("blessing %d/%d was rejected", i, mischiefBlessingCap)
+		}
+	}
+	if blessMischiefContract(c.ID) {
+		t.Errorf("a %dth blessing landed — the cap is not enforced", mischiefBlessingCap+1)
+	}
+	got, _ := mischiefContractByID(c.ID)
+	if got.BlessingCount != mischiefBlessingCap {
+		t.Errorf("blessing_count = %d, want %d", got.BlessingCount, mischiefBlessingCap)
+	}
+	// And nobody may ward a contract that has already been claimed for delivery:
+	// the monster is in the room with them.
+	c2 := seedContract(t, "@buyer:x", "@other:x", "grunt", false)
+	if !claimMischiefForDelivery(c2.ID) {
+		t.Fatal("claim should win")
+	}
+	if blessMischiefContract(c2.ID) {
+		t.Error("warded a contract mid-delivery — the fight had already started")
+	}
+}
+
+// A blessing buys HP, never euros: the fee is a sink (community pot), and the
+// purse is untouched by it. Otherwise a target's friend could ward them as a way
+// of routing money into their pocket on the way out.
+func TestMischiefBlessing_FeeIsASinkNotAPurseTopUp(t *testing.T) {
+	newMischiefTestDB(t)
+	p, _ := mischiefWindowPlugin(t)
+	target := id.UserID("@warded:x")
+	friend := id.UserID("@friend:x")
+	p.euro.Credit(friend, 500, "test")
+
+	c := seedContract(t, "@buyer:x", target, "elite", false)
+	feeBefore := c.Fee
+
+	if err := p.mischiefBlessCmd(mischiefCtx(friend), []string{string(target)}); err != nil {
+		t.Fatalf("bless: %v", err)
+	}
+
+	got, _ := mischiefContractByID(c.ID)
+	if got.BlessingCount != 1 {
+		t.Fatalf("blessing_count = %d, want 1", got.BlessingCount)
+	}
+	if got.Fee != feeBefore {
+		t.Errorf("a blessing moved the payout basis to %d (was %d) — wards must not pay the target",
+			got.Fee, feeBefore)
+	}
+	if bal := p.euro.GetBalance(friend); bal != 500-mischiefBlessingFee {
+		t.Errorf("blesser balance %.0f, want %d", bal, 500-mischiefBlessingFee)
+	}
+	if pot := communityPotBalance(); pot != mischiefBlessingFee {
+		t.Errorf("pot holds %d, want the %d blessing fee", pot, mischiefBlessingFee)
+	}
+	// Broke, so the second ward can't be bought — and must cost nothing.
+	pauper := id.UserID("@pauper:x")
+	if err := p.mischiefBlessCmd(mischiefCtx(pauper), []string{string(target)}); err != nil {
+		t.Fatalf("bless: %v", err)
+	}
+	if bal := p.euro.GetBalance(pauper); bal != 0 {
+		t.Errorf("a failed blessing moved the pauper's balance to %.0f", bal)
+	}
+	if got, _ := mischiefContractByID(c.ID); got.BlessingCount != 1 {
+		t.Errorf("a blessing nobody could pay for still landed (count %d)", got.BlessingCount)
+	}
+}
+
+// Escalation moves the tier, the payout basis and the outlay together — which is
+// what keeps the anti-collusion invariant (purse < what was spent) true after the
+// room has piled on. It also happens exactly once.
+func TestMischiefEscalation_RaisesBasisAndOutlayTogether(t *testing.T) {
+	newMischiefTestDB(t)
+	p, _ := mischiefWindowPlugin(t)
+	target := id.UserID("@hunted:x")
+	piler := id.UserID("@piler:x")
+	rival := id.UserID("@rival:x")
+	p.euro.Credit(piler, 5000, "test")
+	p.euro.Credit(rival, 5000, "test")
+
+	c := seedContract(t, "@buyer:x", target, "elite", true) // signed: paid > fee
+	elite, _ := mischiefTierByKey("elite")
+	boss, _ := mischiefTierByKey("boss")
+	delta := boss.Fee - elite.Fee
+
+	if err := p.mischiefEscalateCmd(mischiefCtx(piler), []string{string(target)}); err != nil {
+		t.Fatalf("escalate: %v", err)
+	}
+
+	got, _ := mischiefContractByID(c.ID)
+	if got.Tier != "boss" || got.Fee != boss.Fee {
+		t.Fatalf("contract is %s/fee %d, want boss/%d", got.Tier, got.Fee, boss.Fee)
+	}
+	if got.Paid != c.Paid+delta {
+		t.Errorf("paid = %d, want %d (%d + the %d delta)", got.Paid, c.Paid+delta, c.Paid, delta)
+	}
+	if got.EscalatedBy != piler {
+		t.Errorf("escalated_by = %q, want %s — the unseal has nobody to name", got.EscalatedBy, piler)
+	}
+	if bal := p.euro.GetBalance(piler); bal != float64(5000-delta) {
+		t.Errorf("escalator paid %.0f, want the %d delta", 5000-bal, delta)
+	}
+	// The invariant, after the escalation: the purse is still strictly less than
+	// the money that went in.
+	if purse := mischiefPurse(got.Fee, boss.PayoutPct); purse >= got.Paid {
+		t.Errorf("escalated purse %d >= outlay %d — collusion now beats !baltransfer", purse, got.Paid)
+	}
+
+	// One step, once — whoever else was reaching for it is refunded.
+	if err := p.mischiefEscalateCmd(mischiefCtx(rival), []string{string(target)}); err != nil {
+		t.Fatalf("second escalate: %v", err)
+	}
+	if bal := p.euro.GetBalance(rival); bal != 5000 {
+		t.Errorf("the losing escalator is out %.0f — a rejected escalation must cost nothing", 5000-bal)
+	}
+	after, _ := mischiefContractByID(c.ID)
+	if after.EscalationCount != 1 || after.Paid != got.Paid {
+		t.Errorf("contract escalated twice (count %d, paid %d)", after.EscalationCount, after.Paid)
+	}
+}
+
+// Boss tier is the "end their expedition" button, and the weekly cap on it is the
+// target's protection. An escalation into boss is still a boss landing on them, so
+// it answers to the same cap — otherwise the cap is bought around for the price of
+// an elite plus the delta.
+func TestMischiefEscalation_IntoBossRespectsTheWeeklyCap(t *testing.T) {
+	newMischiefTestDB(t)
+	p, _ := mischiefWindowPlugin(t)
+	target := id.UserID("@bossed:x")
+	piler := id.UserID("@piler:x")
+	p.euro.Credit(piler, 5000, "test")
+
+	// They already took a boss this week (delivered, so it counts).
+	spent := seedContract(t, "@buyer:x", target, "boss", false)
+	resolveMischiefContract(spent.ID, mischiefStatusDelivered, mischiefOutcomeSurvived)
+
+	c := seedContract(t, "@buyer2:x", target, "elite", false)
+	if err := p.mischiefEscalateCmd(mischiefCtx(piler), []string{string(target)}); err != nil {
+		t.Fatalf("escalate: %v", err)
+	}
+	got, _ := mischiefContractByID(c.ID)
+	if got.Tier != "elite" {
+		t.Errorf("escalated to %s — the weekly boss cap was bought around", got.Tier)
+	}
+	if bal := p.euro.GetBalance(piler); bal != 5000 {
+		t.Errorf("a refused escalation charged %.0f", 5000-bal)
+	}
+}
+
+// Boss is the top of the ladder, and a target may not raise the price on their
+// own head.
+func TestMischiefEscalation_RefusesBossAndSelfService(t *testing.T) {
+	newMischiefTestDB(t)
+	p, _ := mischiefWindowPlugin(t)
+	target := id.UserID("@top:x")
+	piler := id.UserID("@piler:x")
+	p.euro.Credit(piler, 5000, "test")
+	p.euro.Credit(target, 5000, "test")
+
+	c := seedContract(t, "@buyer:x", target, "boss", false)
+	if err := p.mischiefEscalateCmd(mischiefCtx(piler), []string{string(target)}); err != nil {
+		t.Fatalf("escalate: %v", err)
+	}
+	if got, _ := mischiefContractByID(c.ID); got.EscalationCount != 0 {
+		t.Error("something got escalated past boss tier")
+	}
+	if bal := p.euro.GetBalance(piler); bal != 5000 {
+		t.Errorf("charged %.0f for an impossible escalation", 5000-bal)
+	}
+
+	newMischiefTestDB(t)
+	c2 := seedContract(t, "@buyer:x", target, "grunt", false)
+	if err := p.mischiefEscalateCmd(mischiefCtx(target), []string{string(target)}); err != nil {
+		t.Fatalf("escalate: %v", err)
+	}
+	if got, _ := mischiefContractByID(c2.ID); got.EscalationCount != 0 {
+		t.Error("the target escalated their own contract")
+	}
+}
+
+// The window keeps writing to an open contract right up to the claim, so the
+// delivery must build the fight from the row as it stands AFTER the claim — not
+// from the copy the due-sweep handed it. A tier bought at the last second (an
+// escalation) is the visible half of this: read stale, the buyer pays for a boss
+// and the target fights a grunt.
+func TestMischiefDelivery_ReadsTheContractAfterTheClaim(t *testing.T) {
+	newMischiefTestDB(t)
+	p, _ := mischiefWindowPlugin(t)
+	uid := id.UserID("@lastsecond:x")
+	seedMischiefTarget(t, uid, 12, 400)
+
+	c := seedContract(t, "@buyer:x", uid, "grunt", false)
+	// Somebody escalates in the gap between the due-sweep and the claim. `c` is now
+	// the stale copy the ticker is still holding.
+	elite, _ := mischiefTierByKey("elite")
+	if !escalateMischiefContract(c.ID, "grunt", elite, elite.Fee-c.Fee, "@piler:x") {
+		t.Fatal("escalation should have taken")
+	}
+
+	before := p.euro.GetBalance(uid)
+	p.fireOneMischiefDelivery(c)
+
+	got, _ := mischiefContractByID(c.ID)
+	if got.Outcome != mischiefOutcomeSurvived {
+		t.Fatalf("target lost; this test needs a survival to read the purse (outcome %s)", got.Outcome)
+	}
+	want := mischiefPurse(elite.Fee, elite.PayoutPct)
+	if gained := int(p.euro.GetBalance(uid) - before); gained != want {
+		t.Errorf("survivor was paid %d, want the escalated %d purse — "+
+			"the delivery ran off the pre-claim copy of the contract", gained, want)
+	}
+}
+
+// The ward is a cushion for THIS fight and nothing else: it goes on the sheet as
+// temp HP for the delivery and comes off after — without eating the well-rested
+// cushion the target may already have been carrying out of the door.
+func TestMischiefBlessing_CushionsTheFightThenClearsItself(t *testing.T) {
+	newMischiefTestDB(t)
+	p, _ := mischiefWindowPlugin(t)
+	uid := id.UserID("@blessed:x")
+	exp := seedMischiefTarget(t, uid, 12, 400)
+
+	// They long-rested at home before setting out.
+	dc, _ := LoadDnDCharacter(uid)
+	dc.TempHP = 32
+	if err := SaveDnDCharacter(dc); err != nil {
+		t.Fatal(err)
+	}
+
+	c := seedContract(t, "@buyer:x", uid, "grunt", false)
+	for i := 0; i < mischiefBlessingCap; i++ {
+		if !blessMischiefContract(c.ID) {
+			t.Fatal("seed blessing rejected")
+		}
+	}
+	c.BlessingCount = mischiefBlessingCap
+
+	want := mischiefBlessingTempHP(400, mischiefBlessingCap) // 3 × 10% of 400
+	if want != 120 {
+		t.Fatalf("ward is %d HP, want 120 — the fight is being cushioned by something else", want)
+	}
+	if !claimMischiefForDelivery(c.ID) {
+		t.Fatal("claim should win")
+	}
+	if err := p.deliverMischief(c, exp); err != nil {
+		t.Fatalf("deliverMischief: %v", err)
+	}
+
+	after, _ := LoadDnDCharacter(uid)
+	if after.TempHP != 32 {
+		t.Errorf("temp HP is %d after the delivery, want the 32 they rested for — "+
+			"the ward must not linger, and must not eat their own cushion", after.TempHP)
 	}
 }

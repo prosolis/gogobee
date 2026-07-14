@@ -121,6 +121,15 @@ func (p *AdventurePlugin) fireOneMischiefDelivery(contract *mischiefContract) {
 	if !claimMischiefForDelivery(contract.ID) {
 		return // another tick (or another process) already has it
 	}
+	// Re-read AFTER the claim, never before it. The row we were handed came from
+	// the due-sweep, and the window's commands (bless, escalate) keep writing to an
+	// open contract right up to the moment the claim closes it. A ward bought in
+	// that gap would be paid for and never applied; an escalation would be paid for
+	// and deliver the *old* tier's monster. The claim is the fence — everything the
+	// fight is built from has to be read on this side of it.
+	if fresh, err := mischiefContractByID(contract.ID); err == nil && fresh != nil {
+		contract = fresh
+	}
 	if err := p.deliverMischief(contract, exp); err != nil {
 		slog.Error("mischief: delivery failed",
 			"contract", contract.ID, "target", target, "err", err)
@@ -208,7 +217,8 @@ func (p *AdventurePlugin) deliverMischief(c *mischiefContract, exp *Expedition) 
 		}
 	}
 
-	narration, monsterName, survived := p.runMischiefInterrupt(target, exp, bracket, chain, ambush)
+	narration, monsterName, survived := p.runMischiefInterrupt(
+		target, exp, bracket, chain, ambush, c.BlessingCount)
 
 	if survived {
 		p.resolveMischiefSurvived(c, tier, exp, bracket, monsterName, narration)
@@ -243,9 +253,16 @@ func (p *AdventurePlugin) runMischiefInterrupt(
 	bracket ZoneDefinition,
 	chain []DnDMonsterTemplate,
 	ambush bool,
+	blessings int,
 ) (narration, monsterName string, survived bool) {
 	var b strings.Builder
 	last := chain[len(chain)-1].Name
+
+	if ward := p.applyMischiefBlessings(target, blessings); ward > 0 {
+		b.WriteString(fmt.Sprintf(
+			"_The town's wards hold — %d of them, worth %d HP of cushion._\n", blessings, ward))
+		defer p.clearMischiefBlessings(target, ward)
+	}
 
 	for i, monster := range chain {
 		// The ambush is the attacker's privilege — it was lying in wait, and the
@@ -298,6 +315,57 @@ func (p *AdventurePlugin) runMischiefInterrupt(
 		}
 	}
 	return b.String(), last, true
+}
+
+// applyMischiefBlessings turns the room's wards into temp HP on the target's
+// sheet for the duration of the delivery, and returns the cushion granted.
+//
+// TempHP is the well-rested mechanism (applyDnDHPScaling layers it above MaxHP
+// for the fight, and persistDnDHPAfterCombat clamps back down to MaxHP after), so
+// a ward is a damage sponge and nothing more — it can't leave the target at more
+// HP than they started with.
+//
+// It ADDS to whatever TempHP is already there rather than overwriting: a target
+// who long-rested at a T3 home before setting out is carrying a cushion of their
+// own, and a ward bought to help them must not silently delete it. clearMischiefBlessings
+// subtracts exactly what we added, which is why this returns the amount.
+//
+// The cushion refreshes for each link of a chain, because TempHP is a sheet field
+// and applyDnDHPScaling re-reads it per fight. That only ever matters for the mob
+// tier (the sole multi-fight chain), which the M0 sweep priced at 98-100% survival
+// as pure theatre anyway. The tiers where a ward decides anything — elite and boss —
+// are single fights, so what the room buys there is exactly one sponge.
+func (p *AdventurePlugin) applyMischiefBlessings(target id.UserID, blessings int) int {
+	if blessings <= 0 {
+		return 0
+	}
+	c, err := LoadDnDCharacter(target)
+	if err != nil || c == nil {
+		return 0
+	}
+	ward := mischiefBlessingTempHP(c.HPMax, blessings)
+	if ward <= 0 {
+		return 0
+	}
+	c.TempHP += ward
+	if err := SaveDnDCharacter(c); err != nil {
+		return 0
+	}
+	return ward
+}
+
+// clearMischiefBlessings takes the ward back off the sheet once the delivery is
+// over — the blessing was bought for THIS fight, not for the rest of the run.
+// Subtracts what we added, so a pre-existing well-rested cushion survives intact.
+func (p *AdventurePlugin) clearMischiefBlessings(target id.UserID, ward int) {
+	c, err := LoadDnDCharacter(target)
+	if err != nil || c == nil {
+		return
+	}
+	if c.TempHP -= ward; c.TempHP < 0 {
+		c.TempHP = 0
+	}
+	_ = SaveDnDCharacter(c)
 }
 
 // floorMischiefRoster raises every seat the delivery put on the floor back to
@@ -370,8 +438,8 @@ func (p *AdventurePlugin) resolveMischiefSurvived(
 	dm.WriteString(fmt.Sprintf(
 		"\n🛡️ You're still standing, and the coin was never really theirs. **%s** is yours.\n",
 		fmtEuro(purse)))
-	dm.WriteString(fmt.Sprintf("It was **%s** who paid to have you killed. Do with that what you like.",
-		p.DisplayName(c.BuyerID)))
+	dm.WriteString(fmt.Sprintf("It was **%s** who paid to have you killed. Do with that what you like.%s",
+		p.DisplayName(c.BuyerID), p.mischiefEscalatorNote(c)))
 	for _, e := range extras {
 		dm.WriteString("\n_" + e + "_")
 	}
@@ -380,6 +448,12 @@ func (p *AdventurePlugin) resolveMischiefSurvived(
 	p.SendDM(c.BuyerID, fmt.Sprintf(
 		"🛡️ **%s walked away from your %s.** They keep %s of your money, and the town knows your name now.",
 		p.DisplayName(c.TargetID), c.Tier, fmtEuro(purse)))
+	if c.EscalatedBy != "" && c.EscalatedBy != c.BuyerID {
+		p.SendDM(c.EscalatedBy, fmt.Sprintf(
+			"🛡️ **%s** walked away from the **%s** you paid to upgrade — and your money went into their purse.\n"+
+				"_The town knows you piled on. That was the deal._",
+			p.DisplayName(c.TargetID), c.Tier))
+	}
 
 	p.announceMischiefSurvived(c, monsterName, purse)
 	emitMischiefResolvedNews(c, monsterName, mischiefOutcomeSurvived, purse)
@@ -439,6 +513,13 @@ func (p *AdventurePlugin) resolveMischiefDowned(
 		"💀 Your **%s** found **%s** and put them on the floor. Their expedition is over.\n"+
 			"_You get nothing back — %s went to the community pot. You did this for the story._",
 		c.Tier, p.DisplayName(c.TargetID), fmtEuro(c.Paid)))
+	if c.EscalatedBy != "" && c.EscalatedBy != c.BuyerID {
+		// They stay anonymous: only a survival unseals. Their money is gone either
+		// way — that is what makes the survival unseal a real risk to have taken.
+		p.SendDM(c.EscalatedBy, fmt.Sprintf(
+			"💀 The **%s** you paid to upgrade found **%s** and put them down. Nobody knows it was you.",
+			c.Tier, p.DisplayName(c.TargetID)))
+	}
 
 	p.announceMischiefDowned(c, monsterName)
 	emitMischiefResolvedNews(c, monsterName, mischiefOutcomeDowned, 0)

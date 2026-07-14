@@ -448,6 +448,10 @@ func runMigrations(d *sql.DB) error {
 		// leader's own level — his party fled 5 runs out of 640 where the human
 		// party fled 56.
 		`ALTER TABLE expedition_party ADD COLUMN companion_hp INTEGER NOT NULL DEFAULT -1`,
+		// Mischief M2 — whoever paid to bump a contract up a tier. Named alongside
+		// the buyer when the target survives (the unseal), so piling on carries the
+		// same exposure the original purchase does.
+		`ALTER TABLE mischief_contracts ADD COLUMN escalated_by TEXT`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1754,6 +1758,7 @@ CREATE TABLE IF NOT EXISTS mischief_contracts (
 	status           TEXT NOT NULL,
 	signed           INTEGER NOT NULL DEFAULT 0,
 	escalation_count INTEGER NOT NULL DEFAULT 0,
+	escalated_by     TEXT,
 	blessing_count   INTEGER NOT NULL DEFAULT 0,
 	source           TEXT NOT NULL DEFAULT 'matrix',
 	outcome          TEXT,
