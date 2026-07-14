@@ -51,6 +51,14 @@ func (p *AdventurePlugin) peteRosterTicker() {
 	}
 }
 
+// rosterPushOK tracks the last push's outcome so we can log the transitions and
+// nothing else. A push every 2 minutes forever is far too noisy to log at INFO,
+// but total silence is worse: a ticker that is succeeding quietly looks exactly
+// like one that never started, and that ambiguity already cost an operator a
+// wrong-turn debug during the first deploy. So: say something the first time it
+// works, say something when it breaks, say something when it recovers.
+var rosterPushOK bool
+
 func (p *AdventurePlugin) pushRoster() {
 	snap, err := buildRosterSnapshot(time.Now().UTC())
 	if err != nil {
@@ -59,11 +67,24 @@ func (p *AdventurePlugin) pushRoster() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), rosterPushTimeout)
 	defer cancel()
+
 	if err := peteclient.PushRoster(ctx, snap); err != nil {
-		// Not an error worth shouting about: the next tick retries by simply
+		// The failure itself is not alarming — the next tick retries by simply
 		// being a fresher snapshot, and if we stay down Pete's board correctly
-		// stops claiming to be live.
-		slog.Warn("roster: push failed, dropping snapshot", "err", err)
+		// stops claiming to be live. Only the *transition* is worth a line.
+		if rosterPushOK {
+			slog.Warn("roster: push failed, board will go stale on Pete", "err", err)
+		} else {
+			slog.Debug("roster: push failed, dropping snapshot", "err", err)
+		}
+		rosterPushOK = false
+		return
+	}
+
+	if !rosterPushOK {
+		slog.Info("roster: board accepted by Pete — live adventurer board is publishing",
+			"adventurers", len(snap.Adventurers))
+		rosterPushOK = true
 	}
 }
 
