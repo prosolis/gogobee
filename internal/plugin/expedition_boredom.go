@@ -88,7 +88,7 @@ var advActionCommands = map[string]bool{
 	"explore": true, "extract": true, "fight": true, "fish": true,
 	"flee": true, "forage": true, "give": true, "graveyard": true,
 	"hospital": true, "level": true, "lore": true, "map": true,
-	"mine": true, "news": true, "prepare": true, "region": true,
+	"mine": true, "mischief": true, "news": true, "prepare": true, "region": true,
 	"resources": true, "respec": true, "rest": true, "resume": true,
 	"revisit": true, "rivals": true, "roll": true, "scavenge": true,
 	"sell": true, "setup": true, "sheet": true, "spells": true,

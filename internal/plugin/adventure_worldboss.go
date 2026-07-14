@@ -695,7 +695,7 @@ func (p *AdventurePlugin) resolveWorldBossBout(userID id.UserID, boss *worldBoss
 
 	// No death / no hospital: floor the fighter at 1 HP so a loss never reads as
 	// a corpse. runZoneCombat already persisted the real HP cost.
-	battered := worldBossFloorHP(userID)
+	battered := floorHPAtOne(userID)
 
 	dmg := result.EnemyEntryHP - result.EnemyEndHP
 	if dmg < 0 {
@@ -718,10 +718,11 @@ func (p *AdventurePlugin) resolveWorldBossBout(userID id.UserID, boss *worldBoss
 	}, nil
 }
 
-// worldBossFloorHP raises a player to 1 HP if the bout left them at zero, and
+// floorHPAtOne raises a player to 1 HP if the fight left them at zero, and
 // reports whether it had to. Keeps "no death" honest without undoing the real
-// HP cost of a bout the player mostly survived.
-func worldBossFloorHP(userID id.UserID) bool {
+// HP cost of a bout the player mostly survived. Shared by the two no-death
+// fights: the world-boss bout and a Mischief Makers delivery.
+func floorHPAtOne(userID id.UserID) bool {
 	cur, _ := dndHPSnapshot(userID)
 	if cur > 0 {
 		return false

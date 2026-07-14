@@ -291,13 +291,13 @@ func TestWorldBossFloorHP(t *testing.T) {
 	newWorldBossTestDB(t)
 	uid := id.UserID("@floor:test.invalid")
 	fightableChar(t, uid)
-	if worldBossFloorHP(uid) {
+	if floorHPAtOne(uid) {
 		t.Error("floor should be a no-op above 0 HP")
 	}
 	if _, err := db.Get().Exec(`UPDATE dnd_character SET hp_current = 0 WHERE user_id = ?`, string(uid)); err != nil {
 		t.Fatal(err)
 	}
-	if !worldBossFloorHP(uid) {
+	if !floorHPAtOne(uid) {
 		t.Error("floor should raise a 0-HP fighter")
 	}
 	if cur, _ := dndHPSnapshot(uid); cur != 1 {

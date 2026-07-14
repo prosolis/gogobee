@@ -1734,6 +1734,44 @@ CREATE TABLE IF NOT EXISTS community_pot (
 	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Mischief Makers: a paid monster hit on a player who is out on an expedition.
+-- The buyer's euros are debited at placement (paid); fee is the payout basis the
+-- target's survival purse is a percentage of — the sign surcharge is a pure sink
+-- and never inflates the purse, which is what keeps a payout strictly below what
+-- the buyer spent (collusion loses to !baltransfer, which is free).
+--
+-- Lifecycle: open → delivering → delivered (outcome survived|downed) | fizzled.
+-- Every transition is a conditional UPDATE, so a double-fire of the ticker or a
+-- restart mid-delivery can never pay twice. No bootstrap — absent row == no
+-- contract in flight.
+CREATE TABLE IF NOT EXISTS mischief_contracts (
+	contract_id      TEXT PRIMARY KEY,
+	buyer_id         TEXT NOT NULL,
+	target_id        TEXT NOT NULL,
+	tier             TEXT NOT NULL,
+	fee              INTEGER NOT NULL,
+	paid             INTEGER NOT NULL,
+	status           TEXT NOT NULL,
+	signed           INTEGER NOT NULL DEFAULT 0,
+	escalation_count INTEGER NOT NULL DEFAULT 0,
+	blessing_count   INTEGER NOT NULL DEFAULT 0,
+	source           TEXT NOT NULL DEFAULT 'matrix',
+	outcome          TEXT,
+	created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	window_ends_at   DATETIME NOT NULL,
+	resolved_at      DATETIME
+);
+-- One live contract per target, enforced by the database rather than by a
+-- read-then-write check. The placement path holds only the BUYER's lock, so two
+-- different buyers racing to hit the same person would both pass an in-code
+-- "is one already live?" test. This partial unique index is what actually stops
+-- the second insert; the loser is refunded.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mischief_one_live_per_target
+	ON mischief_contracts(target_id) WHERE status IN ('open', 'delivering');
+CREATE INDEX IF NOT EXISTS idx_mischief_target ON mischief_contracts(target_id, status);
+CREATE INDEX IF NOT EXISTS idx_mischief_buyer ON mischief_contracts(buyer_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_mischief_due ON mischief_contracts(status, window_ends_at);
+
 -- Babysitting Service
 CREATE TABLE IF NOT EXISTS adventure_babysit_log (
 	id            INTEGER PRIMARY KEY AUTOINCREMENT,
