@@ -75,10 +75,16 @@ const (
 	// Fizzle: the expedition ended before the monster could find them.
 	mischiefFizzleRefund = 0.90
 
-	// mischiefBlessingFee — what the room pays to put a ward on the target while
-	// the contract is open. Cheap on purpose: helping has to be an impulse, or
-	// nobody bothers and the window is just a countdown.
-	mischiefBlessingFee = 25
+	// A ward is priced against the contract it is defending: a floor, or a slice of
+	// the fee, whichever is more. Warding someone has to stay an impulse at the
+	// cheap tiers (or nobody bothers and the window is just a countdown), but the
+	// M1-close-out sweep measured three wards buying roughly +40pp of survival —
+	// fighter L12 vs a boss at 70% HP goes 48% → 90%. At a flat fee that let the
+	// room halve a €1,200 boss contract for €75, which makes the tier the whole
+	// economy rests on feel like money thrown away. Saving someone from a boss
+	// should cost the town real money: €120 a ward, €360 to cover them completely.
+	mischiefBlessingFeeMin = 25
+	mischiefBlessingFeePct = 0.10
 
 	// mischiefBlessingCap — how many blessings one contract can carry. Three at
 	// +10% MaxHP each is a third of a health bar: enough to swing an elite
@@ -147,6 +153,17 @@ func mischiefNextTier(key string) (mischiefTier, bool) {
 		}
 	}
 	return mischiefTier{}, false
+}
+
+// mischiefBlessingFee is what one ward costs against a contract of this fee. It
+// reads the contract's CURRENT basis, so an escalation raises the price of
+// protecting its target too — the room's counterplay tracks the threat.
+func mischiefBlessingFee(contractFee int) int {
+	fee := int(math.Round(float64(contractFee) * mischiefBlessingFeePct))
+	if fee < mischiefBlessingFeeMin {
+		return mischiefBlessingFeeMin
+	}
+	return fee
 }
 
 // mischiefBlessingTempHP is the cushion a contract's blessings are worth to a
@@ -580,17 +597,18 @@ func (p *AdventurePlugin) mischiefBoard() string {
 	b.WriteString("The monster comes from their own bracket, so it's always a fight worth watching. ")
 	b.WriteString("If they survive it, they keep a cut of your money — and the town finds out it was you.\n\n")
 	for _, t := range mischiefTiers {
-		b.WriteString(fmt.Sprintf("· **%s** — %s (signed: %s) — survivor keeps %s\n   _%s_\n",
+		b.WriteString(fmt.Sprintf("· **%s** — %s (signed: %s) — survivor keeps %s · ward %s\n   _%s_\n",
 			t.Display, fmtEuro(t.Fee), fmtEuro(mischiefSignedFee(t.Fee)),
-			fmtEuro(mischiefPurse(t.Fee, t.PayoutPct)), t.Blurb))
+			fmtEuro(mischiefPurse(t.Fee, t.PayoutPct)), fmtEuro(mischiefBlessingFee(t.Fee)), t.Blurb))
 	}
 	b.WriteString("\n`!mischief send <tier> @user` — anonymous · add `signed` to put your name on it up front.\n")
 	b.WriteString(fmt.Sprintf(
 		"While a contract is open, the rest of us get a say:\n"+
-			"· `!mischief bless @user` — %s, up to %d — a ward for the fight. Help them.\n"+
+			"· `!mischief bless @user` — a ward for the fight, up to %d of them. Help them. "+
+			"The worse the thing coming, the more a ward costs.\n"+
 			"· `!mischief escalate @user` — pay the difference, send something worse. \"Help\" them. "+
 			"It raises their purse too, if they live.\n",
-		fmtEuro(mischiefBlessingFee), mischiefBlessingCap))
+		mischiefBlessingCap))
 	b.WriteString(fmt.Sprintf("_They have to be out on an expedition, level %d+. It lands about %s later._",
 		mischiefMinLevel, formatDuration(mischiefWindow)))
 	return b.String()
@@ -764,22 +782,26 @@ func (p *AdventurePlugin) mischiefBlessCmd(ctx MessageContext, fields []string) 
 			"**%s** is already carrying every ward the town has to give (%d). The rest is up to them.",
 			p.DisplayName(targetID), mischiefBlessingCap))
 	}
-	if bal := p.euro.GetBalance(ctx.Sender); int(bal) < mischiefBlessingFee {
+	// Priced off the contract's current basis: warding someone against a boss costs
+	// what a boss is worth, and an escalation raises the price of saving them.
+	fee := mischiefBlessingFee(c.Fee)
+	if bal := p.euro.GetBalance(ctx.Sender); int(bal) < fee {
 		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf(
-			"A ward costs %s — you have %s.", fmtEuro(mischiefBlessingFee), fmtEuro(int(bal))))
+			"A ward against a %s costs %s — you have %s.",
+			strings.ToLower(c.Tier), fmtEuro(fee), fmtEuro(int(bal))))
 	}
-	if !p.euro.Debit(ctx.Sender, float64(mischiefBlessingFee), "mischief_blessing") {
+	if !p.euro.Debit(ctx.Sender, float64(fee), "mischief_blessing") {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Couldn't take your money. Try again.")
 	}
 	// The cap is enforced by the UPDATE, not by the read above — two people can
 	// buy the third ward in the same second, and only one of them may have it.
 	if !blessMischiefContract(c.ID) {
-		p.euro.Credit(ctx.Sender, float64(mischiefBlessingFee), "mischief_blessing_refund")
+		p.euro.Credit(ctx.Sender, float64(fee), "mischief_blessing_refund")
 		return p.SendReply(ctx.RoomID, ctx.EventID,
 			"Somebody got there first — the ward wasn't needed. You've been refunded.")
 	}
-	communityPotAdd(mischiefBlessingFee)
-	trackTaxPaid(ctx.Sender, mischiefBlessingFee)
+	communityPotAdd(fee)
+	trackTaxPaid(ctx.Sender, fee)
 
 	p.announceMischiefBlessing(c, ctx.Sender, c.BlessingCount+1)
 	p.SendDM(targetID, fmt.Sprintf(
@@ -902,7 +924,7 @@ func (p *AdventurePlugin) dmMischiefVictim(c *mischiefContract, tier mischiefTie
 			"anyone who likes you can `!mischief bless @%s` (%s each, up to %d).\n"+
 			"Walk away from it and their money is yours: **%s**. And we all find out who paid.",
 		who, strings.ToLower(tier.Display), formatDuration(time.Until(c.WindowEndsAt)),
-		p.DisplayName(c.TargetID), fmtEuro(mischiefBlessingFee), mischiefBlessingCap,
+		p.DisplayName(c.TargetID), fmtEuro(mischiefBlessingFee(c.Fee)), mischiefBlessingCap,
 		fmtEuro(mischiefPurse(c.Fee, tier.PayoutPct))))
 }
 

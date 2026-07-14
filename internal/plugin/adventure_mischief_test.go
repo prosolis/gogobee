@@ -586,6 +586,36 @@ func mischiefCtx(sender id.UserID) MessageContext {
 	return MessageContext{Sender: sender, RoomID: id.RoomID("!room:x"), EventID: id.EventID("$e")}
 }
 
+// A ward is priced against the thing it defends against. The M1-close-out sweep
+// measured three wards buying ~+40pp of survival, which at a flat fee let the room
+// halve a €1,200 boss contract for €75 — the tier the whole economy rests on,
+// bought off for pocket change. Cheap at the impulse tiers, real money at the top.
+func TestMischiefBlessingFee_ScalesWithTheContract(t *testing.T) {
+	want := map[string]int{"grunt": 25, "mob": 25, "elite": 35, "boss": 120}
+	for _, tier := range mischiefTiers {
+		if got := mischiefBlessingFee(tier.Fee); got != want[tier.Key] {
+			t.Errorf("%s ward = %d, want %d", tier.Key, got, want[tier.Key])
+		}
+		// Where a ward is a rational purchase — the tiers the sweep says can
+		// actually put someone on the floor — covering a target must cost less than
+		// the contract does. Otherwise the room's counterplay is priced out and the
+		// window is dead.
+		//
+		// Grunt and mob are deliberately exempt: the €25 floor is above-market
+		// there (3 wards cost more than a €40 grunt), and that is fine, because
+		// nothing in the sweep needs warding against theatre — those tiers sit at
+		// 100% survival unwounded. The floor is there to keep a ward an impulse
+		// buy, not to make it a sensible one against a goblin.
+		if tier.Key != "elite" && tier.Key != "boss" {
+			continue
+		}
+		if full := mischiefBlessingFee(tier.Fee) * mischiefBlessingCap; full >= tier.Fee {
+			t.Errorf("%s: %d wards cost %d, which is more than the %d contract — "+
+				"the room can't afford to save anyone", tier.Key, mischiefBlessingCap, full, tier.Fee)
+		}
+	}
+}
+
 // The cap lives in the UPDATE, not in the read that precedes it. A room that
 // piles four wards on in the same second must still land exactly three — and the
 // player who lost that race must get their money back rather than pay for
@@ -629,6 +659,7 @@ func TestMischiefBlessing_FeeIsASinkNotAPurseTopUp(t *testing.T) {
 
 	c := seedContract(t, "@buyer:x", target, "elite", false)
 	feeBefore := c.Fee
+	ward := mischiefBlessingFee(c.Fee) // 10% of the €350 elite fee
 
 	if err := p.mischiefBlessCmd(mischiefCtx(friend), []string{string(target)}); err != nil {
 		t.Fatalf("bless: %v", err)
@@ -642,11 +673,11 @@ func TestMischiefBlessing_FeeIsASinkNotAPurseTopUp(t *testing.T) {
 		t.Errorf("a blessing moved the payout basis to %d (was %d) — wards must not pay the target",
 			got.Fee, feeBefore)
 	}
-	if bal := p.euro.GetBalance(friend); bal != 500-mischiefBlessingFee {
-		t.Errorf("blesser balance %.0f, want %d", bal, 500-mischiefBlessingFee)
+	if bal := p.euro.GetBalance(friend); bal != float64(500-ward) {
+		t.Errorf("blesser balance %.0f, want %d", bal, 500-ward)
 	}
-	if pot := communityPotBalance(); pot != mischiefBlessingFee {
-		t.Errorf("pot holds %d, want the %d blessing fee", pot, mischiefBlessingFee)
+	if pot := communityPotBalance(); pot != ward {
+		t.Errorf("pot holds %d, want the %d ward fee", pot, ward)
 	}
 	// Broke, so the second ward can't be bought — and must cost nothing.
 	pauper := id.UserID("@pauper:x")
