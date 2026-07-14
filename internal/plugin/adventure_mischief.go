@@ -686,6 +686,13 @@ func (p *AdventurePlugin) announceMischiefDowned(c *mischiefContract, monsterNam
 //
 // Deploy Pete BEFORE gogobee whenever these types change: Pete 400s an unknown
 // event_type, gogobee retries, and the bulletin parks forever.
+//
+// BULLETIN, never priority. Priority tier is the one thing that makes Pete post a
+// live Matrix beat, and TwinBee already announces every one of these in the games
+// room as it happens (announceMischiefContract / Survived / Downed) — a priority
+// fact would just read Pete's version back to the people who watched it. Bulletin
+// still carries the story to the site and the daily digest, where a roundup is
+// what it is. Same call 1cbd68a made for death and zone_first.
 
 func emitMischiefContractNews(c *mischiefContract, tier mischiefTier) {
 	target := charName(c.TargetID)
@@ -702,7 +709,7 @@ func emitMischiefContractNews(c *mischiefContract, tier mischiefTier) {
 	emitFact(peteclient.Fact{
 		GUID:       fmt.Sprintf("mischief_contract:%s:%d", eventToken(c.TargetID, "mischief:"+c.ID), ts),
 		EventType:  "mischief_contract",
-		Tier:       "priority",
+		Tier:       "bulletin",
 		Subject:    target,
 		Opponent:   buyer,
 		Boss:       tier.Display,
@@ -733,7 +740,7 @@ func emitMischiefResolvedNews(c *mischiefContract, monsterName, outcome string, 
 	emitFact(peteclient.Fact{
 		GUID:       fmt.Sprintf("%s:%s:%d", eventType, eventToken(c.TargetID, "mischief:"+c.ID), ts),
 		EventType:  eventType,
-		Tier:       "priority",
+		Tier:       "bulletin",
 		Subject:    target,
 		Opponent:   buyer,
 		Boss:       monsterName,
