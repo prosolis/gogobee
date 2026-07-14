@@ -300,12 +300,28 @@ func resolveMischiefContract(contractID, status, outcome string) {
 // target's expedition ended before the monster found them. Same CAS discipline
 // as delivery, so a fizzle and a delivery can never both fire.
 func fizzleMischiefContract(contractID string) bool {
-	res := db.ExecResult("mischief: fizzle contract",
+	return casMischiefStatus("mischief: fizzle contract", contractID,
+		mischiefStatusOpen, mischiefStatusFizzled, mischiefStatusFizzled)
+}
+
+// abandonStaleMischief releases a stuck delivery. CAS off `delivering`, so a
+// delivery that is merely slow (a long fight) cannot be swept out from under
+// itself and double-refunded.
+func abandonStaleMischief(contractID string) bool {
+	return casMischiefStatus("mischief: abandon stale delivery", contractID,
+		mischiefStatusDelivering, mischiefStatusFizzled, mischiefStatusFizzled)
+}
+
+// casMischiefStatus is the one status transition every terminal path takes: move
+// from → to only if the row is still in `from`, and report whether THIS caller
+// won. Every transition is conditional, which is what makes a ticker double-fire
+// or a restart mid-delivery unable to pay (or refund) twice.
+func casMischiefStatus(label, contractID, from, to, outcome string) bool {
+	res := db.ExecResult(label,
 		`UPDATE mischief_contracts
 		    SET status = ?, outcome = ?, resolved_at = ?
 		  WHERE contract_id = ? AND status = ?`,
-		mischiefStatusFizzled, mischiefStatusFizzled, time.Now().UTC(),
-		contractID, mischiefStatusOpen)
+		to, outcome, time.Now().UTC(), contractID, from)
 	if res == nil {
 		return false
 	}
@@ -318,46 +334,19 @@ func fizzleMischiefContract(contractID string) bool {
 // this sweep the row lives forever: the target can never be targeted again (the
 // live-contract check counts `delivering`) and the buyer's money is simply gone.
 func loadStaleMischiefDeliveries(before time.Time) []mischiefContract {
-	rows, err := db.Get().Query(
-		`SELECT `+mischiefCols+` FROM mischief_contracts
-		  WHERE status = ? AND window_ends_at <= ?`,
-		mischiefStatusDelivering, before)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []mischiefContract
-	for rows.Next() {
-		if c, err := scanMischief(rows); err == nil {
-			out = append(out, *c)
-		}
-	}
-	return out
-}
-
-// abandonStaleMischief releases a stuck delivery. CAS off `delivering`, so a
-// delivery that is merely slow (a long fight) cannot be swept out from under
-// itself and double-refunded.
-func abandonStaleMischief(contractID string) bool {
-	res := db.ExecResult("mischief: abandon stale delivery",
-		`UPDATE mischief_contracts
-		    SET status = ?, outcome = ?, resolved_at = ?
-		  WHERE contract_id = ? AND status = ?`,
-		mischiefStatusFizzled, mischiefStatusFizzled, time.Now().UTC(),
-		contractID, mischiefStatusDelivering)
-	if res == nil {
-		return false
-	}
-	n, _ := res.RowsAffected()
-	return n == 1
+	return loadMischiefByStatus(mischiefStatusDelivering, before)
 }
 
 // loadMischiefDue returns open contracts whose window has closed.
 func loadMischiefDue(now time.Time) []mischiefContract {
+	return loadMischiefByStatus(mischiefStatusOpen, now)
+}
+
+func loadMischiefByStatus(status string, dueBy time.Time) []mischiefContract {
 	rows, err := db.Get().Query(
 		`SELECT `+mischiefCols+` FROM mischief_contracts
 		  WHERE status = ? AND window_ends_at <= ?`,
-		mischiefStatusOpen, now)
+		status, dueBy)
 	if err != nil {
 		return nil
 	}
@@ -387,15 +376,20 @@ func liveMischiefForTarget(targetID id.UserID) *mischiefContract {
 	return c
 }
 
-// mischiefTargetCoolingDown reports whether the target resolved a contract too
-// recently to be sent another.
+// mischiefTargetCoolingDown reports whether the target survived (or was floored
+// by) a delivered contract too recently to be sent another.
+//
+// Only a DELIVERED contract cools a target down. A fizzle never reached them,
+// and a crash-swept stranding never happened at all — counting either would sell
+// cheap immunity: a target whose friend places a grunt and who then extracts pays
+// 10% of a grunt fee for a full day of being untargetable.
 func mischiefTargetCoolingDown(targetID id.UserID, now time.Time) (bool, time.Duration) {
 	var resolved time.Time
 	err := db.Get().QueryRow(
 		`SELECT resolved_at FROM mischief_contracts
-		  WHERE target_id = ? AND resolved_at IS NOT NULL
+		  WHERE target_id = ? AND status = ? AND resolved_at IS NOT NULL
 		  ORDER BY resolved_at DESC LIMIT 1`,
-		string(targetID)).Scan(&resolved)
+		string(targetID), mischiefStatusDelivered).Scan(&resolved)
 	if err != nil {
 		return false, 0 // no row (or unreadable stamp) == not cooling down
 	}
@@ -418,12 +412,18 @@ func mischiefBuyerCountSince(buyerID id.UserID, since time.Time) int {
 
 // mischiefBossCountSince counts boss-tier contracts aimed at a target inside the
 // window, from anyone. Boss is the "end their expedition" button; one a week.
+//
+// Fizzled ones do NOT count, and that asymmetry with the buyer cap is deliberate:
+// the buyer cap limits how often you may POINT a monster at someone, but this cap
+// protects the target from being boss'd, and a boss that never found them is not
+// something they need protecting from. Counting it would let a friendly buyer burn
+// the target's weekly boss slot for the price of a fizzle rake.
 func mischiefBossCountSince(targetID id.UserID, since time.Time) int {
 	var n int
 	_ = db.Get().QueryRow(
 		`SELECT COUNT(*) FROM mischief_contracts
-		  WHERE target_id = ? AND tier = 'boss' AND created_at > ?`,
-		string(targetID), since).Scan(&n)
+		  WHERE target_id = ? AND tier = 'boss' AND created_at > ? AND status != ?`,
+		string(targetID), since, mischiefStatusFizzled).Scan(&n)
 	return n
 }
 
@@ -604,9 +604,16 @@ func (p *AdventurePlugin) mischiefSendCmd(ctx MessageContext, fields []string) e
 		p.euro.Credit(ctx.Sender, float64(price), "mischief_refund_contested")
 		slog.Warn("mischief: contract insert rejected",
 			"buyer", ctx.Sender, "target", targetID, "err", err)
-		return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf(
-			"Somebody beat you to **%s** — there's already a monster on the way. You've been refunded.",
-			p.DisplayName(targetID)))
+		// Refund either way, but don't tell a buyer a rival outbid them when the
+		// write simply failed — they'd stop retrying and believe in a contract that
+		// does not exist. The index is the only thing that legitimately rejects here.
+		if liveMischiefForTarget(targetID) != nil {
+			return p.SendReply(ctx.RoomID, ctx.EventID, fmt.Sprintf(
+				"Somebody beat you to **%s** — there's already a monster on the way. You've been refunded.",
+				p.DisplayName(targetID)))
+		}
+		return p.SendReply(ctx.RoomID, ctx.EventID,
+			"The contract didn't take — something went wrong on our end. You've been refunded; try again.")
 	}
 
 	p.announceMischiefContract(c, tier)

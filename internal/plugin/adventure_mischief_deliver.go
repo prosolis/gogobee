@@ -77,31 +77,53 @@ func (p *AdventurePlugin) fireMischiefDeliveries(now time.Time) {
 	p.sweepStaleMischief(now)
 	for _, c := range loadMischiefDue(now) {
 		contract := c
-		target := contract.TargetID
+		p.fireOneMischiefDelivery(&contract)
+	}
+}
 
-		exp, err := getActiveExpedition(target)
-		if err != nil || exp == nil || exp.Status != ExpeditionStatusActive {
-			p.fizzleMischief(&contract)
-			continue
+// fireOneMischiefDelivery resolves a single due contract under the TARGET's lock.
+//
+// The lock is not optional. hasActiveCombatSession only sees the turn-based
+// engine; the target's own `!explore` / autopilot walk resolves its fights
+// inline (runHarvestInterrupt → runZoneCombatRoster) under advUserLock and
+// reports no session. Without taking that same lock, a delivery can run a second
+// combat against the same character sheet concurrently — two LoadDnDCharacter →
+// mutate → SaveDnDCharacter writers, last write wins, and a whole fight's HP cost
+// vanishes. The boredom ticker takes this lock for exactly this reason.
+//
+// Everything below the lock runs on the auto-resolve path, which takes no user
+// locks of its own, so there is nothing here to deadlock against.
+func (p *AdventurePlugin) fireOneMischiefDelivery(contract *mischiefContract) {
+	target := contract.TargetID
+
+	lock := p.advUserLock(target)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// Re-read under the lock: whatever the due-sweep saw, the expedition may have
+	// ended while we were queuing behind the target's own command.
+	exp, err := getActiveExpedition(target)
+	if err != nil || exp == nil || exp.Status != ExpeditionStatusActive {
+		p.fizzleMischief(contract)
+		return
+	}
+	// Same safety net the ambient ticker keeps: the expedition row can still
+	// say 'active' after the player has functionally left the dungeon.
+	if exp.RunID != "" {
+		if run, _ := getZoneRun(exp.RunID); run == nil || !run.IsActive() {
+			p.fizzleMischief(contract)
+			return
 		}
-		// Same safety net the ambient ticker keeps: the expedition row can still
-		// say 'active' after the player has functionally left the dungeon.
-		if exp.RunID != "" {
-			if run, _ := getZoneRun(exp.RunID); run == nil || !run.IsActive() {
-				p.fizzleMischief(&contract)
-				continue
-			}
-		}
-		if hasActiveCombatSession(target) {
-			continue // they're mid-fight; the monster can wait a minute
-		}
-		if !claimMischiefForDelivery(contract.ID) {
-			continue // another tick (or another process) already has it
-		}
-		if err := p.deliverMischief(&contract, exp); err != nil {
-			slog.Error("mischief: delivery failed",
-				"contract", contract.ID, "target", target, "err", err)
-		}
+	}
+	if hasActiveCombatSession(target) {
+		return // they're mid-fight; the monster can wait a minute
+	}
+	if !claimMischiefForDelivery(contract.ID) {
+		return // another tick (or another process) already has it
+	}
+	if err := p.deliverMischief(contract, exp); err != nil {
+		slog.Error("mischief: delivery failed",
+			"contract", contract.ID, "target", target, "err", err)
 	}
 }
 
@@ -378,8 +400,9 @@ func (p *AdventurePlugin) resolveMischiefDowned(
 	// releases the party and would leave us nobody to floor.
 	p.floorMischiefRoster(c.TargetID)
 
+	// forcedExtractExpedition retires the region runs and releases the party itself;
+	// only the zone run has to be closed here.
 	_ = abandonZoneRun(c.TargetID)
-	_ = retireAllRegionRuns(exp)
 	_, tax, err := forcedExtractExpedition(exp.ID, "mischief contract")
 	if err != nil {
 		slog.Warn("mischief: force extract failed", "expedition", exp.ID, "err", err)
