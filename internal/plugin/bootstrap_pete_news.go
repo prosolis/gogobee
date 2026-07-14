@@ -22,6 +22,16 @@ import (
 //  3. Single-holder achievements — rarity-gated to one holder, matching the live
 //     milestone rule so routine unlocks don't flood the backlog.
 //
+// Every fact here is a BULLETIN, like every fact gogobee files (1cbd68a). Priority
+// is the one tier that makes Pete post a live Matrix beat, and TwinBee already
+// narrates these moments in the games room as they happen — a priority fact would
+// have Pete read his version back to the people who watched it. Nothing in the
+// back catalogue is news, least of all a death from three weeks ago.
+//
+// NoPush independently short-circuits Pete's beat today, so this is belt AND
+// braces: the tier is the rule, and it must not depend on NoPush staying in front
+// of it. Rendering keys off event_type, not tier, so nothing on the site moves.
+//
 // Backfilled facts are backdated to when they happened and marked NoPush (no
 // web-push spam on launch). GUIDs are deterministic (keyed on the historical
 // timestamp), so a re-run — or a later live emit of the same event — dedups on
@@ -97,7 +107,7 @@ func (p *AdventurePlugin) backfillZoneFirsts() int {
 		emitFact(peteclient.Fact{
 			GUID:       fmt.Sprintf("zone_first:%s:%s:%d", eventToken(uid, fmt.Sprintf("%s:%d", f.zoneID, ts.Unix())), f.zoneID, ts.Unix()),
 			EventType:  "zone_first",
-			Tier:       "priority",
+			Tier:       "bulletin",
 			Subject:    name,
 			Zone:       zone.Display,
 			Boss:       zone.Boss.Name,
@@ -151,7 +161,7 @@ func backfillDeaths() int {
 		emitFact(peteclient.Fact{
 			GUID:       fmt.Sprintf("death:%s:%s", eventToken(uid, d.date), d.date),
 			EventType:  "death",
-			Tier:       "priority",
+			Tier:       "bulletin",
 			Subject:    name,
 			Zone:       d.location,
 			Level:      lvl,
