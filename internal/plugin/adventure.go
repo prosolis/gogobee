@@ -170,6 +170,7 @@ func (p *AdventurePlugin) Commands() []CommandDef {
 		{Name: "arm", Description: "Ready an ability so it fires the moment your next fight starts", Usage: "!arm <ability>", Category: "Games"},
 		{Name: "roll", Description: "Roll dice (NdN+M format, e.g. 2d6+3, d20, 4d6-1)", Usage: "!roll <dice>", Category: "Games"},
 		{Name: "duel", Description: "Challenge another adventurer to a staked, no-death bout", Usage: "!duel @user [stake]", Category: "Games"},
+		{Name: "mischief", Description: "Pay to send a monster after an adventurer who's out on an expedition", Usage: "!mischief send <tier> @user", Category: "Games"},
 		{Name: "stats", Description: "Show your ability scores", Usage: "!stats", Category: "Games"},
 		{Name: "level", Description: "Show your level and XP progress", Usage: "!level", Category: "Games"},
 		{Name: "cast", Description: "Cast a spell (queues for next combat, or resolves now if out of combat)", Usage: "!cast <spell> [--upcast N] [--target @user]", Category: "Games"},
@@ -288,6 +289,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.peteRosterTicker()
 	go p.expeditionExtractionSweepTicker()
 	go p.expeditionBoredomTicker()
+	go p.mischiefTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()
@@ -361,6 +363,9 @@ func (p *AdventurePlugin) OnMessage(ctx MessageContext) error {
 	}
 	if p.IsCommand(ctx.Body, "duel") {
 		return p.handleDuelCmd(ctx, p.GetArgs(ctx.Body, "duel"))
+	}
+	if p.IsCommand(ctx.Body, "mischief") {
+		return p.handleMischiefCmd(ctx, p.GetArgs(ctx.Body, "mischief"))
 	}
 	if p.IsCommand(ctx.Body, "arm") {
 		return p.handleDnDArmCmd(ctx, p.GetArgs(ctx.Body, "arm"))
@@ -543,6 +548,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleRivalsCmd(ctx)
 	case lower == "duel" || strings.HasPrefix(lower, "duel "):
 		return p.handleDuelCmd(ctx, strings.TrimSpace(args[len("duel"):]))
+	case lower == "mischief" || strings.HasPrefix(lower, "mischief "):
+		return p.handleMischiefCmd(ctx, strings.TrimSpace(args[len("mischief"):]))
 	case lower == "babysit" || strings.HasPrefix(lower, "babysit "):
 		return p.handleBabysitCmd(ctx, strings.TrimSpace(strings.TrimPrefix(lower, "babysit")))
 	case lower == "blacksmith" || lower == "repair":
