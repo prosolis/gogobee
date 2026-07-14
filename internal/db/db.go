@@ -452,6 +452,11 @@ func runMigrations(d *sql.DB) error {
 		// the buyer when the target survives (the unseal), so piling on carries the
 		// same exposure the original purchase does.
 		`ALTER TABLE mischief_contracts ADD COLUMN escalated_by TEXT`,
+		// Pete games — a caller-supplied idempotency key for money moves that
+		// arrive over a retrying wire rather than a Matrix message. A Matrix
+		// message arrives once; a poll loop whose ack is lost on the wire will
+		// retry, and without this the player pays twice. See euro.DebitIdem.
+		`ALTER TABLE euro_transactions ADD COLUMN external_id TEXT`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -466,6 +471,18 @@ func runMigrations(d *sql.DB) error {
 				continue
 			}
 			return fmt.Errorf("migration %q: %w", stmt, err)
+		}
+	}
+
+	// Indexes over columns the column migrations above just added. These can't
+	// live in the schema block, which runs before those columns exist.
+	indexMigrations := []string{
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_euro_tx_external
+		   ON euro_transactions(external_id) WHERE external_id IS NOT NULL`,
+	}
+	for _, stmt := range indexMigrations {
+		if _, err := d.Exec(stmt); err != nil {
+			return fmt.Errorf("index migration %q: %w", stmt, err)
 		}
 	}
 	return nil

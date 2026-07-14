@@ -1,8 +1,11 @@
 package plugin
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -411,6 +414,131 @@ func (p *EuroPlugin) GetBalance(userID id.UserID) float64 {
 		slog.Error("euro: failed to get balance", "user", userID, "err", err)
 	}
 	return balance
+}
+
+// ---------------------------------------------------------------------------
+// Idempotent money moves
+//
+// Every caller of Credit/Debit above is a Matrix message, which arrives exactly
+// once. Money that moves over a retrying wire — the Pete games escrow poll loop
+// — has no such guarantee: a claim that succeeds but whose ack is lost gets
+// retried, and the player pays twice. CreditIdem/DebitIdem take an externalID
+// (the escrow GUID), do the balance mutation and the transaction log in one
+// tx, and lean on idx_euro_tx_external so a replay is a no-op rather than a
+// second debit.
+//
+// Anything web-initiated goes through these. Nothing else should.
+// ---------------------------------------------------------------------------
+
+// DebitIdem subtracts euros exactly once for a given externalID. Returns ok=false
+// only when the debit would breach the debt limit; a replay of an already-applied
+// externalID returns ok=true without moving money again. balanceAfter is the
+// balance as of the decision, and is meaningless when ok is false.
+func (p *EuroPlugin) DebitIdem(userID id.UserID, amount float64, reason, externalID string) (ok bool, balanceAfter float64, err error) {
+	if amount <= 0 {
+		return false, 0, fmt.Errorf("euro: DebitIdem non-positive amount %v", amount)
+	}
+	if externalID == "" {
+		return false, 0, fmt.Errorf("euro: DebitIdem requires an external id")
+	}
+	debtLimit := envFloat("BLACKJACK_DEBT_LIMIT", 1000)
+	return p.applyIdem(userID, -amount, reason, externalID, -debtLimit)
+}
+
+// CreditIdem adds euros exactly once for a given externalID. A replay is a no-op
+// that still reports ok.
+func (p *EuroPlugin) CreditIdem(userID id.UserID, amount float64, reason, externalID string) (ok bool, balanceAfter float64, err error) {
+	if amount <= 0 {
+		return false, 0, fmt.Errorf("euro: CreditIdem non-positive amount %v", amount)
+	}
+	if externalID == "" {
+		return false, 0, fmt.Errorf("euro: CreditIdem requires an external id")
+	}
+	// A credit has no floor to breach — math.Inf would do, but the balance can
+	// never land below the current one, so any sentinel below it works.
+	return p.applyIdem(userID, amount, reason, externalID, math.Inf(-1))
+}
+
+// applyIdem is the shared body: signed delta, applied once, never letting the
+// balance fall below floor. Balance mutation and transaction log commit together
+// or not at all.
+func (p *EuroPlugin) applyIdem(userID id.UserID, delta float64, reason, externalID string, floor float64) (bool, float64, error) {
+	// Outside the tx: db is capped at a single connection, so a nested Exec on
+	// the pool would deadlock against our own open transaction.
+	p.ensureBalance(userID)
+
+	d := db.Get()
+	tx, err := d.Begin()
+	if err != nil {
+		return false, 0, fmt.Errorf("euro: begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after a successful Commit
+
+	// Already applied? Report the current balance and move on.
+	var prior int
+	switch err := tx.QueryRow(
+		`SELECT 1 FROM euro_transactions WHERE external_id = ?`, externalID,
+	).Scan(&prior); {
+	case err == nil:
+		bal, err := txBalance(tx, userID)
+		if err != nil {
+			return false, 0, err
+		}
+		slog.Info("euro: idempotent replay ignored", "user", userID, "external_id", externalID, "reason", reason)
+		return true, bal, nil
+	case errors.Is(err, sql.ErrNoRows):
+		// Not applied yet — carry on.
+	default:
+		return false, 0, fmt.Errorf("euro: idem lookup: %w", err)
+	}
+
+	res, err := tx.Exec(
+		`UPDATE euro_balances SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE user_id = ? AND (balance + ?) >= ?`,
+		delta, string(userID), delta, floor,
+	)
+	if err != nil {
+		return false, 0, fmt.Errorf("euro: idem balance update: %w", err)
+	}
+	if affected, _ := res.RowsAffected(); affected == 0 {
+		return false, 0, nil // would breach the floor
+	}
+
+	if _, err := tx.Exec(
+		`INSERT INTO euro_transactions (user_id, amount, reason, external_id) VALUES (?, ?, ?, ?)`,
+		string(userID), delta, reason, externalID,
+	); err != nil {
+		// A racing caller won with the same externalID. The unique index is the
+		// backstop the SELECT above can't be: roll back our half-applied delta
+		// and report theirs.
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			if rbErr := tx.Rollback(); rbErr != nil {
+				return false, 0, fmt.Errorf("euro: rollback after idem race: %w", rbErr)
+			}
+			slog.Info("euro: idempotent race lost, delta rolled back", "user", userID, "external_id", externalID)
+			return true, p.GetBalance(userID), nil
+		}
+		return false, 0, fmt.Errorf("euro: idem tx log: %w", err)
+	}
+
+	bal, err := txBalance(tx, userID)
+	if err != nil {
+		return false, 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, 0, fmt.Errorf("euro: commit: %w", err)
+	}
+	return true, bal, nil
+}
+
+func txBalance(tx *sql.Tx, userID id.UserID) (float64, error) {
+	var bal float64
+	if err := tx.QueryRow(
+		`SELECT balance FROM euro_balances WHERE user_id = ?`, string(userID),
+	).Scan(&bal); err != nil {
+		return 0, fmt.Errorf("euro: read balance: %w", err)
+	}
+	return bal, nil
 }
 
 func (p *EuroPlugin) logTransaction(userID id.UserID, amount float64, reason string) {
