@@ -169,6 +169,9 @@ func main() {
 	// Games & Economy
 	euroPlugin := plugin.NewEuroPlugin(client)
 	registry.Register(euroPlugin)
+	// The web casino's money loop. Not a plugin: it answers to Pete's poll, not
+	// to a Matrix message, so it has no commands and nothing to register.
+	plugin.StartPeteEscrowLoop(ctx, euroPlugin)
 	registry.Register(plugin.NewFlipPlugin(client))
 	registry.Register(plugin.NewHangmanPlugin(client, euroPlugin, dictClient))
 	registry.Register(plugin.NewBlackjackPlugin(client, euroPlugin))

@@ -457,6 +457,11 @@ func runMigrations(d *sql.DB) error {
 		// message arrives once; a poll loop whose ack is lost on the wire will
 		// retry, and without this the player pays twice. See euro.DebitIdem.
 		`ALTER TABLE euro_transactions ADD COLUMN external_id TEXT`,
+		// Pete games — the outbound queue carries more than adventure facts now.
+		// An escrow verdict goes to a different Pete endpoint, but it wants the
+		// same durability, backoff and parking, so it rides the same queue and the
+		// row says where it's going. Existing rows are all facts, hence the default.
+		`ALTER TABLE pete_emit_queue ADD COLUMN path TEXT NOT NULL DEFAULT '/api/ingest/adventure'`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {

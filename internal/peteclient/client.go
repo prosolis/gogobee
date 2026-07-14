@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"gogobee/internal/db"
@@ -62,11 +63,17 @@ type Config struct {
 // so emit hooks scattered across plugins (and free functions like
 // markAdventureDead) can call Emit without threading a handle through.
 type Client struct {
-	cfg  Config
-	http *http.Client
+	cfg      Config
+	http     *http.Client
+	draining sync.Mutex // one drain at a time; see drain
 }
 
 var std *Client
+
+// factPath is where an adventure fact goes. Every queue row carries its own
+// destination now, because escrow verdicts ride the same queue to a different
+// endpoint.
+const factPath = "/api/ingest/adventure"
 
 // Tuning for the background sender.
 const (
@@ -118,11 +125,20 @@ func Emit(f Fact) {
 		slog.Error("peteclient: marshal fact", "guid", f.GUID, "err", err)
 		return
 	}
-	// OR IGNORE gives GUID-idempotency: a re-emit of the same event is dropped.
+	enqueue(f.GUID, factPath, payload)
+}
+
+// enqueue puts one payload on the durable queue, addressed to a Pete endpoint.
+//
+// OR IGNORE gives GUID-idempotency: a re-emit of the same key is dropped. That
+// is the whole safety story for money — an escrow verdict is queued under its
+// escrow guid, so a verdict can never be enqueued twice and can never be
+// delivered as two different answers.
+func enqueue(guid, path string, payload []byte) {
 	db.Exec("pete emit enqueue",
-		`INSERT OR IGNORE INTO pete_emit_queue (guid, payload, created_at, attempts, next_attempt_at)
-		 VALUES (?, ?, unixepoch(), 0, 0)`,
-		f.GUID, string(payload))
+		`INSERT OR IGNORE INTO pete_emit_queue (guid, path, payload, created_at, attempts, next_attempt_at)
+		 VALUES (?, ?, ?, unixepoch(), 0, 0)`,
+		guid, path, string(payload))
 }
 
 // StartSender launches the background drain loop. It runs until ctx is
@@ -147,10 +163,33 @@ func StartSender(ctx context.Context) {
 	}()
 }
 
+// Flush drains the queue right now instead of waiting for the next tick.
+//
+// The escrow loop needs this. A player who clicked "buy chips" is watching a
+// spinner, and a verdict that sat in the queue for a 15-second sender tick would
+// make the whole border feel broken even though nothing is. Durability is not
+// weakened: the row is written first and only then sent, exactly as the ticker
+// does it.
+func Flush(ctx context.Context) {
+	if std == nil || !std.cfg.Enabled {
+		return
+	}
+	std.drain(ctx)
+}
+
 // drain sends up to senderBatch due rows, one at a time.
+//
+// Serialized: the ticker and Flush can both call this, and two drains racing
+// would send the same row twice. Every Pete endpoint we push to is idempotent,
+// so that would be survivable rather than harmful — but it would also mean an
+// escrow verdict arriving twice as a matter of routine, and "harmless in theory"
+// is not how the money path should be run.
 func (c *Client) drain(ctx context.Context) {
+	c.draining.Lock()
+	defer c.draining.Unlock()
+
 	rows, err := db.Get().Query(
-		`SELECT guid, payload FROM pete_emit_queue
+		`SELECT guid, path, payload FROM pete_emit_queue
 		 WHERE sent_at IS NULL AND attempts < ? AND next_attempt_at <= unixepoch()
 		 ORDER BY created_at LIMIT ?`,
 		maxAttempts, senderBatch)
@@ -158,11 +197,11 @@ func (c *Client) drain(ctx context.Context) {
 		slog.Error("peteclient: drain query", "err", err)
 		return
 	}
-	type item struct{ guid, payload string }
+	type item struct{ guid, path, payload string }
 	var batch []item
 	for rows.Next() {
 		var it item
-		if err := rows.Scan(&it.guid, &it.payload); err != nil {
+		if err := rows.Scan(&it.guid, &it.path, &it.payload); err != nil {
 			slog.Error("peteclient: drain scan", "err", err)
 			continue
 		}
@@ -174,7 +213,7 @@ func (c *Client) drain(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := c.send(ctx, []byte(it.payload)); err != nil {
+		if err := c.post(ctx, it.path, []byte(it.payload)); err != nil {
 			if ctx.Err() != nil {
 				// Shutdown canceled the in-flight send — Pete didn't reject
 				// anything. Don't burn a durable retry attempt; the row is picked
@@ -235,12 +274,8 @@ func PushRoster(ctx context.Context, snap RosterSnapshot) error {
 	return std.post(ctx, "/api/ingest/roster", payload)
 }
 
-// send POSTs one payload to Pete's ingest endpoint with bearer auth. Mirrors the
+// post sends one payload to a Pete endpoint with bearer auth. Mirrors the
 // bearer-POST pattern in email_nag.go:sendCode.
-func (c *Client) send(ctx context.Context, payload []byte) error {
-	return c.post(ctx, "/api/ingest/adventure", payload)
-}
-
 func (c *Client) post(ctx context.Context, path string, payload []byte) error {
 	url := c.cfg.IngestURL + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
@@ -257,6 +292,139 @@ func (c *Client) post(ctx context.Context, path string, payload []byte) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("pete ingest status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// The euro/chip border
+//
+// Pete holds chips; we hold the euros. A player buying in or cashing out opens
+// an escrow row on Pete, and we are the only one who can move the money for it —
+// Pete has no route into this box's network and is not getting one. So we poll.
+//
+// This is the first GET gogobee has ever made to Pete. Everything else in this
+// package is us pushing facts outward; here we are asking for work.
+//
+// The escrow guid is the idempotency key end to end: it names the row on Pete,
+// it is the external_id on our euro transaction, and it is the queue key of the
+// verdict we push back. That is what makes every step here safe to retry, which
+// matters because every step here can be interrupted between moving real money
+// and saying so.
+// ---------------------------------------------------------------------------
+
+// Escrow is one pending crossing, as Pete describes it. Amounts are whole euros:
+// chips are 1:1 and there is no sub-unit to lose.
+type Escrow struct {
+	GUID       string `json:"guid"`
+	MatrixUser string `json:"matrix_user"`
+	Kind       string `json:"kind"` // "buyin" | "cashout"
+	Amount     int64  `json:"amount"`
+	State      string `json:"state"`
+}
+
+// EscrowVerdict is our answer: did the euros move, and what is the balance now.
+// A rejected buy-in carries the reason, which Pete shows the player.
+type EscrowVerdict struct {
+	GUID         string  `json:"guid"`
+	OK           bool    `json:"ok"`
+	Reason       string  `json:"reason,omitempty"`
+	BalanceAfter float64 `json:"balance_after"`
+}
+
+const escrowVerdictPath = "/api/games/escrow/settled"
+
+// PendingEscrow asks Pete for crossings waiting on us. Includes rows we claimed
+// but never answered — if we died holding one, the player's money is stranded
+// until we pick it up again.
+func PendingEscrow(ctx context.Context) ([]Escrow, error) {
+	if !Enabled() {
+		return nil, nil
+	}
+	var out []Escrow
+	if err := std.getJSON(ctx, "/api/games/escrow/pending", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ClaimEscrow tells Pete we are taking a row, and returns the row as Pete now
+// holds it. Move the money against *this*, not against the copy from the poll:
+// the claim is the moment the amount and the player are fixed.
+//
+// A row Pete has already decided comes back in a terminal state rather than
+// "claimed". That is not an error — it means the work is done, and it is exactly
+// what stops a settled cash-out from being paid a second time.
+func ClaimEscrow(ctx context.Context, guid string) (Escrow, error) {
+	var e Escrow
+	payload, err := json.Marshal(map[string]string{"guid": guid})
+	if err != nil {
+		return e, err
+	}
+	if err := std.postJSON(ctx, "/api/games/escrow/claim", payload, &e); err != nil {
+		return e, err
+	}
+	return e, nil
+}
+
+// EmitEscrowVerdict durably queues our answer and returns immediately. Keyed on
+// the escrow guid, so a verdict is enqueued once and only once, and the sender's
+// retry/backoff/parking machinery carries it the rest of the way.
+//
+// The caller should Flush after this: a player is watching a spinner.
+func EmitEscrowVerdict(v EscrowVerdict) {
+	if !Enabled() {
+		return
+	}
+	payload, err := json.Marshal(v)
+	if err != nil {
+		slog.Error("peteclient: marshal escrow verdict", "guid", v.GUID, "err", err)
+		return
+	}
+	// Namespaced so an escrow guid can never collide with a fact guid in the
+	// queue's primary key. Fact guids are "<event_type>:<token>:<ts>"; escrow
+	// guids are random. A collision would be a lost verdict, so don't rely on
+	// luck for it.
+	enqueue("escrow:"+v.GUID, escrowVerdictPath, payload)
+}
+
+// getJSON does a bearer-authed GET and decodes the body.
+func (c *Client) getJSON(ctx context.Context, path string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.IngestURL+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+	return c.do(req, out)
+}
+
+// postJSON does a bearer-authed POST and decodes the body. Distinct from post,
+// which is the fire-and-forget path the queue uses and ignores the response.
+func (c *Client) postJSON(ctx context.Context, path string, payload []byte, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.IngestURL+path, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, out)
+}
+
+func (c *Client) do(req *http.Request, out any) error {
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("pete %s status %d: %s", req.URL.Path, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if out == nil {
+		return nil
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("pete %s: decode: %w", req.URL.Path, err)
 	}
 	return nil
 }
