@@ -1,0 +1,156 @@
+package plugin
+
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	"gogobee/internal/db"
+	"gogobee/internal/peteclient"
+
+	"maunium.net/go/mautrix/id"
+)
+
+// The live adventurer board pushed to Pete (gogobee_boredom_plan.md's sibling —
+// see the roster section of the Pete plan).
+//
+// Everything else we send Pete is an accomplishment: a death, a clear, a
+// milestone. Those are clippings — they read as archive the moment they land, no
+// matter how fast we deliver them. The board is the other kind of thing: state
+// that is *currently true*, which is the only thing that can make a page feel
+// alive. So it is a snapshot, pushed whole, replacing whatever Pete had.
+//
+// It is also, by design, a target list. The plan is to let people who aren't
+// even playing hire assassins and mobs against adventurers who are out in the
+// world right now — so the board carries a stable per-player token and real zone
+// depth, not just a pretty display string, and it shows the zone *live* while
+// they're still in it.
+const (
+	// rosterTickInterval — how often we push. Pete's staleness window is several
+	// times this, so a missed push or two is invisible; a real outage isn't.
+	rosterTickInterval = 2 * time.Minute
+
+	// rosterPushTimeout — the push is dropped on failure, never retried (a stale
+	// snapshot is a lie, and the next tick carries the truth), so it must not be
+	// able to pile up.
+	rosterPushTimeout = 15 * time.Second
+)
+
+// peteRosterTicker pushes the board to Pete forever.
+func (p *AdventurePlugin) peteRosterTicker() {
+	if !peteclient.Enabled() {
+		return
+	}
+	ticker := time.NewTicker(rosterTickInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		if !newsEmissionOn() {
+			continue // master switch off: the board goes stale on Pete and says so
+		}
+		p.pushRoster()
+	}
+}
+
+func (p *AdventurePlugin) pushRoster() {
+	snap, err := buildRosterSnapshot(time.Now().UTC())
+	if err != nil {
+		slog.Error("roster: build snapshot failed", "err", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), rosterPushTimeout)
+	defer cancel()
+	if err := peteclient.PushRoster(ctx, snap); err != nil {
+		// Not an error worth shouting about: the next tick retries by simply
+		// being a fresher snapshot, and if we stay down Pete's board correctly
+		// stops claiming to be live.
+		slog.Warn("roster: push failed, dropping snapshot", "err", err)
+	}
+}
+
+// buildRosterSnapshot assembles the complete board.
+//
+// Complete is the contract: Pete *replaces* its board with this, so anyone we
+// omit drops off the public page. That is exactly how the opt-out is enforced —
+// an opted-out player is simply never in the payload, rather than being sent and
+// anonymized. A standing row showing class + level + zone is trivially
+// re-identifiable (there is one level-14 cleric), so "an adventurer" would have
+// been a fig leaf; absence is the only honest option.
+func buildRosterSnapshot(now time.Time) (peteclient.RosterSnapshot, error) {
+	snap := peteclient.RosterSnapshot{SnapshotAt: now.Unix()}
+
+	// Both DATETIME columns selected raw and folded in Go — NOT COALESCE()'d in
+	// SQL. modernc.org/sqlite rebuilds a time.Time from the column's *declared*
+	// type, and COALESCE() erases that affinity: the value comes back a string
+	// and the Scan fails. Same trap playerIsIdle documents.
+	rows, err := db.Get().Query(`
+		SELECT user_id, last_player_action_at, created_at
+		  FROM player_meta
+		 WHERE alive = 1`)
+	if err != nil {
+		return snap, err
+	}
+	defer rows.Close()
+
+	type player struct {
+		uid        id.UserID
+		lastAction *time.Time
+	}
+	var players []player
+	for rows.Next() {
+		var uid string
+		var lastAction, created *time.Time
+		if err := rows.Scan(&uid, &lastAction, &created); err != nil {
+			return snap, err
+		}
+		if lastAction == nil {
+			lastAction = created
+		}
+		players = append(players, player{id.UserID(uid), lastAction})
+	}
+	if err := rows.Err(); err != nil {
+		return snap, err
+	}
+
+	for _, pl := range players {
+		if isNewsOptedOut(pl.uid) {
+			continue
+		}
+		c, err := LoadDnDCharacter(pl.uid)
+		if err != nil || c == nil || c.PendingSetup {
+			continue // no character to show; a half-made one has no name yet
+		}
+		name := charName(pl.uid)
+		if name == "" {
+			continue // never fall back to a Matrix handle on a public page
+		}
+
+		e := peteclient.RosterEntry{
+			// Stable per-player board token: salted, so it can't be recomputed
+			// from the handle, and distinct from every event token, so the board
+			// doesn't become the key that links a player's dispatches together.
+			Token:     eventToken(pl.uid, "roster"),
+			Name:      name,
+			Level:     c.Level,
+			ClassRace: classRaceLabel(c),
+			Status:    "idle",
+		}
+
+		if exp, _ := getActiveExpedition(pl.uid); exp != nil {
+			zone := zoneOrFallback(exp.ZoneID)
+			e.Status = "expedition"
+			e.Zone = zone.Display
+			e.Day = exp.CurrentDay
+			if IsMultiRegionZone(exp.ZoneID) {
+				if r, ok := CurrentRegion(exp); ok {
+					e.Region = r.Name
+				}
+			}
+		} else if pl.lastAction != nil {
+			if h := int(now.Sub(*pl.lastAction).Hours()); h > 0 {
+				e.IdleHours = h
+			}
+		}
+		snap.Adventurers = append(snap.Adventurers, e)
+	}
+	return snap, nil
+}

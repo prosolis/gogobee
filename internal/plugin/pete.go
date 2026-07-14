@@ -268,6 +268,35 @@ func claimRealmFirst(kind, target string) bool {
 // zone_first would just echo TwinBee back at the same people. Bulletin still
 // gets the story onto the site and into the daily digest, where it reads as a
 // roundup rather than a repeat.
+// emitBoredomDeparture announces that an adventurer got restless and let itself
+// out. The one thing gogobee never used to tell Pete was that an expedition
+// *started* — every dispatch was an outcome — which is why the two live boredom
+// runs produced no news at all.
+//
+// The event_type must be one Pete already knows: an unknown type is a 400, which
+// retries and then parks the bulletin forever. Deploy Pete first.
+func emitBoredomDeparture(userID id.UserID, zone ZoneDefinition, level int) {
+	if !peteclient.Enabled() || !newsEmissionOn() {
+		return
+	}
+	name := charName(userID)
+	if name == "" {
+		return
+	}
+	ts := nowUnix()
+	disc := fmt.Sprintf("departure:%s:%d", zone.ID, ts)
+	emitFact(peteclient.Fact{
+		GUID:       fmt.Sprintf("departure:%s:%s:%d", eventToken(userID, disc), zone.ID, ts),
+		EventType:  "departure",
+		Tier:       "bulletin",
+		Subject:    name,
+		Zone:       zone.Display,
+		Level:      level,
+		Outcome:    "departed",
+		OccurredAt: ts,
+	}, userID, "")
+}
+
 func emitZoneClearNews(userID id.UserID, exp *Expedition) {
 	if !peteclient.Enabled() || !newsEmissionOn() {
 		return

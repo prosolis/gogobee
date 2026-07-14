@@ -285,6 +285,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.expeditionRecapTicker()
 	go p.expeditionAmbientTicker()
 	go p.expeditionAutoRunTicker()
+	go p.peteRosterTicker()
 	go p.expeditionExtractionSweepTicker()
 	go p.expeditionBoredomTicker()
 

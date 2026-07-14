@@ -286,6 +286,7 @@ func (p *AdventurePlugin) tryBoredomStart(uid id.UserID, now time.Time) error {
 
 	slog.Info("boredom: adventurer left on its own",
 		"user", uid, "zone", zone.ID, "level", c.Level, "cost", int(cost))
+	emitBoredomDeparture(uid, zone, c.Level)
 	return p.SendDM(uid, renderBoredomDepartureDM(zone, supplies, purchase))
 }
 

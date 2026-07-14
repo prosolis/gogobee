@@ -194,10 +194,55 @@ func (c *Client) drain(ctx context.Context) {
 	}
 }
 
+// RosterEntry is one adventurer's currently-true state for Pete's live board.
+// Unlike a Fact, nothing here is an event — it is what is true right now.
+type RosterEntry struct {
+	Token     string `json:"token"` // stable per-player board token, never a Matrix handle
+	Name      string `json:"name"`  // character name only
+	Level     int    `json:"level"`
+	ClassRace string `json:"class_race,omitempty"`
+	Status    string `json:"status"` // "expedition" | "idle"
+	Zone      string `json:"zone,omitempty"`
+	Region    string `json:"region,omitempty"`
+	Day       int    `json:"day,omitempty"`
+	IdleHours int    `json:"idle_hours,omitempty"`
+}
+
+// RosterSnapshot is the complete board. Complete is load-bearing: Pete replaces
+// its whole board with this, so anyone omitted (opted out, no character) drops
+// off the public page. A partial snapshot would silently strand people on it.
+type RosterSnapshot struct {
+	SnapshotAt  int64         `json:"snapshot_at"`
+	Adventurers []RosterEntry `json:"adventurers"`
+}
+
+// PushRoster sends the board to Pete, synchronously, and drops it on failure.
+//
+// Deliberately NOT on the durable queue that carries Facts. A fact is history —
+// losing "Josie died" loses it forever, so it retries. A snapshot is a
+// photograph of the present, and a retried one is a *lie*: by the time it lands,
+// Josie has moved. The next tick carries the truth anyway, so a failed push is
+// simply forgotten. That is also what lets Pete's staleness timer work — if we
+// stay down, nothing arrives, and the board correctly stops claiming to be live.
+func PushRoster(ctx context.Context, snap RosterSnapshot) error {
+	if !Enabled() {
+		return nil
+	}
+	payload, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/ingest/roster", payload)
+}
+
 // send POSTs one payload to Pete's ingest endpoint with bearer auth. Mirrors the
 // bearer-POST pattern in email_nag.go:sendCode.
 func (c *Client) send(ctx context.Context, payload []byte) error {
-	url := c.cfg.IngestURL + "/api/ingest/adventure"
+	return c.post(ctx, "/api/ingest/adventure", payload)
+}
+
+func (c *Client) post(ctx context.Context, path string, payload []byte) error {
+	url := c.cfg.IngestURL + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return err
