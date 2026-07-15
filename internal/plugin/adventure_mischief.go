@@ -941,12 +941,23 @@ func (p *AdventurePlugin) placeWebMischief(order peteclient.MischiefOrder) misch
 		WindowEndsAt: now.Add(mischiefWindow),
 	}
 	if err := insertMischiefContract(c); err != nil {
-		// The one-live-per-target index rejected us — a rival contract is already
-		// on this target (ours isn't: we checked order_guid up top). Refund and
-		// bounce; the buyer lost a race, not money.
-		refund()
-		slog.Warn("mischief: web contract insert rejected", "order", order.GUID, "target", targetID, "err", err)
-		return mischiefWebResult{Status: mischiefWebBouncedIneligible, Detail: "someone already sent a monster their way"}
+		// Distinguish the one legitimate rejection from a transient write failure,
+		// the same way the Matrix path does — the two want opposite handling.
+		if liveMischiefForTarget(targetID) != nil {
+			// A rival contract is already on this target (ours isn't: we checked
+			// order_guid up top). Refund and terminally bounce; the buyer lost a
+			// race, not money.
+			refund()
+			slog.Warn("mischief: web contract lost the race", "order", order.GUID, "target", targetID)
+			return mischiefWebResult{Status: mischiefWebBouncedIneligible, Detail: "someone already sent a monster their way"}
+		}
+		// A real write failure with no rival to blame. Leave the debit in place
+		// and the order pending — the guid makes the next poll's re-run a no-op on
+		// the money and a clean retry on the insert, which is the whole point of
+		// keying on it. Refunding here would both drop a placeable hit and, worse,
+		// hand out a free contract if the retry then succeeded against the credit.
+		slog.Warn("mischief: web contract insert failed, will retry", "order", order.GUID, "target", targetID, "err", err)
+		return mischiefWebResult{Retry: true}
 	}
 
 	p.announceMischiefContract(c, tier)
