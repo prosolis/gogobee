@@ -245,6 +245,39 @@ type RosterEntry struct {
 	Region    string `json:"region,omitempty"`
 	Day       int    `json:"day,omitempty"`
 	IdleHours int    `json:"idle_hours,omitempty"`
+
+	// Detail is the public, expanded sheet — stats and equipped gear — shown on
+	// the click-through detail page. Nil for an entry we couldn't fully load.
+	// Public-tier: no Matrix handle, keyed only by the anonymous Token, same as
+	// the summary fields above.
+	Detail *RosterDetail `json:"detail,omitempty"`
+}
+
+// RosterDetail is everything a visitor may see on an adventurer's detail page:
+// the current combat sheet and equipped gear, plus live expedition context. It
+// rides the roster push because it is small and shares the board's semantics —
+// a photograph of the present, fine to drop and refresh, never a handle.
+type RosterDetail struct {
+	HPCurrent  int        `json:"hp_current"`
+	HPMax      int        `json:"hp_max"`
+	TempHP     int        `json:"temp_hp,omitempty"`
+	ArmorClass int        `json:"armor_class"`
+	Abilities  [6]int     `json:"abilities"` // STR, DEX, CON, INT, WIS, CHA scores
+	Modifiers  [6]int     `json:"modifiers"` // matching ability modifiers
+	Gear       []GearItem `json:"gear,omitempty"`
+	// Expedition context, present only while on a run.
+	Supplies    int    `json:"supplies,omitempty"`
+	ThreatLevel int    `json:"threat_level,omitempty"`
+	Room        string `json:"room,omitempty"`
+}
+
+// GearItem is one equipped piece for the armor/gear panel.
+type GearItem struct {
+	Slot       string `json:"slot"` // weapon | armor | helmet | boots | tool
+	Name       string `json:"name"`
+	Tier       int    `json:"tier"`
+	Condition  int    `json:"condition"`
+	Masterwork bool   `json:"masterwork,omitempty"`
 }
 
 // MischiefBalance is one buyer's advisory euro balance, ridden along with the
@@ -301,6 +334,71 @@ func PushRoster(ctx context.Context, snap RosterSnapshot) error {
 		return err
 	}
 	return std.post(ctx, "/api/ingest/roster", payload)
+}
+
+// PlayerDetail is the private, owner-only expansion for one player: inventory,
+// vault, house, and pets. Like MischiefBalance it is keyed by localpart (the
+// sign-in name), in its own keyspace on Pete — Pete only ever serves it back to
+// the one authenticated user it belongs to, never on the public board. It
+// carries the player's current board Token too, so Pete can answer "is the
+// signed-in viewer the owner of the adventurer on this page?" by a join, without
+// ever having to reverse the one-way token.
+type PlayerDetail struct {
+	Localpart string     `json:"localpart"`
+	Token     string     `json:"token"`
+	Inventory []ItemView `json:"inventory,omitempty"`
+	Vault     []ItemView `json:"vault,omitempty"`
+	House     HouseView  `json:"house"`
+	Pets      []PetView  `json:"pets,omitempty"`
+}
+
+// ItemView is one backpack or vault item for the private inventory panel.
+type ItemView struct {
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Tier   int    `json:"tier"`
+	Value  int64  `json:"value"`
+	Temper int    `json:"temper,omitempty"`
+}
+
+// HouseView is the owner's housing summary.
+type HouseView struct {
+	Tier        int     `json:"tier"`
+	LoanBalance int     `json:"loan_balance,omitempty"`
+	Autopay     bool    `json:"autopay,omitempty"`
+	Rate        float64 `json:"rate,omitempty"`
+}
+
+// PetView is one pet slot.
+type PetView struct {
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Level     int    `json:"level"`
+	XP        int    `json:"xp,omitempty"`
+	ArmorTier int    `json:"armor_tier,omitempty"`
+}
+
+// DetailSnapshot is the complete private-detail set, pushed whole and replacing
+// Pete's copy — same complete-snapshot contract as the roster, so a player who
+// drops out of the game stops having a stale self-view on Pete.
+type DetailSnapshot struct {
+	SnapshotAt int64          `json:"snapshot_at"`
+	Players    []PlayerDetail `json:"players"`
+}
+
+// PushDetails sends the private self-detail set to Pete, best-effort. Like the
+// roster it is dropped on failure — the next tick carries a fresher copy — and
+// it rides its own endpoint (not the roster body) so a fat inventory can't blow
+// the roster push's size budget or its drop-the-lie semantics.
+func PushDetails(ctx context.Context, snap DetailSnapshot) error {
+	if !Enabled() {
+		return nil
+	}
+	payload, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/ingest/detail", payload)
 }
 
 // post sends one payload to a Pete endpoint with bearer auth. Mirrors the

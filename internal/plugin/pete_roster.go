@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -48,6 +49,7 @@ func (p *AdventurePlugin) peteRosterTicker() {
 			continue // master switch off: the board goes stale on Pete and says so
 		}
 		p.pushRoster()
+		p.pushDetails()
 	}
 }
 
@@ -86,6 +88,159 @@ func (p *AdventurePlugin) pushRoster() {
 			"adventurers", len(snap.Adventurers))
 		rosterPushOK = true
 	}
+}
+
+// detailPushOK mirrors rosterPushOK for the private self-detail push: log the
+// transitions and nothing else.
+var detailPushOK bool
+
+func (p *AdventurePlugin) pushDetails() {
+	snap, err := buildDetailSnapshot(time.Now().UTC())
+	if err != nil {
+		slog.Error("roster: build detail snapshot failed", "err", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), rosterPushTimeout)
+	defer cancel()
+
+	if err := peteclient.PushDetails(ctx, snap); err != nil {
+		if detailPushOK {
+			slog.Warn("roster: detail push failed, self-view will go stale on Pete", "err", err)
+		} else {
+			slog.Debug("roster: detail push failed, dropping snapshot", "err", err)
+		}
+		detailPushOK = false
+		return
+	}
+
+	if !detailPushOK {
+		slog.Info("roster: private self-detail accepted by Pete", "players", len(snap.Players))
+		detailPushOK = true
+	}
+}
+
+// rosterDetail assembles the public detail sheet for one adventurer: the combat
+// stats every visitor may see, plus equipped gear. Expedition context (supplies,
+// threat, room) is layered on by the caller when a run is active.
+func rosterDetail(uid id.UserID, c *DnDCharacter) *peteclient.RosterDetail {
+	d := &peteclient.RosterDetail{
+		HPCurrent:  c.HPCurrent,
+		HPMax:      c.HPMax,
+		TempHP:     c.TempHP,
+		ArmorClass: c.ArmorClass,
+		Abilities:  [6]int{c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA},
+		Modifiers:  c.Modifiers(),
+	}
+	if equip, err := loadAdvEquipment(uid); err == nil {
+		for _, slot := range allSlots {
+			e, ok := equip[slot]
+			if !ok || e == nil {
+				continue
+			}
+			d.Gear = append(d.Gear, peteclient.GearItem{
+				Slot:       string(slot),
+				Name:       e.Name,
+				Tier:       e.Tier,
+				Condition:  e.Condition,
+				Masterwork: e.Masterwork,
+			})
+		}
+	}
+	return d
+}
+
+// buildDetailSnapshot assembles the private, owner-only detail set — inventory,
+// vault, house, and pets for every alive player, keyed by localpart. It does NOT
+// skip opted-out players: the news opt-out governs the *public* board, but this
+// data is never shown there — Pete only ever serves it back to the one signed-in
+// owner it belongs to, so hiding a player from it would only deny them their own
+// sheet. The board token rides along so Pete can match owner↔page without ever
+// reversing the one-way token.
+func buildDetailSnapshot(now time.Time) (peteclient.DetailSnapshot, error) {
+	snap := peteclient.DetailSnapshot{SnapshotAt: now.Unix()}
+	rows, err := db.Get().Query(`SELECT user_id FROM player_meta WHERE alive = 1`)
+	if err != nil {
+		return snap, err
+	}
+	var uids []id.UserID
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			rows.Close()
+			return snap, err
+		}
+		uids = append(uids, id.UserID(uid))
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return snap, err
+	}
+
+	for _, uid := range uids {
+		lp := localpartOf(uid)
+		if lp == "" {
+			continue
+		}
+		adv, err := loadAdvCharacter(uid)
+		if err != nil || adv == nil {
+			continue
+		}
+		pd := peteclient.PlayerDetail{
+			Localpart: lp,
+			Token:     eventToken(uid, "roster"),
+			House: peteclient.HouseView{
+				Tier:        adv.HouseTier,
+				LoanBalance: adv.HouseLoanBalance,
+				Autopay:     adv.HouseAutopay,
+				Rate:        adv.HouseCurrentRate,
+			},
+			Pets: petViews(adv),
+		}
+		if items, err := loadAdvInventory(uid); err == nil {
+			pd.Inventory = itemViews(items)
+		}
+		if items, err := loadAdvVault(uid); err == nil {
+			pd.Vault = itemViews(items)
+		}
+		snap.Players = append(snap.Players, pd)
+	}
+	return snap, nil
+}
+
+func itemViews(items []AdvItem) []peteclient.ItemView {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]peteclient.ItemView, 0, len(items))
+	for _, it := range items {
+		out = append(out, peteclient.ItemView{
+			Name:   it.Name,
+			Type:   it.Type,
+			Tier:   it.Tier,
+			Value:  it.Value,
+			Temper: it.Temper,
+		})
+	}
+	return out
+}
+
+// petViews returns the player's live pet slots. A pet that was chased away is
+// omitted — it isn't with them right now, and the self-view shows the present.
+func petViews(adv *AdventureCharacter) []peteclient.PetView {
+	var out []peteclient.PetView
+	if adv.PetType != "" && !adv.PetChasedAway {
+		out = append(out, peteclient.PetView{
+			Type: adv.PetType, Name: adv.PetName, Level: adv.PetLevel,
+			XP: adv.PetXP, ArmorTier: adv.PetArmorTier,
+		})
+	}
+	if adv.Pet2Type != "" && !adv.Pet2ChasedAway {
+		out = append(out, peteclient.PetView{
+			Type: adv.Pet2Type, Name: adv.Pet2Name, Level: adv.Pet2Level,
+			XP: adv.Pet2XP, ArmorTier: adv.Pet2ArmorTier,
+		})
+	}
+	return out
 }
 
 // buildRosterSnapshot assembles the complete board.
@@ -172,6 +327,8 @@ func buildRosterSnapshot(now time.Time, euro *EuroPlugin) (peteclient.RosterSnap
 			Status:    "idle",
 		}
 
+		e.Detail = rosterDetail(pl.uid, c)
+
 		if exp, _ := getActiveExpedition(pl.uid); exp != nil {
 			zone := zoneOrFallback(exp.ZoneID)
 			e.Status = "expedition"
@@ -180,6 +337,15 @@ func buildRosterSnapshot(now time.Time, euro *EuroPlugin) (peteclient.RosterSnap
 			if IsMultiRegionZone(exp.ZoneID) {
 				if r, ok := CurrentRegion(exp); ok {
 					e.Region = r.Name
+				}
+			}
+			if e.Detail != nil {
+				e.Detail.Supplies = int(exp.Supplies.Current)
+				e.Detail.ThreatLevel = exp.ThreatLevel
+				if exp.RunID != "" {
+					if run, rerr := getZoneRun(exp.RunID); rerr == nil && run != nil && run.TotalRooms > 0 {
+						e.Detail.Room = fmt.Sprintf("%d / %d", run.CurrentRoom+1, run.TotalRooms)
+					}
 				}
 			}
 		} else if pl.lastAction != nil {
