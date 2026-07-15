@@ -350,19 +350,20 @@ type mischiefContract struct {
 	BlessingCount   int
 	Source          string
 	Outcome         string
+	OrderGUID       string // the web order this was opened for; "" for a Matrix buy
 	CreatedAt       time.Time
 	WindowEndsAt    time.Time
 }
 
 const mischiefCols = `contract_id, buyer_id, target_id, tier, fee, paid, status, signed,
 	escalation_count, COALESCE(escalated_by, ''), blessing_count, source, COALESCE(outcome, ''),
-	created_at, window_ends_at`
+	COALESCE(order_guid, ''), created_at, window_ends_at`
 
 func scanMischief(row interface{ Scan(...any) error }) (*mischiefContract, error) {
 	c := &mischiefContract{}
 	err := row.Scan(&c.ID, &c.BuyerID, &c.TargetID, &c.Tier, &c.Fee, &c.Paid, &c.Status,
 		&c.Signed, &c.EscalationCount, &c.EscalatedBy, &c.BlessingCount, &c.Source, &c.Outcome,
-		&c.CreatedAt, &c.WindowEndsAt)
+		&c.OrderGUID, &c.CreatedAt, &c.WindowEndsAt)
 	if err != nil {
 		return nil, err
 	}
@@ -382,12 +383,30 @@ func scanMischief(row interface{ Scan(...any) error }) (*mischiefContract, error
 func insertMischiefContract(c *mischiefContract) error {
 	_, err := db.Get().Exec(
 		`INSERT INTO mischief_contracts
-		 (contract_id, buyer_id, target_id, tier, fee, paid, status, signed, source,
+		 (contract_id, buyer_id, target_id, tier, fee, paid, status, signed, source, order_guid,
 		  created_at, window_ends_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, string(c.BuyerID), string(c.TargetID), c.Tier, c.Fee, c.Paid,
-		c.Status, c.Signed, c.Source, c.CreatedAt, c.WindowEndsAt)
+		c.Status, c.Signed, c.Source, c.OrderGUID, c.CreatedAt, c.WindowEndsAt)
 	return err
+}
+
+// mischiefContractByOrderGUID finds the contract opened for a web order, if one
+// exists. It is the idempotency backstop for the storefront's retrying claim
+// loop: a placement that already created a contract must not create a second, so
+// the loop checks here before it debits or inserts. Returns nil when no contract
+// carries this order (the normal first-attempt case).
+func mischiefContractByOrderGUID(orderGUID string) *mischiefContract {
+	if orderGUID == "" {
+		return nil
+	}
+	row := db.Get().QueryRow(
+		`SELECT `+mischiefCols+` FROM mischief_contracts WHERE order_guid = ?`, orderGUID)
+	c, err := scanMischief(row)
+	if err != nil {
+		return nil // sql.ErrNoRows (the common case) or a scan miss — treat as absent
+	}
+	return c
 }
 
 // blessMischiefContract adds one ward to an open contract and reports whether it
@@ -797,6 +816,175 @@ func (p *AdventurePlugin) mischiefSendCmd(ctx MessageContext, fields []string) e
 		"😈 Done. A **%s** is on its way to **%s** — it finds them in about %s.\n%s",
 		strings.ToLower(tier.Display), p.DisplayName(targetID), formatDuration(mischiefWindow),
 		mischiefBuyerNote(signed)))
+}
+
+// Web-order verdicts. These strings are the storefront order statuses Pete files,
+// so they are part of the wire contract — see internal/storage/mischief.go.
+const (
+	mischiefWebPlaced            = "placed"
+	mischiefWebBouncedFunds      = "bounced_funds"
+	mischiefWebBouncedIneligible = "bounced_ineligible"
+)
+
+// mischiefWebResult is the outcome of a web placement. Retry means "leave the
+// order pending" — a transient failure (DB hiccup, half-done state) the poll loop
+// should try again — and is never itself a verdict Pete files.
+type mischiefWebResult struct {
+	Status string
+	Detail string
+	Retry  bool
+}
+
+// placeWebMischief opens a contract for a web storefront order. It is the poll
+// loop's fulfilment path, and differs from the Matrix mischiefSendCmd in exactly
+// the ways a retrying wire demands:
+//
+//   - The order guid is the idempotency key. The euro debit goes through
+//     DebitIdem keyed on it, and the contract is stamped with it, so a claim
+//     whose ack was lost can re-run the whole thing without charging twice or
+//     opening a second contract.
+//   - It debits *before* checking eligibility, then refunds if the target turns
+//     out ineligible. Doing it in that order keeps the money state a pure
+//     function of the guid: on any retry the debit is a settled fact, not a
+//     coin-flip on where we crashed. The Matrix path can afford the friendlier
+//     check-first flow because it never retries.
+//   - It returns a verdict for Pete to render instead of replying in a room.
+//
+// The buyer is DM'd the same way a Matrix buyer is told, and the victim and news
+// feed see exactly what a Matrix contract produces — a web hit is indistinguishable
+// downstream from one placed in chat.
+func (p *AdventurePlugin) placeWebMischief(order peteclient.MischiefOrder) mischiefWebResult {
+	// Already fulfilled on a prior attempt — the surest idempotency check there
+	// is. Report placed without touching money again.
+	if existing := mischiefContractByOrderGUID(order.GUID); existing != nil {
+		return mischiefWebResult{Status: mischiefWebPlaced, Detail: "already placed"}
+	}
+
+	tier, ok := mischiefTierByKey(order.Tier)
+	if !ok {
+		return mischiefWebResult{Status: mischiefWebBouncedIneligible, Detail: "unknown tier"}
+	}
+
+	buyerID, ok := p.mischiefBuyerMXID(order.BuyerUsername)
+	if !ok {
+		return mischiefWebResult{Status: mischiefWebBouncedIneligible, Detail: "unknown buyer"}
+	}
+	targetID, ok := resolveRosterToken(order.TargetToken)
+	if !ok {
+		return mischiefWebResult{Status: mischiefWebBouncedIneligible, Detail: "that adventurer is no longer on the board"}
+	}
+	if targetID == buyerID {
+		return mischiefWebResult{Status: mischiefWebBouncedIneligible, Detail: "you can't put a price on your own head"}
+	}
+
+	// Serialise this buyer's placements, same discipline as the Matrix path: two
+	// orders in one poll batch can't both slip past the daily cap.
+	lock := p.advUserLock(buyerID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	now := time.Now().UTC()
+	if n := mischiefBuyerCountSince(buyerID, now.Add(-24*time.Hour)); n >= mischiefBuyerDailyCap {
+		return mischiefWebResult{Status: mischiefWebBouncedIneligible, Detail: fmt.Sprintf("daily limit reached (%d today)", n)}
+	}
+
+	price := tier.Fee
+	if order.Signed {
+		price = mischiefSignedFee(tier.Fee)
+	}
+
+	// Affordability gate, matching the Matrix path: a mischief buy takes no credit,
+	// so a buyer short of the fee is bounced before any money moves. The gate is
+	// skipped on a retry of an order already debited — re-reading the now-lower
+	// balance would wrongly bounce a hit that was already paid for.
+	if !p.euro.HasExternalTx(order.GUID) && int(p.euro.GetBalance(buyerID)) < price {
+		return mischiefWebResult{Status: mischiefWebBouncedFunds, Detail: fmt.Sprintf("a %s runs %s", strings.ToLower(tier.Display), fmtEuro(price))}
+	}
+
+	// Debit, keyed on the order guid so a replay is a no-op. ok=false means the
+	// buyer is already past the debt floor, which the gate above all but rules out.
+	debited, _, err := p.euro.DebitIdem(buyerID, float64(price), "mischief_contract_web", order.GUID)
+	if err != nil {
+		slog.Warn("mischief: web debit errored, will retry", "order", order.GUID, "err", err)
+		return mischiefWebResult{Retry: true}
+	}
+	if !debited {
+		return mischiefWebResult{Status: mischiefWebBouncedFunds, Detail: fmt.Sprintf("a %s runs %s", strings.ToLower(tier.Display), fmtEuro(price))}
+	}
+
+	// From here the buyer is debited; every failure path must refund. The refund
+	// keys on a distinct external id so it can't be swallowed as a replay of the
+	// debit itself.
+	refund := func() {
+		if _, _, err := p.euro.CreditIdem(buyerID, float64(price), "mischief_refund_web", order.GUID+":refund"); err != nil {
+			slog.Error("mischief: web refund failed — buyer is short", "order", order.GUID, "buyer", buyerID, "err", err)
+		}
+	}
+
+	if reason := p.mischiefTargetable(targetID, tier, now); reason != "" {
+		refund()
+		return mischiefWebResult{Status: mischiefWebBouncedIneligible, Detail: reason}
+	}
+
+	c := &mischiefContract{
+		ID:           uuid.NewString(),
+		BuyerID:      buyerID,
+		TargetID:     targetID,
+		Tier:         tier.Key,
+		Fee:          tier.Fee,
+		Paid:         price,
+		Status:       mischiefStatusOpen,
+		Signed:       order.Signed,
+		Source:       "web",
+		OrderGUID:    order.GUID,
+		CreatedAt:    now,
+		WindowEndsAt: now.Add(mischiefWindow),
+	}
+	if err := insertMischiefContract(c); err != nil {
+		// The one-live-per-target index rejected us — a rival contract is already
+		// on this target (ours isn't: we checked order_guid up top). Refund and
+		// bounce; the buyer lost a race, not money.
+		refund()
+		slog.Warn("mischief: web contract insert rejected", "order", order.GUID, "target", targetID, "err", err)
+		return mischiefWebResult{Status: mischiefWebBouncedIneligible, Detail: "someone already sent a monster their way"}
+	}
+
+	p.announceMischiefContract(c, tier)
+	p.dmMischiefVictim(c, tier)
+	emitMischiefContractNews(c, tier)
+	p.dmMischiefWebBuyer(buyerID, c, tier)
+
+	return mischiefWebResult{Status: mischiefWebPlaced, Detail: fmt.Sprintf("a %s is on the way", strings.ToLower(tier.Display))}
+}
+
+// mischiefBuyerMXID reconstructs the buyer's Matrix id from the username Pete
+// sent. Authentik's preferred_username is the Matrix localpart by construction
+// (verified on the MAS box), so the buyer is @<username>:<our homeserver>. We
+// lowercase because Matrix localparts are lowercase and an Authentik display of
+// the name may not be. Fails closed if the client isn't up (tests) or the name
+// is empty.
+func (p *AdventurePlugin) mischiefBuyerMXID(username string) (id.UserID, bool) {
+	lp := strings.ToLower(strings.TrimSpace(username))
+	if lp == "" || p.Client == nil {
+		return "", false
+	}
+	server := p.Client.UserID.Homeserver()
+	if server == "" {
+		return "", false
+	}
+	return id.NewUserID(lp, server), true
+}
+
+// dmMischiefWebBuyer tells a web buyer their hit is out, the same courtesy a
+// Matrix buyer gets in-thread. Best-effort: a buyer with no DM room open just
+// watches the storefront status instead.
+func (p *AdventurePlugin) dmMischiefWebBuyer(buyerID id.UserID, c *mischiefContract, tier mischiefTier) {
+	msg := fmt.Sprintf("😈 The word's out. A **%s** is on its way to **%s** — it finds them in about %s.\n%s",
+		strings.ToLower(tier.Display), p.DisplayName(c.TargetID), formatDuration(mischiefWindow),
+		mischiefBuyerNote(c.Signed))
+	if err := p.SendDM(buyerID, msg); err != nil {
+		slog.Debug("mischief: web buyer DM failed", "buyer", buyerID, "err", err)
+	}
 }
 
 // mischiefOpenContractFor resolves "@user" to the contract currently open against

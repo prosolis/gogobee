@@ -60,7 +60,7 @@ func (p *AdventurePlugin) peteRosterTicker() {
 var rosterPushOK bool
 
 func (p *AdventurePlugin) pushRoster() {
-	snap, err := buildRosterSnapshot(time.Now().UTC())
+	snap, err := buildRosterSnapshot(time.Now().UTC(), p.euro)
 	if err != nil {
 		slog.Error("roster: build snapshot failed", "err", err)
 		return
@@ -96,8 +96,8 @@ func (p *AdventurePlugin) pushRoster() {
 // anonymized. A standing row showing class + level + zone is trivially
 // re-identifiable (there is one level-14 cleric), so "an adventurer" would have
 // been a fig leaf; absence is the only honest option.
-func buildRosterSnapshot(now time.Time) (peteclient.RosterSnapshot, error) {
-	snap := peteclient.RosterSnapshot{SnapshotAt: now.Unix()}
+func buildRosterSnapshot(now time.Time, euro *EuroPlugin) (peteclient.RosterSnapshot, error) {
+	snap := peteclient.RosterSnapshot{SnapshotAt: now.Unix(), Tiers: mischiefTierCatalog()}
 
 	// Both DATETIME columns selected raw and folded in Go — NOT COALESCE()'d in
 	// SQL. modernc.org/sqlite rebuilds a time.Time from the column's *declared*
@@ -133,6 +133,22 @@ func buildRosterSnapshot(now time.Time) (peteclient.RosterSnapshot, error) {
 	}
 
 	for _, pl := range players {
+		// The buyer's own advisory balance rides along in a separate keyspace,
+		// keyed by localpart (their sign-in name), and is collected *before* the
+		// opt-out skip: opt-out hides a player from the public board, but their own
+		// balance is private on Pete — only ever read for the user asking about
+		// themselves — so there is no reason to deny an opted-out player the
+		// storefront's affordability hint. localpart is lowercase, matching how the
+		// buyer signs in and how a web order's username is resolved back to an MXID.
+		if euro != nil {
+			if lp := localpartOf(pl.uid); lp != "" {
+				snap.Balances = append(snap.Balances, peteclient.MischiefBalance{
+					Username: lp,
+					Euro:     euro.GetBalance(pl.uid),
+				})
+			}
+		}
+
 		if isNewsOptedOut(pl.uid) {
 			continue
 		}
@@ -174,4 +190,48 @@ func buildRosterSnapshot(now time.Time) (peteclient.RosterSnapshot, error) {
 		snap.Adventurers = append(snap.Adventurers, e)
 	}
 	return snap, nil
+}
+
+// resolveRosterToken maps a board token back to the adventurer it names. The
+// token is a one-way HMAC (eventToken), so it can't be inverted — instead we
+// recompute every live player's token and match. The salt is DB-persisted, so a
+// token minted before a restart still resolves after one. O(players) per call,
+// which is nothing at realm scale and only runs when a web order is being placed.
+func resolveRosterToken(token string) (id.UserID, bool) {
+	if token == "" {
+		return "", false
+	}
+	rows, err := db.Get().Query(`SELECT user_id FROM player_meta WHERE alive = 1`)
+	if err != nil {
+		return "", false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			continue
+		}
+		if eventToken(id.UserID(uid), "roster") == token {
+			return id.UserID(uid), true
+		}
+	}
+	return "", false
+}
+
+// mischiefTierCatalog is the storefront price list, pushed on every tick so the
+// web shop always renders gogobee's current prices — a fee retune here reaches
+// Pete within a snapshot, and Pete never hardcodes a number of its own. The
+// signed fee is the same +25% sink a Matrix buyer pays to put their name on it.
+func mischiefTierCatalog() []peteclient.MischiefTier {
+	out := make([]peteclient.MischiefTier, 0, len(mischiefTiers))
+	for _, t := range mischiefTiers {
+		out = append(out, peteclient.MischiefTier{
+			Key:       t.Key,
+			Display:   t.Display,
+			Fee:       t.Fee,
+			SignedFee: mischiefSignedFee(t.Fee),
+			Blurb:     t.Blurb,
+		})
+	}
+	return out
 }

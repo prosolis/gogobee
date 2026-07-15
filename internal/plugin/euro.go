@@ -416,6 +416,21 @@ func (p *EuroPlugin) GetBalance(userID id.UserID) float64 {
 	return balance
 }
 
+// HasExternalTx reports whether a money move with this externalID has already
+// been applied. It lets a retrying web caller tell a first attempt from a replay:
+// on a first attempt the affordability gate must run, but on a retry of an order
+// already debited the gate must be skipped — the debit is a settled fact, and
+// re-reading the now-lower balance would wrongly bounce a hit the buyer paid for.
+func (p *EuroPlugin) HasExternalTx(externalID string) bool {
+	if externalID == "" {
+		return false
+	}
+	var one int
+	err := db.Get().QueryRow(
+		`SELECT 1 FROM euro_transactions WHERE external_id = ? LIMIT 1`, externalID).Scan(&one)
+	return err == nil
+}
+
 // ---------------------------------------------------------------------------
 // Idempotent money moves
 //

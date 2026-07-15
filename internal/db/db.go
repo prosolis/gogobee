@@ -462,6 +462,9 @@ func runMigrations(d *sql.DB) error {
 		// same durability, backoff and parking, so it rides the same queue and the
 		// row says where it's going. Existing rows are all facts, hence the default.
 		`ALTER TABLE pete_emit_queue ADD COLUMN path TEXT NOT NULL DEFAULT '/api/ingest/adventure'`,
+		// Mischief M3 — the web order a contract was opened for, the storefront's
+		// end-to-end idempotency key. "" for a Matrix buy. See placeWebMischief.
+		`ALTER TABLE mischief_contracts ADD COLUMN order_guid TEXT`,
 	}
 	for _, stmt := range columnMigrations {
 		if _, err := d.Exec(stmt); err != nil {
@@ -1784,6 +1787,11 @@ CREATE TABLE IF NOT EXISTS mischief_contracts (
 	blessing_count   INTEGER NOT NULL DEFAULT 0,
 	source           TEXT NOT NULL DEFAULT 'matrix',
 	outcome          TEXT,
+	-- The web order this contract was opened for, "" for a Matrix buy. It is the
+	-- storefront's idempotency key: a poll loop whose claim-ack was lost retries
+	-- the whole placement, and finding the contract already stamped with the order
+	-- is what stops a second one being opened (and a second euro debit chased).
+	order_guid       TEXT,
 	created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	window_ends_at   DATETIME NOT NULL,
 	resolved_at      DATETIME

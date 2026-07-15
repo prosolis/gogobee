@@ -49,7 +49,7 @@ func TestRosterSnapshotReadsTheClock(t *testing.T) {
 	// Never acted at all: the fold falls through to created_at.
 	seedRosterPlayer(t, "@never:test", "Camcast", &old, nil)
 
-	snap, err := buildRosterSnapshot(now)
+	snap, err := buildRosterSnapshot(now, nil)
 	if err != nil {
 		t.Fatalf("buildRosterSnapshot: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestRosterOmitsOptedOut(t *testing.T) {
 	seedRosterPlayer(t, "@hidden:test", "Quack", &old, &old)
 	setNewsOptout("@hidden:test", true)
 
-	snap, err := buildRosterSnapshot(now)
+	snap, err := buildRosterSnapshot(now, nil)
 	if err != nil {
 		t.Fatalf("buildRosterSnapshot: %v", err)
 	}

@@ -247,12 +247,41 @@ type RosterEntry struct {
 	IdleHours int    `json:"idle_hours,omitempty"`
 }
 
+// MischiefBalance is one buyer's advisory euro balance, ridden along with the
+// board. It is keyed by localpart — a buyer's own sign-in name — not by the
+// anonymous roster token, so it lives in a separate keyspace on Pete and only
+// ever surfaces for the one authenticated user asking about themselves. That is
+// what lets the storefront grey out tiers a buyer can't afford without ever
+// putting a number next to a name on the public board.
+type MischiefBalance struct {
+	Username string  `json:"username"`
+	Euro     float64 `json:"euro"`
+}
+
+// MischiefTier is one rung of the storefront price list. gogobee is the sole
+// authority on prices, so it pushes the whole catalog on every tick: a fee
+// retune reaches the storefront within a snapshot and Pete never hardcodes a
+// number that can silently drift out of step with the game.
+type MischiefTier struct {
+	Key       string `json:"key"`
+	Display   string `json:"display"`
+	Fee       int    `json:"fee"`
+	SignedFee int    `json:"signed_fee"`
+	Blurb     string `json:"blurb,omitempty"`
+}
+
 // RosterSnapshot is the complete board. Complete is load-bearing: Pete replaces
 // its whole board with this, so anyone omitted (opted out, no character) drops
 // off the public page. A partial snapshot would silently strand people on it.
+//
+// Balances and Tiers ride the same tick — advisory affordability and the live
+// price list for the mischief storefront. Both are best-effort on Pete's side; a
+// board that lands without them is still a good board.
 type RosterSnapshot struct {
-	SnapshotAt  int64         `json:"snapshot_at"`
-	Adventurers []RosterEntry `json:"adventurers"`
+	SnapshotAt  int64             `json:"snapshot_at"`
+	Adventurers []RosterEntry     `json:"adventurers"`
+	Balances    []MischiefBalance `json:"balances,omitempty"`
+	Tiers       []MischiefTier    `json:"tiers,omitempty"`
 }
 
 // PushRoster sends the board to Pete, synchronously, and drops it on failure.
@@ -386,6 +415,59 @@ func EmitEscrowVerdict(v EscrowVerdict) {
 	// guids are random. A collision would be a lost verdict, so don't rely on
 	// luck for it.
 	enqueue("escrow:"+v.GUID, escrowVerdictPath, payload)
+}
+
+// ---------------------------------------------------------------------------
+// The mischief storefront's reverse pipe
+//
+// A buyer places a hit on Pete's web board; we poll for it, do the real work
+// against our own ledger, and hand back a verdict. Same shape as the escrow
+// border above — Pete has no route in, so we poll — but simpler: the order guid
+// is the end-to-end idempotency key (external_id on the euro debit, stamped on
+// the contract), and the *verdict rides the claim itself* rather than a durable
+// queue. If a claim fails, the order stays pending and the next poll re-offers
+// it; re-running is a no-op, so the poll loop is its own retry.
+// ---------------------------------------------------------------------------
+
+// MischiefOrder is one storefront order as Pete describes it. buyer_sub stays on
+// Pete (it is the OIDC subject, only for "my orders"); we get the username, which
+// we turn into a Matrix id, and the anonymous target token.
+type MischiefOrder struct {
+	GUID          string `json:"guid"`
+	BuyerUsername string `json:"buyer_username"`
+	TargetToken   string `json:"target_token"`
+	TargetName    string `json:"target_name"`
+	Tier          string `json:"tier"`
+	Signed        bool   `json:"signed"`
+	Status        string `json:"status"`
+	CreatedAt     int64  `json:"created_at"`
+}
+
+// PendingMischief asks Pete for orders waiting on us. A Pete that predates the
+// storefront answers 404, which surfaces here as an error; the poll loop treats
+// any error as "nothing to do this tick" and logs it quietly, so gogobee can ship
+// ahead of Pete without noise.
+func PendingMischief(ctx context.Context) ([]MischiefOrder, error) {
+	if !Enabled() {
+		return nil, nil
+	}
+	var out []MischiefOrder
+	if err := std.getJSON(ctx, "/api/mischief/pending", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ClaimMischief files our verdict on an order: the terminal status Pete should
+// show and a human note. Idempotent on Pete, so a retried claim is safe. The
+// verdict rides this call directly — there is no separate durable emit, because
+// a lost claim just leaves the order pending for the next poll to re-run.
+func ClaimMischief(ctx context.Context, guid, status, detail string) error {
+	payload, err := json.Marshal(map[string]string{"guid": guid, "status": status, "detail": detail})
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/mischief/claim", payload)
 }
 
 // getJSON does a bearer-authed GET and decodes the body.
