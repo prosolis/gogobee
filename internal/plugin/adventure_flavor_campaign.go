@@ -231,6 +231,30 @@ var secretRoomDiscovery = map[string]string{
 	"feywild_crossing.illusion_garden":  "🔍 **The Illusion Garden.** A too-kind grove that isn't there when you look straight at it. He can afford beauty here; it costs him nothing to keep.",
 	"dragons_lair.hoard_pillar":         "🔍 **A pillar of hoard.** Coin drifted to the ceiling around a single column the wyrm guards more than gold — as if something at its heart were worth more.",
 	"abyss_portal.reality_seam":         "🔍 **A seam in the real.** The gate's arithmetic frays here, and through the frayed place a hand once reached to leave a thing behind on the way out.",
+
+	// Tier 6 post-game — the Phylactery Verses of the Ossuary Ascendant. Each
+	// is a stanza of the plan Valdris has been reciting to himself for years;
+	// finding one un-writes a line of his invulnerability before the fight.
+	"ossuary_ascendant.f1b2":  "🔍 **The Verse of the Waiting Grave.** Behind a course of bone laid one brick too shallow, the first stanza — inked while he was still only pretending to be dead. Read aloud, it costs him something he was counting on keeping.",
+	"ossuary_ascendant.f2b2":  "🔍 **The Verse of the Bait Long Set.** A reliquary that rings hollow gives up the middle stanza: the years of losing on purpose, written as scripture. He signed each defeat like an appointment kept.",
+	"ossuary_ascendant.cap32": "🔍 **The Verse of the Homecoming.** The highest vertebra was set wrong on purpose, and the last stanza waits inside it — the line about you, by name, arriving exactly on schedule. He did not expect you to read it first.",
+
+	// The Unplace — impossible-geometry pockets. Not hidden so much as
+	// briefly, wrongly, adjacent.
+	"unplace.f1b2":  "🔍 **The Pocket That Isn't.** A corner you already turned is somehow still ahead, and the room it opens onto was never built — but something has been storing things in it anyway.",
+	"unplace.f2b2":  "🔍 **The Unstitched Pocket.** Between two seams the celestial hasn't reached, a gap the geometry forgot to close. What fell through the tear years ago settled here, waiting to be un-fallen.",
+	"unplace.cap32": "🔍 **The Undone Pocket.** A place that is not here, and closer than the door — the shortcut that shouldn't be legal. Whoever last took it left their toll behind, undone but not gone.",
+
+	// The Drowned Star — radiant pockets of the wreck, lit from within by the
+	// dying star Seraphel still shields.
+	"drowned_star.f1b2":  "🔍 **The Radiant Wreck-Pocket.** Off the pilgrim road, past a pressure that folds lesser divers, a pocket of hull still glowing with the star's oldest light — and the offerings of pilgrims who made it this far and no further.",
+	"drowned_star.f2b2":  "🔍 **The Star-Lit Vault.** One lantern here is not a lure. It leads to a vault the trench sealed with radiance instead of stone, and the light has been keeping its contents ten thousand years fresh.",
+	"drowned_star.cap32": "🔍 **The Heart's Own Light.** A crack in the radiance, where the star leaks the light it was born with. Reaching in is reaching into the thing Seraphel has died a little every day to protect.",
+
+	// The Last Meridian — hours the Custodian hasn't decommissioned yet.
+	"last_meridian.f1b2":  "🔍 **The Unspent Hour-Pocket.** The Hour Thief overlooked one recess, and the hour it holds is still whole — sixty unspent minutes the observatory never got to bill.",
+	"last_meridian.f2b2":  "🔍 **The Unwound Vault.** Behind the escapement, on the rhythm's dead beat, a strongroom the pendulum's swing kept sealed. Time out of phase with the rest of the clock, and everything left in it, out of phase too.",
+	"last_meridian.cap32": "🔍 **The Hour Never Struck.** One hour on the great face was never dismantled — never even struck. It is still open, and inside it the world's timekeeping kept a little of everything it measured.",
 }
 
 // secretRoomDiscoveryLine returns the discovery flavor for a secret room,
@@ -261,6 +285,13 @@ var bossEpilogues = map[ZoneID]string{
 	ZoneFeywildCrossing: "The Thornmother's garden was the loveliest cage on the road, tended for a patient guest. He can afford patience; you are learning why. She wilts, and the too-kind light dims by exactly one degree.",
 	ZoneDragonsLair: "Behind Infernax's hoard, past the last of the gold, a single crown rests on no head — guarded better than the treasure, because it was the one thing here he was ever paid to keep. The dragon dies never knowing what it was.",
 	ZoneAbyssPortal: "Belaxath guarded a door that opens outward, built by someone who only ever meant to leave through it. As the demon falls, the gate does not close. It was never meant to keep things out — only to let one thing come home.",
+
+	// Tier 6 post-game epilogues — beyond the edge of the map.
+	ZoneOssuaryAscendant: "Valdris does not gloat when he goes; he files. His last breath is a clerk's satisfaction — the plan closed, the ledger squared, the grave at last furnished to code. He dies the only person here who was never surprised by anything, and that, more than the crown, is what you take home.",
+	ZoneFirstHoard:       "Aurvandryx never wanted the gold; the gold wanted her, gathered itself into a bed around her clutch the way frost gathers on the warmest thing left in a room. She dies shielding eggs that will not hatch, and the mountain finally, truly cools. Every dragon you ever fought was a scale she shed and forgot.",
+	ZoneUnplace:          "The Seamstress finishes her stitch as she falls, and the wound she was sewing shut simply — stops needing to be. The Unplace folds back into a single honest room. She volunteered for this centuries early, and no one ever came to relieve her. You are the closest thing to relief she got.",
+	ZoneDrownedStar:      "Seraphel lets go. Ten thousand years she would not, and now the dying star sinks the last fathom into the dark and is, mercifully, only dark. She is not sad. She is off-duty, for the first time since the world had names, and the trench goes quiet in a way that is almost a held breath finally let out.",
+	ZoneLastMeridian:     "The Custodian apologizes one final time, on schedule, and then the hour it was dismantling simply doesn't arrive. The clocks do not stop so much as agree to stop mattering. Its contract is complete. It thanks you for your patience — and you realize, too late to ask, who it was that hired it.",
 }
 
 // bossEpilogueLine returns the campaign capstone for a zone boss, or "" for

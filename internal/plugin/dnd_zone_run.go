@@ -219,6 +219,15 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 			break
 		}
 	}
+	// Tier 6 zones are excluded from zonesForLevel by design; they're
+	// admitted here only through the post-game unlock (both T5 bosses beaten
+	// + level ≥ floor). This is the shared engine safety net — command sites
+	// give the friendly reason before reaching here.
+	if isPostgameZone(zoneID) {
+		if ok, _ := postgameUnlocked(userID, dndLevel); ok {
+			allowed = true
+		}
+	}
 	if !allowed {
 		return nil, ErrZoneTierLocked
 	}

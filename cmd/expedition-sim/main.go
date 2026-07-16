@@ -342,6 +342,17 @@ func runOne(dataDir string, uid id.UserID, class plugin.DnDClass, level int, zon
 		runner.Euro.Credit(muid, bank, "expedition-sim bankroll")
 		members = append(members, muid)
 	}
+	// T6 post-game zones are gated on both T5 bosses beaten (+ level floor).
+	// The synthetic party has no expedition history, so seed the two clears
+	// for every party member — the per-member unlock check in !expedition
+	// accept would otherwise refuse the whole party at the zone's edge.
+	if plugin.IsPostgameZone(zone) {
+		for _, m := range append([]id.UserID{uid}, members...) {
+			if err := runner.SeedPostgameUnlock(m); err != nil {
+				return nil, fmt.Errorf("seed postgame unlock: %w", err)
+			}
+		}
+	}
 	runner.Companion = companion
 	return runner.RunPartyExpedition(uid, members, zone, cap, days)
 }

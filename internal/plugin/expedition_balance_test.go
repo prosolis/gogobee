@@ -123,6 +123,11 @@ var phase1TierCenterline = map[ZoneTier]int{
 	ZoneTierJourneyman: 9,
 	ZoneTierVeteran:    13,
 	ZoneTierLegendary:  17,
+	// Tier 6 post-game runs at the cap. These in-process matrices tune the
+	// T1–T5 global levers; T6 rows are simmed and logged for reference but
+	// carry no band assertion here — T6 balance is owned by the remote P7
+	// sweep (n=750, control arm) per gogobee_postgame_zones_plan.md §4.
+	ZoneTierMythic: 20,
 }
 
 // TestExpeditionBalance_Phase1_FullMatrix is the Phase 1 baseline-

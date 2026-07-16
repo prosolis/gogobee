@@ -375,6 +375,12 @@ func isBoredomDriven(userID id.UserID, now time.Time) bool {
 func pickBoredomZone(uid id.UserID, level int) (ZoneDefinition, bool) {
 	var inBand, nonRaid []ZoneDefinition
 	for _, z := range allZones() {
+		// Tier 6 post-game zones are opt-in endgame — a bored character never
+		// wanders into one on autopilot, even once unlocked. This picker walks
+		// allZones() directly (not zonesForLevel), so exclude T6 explicitly.
+		if z.Tier >= ZoneTierMythic {
+			continue
+		}
 		if level < z.LevelMin || level > z.LevelMax {
 			continue
 		}

@@ -32,6 +32,15 @@ const (
 	ZoneDragonsLair     ZoneID = "dragons_lair"
 	ZoneAbyssPortal     ZoneID = "abyss_portal"
 
+	// Tier 6 "Mythic" post-game zones. Gated behind postgameUnlocked (both
+	// T5 bosses beaten + level ≥ 18), never surfaced by zonesForLevel. See
+	// postgame_zones.go and gogobee_postgame_zones_plan.md.
+	ZoneOssuaryAscendant ZoneID = "ossuary_ascendant"
+	ZoneFirstHoard       ZoneID = "first_hoard"
+	ZoneUnplace          ZoneID = "unplace"
+	ZoneDrownedStar      ZoneID = "drowned_star"
+	ZoneLastMeridian     ZoneID = "last_meridian"
+
 	// ZoneArena is a synthetic ID — never registered via registerZone, so
 	// !zone enter can't reach it. It exists to route renderBossOutcome's
 	// twinBeeLine calls when an arena fight (resolveArenaBoss, post-L2)
@@ -51,6 +60,10 @@ const (
 	ZoneTierJourneyman ZoneTier = 3
 	ZoneTierVeteran    ZoneTier = 4
 	ZoneTierLegendary  ZoneTier = 5
+	// ZoneTierMythic — Tier 6 post-game. Earned, not leveled: unlocked by
+	// postgameUnlocked (both T5 bosses beaten + level ≥ 18), excluded from
+	// zonesForLevel unconditionally.
+	ZoneTierMythic ZoneTier = 6
 )
 
 // ZoneEnemy is a roster entry. BestiaryID must resolve via dndBestiary
@@ -83,6 +96,7 @@ type ZoneLootEntry struct {
 	ItemID       string
 	DropChance   float64 // 0..1; ignored if UniqueAlways
 	UniqueAlways bool    // always drops; used for quest items
+	BossOnly     bool    // only rolls on the zone-boss kill (signature items)
 	Note         string  // free-text descriptor (unique-item flavor)
 }
 
@@ -172,6 +186,13 @@ func zonesForLevel(dndLevel int) []ZoneDefinition {
 	var out []ZoneDefinition
 	for _, id := range zoneOrder {
 		z := dndZoneRegistry[id]
+		// Tier 6 (Mythic post-game) is never level-gated in. It has its own
+		// unlock (postgameUnlocked) and surfaces only via postgameZones().
+		// Note: maxTier = playerTier+2 has no hard clamp, so a high-level
+		// player would otherwise reach a T6 zone here — exclude explicitly.
+		if z.Tier >= ZoneTierMythic {
+			continue
+		}
 		if int(z.Tier) <= maxTier {
 			out = append(out, z)
 		}

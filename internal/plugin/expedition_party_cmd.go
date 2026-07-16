@@ -137,7 +137,16 @@ func (p *AdventurePlugin) expeditionCmdAccept(ctx MessageContext, c *DnDCharacte
 	}
 
 	zone := zoneOrFallback(exp.ZoneID)
-	if !zoneOpenToLevel(exp.ZoneID, c.Level) {
+	// Tier 6 zones are excluded from zonesForLevel by design, so zoneOpenToLevel
+	// would refuse every seat; they carry their own post-game unlock instead.
+	// Non-postgame zones keep the plain level gate.
+	if isPostgameZone(exp.ZoneID) {
+		// A party can't smuggle an ungated member into a Tier 6 zone: every seat
+		// must have cleared the post-game unlock on their own.
+		if ok, reason := postgameUnlocked(ctx.Sender, c.Level); !ok {
+			return p.SendDM(ctx.Sender, reason)
+		}
+	} else if !zoneOpenToLevel(exp.ZoneID, c.Level) {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
 			"**%s** is beyond you for now — come back at a higher level.", zone.Display))
 	}

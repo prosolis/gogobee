@@ -37,11 +37,21 @@ type ThomCraftRecipe struct {
 	// inventory items consumed (§8.2 Drow Poison Blade). 0 = none.
 	BladeWeaponCount int
 	OutputName       string
-	OutputType       string // material | item | weapon | armor | accessory | consumable
+	OutputType       string // material | item | weapon | armor | accessory | consumable | magic_item
 	OutputTier       int
 	OutputValue      int64
-	Description      string
-	DiscoveryHint    string // shown when newly discovered via !lore
+	// OutputSkillSource, when set, is stamped on the crafted AdvItem's
+	// SkillSource — used for OutputType "magic_item" so the result equips and
+	// resolves against the registry exactly like a looted magic item
+	// ("magic_item:<id>").
+	OutputSkillSource string
+	Description       string
+	DiscoveryHint     string // shown when newly discovered via !lore
+	// AlwaysKnown recipes are never gated behind !lore discovery — they're the
+	// T6 signature-item pity path, craftable the moment a player holds enough
+	// of the zone's crafting anchor. They stay hidden from the recipe book
+	// until the player actually has an anchor in hand (see renderRecipeBook).
+	AlwaysKnown bool
 }
 
 var thomCraftRecipes = []ThomCraftRecipe{
@@ -115,6 +125,83 @@ var thomCraftRecipes = []ThomCraftRecipe{
 		Description:      "Coated blade — sleep-on-crit (DC 14 CON save) for 3 combats. (Effect wired in R6 polish.)",
 		DiscoveryHint:    "Thom turns a glass vial in the lamplight. \"Drow brew, drawn down to a thin coat. Bring me any blade you trust — sword, dagger, scimitar, makes no odds. The poison picks the edge.\"",
 	},
+
+	// ── T6 signature-item pity path ────────────────────────────────────────
+	// AlwaysKnown: no !lore gate. Each consumes 5 of the zone's crafting anchor
+	// (one guaranteed per clear) so a bad-luck run of the 4–6% signature drops
+	// still converts ~5 clears into a guaranteed best-in-slot. Output is a real
+	// magic_item — same SkillSource shape the loot path stamps — so it equips
+	// and carries its postgameSignatureEffects delta.
+	{
+		ID:   "anchor_crown_of_the_patient_king",
+		Name: "Crown of the Patient King",
+		Ingredients: map[string]int{
+			"Verse Bound Folio": 5,
+		},
+		OutputName:        "Crown of the Patient King",
+		OutputType:        "magic_item",
+		OutputTier:        5,
+		OutputValue:       8000,
+		OutputSkillSource: "magic_item:crown_of_the_patient_king",
+		AlwaysKnown:       true,
+		Description:       "Legendary crown of Valdris — the patient plan, worn on the head. (Pity craft: 5 Ossuary clears.)",
+	},
+	{
+		ID:   "anchor_aegis_of_the_first_scale",
+		Name: "Aegis of the First Scale",
+		Ingredients: map[string]int{
+			"Cooling Ember Of Aurvandryx": 5,
+		},
+		OutputName:        "Aegis of the First Scale",
+		OutputType:        "magic_item",
+		OutputTier:        5,
+		OutputValue:       9000,
+		OutputSkillSource: "magic_item:aegis_of_the_first_scale",
+		AlwaysKnown:       true,
+		Description:       "Legendary breastplate of the Ember Before Fire — best armor in the game. (Pity craft: 5 First Hoard clears.)",
+	},
+	{
+		ID:   "anchor_needle_of_the_seam",
+		Name: "Needle of the Seam",
+		Ingredients: map[string]int{
+			"Spool Of Undone Geometry": 5,
+		},
+		OutputName:        "Needle of the Seam",
+		OutputType:        "magic_item",
+		OutputTier:        5,
+		OutputValue:       8000,
+		OutputSkillSource: "magic_item:needle_of_the_seam",
+		AlwaysKnown:       true,
+		Description:       "Legendary needle-dagger of the Seamstress — best caster weapon. (Pity craft: 5 Unplace clears.)",
+	},
+	{
+		ID:   "anchor_halo_of_the_sunken_dawn",
+		Name: "Halo of the Sunken Dawn",
+		Ingredients: map[string]int{
+			"Ember Of The Drowned Star": 5,
+		},
+		OutputName:        "Halo of the Sunken Dawn",
+		OutputType:        "magic_item",
+		OutputTier:        5,
+		OutputValue:       8000,
+		OutputSkillSource: "magic_item:halo_of_the_sunken_dawn",
+		AlwaysKnown:       true,
+		Description:       "Legendary halo of Seraphel — the first true healer's crown. (Pity craft: 5 Drowned Star clears.)",
+	},
+	{
+		ID:   "anchor_the_second_hand",
+		Name: "The Second Hand",
+		Ingredients: map[string]int{
+			"Unspent Hour": 5,
+		},
+		OutputName:        "The Second Hand",
+		OutputType:        "magic_item",
+		OutputTier:        5,
+		OutputValue:       8000,
+		OutputSkillSource: "magic_item:the_second_hand",
+		AlwaysKnown:       true,
+		Description:       "Legendary sidearm of the Last Meridian — best martial sidearm. (Pity craft: 5 Last Meridian clears.)",
+	},
 }
 
 // bladeWeaponKeywords are the name-substrings that qualify an AdvItem
@@ -138,6 +225,13 @@ func isBladeWeapon(it AdvItem) bool {
 		}
 	}
 	return false
+}
+
+// recipeCraftable reports whether a player may craft a recipe: either they've
+// discovered it via !lore, or it's an AlwaysKnown pity recipe (which skips
+// discovery entirely — the crafting anchor it needs is the real gate).
+func recipeCraftable(known map[string]bool, r ThomCraftRecipe) bool {
+	return r.AlwaysKnown || known[r.ID]
 }
 
 // findRecipeByID returns the recipe with the given ID.
@@ -410,7 +504,7 @@ func (p *AdventurePlugin) handleCraftCmd(ctx MessageContext, args string) error 
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
 			"No recipe matches '%s'. Try `!craft list` to see what you've discovered.", args))
 	}
-	if !known[recipe.ID] {
+	if !recipeCraftable(known, recipe) {
 		return p.SendDM(ctx.Sender,
 			"_Thom: \"Doesn't ring a bell. If you don't know the recipe, I don't either.\"_\n\nDiscover it via `!lore` first.")
 	}
@@ -427,12 +521,18 @@ func renderRecipeBook(userID id.UserID, known map[string]bool) string {
 	items, _ := loadAdvInventory(userID)
 	have := inventoryByName(items)
 
-	knownCount := 0
+	shownCount := 0
 	for _, r := range thomCraftRecipes {
-		if !known[r.ID] {
+		// AlwaysKnown pity recipes only surface once the player actually holds
+		// one of the crafting anchor — no need to spoil T6 chase items to a
+		// level-3 player. Discovered recipes always show.
+		switch {
+		case known[r.ID]:
+		case r.AlwaysKnown && recipeHasAnyIngredient(have, r):
+		default:
 			continue
 		}
-		knownCount++
+		shownCount++
 		sb.WriteString(fmt.Sprintf("**%s**\n", r.Name))
 		var parts []string
 		ready := true
@@ -463,17 +563,36 @@ func renderRecipeBook(userID id.UserID, known map[string]bool) string {
 		sb.WriteString("\n")
 	}
 
-	if knownCount == 0 {
+	if shownCount == 0 {
 		sb.WriteString("_You don't know any recipes yet. Try `!lore` at Thom Krooke's._\n\n")
 	}
 
-	hidden := len(thomCraftRecipes) - knownCount
+	// Only discoverable (non-AlwaysKnown) recipes count toward the !lore hint;
+	// pity recipes are never "discovered", so they'd make the count never zero.
+	hidden := 0
+	for _, r := range thomCraftRecipes {
+		if !r.AlwaysKnown && !known[r.ID] {
+			hidden++
+		}
+	}
 	if hidden > 0 {
 		sb.WriteString(fmt.Sprintf("_%d undiscovered recipe(s). Use `!lore` to dig._", hidden))
 	} else {
 		sb.WriteString("_All recipes discovered._")
 	}
 	return sb.String()
+}
+
+// recipeHasAnyIngredient reports whether the player holds at least one unit of
+// any of a recipe's named ingredients — the gate for surfacing an AlwaysKnown
+// pity recipe in the book.
+func recipeHasAnyIngredient(have map[string]int, r ThomCraftRecipe) bool {
+	for ing := range r.Ingredients {
+		if have[ing] > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // inventoryByName counts items grouped by name.
@@ -517,10 +636,11 @@ func (p *AdventurePlugin) executeCraft(userID id.UserID, r ThomCraftRecipe) erro
 	}
 
 	out := AdvItem{
-		Name:  r.OutputName,
-		Type:  r.OutputType,
-		Tier:  r.OutputTier,
-		Value: r.OutputValue,
+		Name:        r.OutputName,
+		Type:        r.OutputType,
+		Tier:        r.OutputTier,
+		Value:       r.OutputValue,
+		SkillSource: r.OutputSkillSource,
 	}
 	if err := addAdvInventoryItem(userID, out); err != nil {
 		return p.SendDM(userID, "Crafted item couldn't be deposited. Tell an admin.")
@@ -600,6 +720,11 @@ func (p *AdventurePlugin) handleLoreCmd(ctx MessageContext) error {
 
 	var undiscovered []ThomCraftRecipe
 	for _, r := range thomCraftRecipes {
+		// AlwaysKnown recipes are never in the discovery pool — they can't be
+		// "found" and shouldn't dilute the odds of finding the real ones.
+		if r.AlwaysKnown {
+			continue
+		}
 		if !known[r.ID] {
 			undiscovered = append(undiscovered, r)
 		}

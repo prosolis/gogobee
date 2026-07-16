@@ -128,10 +128,10 @@ func TestZoneRegistry_LootDropChances(t *testing.T) {
 func TestZoneRegistry_RoomCountSane(t *testing.T) {
 	// Long-expedition plan §2 widens the bands per tier: T1 12–14 up to
 	// T5 ~36–44. The guard floor stays at 5 (no zone should ever drop
-	// below that) and the ceiling tracks the T5 target.
+	// below that) and the ceiling tracks the T6 post-game target of 44–52.
 	for _, z := range allZones() {
-		if z.MinRooms < 5 || z.MaxRooms > 44 || z.MinRooms > z.MaxRooms {
-			t.Errorf("zone %s rooms %d-%d outside design (5-44, min<=max)",
+		if z.MinRooms < 5 || z.MaxRooms > 52 || z.MinRooms > z.MaxRooms {
+			t.Errorf("zone %s rooms %d-%d outside design (5-52, min<=max)",
 				z.ID, z.MinRooms, z.MaxRooms)
 		}
 	}
@@ -162,6 +162,7 @@ func TestZoneRegistry_LevelRangeMatchesTier(t *testing.T) {
 		ZoneTierJourneyman: {5, 8},
 		ZoneTierVeteran:    {8, 12},
 		ZoneTierLegendary:  {12, 20},
+		ZoneTierMythic:     {18, 20}, // post-game: gated by unlock, not level band
 	}
 	for _, z := range allZones() {
 		want, ok := expected[z.Tier]

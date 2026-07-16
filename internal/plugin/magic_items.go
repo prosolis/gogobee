@@ -46,10 +46,11 @@ type MagicItem struct {
 }
 
 // magicItemOverlay — hand-authored magic items that win on ID collision with
-// the generated SRD dump. Empty for now: the classifier output is the starting
-// point, and corrections (or wholly new items) land here rather than being
-// edited into the generated file.
-var magicItemOverlay []MagicItem
+// the generated SRD dump. Corrections (or wholly new items) land here rather
+// than being edited into the generated file. Today it carries the T6 signature
+// items (postgame_magic_items.go); this is a plain var reference, not an init()
+// append, so it resolves before buildMagicItemRegistry() reads it.
+var magicItemOverlay = postgameSignatureMagicItems
 
 // magicItemRegistry is the merged lookup table: the generated SRD dump with the
 // hand-authored overlay layered on top.

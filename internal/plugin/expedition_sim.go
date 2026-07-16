@@ -136,6 +136,30 @@ func (s *SimRunner) BuildCharacter(uid id.UserID, class DnDClass, level int) (*D
 	return c, nil
 }
 
+// SeedPostgameUnlock makes the synthetic user satisfy postgameUnlocked's
+// T5-clear gate by writing two completed, boss-defeated dnd_expedition rows
+// (dragons_lair + abyss_portal) into the sim's throwaway DB. Without this the
+// P1 gate in startZoneRun rejects every T6 zone ("did not persist after start")
+// and the sim can't reach post-game content. Sim/test-only — the live gate is
+// unchanged. Idempotent enough for a fresh per-run DB; call once after
+// BuildCharacter/PrepareRealCharacter when the target zone IsPostgameZone.
+func (s *SimRunner) SeedPostgameUnlock(uid id.UserID) error {
+	for i, z := range []ZoneID{ZoneDragonsLair, ZoneAbyssPortal} {
+		if _, err := db.Get().Exec(
+			`INSERT INTO dnd_expedition (expedition_id, user_id, zone_id, status, boss_defeated)
+			 VALUES (?, ?, ?, ?, 1)`,
+			fmt.Sprintf("sim-unlock-%s-%d", uid, i), string(uid), string(z), ExpeditionStatusComplete,
+		); err != nil {
+			return fmt.Errorf("seed T5 clear %s: %w", z, err)
+		}
+	}
+	return nil
+}
+
+// IsPostgameZone exports the T6 predicate so the sim binary (a separate
+// package) can decide whether to call SeedPostgameUnlock before a run.
+func IsPostgameZone(id ZoneID) bool { return isPostgameZone(id) }
+
 // PrepareRealCharacter readies an already-persisted character (loaded from a
 // copy of the prod DB) for a headless run. Unlike BuildCharacter it fabricates
 // nothing: the character keeps its real race/class/subclass/level, ability

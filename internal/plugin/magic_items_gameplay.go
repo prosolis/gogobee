@@ -184,9 +184,10 @@ type magicItemEffect struct {
 }
 
 // magicItemEffectOverlay — hand-authored per-item effects that win over the
-// codified formula. Empty for now; corrections land here rather than being
-// folded into the formula, mirroring magicItemOverlay in magic_items.go.
-var magicItemEffectOverlay = map[string]magicItemEffect{}
+// codified formula. Corrections land here rather than being folded into the
+// formula, mirroring magicItemOverlay in magic_items.go. Today it carries the
+// T6 signature items' bespoke combat numbers (postgame_magic_items.go).
+var magicItemEffectOverlay = postgameSignatureEffects
 
 // rarityPowerScalar is the codified power axis: rarer item, bigger delta.
 func rarityPowerScalar(r DnDRarity) float64 {

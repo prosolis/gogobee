@@ -160,6 +160,23 @@ func (p *AdventurePlugin) expeditionCmdList(ctx MessageContext, c *DnDCharacter)
 			i+1, z.Display, int(z.Tier), z.LevelMin, z.LevelMax, z.ID, suffix))
 		b.WriteString(fmt.Sprintf("    %s\n", z.Atmosphere))
 	}
+	// Post-game zones under the "Beyond the Map" divider (see zoneCmdList).
+	if pg := postgameZones(); len(pg) > 0 {
+		unlocked, reason := postgameUnlocked(ctx.Sender, c.Level)
+		b.WriteString("\n— Beyond the Map —\n")
+		if !unlocked {
+			b.WriteString(fmt.Sprintf("_%s_\n", reason))
+		}
+		for j, z := range pg {
+			if unlocked {
+				b.WriteString(fmt.Sprintf("**%d.** %s — _T%d, L%d+_  `!expedition start %s`\n",
+					len(zones)+j+1, z.Display, int(z.Tier), z.LevelMin, z.ID))
+			} else {
+				b.WriteString(fmt.Sprintf("🔒 %s — _T%d, L%d+_\n", z.Display, int(z.Tier), z.LevelMin))
+			}
+			b.WriteString(fmt.Sprintf("    %s\n", z.Atmosphere))
+		}
+	}
 	if exp, isLeader, _ := activeExpeditionFor(ctx.Sender); exp != nil {
 		zone := zoneOrFallback(exp.ZoneID)
 		tail := "Use `!expedition status` or `!expedition abandon`."
@@ -295,9 +312,12 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	if strings.EqualFold(zoneTok, "epilogue") {
 		return p.handleEpilogueEncounter(ctx)
 	}
-	available := zonesForLevel(c.Level)
+	available := availableZonesFor(ctx.Sender, c.Level)
 	zoneID, ok := resolveZoneInput(zoneTok, available)
 	if !ok {
+		if reason := postgameLockReason(zoneTok, ctx.Sender, c.Level); reason != "" {
+			return p.SendDM(ctx.Sender, reason)
+		}
 		return p.SendDM(ctx.Sender,
 			"Unknown zone for your level. Try `!expedition list`.")
 	}

@@ -98,6 +98,75 @@ func TestSeatParty_RefusedFollowerHaltsTheRun(t *testing.T) {
 	}
 }
 
+// Regression: a party could never seat a follower into a Tier 6 post-game
+// zone. expeditionCmdAccept ran the plain zoneOpenToLevel level gate first, and
+// T6 zones are excluded from zonesForLevel by design, so every unlocked member
+// was refused ("beyond you for now") before the post-game check could admit
+// them. The intended party-only endgame was unreachable. The fix routes T6
+// zones through postgameUnlocked instead of the level gate.
+func TestSeatParty_PostgameZoneSeatsUnlockedMembers(t *testing.T) {
+	setupZoneRunTestDB(t)
+	s := newPartySimRunner()
+
+	leader := id.UserID("@sim-pg-ok:example")
+	member := id.UserID("@sim-pg-ok-m1:example")
+	for _, u := range []id.UserID{leader, member} {
+		if _, err := s.BuildCharacter(u, ClassFighter, postgameLevelFloor+2); err != nil {
+			t.Fatalf("build %s: %v", u, err)
+		}
+		s.Euro.Credit(u, 50000, "test")
+		if err := s.SeedPostgameUnlock(u); err != nil {
+			t.Fatalf("seed unlock %s: %v", u, err)
+		}
+	}
+	defer cleanupExpeditions(leader)
+
+	ctx := MessageContext{Sender: leader}
+	if err := s.P.handleDnDExpeditionCmd(ctx, "start "+string(ZoneOssuaryAscendant)+" heavy"); err != nil {
+		t.Fatalf("start T6 expedition: %v", err)
+	}
+	if err := s.seatParty(leader, []id.UserID{member}); err != nil {
+		t.Fatalf("seatParty refused an unlocked member into a T6 zone: %v", err)
+	}
+	exp, _ := getActiveExpedition(leader)
+	if exp == nil {
+		t.Fatal("expedition vanished while seating")
+	}
+	if size, err := partySize(exp.ID); err != nil || size != 2 {
+		t.Fatalf("roster = %d (%v), want 2 (leader + 1 unlocked member)", size, err)
+	}
+}
+
+// The post-game gate must still refuse a member who has NOT beaten both T5
+// bosses, even in a party: no smuggling an ungated seat into a T6 zone. The
+// leader is unlocked (so the expedition starts); the member is not.
+func TestSeatParty_PostgameZoneRefusesUngatedMember(t *testing.T) {
+	setupZoneRunTestDB(t)
+	s := newPartySimRunner()
+
+	leader := id.UserID("@sim-pg-gate:example")
+	member := id.UserID("@sim-pg-gate-m1:example")
+	for _, u := range []id.UserID{leader, member} {
+		if _, err := s.BuildCharacter(u, ClassFighter, postgameLevelFloor+2); err != nil {
+			t.Fatalf("build %s: %v", u, err)
+		}
+		s.Euro.Credit(u, 50000, "test")
+	}
+	// Only the leader clears the T5 gate; the member stays ungated.
+	if err := s.SeedPostgameUnlock(leader); err != nil {
+		t.Fatalf("seed leader unlock: %v", err)
+	}
+	defer cleanupExpeditions(leader)
+
+	ctx := MessageContext{Sender: leader}
+	if err := s.P.handleDnDExpeditionCmd(ctx, "start "+string(ZoneOssuaryAscendant)+" heavy"); err != nil {
+		t.Fatalf("start T6 expedition: %v", err)
+	}
+	if err := s.seatParty(leader, []id.UserID{member}); err == nil {
+		t.Fatal("seatParty admitted an ungated member into a T6 zone")
+	}
+}
+
 // A misspelled -class / -party-classes token used to build a character at the
 // unknown-class fallback — 1 HP — and the run reported a perfectly normal
 // outcome for it. Nothing downstream treats an unknown class as an error, so

@@ -92,6 +92,16 @@ func zoneRoomEntryPool(zoneID ZoneID) []string {
 		return append(append([]string{}, flavor.RoomEntryDragonsLair...), flavor.RoomEntryGeneric...)
 	case ZoneAbyssPortal:
 		return append(append([]string{}, flavor.RoomEntryAbyssPortal...), flavor.RoomEntryGeneric...)
+	case ZoneOssuaryAscendant:
+		return append(append([]string{}, flavor.RoomEntryOssuaryAscendant...), flavor.RoomEntryGeneric...)
+	case ZoneFirstHoard:
+		return append(append([]string{}, flavor.RoomEntryFirstHoard...), flavor.RoomEntryGeneric...)
+	case ZoneUnplace:
+		return append(append([]string{}, flavor.RoomEntryUnplace...), flavor.RoomEntryGeneric...)
+	case ZoneDrownedStar:
+		return append(append([]string{}, flavor.RoomEntryDrownedStar...), flavor.RoomEntryGeneric...)
+	case ZoneLastMeridian:
+		return append(append([]string{}, flavor.RoomEntryLastMeridian...), flavor.RoomEntryGeneric...)
 	}
 	return flavor.RoomEntryGeneric
 }
@@ -120,6 +130,16 @@ func bossEntryPool(zoneID ZoneID) []string {
 		return flavor.BossEntryInfernax
 	case ZoneAbyssPortal:
 		return flavor.BossEntryBelaxath
+	case ZoneOssuaryAscendant:
+		return flavor.BossEntryValdrisAscendant
+	case ZoneFirstHoard:
+		return flavor.BossEntryAurvandryx
+	case ZoneUnplace:
+		return flavor.BossEntrySeamstress
+	case ZoneDrownedStar:
+		return flavor.BossEntrySeraphel
+	case ZoneLastMeridian:
+		return flavor.BossEntryCustodian
 	}
 	return flavor.BossEntryGeneric
 }
@@ -182,6 +202,16 @@ func zoneLorePool(zoneID ZoneID) []string {
 		return append(append([]string{}, flavor.LoreLinesDragonsLair...), flavor.LoreLines...)
 	case ZoneAbyssPortal:
 		return append(append([]string{}, flavor.LoreLinesAbyssPortal...), flavor.LoreLines...)
+	case ZoneOssuaryAscendant:
+		return append(append([]string{}, flavor.LoreLinesOssuaryAscendant...), flavor.LoreLines...)
+	case ZoneFirstHoard:
+		return append(append([]string{}, flavor.LoreLinesFirstHoard...), flavor.LoreLines...)
+	case ZoneUnplace:
+		return append(append([]string{}, flavor.LoreLinesUnplace...), flavor.LoreLines...)
+	case ZoneDrownedStar:
+		return append(append([]string{}, flavor.LoreLinesDrownedStar...), flavor.LoreLines...)
+	case ZoneLastMeridian:
+		return append(append([]string{}, flavor.LoreLinesLastMeridian...), flavor.LoreLines...)
 	}
 	return flavor.LoreLines
 }
@@ -211,6 +241,16 @@ func bossSignaturePool(zoneID ZoneID) []string {
 		return flavor.InfernaxSignatureCallouts
 	case ZoneAbyssPortal:
 		return flavor.BelaxathSignatureCallouts
+	case ZoneOssuaryAscendant:
+		return flavor.ValdrisAscendantSignatureCallouts
+	case ZoneFirstHoard:
+		return flavor.AurvandryxSignatureCallouts
+	case ZoneUnplace:
+		return flavor.SeamstressSignatureCallouts
+	case ZoneDrownedStar:
+		return flavor.SeraphelSignatureCallouts
+	case ZoneLastMeridian:
+		return flavor.CustodianSignatureCallouts
 	}
 	return nil
 }
@@ -236,6 +276,16 @@ func bossPhaseTwoPool(zoneID ZoneID) []string {
 		return flavor.InfernaxPhaseTwoLines
 	case ZoneAbyssPortal:
 		return flavor.BelaxathPhaseTwoLines
+	case ZoneOssuaryAscendant:
+		return flavor.ValdrisAscendantPhaseTwoLines
+	case ZoneFirstHoard:
+		return flavor.AurvandryxPhaseTwoLines
+	case ZoneUnplace:
+		return flavor.SeamstressPhaseTwoLines
+	case ZoneDrownedStar:
+		return flavor.SeraphelPhaseTwoLines
+	case ZoneLastMeridian:
+		return flavor.CustodianPhaseTwoLines
 	}
 	return nil
 }

@@ -357,7 +357,7 @@ func (p *AdventurePlugin) resolveTrapRoomLegacy(userID id.UserID, run *DungeonRu
 // to a single "coins" item with rolled value; everything else becomes a
 // treasure-tier inventory item with a tier-derived placeholder value
 // (zone equipment registry wiring is a later content phase).
-func (p *AdventurePlugin) rollZoneLoot(userID id.UserID, run *DungeonRun, zone ZoneDefinition) []string {
+func (p *AdventurePlugin) rollZoneLoot(userID id.UserID, run *DungeonRun, zone ZoneDefinition, bossCleared bool) []string {
 	rng := rand.New(rand.NewPCG(uint64(zoneSelectorHash(run.RunID, run.CurrentRoom)), 0x100712))
 	// DM mood tilts probabilistic drop chances. UniqueAlways entries are
 	// untouched — those are story drops, not flavor for the DM to gate.
@@ -367,6 +367,13 @@ func (p *AdventurePlugin) rollZoneLoot(userID id.UserID, run *DungeonRun, zone Z
 	}
 	var granted []string
 	for _, entry := range zone.Loot {
+		// BossOnly (signature) drops only roll on the true zone-boss / whole-zone
+		// clear. rollZoneLoot fires on every region completion of a multi-region
+		// zone; without this gate a T6 signature item would get four roll chances
+		// per run instead of one at the boss.
+		if entry.BossOnly && !bossCleared {
+			continue
+		}
 		if !entry.UniqueAlways {
 			chance := entry.DropChance * moodMult
 			if rng.Float64() > chance {
@@ -403,6 +410,15 @@ func zoneLootToInventory(entry ZoneLootEntry, zone ZoneDefinition, rng *rand.Ran
 			Tier:  int(zone.Tier),
 			Value: int64(val),
 		}, true
+	}
+	// Registry-backed loot (T6 signature items and any future magic-item drops)
+	// materializes as a real equippable magic_item — the SkillSource tag is what
+	// the equip path and magicItemEffectFor key off. Plain named entries (legacy
+	// zone signature items not in the registry) fall through to treasure below.
+	if mi, ok := magicItemRegistry[entry.ItemID]; ok {
+		item := magicItemSell(mi)
+		item.SkillSource = "magic_item:" + mi.ID
+		return item, true
 	}
 	tier := int(zone.Tier)
 	displayName := titleCaseUnderscored(entry.ItemID)

@@ -118,6 +118,25 @@ func (p *AdventurePlugin) zoneCmdList(ctx MessageContext, c *DnDCharacter) error
 			i+1, z.Display, int(z.Tier), z.LevelMin, z.LevelMax, z.ID))
 		b.WriteString(fmt.Sprintf("    %s\n", z.Atmosphere))
 	}
+	// Post-game zones render under a divider once any exist. Unlocked players
+	// see enterable entries (indexed continuing from the list above, matching
+	// availableZonesFor); locked players see aspiration + the unlock hint.
+	if pg := postgameZones(); len(pg) > 0 {
+		unlocked, reason := postgameUnlocked(ctx.Sender, c.Level)
+		b.WriteString("\n— Beyond the Map —\n")
+		if !unlocked {
+			b.WriteString(fmt.Sprintf("_%s_\n", reason))
+		}
+		for j, z := range pg {
+			if unlocked {
+				b.WriteString(fmt.Sprintf("**%d.** %s — _T%d, L%d+_  `!zone enter %s`\n",
+					len(zones)+j+1, z.Display, int(z.Tier), z.LevelMin, z.ID))
+			} else {
+				b.WriteString(fmt.Sprintf("🔒 %s — _T%d, L%d+_\n", z.Display, int(z.Tier), z.LevelMin))
+			}
+			b.WriteString(fmt.Sprintf("    %s\n", z.Atmosphere))
+		}
+	}
 	if active, isLeader, _ := activeZoneRunFor(ctx.Sender); active != nil {
 		zone := zoneOrFallback(active.ZoneID)
 		tail := "Use `!zone status` or `!zone abandon`."
@@ -200,9 +219,12 @@ func (p *AdventurePlugin) zoneCmdEnter(ctx MessageContext, c *DnDCharacter, rest
 			"🛌 You're still resting — %s remaining. The dungeon won't go anywhere.",
 			formatRespecDuration(remaining)))
 	}
-	available := zonesForLevel(c.Level)
+	available := availableZonesFor(ctx.Sender, c.Level)
 	id, ok := resolveZoneInput(rest, available)
 	if !ok {
+		if reason := postgameLockReason(rest, ctx.Sender, c.Level); reason != "" {
+			return p.SendDM(ctx.Sender, reason)
+		}
 		return p.SendDM(ctx.Sender,
 			"Unknown zone for your level. Try `!zone list` to see what's available.")
 	}
@@ -762,7 +784,7 @@ func (p *AdventurePlugin) advanceOnceWithOpts(ctx MessageContext, compact, inlin
 			b.WriteString(line)
 			b.WriteString("\n\n")
 		}
-		if granted := p.rollZoneLoot(ctx.Sender, run, zone); len(granted) > 0 {
+		if granted := p.rollZoneLoot(ctx.Sender, run, zone, !midZone); len(granted) > 0 {
 			b.WriteString("**Loot:**\n")
 			for _, id := range granted {
 				b.WriteString("• " + id + "\n")

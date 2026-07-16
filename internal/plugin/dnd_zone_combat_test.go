@@ -507,6 +507,33 @@ func TestZoneTrapRoom_AntimagicFieldNoHPLoss(t *testing.T) {
 	}
 }
 
+// TestZoneLootToInventory_RegistryItemBecomesMagicItem — a signature drop whose
+// ItemID is in the magic-item registry materializes as an equippable magic_item
+// carrying the "magic_item:<id>" SkillSource, not generic treasure.
+func TestZoneLootToInventory_RegistryItemBecomesMagicItem(t *testing.T) {
+	zone, ok := getZone(ZoneFirstHoard)
+	if !ok {
+		t.Fatal("first_hoard zone not registered")
+	}
+	rng := newDeterministicRNG(t, "sig-loot")
+	entry := ZoneLootEntry{ItemID: "aegis_of_the_first_scale", DropChance: 1.0, BossOnly: true}
+	item, ok := zoneLootToInventory(entry, zone, rng)
+	if !ok {
+		t.Fatal("zoneLootToInventory returned ok=false for a registry item")
+	}
+	if item.Type != "magic_item" {
+		t.Errorf("Type = %q, want magic_item", item.Type)
+	}
+	if item.SkillSource != "magic_item:aegis_of_the_first_scale" {
+		t.Errorf("SkillSource = %q, want magic_item:aegis_of_the_first_scale", item.SkillSource)
+	}
+	// A plain non-registry entry still falls through to treasure.
+	plain, _ := zoneLootToInventory(ZoneLootEntry{ItemID: "cooling_ember_of_aurvandryx", UniqueAlways: true}, zone, rng)
+	if plain.Type != "treasure" {
+		t.Errorf("crafting anchor Type = %q, want treasure", plain.Type)
+	}
+}
+
 func TestRollZoneLoot_BossLootDrops(t *testing.T) {
 	setupAuditTestDB(t)
 	uid := id.UserID("@zone-loot:example")
@@ -517,7 +544,7 @@ func TestRollZoneLoot_BossLootDrops(t *testing.T) {
 	zone, _ := getZone(ZoneCryptValdris)
 
 	p := &AdventurePlugin{}
-	granted := p.rollZoneLoot(uid, run, zone)
+	granted := p.rollZoneLoot(uid, run, zone, true)
 	// Crypt of Valdris has UniqueAlways "valdris_phylactery_shard" + always-drop coins.
 	foundShard := false
 	foundCoins := false

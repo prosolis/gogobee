@@ -18,11 +18,58 @@ func TestRecipeRegistry_IngredientsExistInResources(t *testing.T) {
 		}
 	}
 	for _, r := range thomCraftRecipes {
+		// AlwaysKnown pity recipes consume zone-loot crafting anchors, not
+		// gather-resource materials — validated separately below.
+		if r.AlwaysKnown {
+			continue
+		}
 		for ing := range r.Ingredients {
 			if !known[ing] {
 				t.Errorf("recipe %s references unknown ingredient %q", r.ID, ing)
 			}
 		}
+	}
+}
+
+// TestPityRecipes_AnchorsAndOutputsResolve — the T6 signature-item pity
+// recipes consume a zone-loot UniqueAlways crafting anchor and emit a real
+// registry magic item. Validate both ends: every ingredient name matches a
+// UniqueAlways zone-loot drop's inventory name, and every OutputSkillSource
+// points at a magicItemRegistry ID.
+func TestPityRecipes_AnchorsAndOutputsResolve(t *testing.T) {
+	anchorNames := map[string]bool{}
+	for _, z := range allZones() {
+		for _, e := range z.Loot {
+			if e.UniqueAlways {
+				anchorNames[titleCaseUnderscored(e.ItemID)] = true
+			}
+		}
+	}
+	pity := 0
+	for _, r := range thomCraftRecipes {
+		if !r.AlwaysKnown {
+			continue
+		}
+		pity++
+		for ing := range r.Ingredients {
+			if !anchorNames[ing] {
+				t.Errorf("pity recipe %s ingredient %q is not a zone-loot anchor name", r.ID, ing)
+			}
+		}
+		if r.OutputType != "magic_item" {
+			t.Errorf("pity recipe %s OutputType = %q, want magic_item", r.ID, r.OutputType)
+		}
+		id, ok := strings.CutPrefix(r.OutputSkillSource, "magic_item:")
+		if !ok {
+			t.Errorf("pity recipe %s OutputSkillSource %q missing magic_item: prefix", r.ID, r.OutputSkillSource)
+			continue
+		}
+		if _, ok := magicItemRegistry[id]; !ok {
+			t.Errorf("pity recipe %s output %q not in magicItemRegistry", r.ID, id)
+		}
+	}
+	if pity != 5 {
+		t.Errorf("expected 5 T6 pity recipes, found %d", pity)
 	}
 }
 
@@ -32,6 +79,11 @@ func TestRecipeRegistry_IngredientsExistInResources(t *testing.T) {
 // reasonable band).
 func TestRecipeRegistry_OutputValuesInBand(t *testing.T) {
 	for _, r := range thomCraftRecipes {
+		// Pity recipes emit Legendary magic items priced well above the §8.1
+		// crafting band by design — excluded from this invariant.
+		if r.AlwaysKnown {
+			continue
+		}
 		if r.OutputValue < 200 || r.OutputValue > 1200 {
 			t.Errorf("recipe %s output value %d outside band [200,1200] (tier %d)",
 				r.ID, r.OutputValue, r.OutputTier)

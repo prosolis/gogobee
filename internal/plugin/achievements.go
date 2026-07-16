@@ -1206,6 +1206,11 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			Check: func(d *sql.DB, u id.UserID) bool { return clearedAnyZoneOfTier(d, u, 5) },
 		},
 		{
+			ID: "expedition_clear_t6", Name: "Off the Edge of the Map", Description: "Cleared a Mythic zone. The map never went this far. Neither should you have.",
+			Emoji: "🗺️",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedAnyZoneOfTier(d, u, 6) },
+		},
+		{
 			ID: "expedition_master_t1", Name: "Warren Cartography", Description: "Cleared every Tier 1 zone. Thorough.",
 			Emoji: "🧭",
 			Check: func(d *sql.DB, u id.UserID) bool { return clearedEveryZoneOfTier(d, u, 1) },
@@ -1229,6 +1234,11 @@ func (p *AchievementsPlugin) buildAchievements() []achievementDef {
 			ID: "expedition_master_t5", Name: "The Long Way Down", Description: "Cleared every Tier 5 zone. Both of them. All the way.",
 			Emoji: "🧭",
 			Check: func(d *sql.DB, u id.UserID) bool { return clearedEveryZoneOfTier(d, u, 5) },
+		},
+		{
+			ID: "expedition_master_t6", Name: "There Was No Sixth Tier", Description: "Cleared every Mythic zone. Officially, none of these existed.",
+			Emoji: "🧭",
+			Check: func(d *sql.DB, u id.UserID) bool { return clearedEveryZoneOfTier(d, u, 6) },
 		},
 		{
 			ID: "expedition_quiet_clear", Name: "Nobody Saw Anything", Description: "Cleared a zone without threat ever passing 50. You were never here.",
