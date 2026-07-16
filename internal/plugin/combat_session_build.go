@@ -211,6 +211,13 @@ func (p *AdventurePlugin) partyCombatantsForSession(sess *CombatSession) ([]*Com
 	// until every seat is built.
 	applySeatWeights(players, levels, companions)
 
+	// Layer-2 pre-combat boss mechanics: fold in any run-state-derived
+	// adjustment (e.g. Aurvandryx's Greed Tax) before the party HP scaling. This
+	// is re-derived every round like everything else here; its inputs are frozen
+	// for a terminal boss fight, so the result is stable. No-op for every
+	// non-hooked enemy.
+	applyBossRunModifiers(monster.ID, &enemy, run)
+
 	// Party-only enemy HP bump, re-derived each turn from the template so it never
 	// compounds. Matches the scalar startPartyCombatSession used for the initial
 	// persist; solo (one seat, weight 1) scales by 1.0.

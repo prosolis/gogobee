@@ -97,7 +97,7 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 
 	// Seat the whole party, leader first. A solo player is a one-seat roster and
 	// takes the path they always took: one build, one INSERT, no participant rows.
-	seats, enemy, senderSkip, refusal := p.buildFightSeats(ctx.Sender, roster, monster, int(zone.Tier), run.DMMood)
+	seats, enemy, senderSkip, refusal := p.buildFightSeats(ctx.Sender, roster, monster, int(zone.Tier), run.DMMood, run)
 	if refusal != "" {
 		return p.replyDM(ctx, refusal)
 	}

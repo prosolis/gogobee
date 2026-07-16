@@ -97,7 +97,7 @@ func TestBuildFightSeats_ConsumesTheAbilityOnceAndCarriesItOnTheSeat(t *testing.
 	ragingBerserker(t, uid)
 
 	seats, _, _, refusal := (&AdventurePlugin{}).buildFightSeats(
-		uid, []id.UserID{uid}, dndBestiary["goblin"], 1, 0)
+		uid, []id.UserID{uid}, dndBestiary["goblin"], 1, 0, nil)
 	if refusal != "" {
 		t.Fatalf("fight refused: %s", refusal)
 	}
@@ -125,7 +125,7 @@ func TestBuildZoneCombatants_RebuildKeepsTheRageForTheWholeFight(t *testing.T) {
 	ragingBerserker(t, uid)
 	p := &AdventurePlugin{}
 
-	seats, _, _, refusal := p.buildFightSeats(uid, []id.UserID{uid}, dndBestiary["goblin"], 1, 0)
+	seats, _, _, refusal := p.buildFightSeats(uid, []id.UserID{uid}, dndBestiary["goblin"], 1, 0, nil)
 	if refusal != "" {
 		t.Fatalf("fight refused: %s", refusal)
 	}
@@ -171,7 +171,7 @@ func TestBuildFightSeats_SatOutMemberKeepsTheirArmedAbility(t *testing.T) {
 	}
 
 	seats, _, _, refusal := (&AdventurePlugin{}).buildFightSeats(
-		leader, []id.UserID{leader, downed}, dndBestiary["goblin"], 1, 0)
+		leader, []id.UserID{leader, downed}, dndBestiary["goblin"], 1, 0, nil)
 	if refusal != "" {
 		t.Fatalf("fight refused: %s", refusal)
 	}

@@ -109,7 +109,7 @@ func TestBuildFightSeats_SoloSeatsExactlyThePlayer(t *testing.T) {
 	fightTestChar(t, solo, 30)
 
 	seats, enemy, skip, refusal := (&AdventurePlugin{}).buildFightSeats(
-		solo, []id.UserID{solo}, dndBestiary["goblin"], 1, 0)
+		solo, []id.UserID{solo}, dndBestiary["goblin"], 1, 0, nil)
 	if refusal != "" || skip != "" {
 		t.Fatalf("solo fight refused: %s / %s", refusal, skip)
 	}
@@ -140,7 +140,7 @@ func TestBuildFightSeats_DownedMemberSitsOut(t *testing.T) {
 
 	roster := []id.UserID{leader, downed, standing}
 	seats, _, skip, refusal := (&AdventurePlugin{}).buildFightSeats(
-		leader, roster, dndBestiary["goblin"], 1, 0)
+		leader, roster, dndBestiary["goblin"], 1, 0, nil)
 	if refusal != "" {
 		t.Fatalf("party refused over a downed member: %s", refusal)
 	}
@@ -156,7 +156,7 @@ func TestBuildFightSeats_DownedMemberSitsOut(t *testing.T) {
 
 	// The one who was left behind typed `!fight` too, and silence is not an answer.
 	_, _, skip, refusal = (&AdventurePlugin{}).buildFightSeats(
-		downed, roster, dndBestiary["goblin"], 1, 0)
+		downed, roster, dndBestiary["goblin"], 1, 0, nil)
 	if refusal != "" {
 		t.Fatalf("a downed member must not refuse the party's fight: %s", refusal)
 	}
@@ -176,7 +176,7 @@ func TestBuildFightSeats_DownedLeaderRefusesTheFightForEveryone(t *testing.T) {
 	roster := []id.UserID{leader, member}
 	p := &AdventurePlugin{}
 
-	seats, _, _, refusal := p.buildFightSeats(leader, roster, dndBestiary["goblin"], 1, 0)
+	seats, _, _, refusal := p.buildFightSeats(leader, roster, dndBestiary["goblin"], 1, 0, nil)
 	if len(seats) != 0 || refusal == "" {
 		t.Fatalf("downed leader seated %d players, refusal %q", len(seats), refusal)
 	}
@@ -184,7 +184,7 @@ func TestBuildFightSeats_DownedLeaderRefusesTheFightForEveryone(t *testing.T) {
 		t.Errorf("the leader should be told to rest, got %q", refusal)
 	}
 
-	_, _, _, refusal = p.buildFightSeats(member, roster, dndBestiary["goblin"], 1, 0)
+	_, _, _, refusal = p.buildFightSeats(member, roster, dndBestiary["goblin"], 1, 0, nil)
 	if !strings.Contains(refusal, "leader") {
 		t.Errorf("the member should be told it is the leader holding things up, got %q", refusal)
 	}

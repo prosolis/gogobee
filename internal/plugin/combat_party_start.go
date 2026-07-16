@@ -51,7 +51,7 @@ func fightRoster(sender id.UserID) []id.UserID {
 // The enemy is built once. Every seat's build derives the identical stat block
 // from (monster, tier, dmMood); only the player half varies.
 func (p *AdventurePlugin) buildFightSeats(
-	sender id.UserID, roster []id.UserID, monster DnDMonsterTemplate, tier, dmMood int,
+	sender id.UserID, roster []id.UserID, monster DnDMonsterTemplate, tier, dmMood int, run *DungeonRun,
 ) (seats []CombatSeatSetup, enemy *Combatant, senderSkip, refusal string) {
 	skip := func(uid id.UserID, why string) {
 		if uid == sender {
@@ -157,6 +157,13 @@ func (p *AdventurePlugin) buildFightSeats(
 	// actually seated — a member who was skipped (downed, busy elsewhere) never
 	// joined the fight and must not be charged to the enemy.
 	applySeatWeights(seatCombatants(seats), levels, companions)
+
+	// Fold in any Layer-2 pre-combat boss mechanic before this enemy is used to
+	// persist the initial HP pool. partyCombatantsForSession re-applies the same
+	// modifier on every round's rebuild; doing it here keeps the persisted stat
+	// block consistent with the fight the engine will actually run. No-op for
+	// every non-hooked enemy.
+	applyBossRunModifiers(monster.ID, enemy, run)
 	return seats, enemy, senderSkip, ""
 }
 
