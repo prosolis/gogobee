@@ -333,6 +333,10 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 		return pickRand(narrativeSurvive)
 	case "phylactery_rebirth":
 		return pickRand(narrativePhylacteryRebirth)
+	case "amendment_rewind":
+		return pickRand(narrativeAmendmentRewind)
+	case "midnight_toll":
+		return fmt.Sprintf(pickRand(narrativeMidnightToll), e.Damage)
 	case "stat_drain":
 		return fmt.Sprintf(pickRand(narrativeStatDrain), e.Damage)
 	case "debuff":
@@ -770,6 +774,22 @@ var narrativePhylacteryRebirth = []string{
 	"💀 The lich comes apart — and a Verse you never found sings him back together. He rises, unhurried.",
 	"💀 Bone-dust swirls up off the floor and re-seats itself. A rebirth you didn't unbind just spent itself. He stands.",
 	"💀 That should have been the end of him. A Verse still hums somewhere in the cathedral, and Valdris simply *begins again*.",
+}
+
+// narrativeAmendmentRewind fires when the Custodian rewinds itself to its round-3
+// HP snapshot — the once-only Amendment. Each line reads as time being undone so
+// the mechanic (front-loaded burst is partly refunded) teaches itself over a run.
+var narrativeAmendmentRewind = []string{
+	"🕰️ The Custodian raises a hand and *edits the last few minutes out of the record.* Wounds close in reverse; the clock-golem stands as it did rounds ago.",
+	"🕰️ \"That entry is amended.\" The damage you dealt simply un-happens — the Custodian rewinds to where it was and resumes, unhurried.",
+	"🕰️ Verdigris rings spin backward. Time you spent hurting it is refunded to the golem; it returns to its round-three self and keeps working.",
+}
+
+// narrativeMidnightToll fires past round 20 — the soft closing-time timer, the
+// Custodian's Attack climbing each round a stalled fight refuses to end.
+var narrativeMidnightToll = []string{
+	"🔔 A bell tolls somewhere above. Closing time — the Custodian's swings come harder. (+%d attack)",
+	"🔔 The hour is nearly spent, and so is its patience; each blow lands with more weight now. (+%d attack)",
 }
 
 var narrativeStatDrain = []string{

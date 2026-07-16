@@ -232,6 +232,17 @@ type CombatStatuses struct {
 	EnemyRevealNext  bool `json:"enemy_reveal_next,omitempty"`
 	EnemyFearImmune  bool `json:"enemy_fear_immune,omitempty"`
 	EnemyAtkBuff     int  `json:"enemy_atk_buff,omitempty"`
+
+	// Amendment (Tier-6 postgame, The Custodian of the Last Hour). An in-combat
+	// Layer-2 hook resolved at round end (applyBossInCombatRoundEnd), not proc-
+	// armed: EnemyRewindHP snapshots the boss's HP at the end of round 3 (0 until
+	// captured); when the boss then crosses into phase 2 the hook restores it to
+	// that snapshot exactly once and sets EnemyRewindUsed. Both round-trip through
+	// combatState so the once-only rewind survives a suspend/resume. Zero/false
+	// for every other enemy. The soft midnight timer past round 20 rides the
+	// existing EnemyAtkBuff, so it needs no field of its own.
+	EnemyRewindHP   int  `json:"enemy_rewind_hp,omitempty"`
+	EnemyRewindUsed bool `json:"enemy_rewind_used,omitempty"`
 }
 
 // applyBuffDelta folds one resolved buff (the result of a !cast / !consume

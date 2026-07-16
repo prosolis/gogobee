@@ -443,6 +443,15 @@ type combatState struct {
 	enemyFearImmune  bool // fear_immune: player control spells (enemy-skip) fizzle against this enemy
 	enemyAtkBuff     int  // ally_buff: flat, accumulating bonus to the enemy's attack damage
 
+	// Amendment (T6 Custodian) — an in-combat Layer-2 hook resolved at round end
+	// by applyBossInCombatRoundEnd. enemyRewindHP is the boss's round-3 HP
+	// snapshot (0 until captured); enemyRewindUsed gates the once-only rewind
+	// that restores it to that snapshot when the boss crosses into phase 2. The
+	// soft midnight timer past round 20 rides enemyAtkBuff. Round-tripped through
+	// CombatStatuses; zero/false for every non-Custodian fight.
+	enemyRewindHP   int
+	enemyRewindUsed bool
+
 	round  int
 	events []CombatEvent
 

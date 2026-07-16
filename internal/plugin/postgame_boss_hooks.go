@@ -7,18 +7,26 @@ package plugin
 // is the bespoke, per-boss stuff the plan promised — mechanics that read the
 // *run* the player took to reach the boss, not just the fight in front of them.
 //
-// This file holds the PRE-COMBAT half of that seam: adjustments derived once
-// from run state and folded into the boss's live Combatant before the fight
-// resolves. It must be a PURE, IDEMPOTENT function of run state, because the
-// turn engine rebuilds the enemy from the bestiary every single round
-// (partyCombatantsForSession) — the boss's numbers are re-derived on every
-// !attack. That is fine as long as the inputs are frozen for the duration of
-// the fight, which they are: the boss room is terminal, so no more nodes are
-// walked once the fight begins.
+// It holds BOTH halves of that seam:
 //
-// In-combat Layer-2 hooks (Inversion Stitch, Amendment, Two Hearts) are a
-// separate seam — a new MonsterAbility.Effect case in applyAbility, shared by
-// both engines — and are not in this file.
+//   - PRE-COMBAT (applyBossRunModifiers / seedBossRunStatuses): adjustments
+//     derived once from run state and folded into the boss's live Combatant (or
+//     the fresh session) before the fight resolves. applyBossRunModifiers must be
+//     a PURE, IDEMPOTENT function of run state, because the turn engine rebuilds
+//     the enemy from the bestiary every single round (partyCombatantsForSession)
+//     — the boss's numbers are re-derived on every !attack. That is fine as long
+//     as the inputs are frozen for the fight, which they are: the boss room is
+//     terminal, so no more nodes are walked once the fight begins.
+//
+//   - IN-COMBAT (applyBossInCombatRoundEnd): round-boundary mechanics that read
+//     and mutate the live combatState — HP snapshots, once-only rewinds, escalating
+//     timers. Called from the turn engine's stepRoundEnd after the round's damage
+//     has settled. Any state it spends round-trips through CombatStatuses so a
+//     suspend/resume can't replay it.
+//
+// The remaining planned in-combat mechanics (Inversion Stitch, Two Hearts) are
+// still a separate seam — a new MonsterAbility.Effect case in applyAbility — and
+// are not in this file yet.
 
 // applyBossRunModifiers folds any pre-combat Layer-2 mechanic for bossID into
 // the freshly-built enemy Combatant, reading the run the player took to get
@@ -167,4 +175,89 @@ func seedBossRunStatuses(sess *CombatSession, bossID string, enemyMaxHP int, run
 		return true
 	}
 	return false
+}
+
+// ── Amendment — The Custodian of the Last Hour (The Last Meridian) ───────────
+//
+// The Custodian has concluded its contract is complete and is dismantling the
+// hours on its way out — including, once, the last few minutes of its own fight.
+// Its true durability is HIDDEN in the opening rounds: it snapshots its HP at the
+// end of round 3, and the first time the party knocks it into phase 2 it *rewinds
+// itself* to that snapshot — once. Front-loaded burst is partially refunded (the
+// damage past the snapshot is undone), so sustained builds that can grind through
+// the extra pool shine over glass-cannon alpha strikes. A soft "midnight timer"
+// then leans on stalls: every round past round 20 the Custodian's Attack climbs,
+// so a fight that can't close still resolves before the clock runs out.
+//
+// This is the first IN-COMBAT Layer-2 mechanic. Unlike the pre-combat hooks it
+// reads/mutates the live combatState at round end, and its once-only state
+// (EnemyRewindHP snapshot + EnemyRewindUsed) round-trips through CombatStatuses so
+// a suspend/resume can't hand the boss a second rewind. Dispatched by bestiary ID,
+// so it is a no-op for every other enemy.
+const (
+	// custodianSnapshotRound is the round whose end HP the Custodian rewinds to.
+	// Snapshotting late enough that a normal party has committed real damage, but
+	// early enough that the refund still matters, is the whole point — the fight's
+	// true length is concealed until the rewind fires.
+	custodianSnapshotRound = 3
+
+	// custodianPhaseTwoFrac must track The Custodian's PhaseTwoAt in
+	// postgame_zone_defs.go (0.45): the rewind is meant to fire exactly as the
+	// party crosses the boss into phase 2. Kept as a local constant because the
+	// turn engine resolves off the bestiary template + session, not the
+	// ZoneDefinition, so the threshold isn't otherwise in reach at round end.
+	custodianPhaseTwoFrac = 0.45
+
+	// midnightAtkStep / midnightAtkCap: the soft closing-time timer. Every round
+	// past midnightTimerAfter adds midnightAtkStep to the boss's Attack (via the
+	// shared EnemyAtkBuff, which enemyAttackStat already folds in), capped so a
+	// truly stalled fight still ends without the number becoming meaningless.
+	midnightTimerAfter = 20
+	midnightAtkStep    = 2
+	midnightAtkCap     = 40
+)
+
+// applyBossInCombatRoundEnd resolves the round-boundary in-combat Layer-2
+// mechanics for the enemy the turn engine is fighting. It runs after the round's
+// damage has settled and only while the enemy still stands. Dispatched by
+// bestiary ID; a no-op for every enemy that isn't a hooked T6 boss.
+func applyBossInCombatRoundEnd(st *combatState, bossID string, enemyMaxHP int) {
+	if st == nil {
+		return
+	}
+	switch bossID {
+	case "boss_custodian":
+		applyAmendment(st, enemyMaxHP)
+	}
+}
+
+// applyAmendment resolves the Custodian's Amendment (round-3 snapshot + once-only
+// phase-2 rewind) and its soft midnight timer, given the round that just finished
+// (st.round, pre-increment) and the boss's party-scaled MaxHP.
+func applyAmendment(st *combatState, enemyMaxHP int) {
+	// Snapshot the boss's HP at the end of round 3 — the concealed "true length".
+	if st.round == custodianSnapshotRound && st.enemyRewindHP == 0 {
+		st.enemyRewindHP = st.enemyHP
+	}
+	// The first time the party crosses the boss into phase 2, rewind to the
+	// snapshot — once. Guarded on snapshot > current so a party that never got
+	// below the round-3 HP (and a fight bursted into phase 2 before the snapshot
+	// was even taken, EnemyRewindHP == 0) can't be handed a free heal.
+	phaseTwo := int(custodianPhaseTwoFrac * float64(enemyMaxHP))
+	if !st.enemyRewindUsed && st.enemyRewindHP > st.enemyHP && st.enemyHP <= phaseTwo {
+		st.enemyHP = min(enemyMaxHP, st.enemyRewindHP)
+		st.enemyRewindUsed = true
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: CombatPhaseRoundEnd, Actor: "enemy", Action: "amendment_rewind",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+	}
+	// Soft midnight timer: closing time leans on a stalled fight.
+	if st.round >= midnightTimerAfter && st.enemyAtkBuff < midnightAtkCap {
+		st.enemyAtkBuff = min(midnightAtkCap, st.enemyAtkBuff+midnightAtkStep)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: CombatPhaseRoundEnd, Actor: "enemy", Action: "midnight_toll",
+			Damage: midnightAtkStep, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+	}
 }

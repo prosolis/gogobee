@@ -370,7 +370,10 @@ func resumeTurnEngine(sess *CombatSession, players []*Combatant, enemy *Combatan
 		enemyRevealNext:  sess.Statuses.EnemyRevealNext,
 		enemyFearImmune:  sess.Statuses.EnemyFearImmune,
 		enemyAtkBuff:     sess.Statuses.EnemyAtkBuff,
-		rng:              rng,
+		// Amendment (T6 Custodian) — round-3 snapshot + once-only rewind.
+		enemyRewindHP:   sess.Statuses.EnemyRewindHP,
+		enemyRewindUsed: sess.Statuses.EnemyRewindUsed,
+		rng:             rng,
 	}
 	order := turnOrder(sess, sess.Round, players, enemy)
 	sess.Statuses.TurnIdx = turnIdxForPhase(order, sess.Statuses.TurnIdx, sess.Phase)
@@ -879,6 +882,14 @@ func (te *turnEngine) stepRoundEnd() {
 			Damage: st.enemyRegen, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
 	}
+	// Tier-6 in-combat Layer-2 boss hooks (Amendment): round-3 HP snapshot +
+	// once-only phase-2 rewind + soft midnight timer, resolved on the round that
+	// just finished. A no-op for every enemy but the hooked bosses, and only
+	// while the enemy still stands, so it is safe to call unconditionally here
+	// after the round's damage has settled.
+	if st.enemyHP > 0 {
+		applyBossInCombatRoundEnd(st, te.sess.EnemyID, te.enemy.Stats.MaxHP)
+	}
 	st.round++
 	// Initiative is re-rolled each round, so the next round's order is derived
 	// here — off st.round, since commit has not yet pushed it onto the session.
@@ -939,6 +950,8 @@ func (te *turnEngine) commit() {
 	s.EnemyRevealNext = st.enemyRevealNext
 	s.EnemyFearImmune = st.enemyFearImmune
 	s.EnemyAtkBuff = st.enemyAtkBuff
+	s.EnemyRewindHP = st.enemyRewindHP
+	s.EnemyRewindUsed = st.enemyRewindUsed
 
 	te.sess.TurnLog = append(te.sess.TurnLog, st.events...)
 }
