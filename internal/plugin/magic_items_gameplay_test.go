@@ -252,6 +252,152 @@ func TestSwapBackReturnsFullValue(t *testing.T) {
 	}
 }
 
+// TestReconcileBondsStrandedItem reproduces the player report: an attunement
+// item equipped while at the bond cap sits inert, then a bond slot frees up.
+// The item is worn (not in inventory) so the equip picker can never reach it —
+// reconcile must be what lights it up.
+func TestReconcileBondsStrandedItem(t *testing.T) {
+	dir := t.TempDir()
+	db.Close()
+	if err := db.Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(db.Close)
+
+	user := id.UserID("@stranded:test.invalid")
+
+	// Gather attunement items in distinct slots — need cap+1 of them.
+	seen := map[DnDSlot]bool{}
+	var att []MagicItem
+	for _, ds := range dndSlotOrder {
+		for _, mi := range magicItemRegistry {
+			if mi.Attunement && mi.Slot == ds && !seen[ds] {
+				att = append(att, mi)
+				seen[ds] = true
+			}
+		}
+	}
+	if len(att) < dndMagicItemAttuneLimit+1 {
+		t.Skipf("registry has only %d attunement slots, need %d", len(att), dndMagicItemAttuneLimit+1)
+	}
+
+	// Bond the first `limit` items, then wear one more inert (attuned=false).
+	for i := 0; i < dndMagicItemAttuneLimit; i++ {
+		if err := equipMagicItem(user, att[i].Slot, att[i].ID, true, 0); err != nil {
+			t.Fatalf("bond seed %d: %v", i, err)
+		}
+	}
+	stranded := att[dndMagicItemAttuneLimit]
+	if err := equipMagicItem(user, stranded.Slot, stranded.ID, false, 0); err != nil {
+		t.Fatalf("equip stranded: %v", err)
+	}
+
+	// At cap, reconcile must be a no-op — the stranded item stays inert.
+	if healed, err := reconcileMagicAttunements(user); err != nil || len(healed) != 0 {
+		t.Fatalf("reconcile at cap = %v (err %v), want no change", healed, err)
+	}
+
+	// Free a slot (the player swaps out a bonded item), then reconcile.
+	if err := unequipMagicItem(user, att[0].Slot); err != nil {
+		t.Fatalf("free slot: %v", err)
+	}
+	healed, err := reconcileMagicAttunements(user)
+	if err != nil {
+		t.Fatalf("reconcile after free: %v", err)
+	}
+	if len(healed) != 1 || healed[0] != stranded.Name {
+		t.Fatalf("reconcile healed %v, want [%s]", healed, stranded.Name)
+	}
+
+	equipped, _ := loadEquippedMagicItems(user)
+	if !equipped[stranded.Slot].Attuned {
+		t.Errorf("stranded item still inert after reconcile")
+	}
+	if got := countAttunedMagicItems(equipped); got != dndMagicItemAttuneLimit {
+		t.Errorf("bonded count = %d, want %d", got, dndMagicItemAttuneLimit)
+	}
+
+	// Idempotent: a second pass changes nothing.
+	if healed, _ := reconcileMagicAttunements(user); len(healed) != 0 {
+		t.Errorf("second reconcile healed %v, want none", healed)
+	}
+}
+
+// TestUnequipMagicReturnsToInventoryAndHeals drives the unequip resolver end to
+// end: taking a bonded item off must return it to inventory AND free its bond
+// slot so a worn-but-inert item lights up.
+func TestUnequipMagicReturnsToInventoryAndHeals(t *testing.T) {
+	dir := t.TempDir()
+	db.Close()
+	if err := db.Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(db.Close)
+
+	user := id.UserID("@unequip:test.invalid")
+
+	seen := map[DnDSlot]bool{}
+	var att []MagicItem
+	for _, ds := range dndSlotOrder {
+		for _, mi := range magicItemRegistry {
+			if mi.Attunement && mi.Slot == ds && !seen[ds] {
+				att = append(att, mi)
+				seen[ds] = true
+			}
+		}
+	}
+	if len(att) < dndMagicItemAttuneLimit+1 {
+		t.Skipf("registry has only %d attunement slots, need %d", len(att), dndMagicItemAttuneLimit+1)
+	}
+
+	// Bond the cap, then wear one more inert.
+	for i := 0; i < dndMagicItemAttuneLimit; i++ {
+		if err := equipMagicItem(user, att[i].Slot, att[i].ID, true, 0); err != nil {
+			t.Fatalf("bond seed %d: %v", i, err)
+		}
+	}
+	stranded := att[dndMagicItemAttuneLimit]
+	if err := equipMagicItem(user, stranded.Slot, stranded.ID, false, 0); err != nil {
+		t.Fatalf("equip stranded: %v", err)
+	}
+
+	p := &AdventurePlugin{} // nil Sink/Client → SendDM is a no-op
+	interaction := &advPendingInteraction{
+		Type: "magic_unequip",
+		Data: &advPendingMagicUnequip{Slots: []DnDSlot{att[0].Slot}},
+	}
+	if err := p.resolveMagicUnequipReply(MessageContext{Sender: user, Body: "1"}, interaction); err != nil {
+		t.Fatalf("resolve unequip: %v", err)
+	}
+
+	// The unequipped item is back in inventory as a curio.
+	inv, err := loadAdvInventory(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, it := range inv {
+		if it.SkillSource == "magic_item:"+att[0].ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("unequipped item %q not returned to inventory", att[0].ID)
+	}
+
+	// Its slot is empty, and the freed bond slot bonded the stranded item.
+	equipped, _ := loadEquippedMagicItems(user)
+	if _, still := equipped[att[0].Slot]; still {
+		t.Errorf("slot %s still occupied after unequip", att[0].Slot)
+	}
+	if !equipped[stranded.Slot].Attuned {
+		t.Errorf("stranded item did not bond after a slot freed")
+	}
+	if got := countAttunedMagicItems(equipped); got != dndMagicItemAttuneLimit {
+		t.Errorf("bonded count = %d, want %d", got, dndMagicItemAttuneLimit)
+	}
+}
+
 // TestEquippedMagicItemRoundTrip exercises the DB persistence layer: equip,
 // load, attunement counting, unequip.
 func TestEquippedMagicItemRoundTrip(t *testing.T) {

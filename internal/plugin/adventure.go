@@ -533,6 +533,8 @@ func (p *AdventurePlugin) dispatchCommand(ctx MessageContext) error {
 		return p.handleEquipCmd(ctx)
 	case lower == "equip-magic" || lower == "equipmagic" || lower == "equip magic":
 		return p.handleEquipMagicCmd(ctx)
+	case lower == "unequip-magic" || lower == "unequipmagic" || lower == "unequip magic":
+		return p.handleUnequipMagicCmd(ctx)
 	case lower == "inventory" || lower == "inv":
 		return p.handleInventoryCmd(ctx)
 	case lower == "leaderboard" || lower == "lb":
@@ -594,6 +596,7 @@ const advHelpText = `**Adventure Commands**
 ` + "`!adventure buy <item>`" + ` — Buy equipment (e.g. ` + "`buy Enchanted Blade`" + ` or ` + "`buy 4 sword`" + `)
 ` + "`!adventure equip`" + ` — Equip Masterwork gear from inventory
 ` + "`!adventure equip-magic`" + ` — Equip magic items (curios) into your D&D slots
+` + "`!adventure unequip-magic`" + ` — Take a worn magic item off and return it to inventory
 ` + "`!adventure sell <item>`" + ` — Sell an inventory item (or ` + "`sell all`" + `)
 ` + "`!adventure inventory`" + ` — View your inventory
 ` + "`!adventure vault`" + ` — Store items safely (Tier-4 Established home; ` + "`vault store/take <item>`" + `)
@@ -940,6 +943,8 @@ func (p *AdventurePlugin) resolvePendingInteraction(ctx MessageContext, interact
 		return p.handleMasterworkEquipReply(ctx, interaction)
 	case "magic_equip":
 		return p.resolveMagicEquipReply(ctx, interaction)
+	case "magic_unequip":
+		return p.resolveMagicUnequipReply(ctx, interaction)
 	case "masterwork_equip_confirm":
 		return p.handleMasterworkEquipConfirm(ctx, interaction)
 	case "rival_rps":

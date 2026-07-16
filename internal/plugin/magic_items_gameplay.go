@@ -328,6 +328,42 @@ func countAttunedMagicItems(equipped map[DnDSlot]EquippedMagicItem) int {
 	return n
 }
 
+// reconcileMagicAttunements bonds any worn attunement item that is sitting
+// inert while a bond slot is free. Bonding is strictly beneficial (there are no
+// cursed items), so the only legitimate reason for a worn attunement item to be
+// unbonded is the hard cap — the moment a slot frees, every straggler should
+// light up. Without this, an item equipped while at cap stays permanently inert:
+// the equip picker only lists inventory, so a slotted item can never be reached
+// to re-attempt bonding. Idempotent; returns the names of items it newly bonded.
+func reconcileMagicAttunements(userID id.UserID) ([]string, error) {
+	equipped, err := loadEquippedMagicItems(userID)
+	if err != nil {
+		return nil, err
+	}
+	used := countAttunedMagicItems(equipped)
+	if used >= dndMagicItemAttuneLimit {
+		return nil, nil
+	}
+	var bonded []string
+	for _, ds := range dndSlotOrder { // deterministic order when slots are scarce
+		if used >= dndMagicItemAttuneLimit {
+			break
+		}
+		e, ok := equipped[ds]
+		if !ok || e.Item.ID == "" || !e.Item.Attunement || e.Attuned {
+			continue
+		}
+		if _, err := db.Get().Exec(
+			`UPDATE magic_item_equipped SET attuned = 1 WHERE user_id = ? AND slot = ?`,
+			string(userID), string(ds)); err != nil {
+			return bonded, err
+		}
+		bonded = append(bonded, e.Item.Name)
+		used++
+	}
+	return bonded, nil
+}
+
 // ── Combat hook ─────────────────────────────────────────────────────────────
 
 // applyMagicItemEffects layers the player's equipped magic items onto their
@@ -523,6 +559,12 @@ func magicItemEffectSummary(mi MagicItem) string {
 }
 
 func (p *AdventurePlugin) handleEquipMagicCmd(ctx MessageContext) error {
+	// Self-heal first: bond any worn item stranded inert while a slot is free
+	// (e.g. equipped at cap, then a bond slot opened). This is the only path a
+	// slotted-but-inert item can be reached from, since the picker below lists
+	// inventory only.
+	healed, _ := reconcileMagicAttunements(ctx.Sender)
+
 	items, err := loadAdvInventory(ctx.Sender)
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Failed to access your inventory.")
@@ -538,13 +580,23 @@ func (p *AdventurePlugin) handleEquipMagicCmd(ctx MessageContext) error {
 		}
 		magic = append(magic, it)
 	}
+	healNote := ""
+	if len(healed) > 0 {
+		healNote = fmt.Sprintf("🔗 A bond slot freed up — **%s** bonded and is now active.\n\n",
+			strings.Join(healed, "**, **"))
+	}
+
 	if len(magic) == 0 {
-		return p.SendDM(ctx.Sender,
-			"No curios to equip yet — they drop from zones or Luigi's 🔮 shelf.")
+		msg := "No curios to equip yet — they drop from zones or Luigi's 🔮 shelf."
+		if healNote != "" {
+			msg = strings.TrimSpace(healNote)
+		}
+		return p.SendDM(ctx.Sender, msg)
 	}
 
 	equipped, _ := loadEquippedMagicItems(ctx.Sender)
 	var sb strings.Builder
+	sb.WriteString(healNote)
 	sb.WriteString("🔮 **Equippable magic items:**\n\n")
 	for i, it := range magic {
 		base, _ := magicItemFromAdvItem(it)
@@ -656,8 +708,113 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 		sb.WriteString(fmt.Sprintf("\nBonded (%d/%d bond slots used).",
 			countAttunedMagicItems(equipped)+1, dndMagicItemAttuneLimit))
 	case mi.Attunement && atCap:
-		sb.WriteString(fmt.Sprintf("\n⚠️ All %d bond slots are full — it's worn but **inert** until you free one (`!adventure equip-magic` to swap).",
+		sb.WriteString(fmt.Sprintf("\n⚠️ All %d bond slots are full — it's worn but **inert** until you free one (`!adventure unequip-magic` to take a bonded item off; this one bonds automatically once a slot opens).",
 			dndMagicItemAttuneLimit))
 	}
+
+	// Swapping out the prior occupant may have freed a bond slot — light up any
+	// item that was stranded inert (including a previously-equipped one the
+	// picker could never reach).
+	if healed, _ := reconcileMagicAttunements(ctx.Sender); len(healed) > 0 {
+		sb.WriteString(fmt.Sprintf("\n🔗 A freed bond slot also activated **%s**.",
+			strings.Join(healed, "**, **")))
+	}
 	return p.SendDM(ctx.Sender, sb.String())
+}
+
+// ── Unequip command (`!adventure unequip-magic`) ─────────────────────────────
+
+// advPendingMagicUnequip is the pending-interaction payload for the numbered
+// unequip picker. It lists slots (not inventory rows) because the item lives in
+// magic_item_equipped, not adventure_inventory.
+type advPendingMagicUnequip struct {
+	Slots []DnDSlot
+}
+
+func (p *AdventurePlugin) handleUnequipMagicCmd(ctx MessageContext) error {
+	equipped, err := loadEquippedMagicItems(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Failed to load your equipped magic items.")
+	}
+	var sb strings.Builder
+	sb.WriteString("🔮 **Worn magic items** — reply with a number to take one off (it returns to your inventory), or \"cancel\".\n\n")
+	var slots []DnDSlot
+	for _, ds := range dndSlotOrder { // stable numbering across repeated calls
+		e, ok := equipped[ds]
+		if !ok || e.Item.ID == "" {
+			continue
+		}
+		slots = append(slots, ds)
+		mi := e.Effective()
+		status := ""
+		if mi.Attunement {
+			if e.Attuned {
+				status = " — bonded"
+			} else {
+				status = " — _(inert)_"
+			}
+		}
+		sb.WriteString(fmt.Sprintf("%d. **%s** _(%s)_ → %s slot%s\n",
+			len(slots), mi.Name, mi.Rarity, ds, status))
+	}
+	if len(slots) == 0 {
+		return p.SendDM(ctx.Sender, "You aren't wearing any magic items. `!adventure equip-magic` to put one on.")
+	}
+
+	p.pending.Store(string(ctx.Sender), &advPendingInteraction{
+		Type:      "magic_unequip",
+		Data:      &advPendingMagicUnequip{Slots: slots},
+		ExpiresAt: time.Now().Add(advDMResponseWindow),
+	})
+	return p.SendDM(ctx.Sender, sb.String())
+}
+
+func (p *AdventurePlugin) resolveMagicUnequipReply(ctx MessageContext, interaction *advPendingInteraction) error {
+	data := interaction.Data.(*advPendingMagicUnequip)
+	reply := strings.TrimSpace(ctx.Body)
+	if strings.EqualFold(reply, "cancel") {
+		return p.SendDM(ctx.Sender, "Unequip cancelled.")
+	}
+	idx, ok := parseMenuIndex(reply, len(data.Slots))
+	if !ok {
+		p.pending.Store(string(ctx.Sender), interaction)
+		return p.SendDM(ctx.Sender, "Invalid selection. Reply with a number from the list, or \"cancel\".")
+	}
+
+	slot := data.Slots[idx]
+	equipped, err := loadEquippedMagicItems(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, "Failed to load your equipped magic items.")
+	}
+	e, ok := equipped[slot]
+	if !ok || e.Item.ID == "" {
+		return p.SendDM(ctx.Sender, "That slot is already empty.")
+	}
+
+	// Clear the slot FIRST, then return the item to inventory at full value.
+	// This mirrors the equip resolver's ordering (destructive op first, restore
+	// on failure): the other order could leave the item both worn and in
+	// inventory — a free duplicate — on a transient DB error.
+	if err := unequipMagicItem(ctx.Sender, slot); err != nil {
+		return p.SendDM(ctx.Sender, "Failed to take that item off.")
+	}
+	back := magicItemSellAt(e.Item, e.Temper)
+	back.SkillSource = "magic_item:" + e.Item.ID
+	if err := addAdvInventoryItem(ctx.Sender, back); err != nil {
+		// Roll back: re-equip exactly as it was so the item isn't lost.
+		if rbErr := equipMagicItem(ctx.Sender, slot, e.Item.ID, e.Attuned, e.Temper); rbErr != nil {
+			slog.Error("magic-item: unequip failed AND re-equip rollback failed",
+				"user", ctx.Sender, "item", e.Item.ID, "inv_err", err, "rollback_err", rbErr)
+		}
+		return p.SendDM(ctx.Sender, "Failed to return that item to your inventory.")
+	}
+
+	mi := e.Effective()
+	msg := fmt.Sprintf("📦 **%s** taken off your %s slot and returned to inventory.", mi.Name, slot)
+	// Freeing a bonded slot may let a worn-but-inert item finally bond.
+	if healed, _ := reconcileMagicAttunements(ctx.Sender); len(healed) > 0 {
+		msg += fmt.Sprintf("\n🔗 That freed a bond slot — **%s** is now active.",
+			strings.Join(healed, "**, **"))
+	}
+	return p.SendDM(ctx.Sender, msg)
 }
