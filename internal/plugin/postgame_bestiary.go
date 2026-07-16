@@ -18,7 +18,7 @@ var _ = func() bool {
 		// ── Zone 1 — The Ossuary Ascendant ──────────────────────────────
 		"grave_cardinal": {
 			ID: "grave_cardinal", Name: "Grave Cardinal",
-			CR: 17, HP: 240, AC: 17, Attack: 30, AttackBonus: 10, Speed: 12,
+			CR: 17, HP: 230, AC: 17, Attack: 28, AttackBonus: 10, Speed: 12,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Last Rites", Phase: "any", ProcChance: 0.45, Effect: "debuff"},
 			XPValue:   18000,
@@ -26,7 +26,7 @@ var _ = func() bool {
 		},
 		"reliquary_knight": {
 			ID: "reliquary_knight", Name: "Reliquary Knight",
-			CR: 18, HP: 230, AC: 20, Attack: 31, AttackBonus: 10, Speed: 10,
+			CR: 18, HP: 230, AC: 20, Attack: 30, AttackBonus: 10, Speed: 10,
 			BlockRate: 0.35,
 			Ability:   &MonsterAbility{Name: "Coffin Guard", Phase: "any", ProcChance: 0.50, Effect: "block"},
 			XPValue:   20000,
@@ -34,7 +34,7 @@ var _ = func() bool {
 		},
 		"the_chorister": {
 			ID: "the_chorister", Name: "The Chorister",
-			CR: 17, HP: 200, AC: 16, Attack: 29, AttackBonus: 10, Speed: 12,
+			CR: 17, HP: 190, AC: 16, Attack: 27, AttackBonus: 10, Speed: 12,
 			BlockRate: 0.10,
 			Ability:   &MonsterAbility{Name: "Dirge", Phase: "opening", ProcChance: 0.45, Effect: "stun"},
 			XPValue:   18000,
@@ -71,9 +71,9 @@ var _ = func() bool {
 		// ── Zone 3 — The Unplace ─────────────────────────────────────────
 		"the_unnumbered": {
 			ID: "the_unnumbered", Name: "The Unnumbered",
-			CR: 18, HP: 250, AC: 16, Attack: 22, AttackBonus: 10, Speed: 12,
+			CR: 18, HP: 250, AC: 16, Attack: 18, AttackBonus: 10, Speed: 12,
 			BlockRate: 0.10,
-			Ability:   &MonsterAbility{Name: "Too Many Arms", Phase: "any", ProcChance: 0.35, Effect: "aoe"},
+			Ability:   &MonsterAbility{Name: "Too Many Arms", Phase: "any", ProcChance: 0.28, Effect: "aoe"},
 			XPValue:   20000,
 			Notes:     "Unplace elite. Several demons in one silhouette; the count changes with the angle. (Layer 2: extra attack on rounds the player missed.)",
 		},
@@ -89,7 +89,7 @@ var _ = func() bool {
 			ID: "echo_of_belaxath", Name: "Echo of Belaxath",
 			CR: 19, HP: 220, AC: 18, Attack: 23, AttackBonus: 11, Speed: 14,
 			BlockRate:    0.15,
-			Ability:      &MonsterAbility{Name: "Rerun", Phase: "decisive", ProcChance: 0.30, Effect: "aoe"},
+			Ability:      &MonsterAbility{Name: "Rerun", Phase: "decisive", ProcChance: 0.25, Effect: "aoe"},
 			XPValue:      22000,
 			Notes:        "Unplace elite. A Balor outline filled with static; a memory the Unplace keeps replaying. Drops nothing — pure toll.",
 			FireAttacker: true,
@@ -150,7 +150,7 @@ var _ = func() bool {
 		// ── Signature bosses ─────────────────────────────────────────────
 		"boss_valdris_ascendant": {
 			ID: "boss_valdris_ascendant", Name: "Valdris, At Last",
-			CR: 26, HP: 570, AC: 21, Attack: 54, AttackBonus: 12, Speed: 14,
+			CR: 26, HP: 550, AC: 21, Attack: 52, AttackBonus: 12, Speed: 14,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Apotheosis Nova", Phase: "decisive", ProcChance: 0.40, Effect: "aoe"},
 			XPValue:   90000,
@@ -167,7 +167,7 @@ var _ = func() bool {
 		},
 		"boss_seamstress": {
 			ID: "boss_seamstress", Name: "The Seamstress",
-			CR: 27, HP: 440, AC: 21, Attack: 43, AttackBonus: 12, Speed: 14,
+			CR: 27, HP: 385, AC: 21, Attack: 39, AttackBonus: 12, Speed: 14,
 			BlockRate: 0.15,
 			Ability:   &MonsterAbility{Name: "Needle Rain", Phase: "decisive", ProcChance: 0.40, Effect: "aoe"},
 			XPValue:   100000,
