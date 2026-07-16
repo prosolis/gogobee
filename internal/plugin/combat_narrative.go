@@ -331,6 +331,8 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 		return pickRand(narrativeSurviveArmed)
 	case "survive_at_1":
 		return pickRand(narrativeSurvive)
+	case "phylactery_rebirth":
+		return pickRand(narrativePhylacteryRebirth)
 	case "stat_drain":
 		return fmt.Sprintf(pickRand(narrativeStatDrain), e.Damage)
 	case "debuff":
@@ -759,6 +761,15 @@ var narrativeSurvive = []string{
 	"🕯️ The killing blow lands clean — and the enemy *stays standing* at 1 HP. Unbelievable.",
 	"🕯️ That should have ended it. The enemy clings to a single point of HP through sheer spite.",
 	"🕯️ The enemy by all rights should be down. It is, instead, very barely up.",
+}
+
+// narrativePhylacteryRebirth fires when Valdris burns a Verse the player left
+// un-found: a bound rebirth spends and the lich reassembles. Each line reads as
+// "you skipped one of these" so the mechanic teaches itself over a wipe.
+var narrativePhylacteryRebirth = []string{
+	"💀 The lich comes apart — and a Verse you never found sings him back together. He rises, unhurried.",
+	"💀 Bone-dust swirls up off the floor and re-seats itself. A rebirth you didn't unbind just spent itself. He stands.",
+	"💀 That should have been the end of him. A Verse still hums somewhere in the cathedral, and Valdris simply *begins again*.",
 }
 
 var narrativeStatDrain = []string{

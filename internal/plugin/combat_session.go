@@ -215,6 +215,17 @@ type CombatStatuses struct {
 	EnemyRegen         int     `json:"enemy_regen,omitempty"`
 	EnemySurviveArmed  bool    `json:"enemy_survive_armed,omitempty"`
 
+	// Phylactery Verses (Tier-6 postgame, Valdris Ascendant). Unlike the
+	// proc-armed EnemySurviveArmed one-shot, this is a *count* of rebirths seeded
+	// once at fight start (seedBossRunStatuses) from how many of the zone's secret
+	// Verses the player left un-found. Each consumed rebirth (enemyDown) revives
+	// the boss to EnemyReviveHP. Both fields are frozen at seed time except
+	// EnemyReviveCharges, which decrements as rebirths are spent — so they must
+	// round-trip through combatState to survive a suspend/resume. Zero for every
+	// other enemy, so omitempty keeps them off every non-Valdris row.
+	EnemyReviveCharges int `json:"enemy_revive_charges,omitempty"`
+	EnemyReviveHP      int `json:"enemy_revive_hp,omitempty"`
+
 	// Slice-4 monster-ability effects — the former flavor-only placeholders.
 	// EnemyRevealNext is a one-shot; the other three persist for the fight.
 	EnemySpellResist bool `json:"enemy_spell_resist,omitempty"`

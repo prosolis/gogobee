@@ -428,6 +428,14 @@ type combatState struct {
 	enemyRegen         int     // regenerate: enemy heals this much each round end
 	enemySurviveArmed  bool    // survive_at_1: enemy cheats death once, dropping to 1 HP
 
+	// Phylactery Verses (T6 Valdris) — stackable rebirth. enemyReviveCharges is
+	// how many times the boss still cheats death; each revives it to
+	// enemyReviveHP. Seeded once at fight start from unfound Verses, round-tripped
+	// through CombatStatuses. Distinct from enemySurviveArmed (a one-shot 1-HP
+	// proc): a rebirth restores a meaningful pool, and there can be several.
+	enemyReviveCharges int
+	enemyReviveHP      int
+
 	// Phase 13 bestiary slice 4 — the former flavor-only placeholders, now
 	// backed by real state.
 	enemySpellResist bool // spell_resist: player spell damage against this enemy is halved
@@ -1304,6 +1312,19 @@ func enemyDown(st *combatState, phaseName string) bool {
 		st.enemyHP = 1
 		st.events = append(st.events, CombatEvent{
 			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "survive_at_1",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		return false
+	}
+	// Phylactery Verses (T6 Valdris): a stackable rebirth. Each unfound Verse
+	// left one of these charges, and each restores a real pool rather than the
+	// 1-HP stay above — a full-clear explorer stripped them all and fights a
+	// mortal, a skip-route fights a god who keeps getting back up.
+	if st.enemyReviveCharges > 0 {
+		st.enemyReviveCharges--
+		st.enemyHP = max(1, st.enemyReviveHP)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phaseName, Actor: "enemy", Action: "phylactery_rebirth",
 			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
 		return false

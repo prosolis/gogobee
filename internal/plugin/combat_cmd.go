@@ -119,6 +119,17 @@ func (p *AdventurePlugin) handleFightCmd(ctx MessageContext) error {
 		return p.replyDM(ctx, "Couldn't start the fight: "+err.Error())
 	}
 
+	// Layer-2 boss state that is spent mid-fight (Valdris's Phylactery Verses)
+	// is seeded onto the fresh session ONCE, from the route the player walked to
+	// get here — not on the per-round rebuild, which would resurrect spent
+	// rebirths. enemyHP is the party-scaled pool persisted above. No-op for every
+	// non-hooked enemy.
+	if seedBossRunStatuses(sess, monster.ID, enemyHP, run) {
+		if err := saveCombatSession(sess); err != nil {
+			return p.replyDM(ctx, "Couldn't start the fight: "+err.Error())
+		}
+	}
+
 	var b strings.Builder
 	if isBoss {
 		if line := composeBossEntry(zone.ID, run.RunID, run.CurrentRoom); line != "" {

@@ -96,3 +96,75 @@ func greedTaxAttack(richness float64) int {
 func applyGreedTax(enemy *Combatant, run *DungeonRun) {
 	enemy.Stats.Attack += greedTaxAttack(greedRouteRichness(run))
 }
+
+// ── Phylactery Verses — Valdris, At Last (The Ossuary Ascendant) ────────────
+//
+// The plan Valdris has been running since he "died" in the T1 Crypt: the
+// phylactery shard players looted for years was bait, and he has rebuilt as a
+// true lich. His rebirths are bound into three Verses hidden in the cathedral,
+// each a NodeKindSecret behind a Perception gate. Every Verse a player finds and
+// walks before the fight UNBINDS one rebirth; every Verse they skip leaves it
+// armed. Full-clear explorers strip all three and fight a mortal lich;
+// speedrunners who blow past the secrets fight a god who will not stay down.
+//
+// This is the mirror-image of the Greed Tax's design axis: the Tax punishes
+// greedy exploration, the Verses reward thorough exploration. Both are prod
+// player-agency levers the headless sim only samples at whatever route its
+// autopilot happens to walk.
+//
+// Unlike the Greed Tax (a pure per-round Attack recompute), a rebirth is spent
+// mid-fight, so it is stateful: seedBossRunStatuses freezes the charge count
+// onto the session ONCE at fight start, and the turn engine round-trips the
+// live count through CombatStatuses. It must NOT be re-derived on the per-round
+// enemy rebuild, or spent rebirths would come back every round.
+const (
+	// phylacteryReviveFrac is the fraction of the boss's (party-scaled) max HP
+	// each unbound rebirth restores him to — a real second wind, not the 1-HP
+	// stay of survive_at_1.
+	phylacteryReviveFrac = 4 // 1/4 == 25%
+)
+
+// phylacteryReviveCharges is the number of rebirths still armed on Valdris: one
+// per zone Verse (NodeKindSecret) the run has NOT visited. The Ossuary's only
+// secret nodes are the three Verses (the shared builder stamps none by default),
+// so counting unvisited secrets is exactly "unbound rebirths". Zero for any
+// non-Valdris boss or a nil run. A pure function of frozen run state.
+func phylacteryReviveCharges(bossID string, run *DungeonRun) int {
+	if bossID != "boss_valdris_ascendant" || run == nil {
+		return 0
+	}
+	g, ok := loadZoneGraph(run.ZoneID)
+	if !ok {
+		return 0
+	}
+	visited := make(map[string]bool, len(run.VisitedNodes))
+	for _, id := range run.VisitedNodes {
+		visited[id] = true
+	}
+	charges := 0
+	for id, n := range g.Nodes {
+		if n.Kind == NodeKindSecret && !visited[id] {
+			charges++
+		}
+	}
+	return charges
+}
+
+// seedBossRunStatuses folds any ONCE-AT-FIGHT-START Layer-2 boss state into the
+// freshly-created session, reading the run the player took to get here. It is
+// the stateful counterpart to applyBossRunModifiers (which is a per-round pure
+// recompute): whatever it seeds here is mutated by the fight and round-tripped,
+// never re-derived. enemyMaxHP is the party-scaled pool already persisted onto
+// the session. Returns whether it changed anything (so the caller can skip a
+// redundant save). No-op — false — for every non-hooked boss.
+func seedBossRunStatuses(sess *CombatSession, bossID string, enemyMaxHP int, run *DungeonRun) bool {
+	if sess == nil {
+		return false
+	}
+	if charges := phylacteryReviveCharges(bossID, run); charges > 0 {
+		sess.Statuses.EnemyReviveCharges = charges
+		sess.Statuses.EnemyReviveHP = max(1, enemyMaxHP/phylacteryReviveFrac)
+		return true
+	}
+	return false
+}

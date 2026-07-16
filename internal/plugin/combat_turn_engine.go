@@ -363,6 +363,8 @@ func resumeTurnEngine(sess *CombatSession, players []*Combatant, enemy *Combatan
 		enemyRetaliateFrac: sess.Statuses.EnemyRetaliateFrac,
 		enemyRegen:         sess.Statuses.EnemyRegen,
 		enemySurviveArmed:  sess.Statuses.EnemySurviveArmed,
+		enemyReviveCharges: sess.Statuses.EnemyReviveCharges,
+		enemyReviveHP:      sess.Statuses.EnemyReviveHP,
 		// Slice-4 monster-ability effects — the former flavor-only placeholders.
 		enemySpellResist: sess.Statuses.EnemySpellResist,
 		enemyRevealNext:  sess.Statuses.EnemyRevealNext,
@@ -926,6 +928,8 @@ func (te *turnEngine) commit() {
 	s.EnemyRetaliateFrac = st.enemyRetaliateFrac
 	s.EnemyRegen = st.enemyRegen
 	s.EnemySurviveArmed = st.enemySurviveArmed
+	s.EnemyReviveCharges = st.enemyReviveCharges
+	s.EnemyReviveHP = st.enemyReviveHP
 	s.EnemySpellResist = st.enemySpellResist
 	s.EnemyRevealNext = st.enemyRevealNext
 	s.EnemyFearImmune = st.enemyFearImmune
