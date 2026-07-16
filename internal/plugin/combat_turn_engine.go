@@ -842,7 +842,12 @@ func (te *turnEngine) stepRoundEnd() {
 			Round: st.round, Phase: CombatPhaseRoundEnd, Actor: "player", Action: "concentration_tick",
 			Damage: st.concentrationDmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP, Seat: i,
 		})
-		if st.enemyHP <= 0 {
+		// Route the kill through enemyDown, not a raw HP read: a boss that cheats
+		// death (survive_at_1) or holds a phylactery rebirth (T6 Valdris) must get
+		// that chance even when the lethal blow is a lingering concentration pulse.
+		// enemyDown restores its HP and returns false, so the next seat's pulse (or
+		// the following round) resolves against the revived pool.
+		if enemyDown(st, CombatPhaseRoundEnd) {
 			te.finish(CombatStatusWon)
 			return
 		}

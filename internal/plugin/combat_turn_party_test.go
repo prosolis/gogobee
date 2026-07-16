@@ -275,3 +275,57 @@ func TestTurnEngine_CommitPersistsSeatZeroNotTheCursor(t *testing.T) {
 		t.Error("seat 1's consumed Lucky reroll leaked onto the session row")
 	}
 }
+
+// A lingering concentration pulse that lands the killing blow must still give a
+// revive-armed boss (survive_at_1 / T6 Valdris's phylactery rebirth) its chance
+// to stand back up — the round-end tick routes the kill through enemyDown, not a
+// raw enemyHP<=0 read. Regression for the concentration-bypass gap found in the
+// P8 Layer-2 review.
+func TestTurnEngine_ConcentrationKillHonorsRebirth(t *testing.T) {
+	// A charged rebirth: the pulse drops the enemy, a charge spends, it revives.
+	sess := turnSession(CombatPhaseRoundEnd, 500, 30)
+	p := basePlayer()
+	e := baseEnemy()
+	te := resumeTurnEngine(sess, []*Combatant{&p}, &e, combatSessionStepRNG(sess, enemySeat))
+	te.st.concentrationDmg = 100 // lethal against 30 HP
+	te.st.enemyReviveCharges = 1
+	te.st.enemyReviveHP = 40
+	if _, err := te.step(PlayerAction{}); err != nil {
+		t.Fatal(err)
+	}
+	te.commit()
+
+	if !sess.IsActive() {
+		t.Fatalf("a concentration kill ended the fight (%q) while a rebirth charge was armed", sess.Status)
+	}
+	if sess.EnemyHP != 40 {
+		t.Errorf("revived EnemyHP = %d, want the 40-HP revive pool", sess.EnemyHP)
+	}
+	if sess.Statuses.EnemyReviveCharges != 0 {
+		t.Errorf("post-revive charges = %d, want 0 (one spent)", sess.Statuses.EnemyReviveCharges)
+	}
+	rebirths := 0
+	for _, ev := range sess.TurnLog {
+		if ev.Action == "phylactery_rebirth" {
+			rebirths++
+		}
+	}
+	if rebirths != 1 {
+		t.Errorf("phylactery_rebirth events = %d, want 1", rebirths)
+	}
+
+	// With no charge left, the same pulse ends the fight cleanly (the win path
+	// is not broken by the enemyDown routing).
+	mortal := turnSession(CombatPhaseRoundEnd, 500, 30)
+	p2 := basePlayer()
+	e2 := baseEnemy()
+	te2 := resumeTurnEngine(mortal, []*Combatant{&p2}, &e2, combatSessionStepRNG(mortal, enemySeat))
+	te2.st.concentrationDmg = 100
+	if _, err := te2.step(PlayerAction{}); err != nil {
+		t.Fatal(err)
+	}
+	te2.commit()
+	if mortal.Status != CombatStatusWon {
+		t.Errorf("charge-less concentration kill status = %q, want %q", mortal.Status, CombatStatusWon)
+	}
+}
