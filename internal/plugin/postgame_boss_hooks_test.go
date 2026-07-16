@@ -1,6 +1,9 @@
 package plugin
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestGreedTaxAttack(t *testing.T) {
 	cases := []struct {
@@ -337,6 +340,148 @@ func TestApplyBossInCombatRoundEnd_DispatchesOnlyCustodian(t *testing.T) {
 	}
 }
 
+// ── Inversion Stitch (Seamstress) ────────────────────────────────────────────
+
+// seamstressState builds a fully-formed combatState (embedded actor + roster) so
+// the event helpers that read st.playerHP resolve — a bare struct-literal state
+// has a nil actor cursor.
+func seamstressState(t *testing.T, enemyHP, enemyMaxHP int) *combatState {
+	t.Helper()
+	sess := turnSession(CombatPhaseRoundEnd, 10000, enemyHP)
+	sess.EnemyID = "boss_seamstress"
+	p := basePlayer()
+	e := baseEnemy()
+	e.Stats.MaxHP = enemyMaxHP
+	te := resumeTurnEngine(sess, []*Combatant{&p}, &e, combatSessionStepRNG(sess, enemySeat))
+	te.st.enemyHP = enemyHP
+	return te.st
+}
+
+func TestApplyInversionStitch_NoOpAbovePhaseTwo(t *testing.T) {
+	// Above the 0.35*500=175 phase-two line the room stays right-side-out.
+	st := seamstressState(t, 300, 500)
+	applyInversionStitch(st, 500)
+	if st.inversionTelegraph || st.inversionActive != 0 || len(st.events) != 0 {
+		t.Errorf("above phase two: telegraph=%v active=%d events=%d, want all zero",
+			st.inversionTelegraph, st.inversionActive, len(st.events))
+	}
+}
+
+func TestApplyInversionStitch_Cadence(t *testing.T) {
+	// Below the phase-two line the room cycles warn(1) → sting(pulse) → warn(1)…
+	st := seamstressState(t, 150, 500) // 150 < 0.35*500 = 175
+
+	// Round end 1: no pulse yet, so telegraph the first one.
+	applyInversionStitch(st, 500)
+	if !st.inversionTelegraph || st.inversionActive != 0 {
+		t.Fatalf("after warn: telegraph=%v active=%d, want telegraph=true active=0",
+			st.inversionTelegraph, st.inversionActive)
+	}
+	if countEvents(st.events, "inversion_telegraph") != 1 {
+		t.Fatalf("telegraph events = %d, want 1", countEvents(st.events, "inversion_telegraph"))
+	}
+
+	// Round end 2: the telegraphed pulse activates for its full duration.
+	applyInversionStitch(st, 500)
+	if st.inversionActive != inversionPulseRounds || st.inversionTelegraph {
+		t.Fatalf("after activate: active=%d telegraph=%v, want active=%d telegraph=false",
+			st.inversionActive, st.inversionTelegraph, inversionPulseRounds)
+	}
+	if countEvents(st.events, "inversion_stitch") != 1 {
+		t.Fatalf("stitch events = %d, want 1", countEvents(st.events, "inversion_stitch"))
+	}
+
+	// The pulse counts down one round per round end, staying active until it lapses.
+	for r := inversionPulseRounds - 1; r >= 1; r-- {
+		applyInversionStitch(st, 500)
+		if st.inversionActive != r {
+			t.Fatalf("mid-pulse active = %d, want %d", st.inversionActive, r)
+		}
+	}
+
+	// The round the pulse lapses (active 1→0) a fresh warn is scheduled in the
+	// same round end — the repeating rhythm, never two silent rounds in a row.
+	applyInversionStitch(st, 500)
+	if st.inversionActive != 0 || !st.inversionTelegraph {
+		t.Fatalf("after pulse: active=%d telegraph=%v, want active=0 telegraph=true",
+			st.inversionActive, st.inversionTelegraph)
+	}
+	if countEvents(st.events, "inversion_telegraph") != 2 {
+		t.Fatalf("telegraph events = %d, want 2 (the next pulse warned)",
+			countEvents(st.events, "inversion_telegraph"))
+	}
+}
+
+func TestApplyBossInCombatRoundEnd_DispatchesSeamstress(t *testing.T) {
+	// A non-Seamstress boss at a phase-two HP is untouched.
+	st := seamstressState(t, 150, 500)
+	applyBossInCombatRoundEnd(st, "boss_aurvandryx", 500)
+	if st.inversionTelegraph || len(st.events) != 0 {
+		t.Errorf("non-Seamstress boss triggered inversion (telegraph=%v events=%d)",
+			st.inversionTelegraph, len(st.events))
+	}
+	// The Seamstress id resolves the hook.
+	applyBossInCombatRoundEnd(st, "boss_seamstress", 500)
+	if !st.inversionTelegraph {
+		t.Error("boss_seamstress did not schedule the inversion telegraph")
+	}
+}
+
+// TestInversionStitch_HealsSting drives a real round with an active pulse seeded
+// and confirms both the self-heal and the ally-heal land as wounds, floored at 1.
+func TestInversionStitch_HealsSting(t *testing.T) {
+	setupEmptyTestDB(t)
+	p := &AdventurePlugin{}
+
+	t.Run("ally heal stings the friend", func(t *testing.T) {
+		sess := startAllyHealFight(t, p, 50) // friend hurt to 50/100
+		sess.Statuses.InversionActive = 1    // room is inside-out this round
+		healer, friend := basePlayer(), basePlayer()
+		ct := &combatTurn{sess: sess, players: []*Combatant{&healer, &friend},
+			enemy: &Combatant{Name: "dummy", Stats: CombatStats{MaxHP: 800, AC: 10, Attack: 1, AttackBonus: 1}},
+			seat:  0, uid: healerID(strings.ReplaceAll(t.Name(), "/", "_"))}
+		before := sess.seatHP(1)
+
+		events, err := p.driveCombatRound(ct, PlayerAction{Kind: ActionCast,
+			Effect: &turnActionEffect{Label: "Cure", Action: "spell_cast", AllyHeal: 30, AllySeat: 1}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := sess.seatHP(1); got >= before {
+			t.Errorf("friend HP = %d (was %d) — an inverted heal must wound, not mend", got, before)
+		}
+		if countEvents(events, "heal_inverted") != 1 {
+			t.Errorf("heal_inverted events = %d, want 1", countEvents(events, "heal_inverted"))
+		}
+	})
+
+	t.Run("self heal stings the acting seat, floored at 1", func(t *testing.T) {
+		// A self-heal (PlayerHeal, no AllySeat) lands on whichever seat is acting;
+		// assert the inversion fired (heal_inverted) and no seat was driven to 0 —
+		// the sting denies sustain, it never kills.
+		sess := startAllyHealFight(t, p, 100)
+		sess.Statuses.InversionActive = 1
+		healer, friend := basePlayer(), basePlayer()
+		ct := &combatTurn{sess: sess, players: []*Combatant{&healer, &friend},
+			enemy: &Combatant{Name: "dummy", Stats: CombatStats{MaxHP: 800, AC: 10, Attack: 1, AttackBonus: 1}},
+			seat:  0, uid: healerID(strings.ReplaceAll(t.Name(), "/", "_"))}
+
+		events, err := p.driveCombatRound(ct, PlayerAction{Kind: ActionCast,
+			Effect: &turnActionEffect{Label: "Cure Self", Action: "spell_cast", PlayerHeal: 30}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if countEvents(events, "heal_inverted") != 1 {
+			t.Errorf("heal_inverted events = %d, want 1 — the self-heal did not invert", countEvents(events, "heal_inverted"))
+		}
+		for seat := 0; seat < 2; seat++ {
+			if got := sess.seatHP(seat); got < 1 {
+				t.Errorf("seat %d HP = %d — the sting must floor at 1, never kill", seat, got)
+			}
+		}
+	})
+}
+
 func TestTurnEngine_AmendmentRoundTrips(t *testing.T) {
 	// Drive a real Custodian round-end and confirm the once-only rewind is
 	// captured through CombatStatuses (a suspend/resume can't replay it).
@@ -362,5 +507,28 @@ func TestTurnEngine_AmendmentRoundTrips(t *testing.T) {
 	}
 	if countEvents(sess.TurnLog, "amendment_rewind") != 1 {
 		t.Errorf("amendment_rewind events = %d, want 1", countEvents(sess.TurnLog, "amendment_rewind"))
+	}
+}
+
+func TestTurnEngine_InversionRoundTrips(t *testing.T) {
+	// Drive a real Seamstress round-end in phase 2 and confirm the scheduled
+	// telegraph persists through CombatStatuses (a suspend/resume keeps the cadence).
+	sess := turnSession(CombatPhaseRoundEnd, 10000, 150) // 150 < 0.35*500 = 175
+	sess.EnemyID = "boss_seamstress"
+	sess.EnemyHPMax = 500
+	p := basePlayer()
+	e := baseEnemy()
+	e.Stats.MaxHP = 500
+	te := resumeTurnEngine(sess, []*Combatant{&p}, &e, combatSessionStepRNG(sess, enemySeat))
+	if _, err := te.step(PlayerAction{}); err != nil {
+		t.Fatal(err)
+	}
+	te.commit()
+
+	if !sess.Statuses.InversionTelegraph {
+		t.Error("InversionTelegraph did not persist through commit")
+	}
+	if countEvents(sess.TurnLog, "inversion_telegraph") != 1 {
+		t.Errorf("inversion_telegraph events = %d, want 1", countEvents(sess.TurnLog, "inversion_telegraph"))
 	}
 }

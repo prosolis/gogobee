@@ -337,6 +337,12 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 		return pickRand(narrativeAmendmentRewind)
 	case "midnight_toll":
 		return fmt.Sprintf(pickRand(narrativeMidnightToll), e.Damage)
+	case "inversion_telegraph":
+		return pickRand(narrativeInversionTelegraph)
+	case "inversion_stitch":
+		return pickRand(narrativeInversionStitch)
+	case "heal_inverted":
+		return fmt.Sprintf(pickRand(narrativeHealInverted), e.Damage)
 	case "stat_drain":
 		return fmt.Sprintf(pickRand(narrativeStatDrain), e.Damage)
 	case "debuff":
@@ -790,6 +796,27 @@ var narrativeAmendmentRewind = []string{
 var narrativeMidnightToll = []string{
 	"🔔 A bell tolls somewhere above. Closing time — the Custodian's swings come harder. (+%d attack)",
 	"🔔 The hour is nearly spent, and so is its patience; each blow lands with more weight now. (+%d attack)",
+}
+
+// narrativeInversionTelegraph fires one round before an Inversion Stitch pulse —
+// the Seamstress's tell. It reads as a warning so a player learns to hold heals.
+var narrativeInversionTelegraph = []string{
+	"🧵 The Seamstress draws a thread taut and the room *shivers* — walls flexing toward inside-out. Whatever you were about to mend, hold it. (next round, healing turns against you)",
+	"🧵 A seam in the air puckers. The geometry is about to flip; a cure cast into it will run backward. (inversion incoming next round)",
+}
+
+// narrativeInversionStitch fires when a pulse activates — the room is sewn
+// inside-out and healing now wounds for the pulse's duration.
+var narrativeInversionStitch = []string{
+	"🧵 The stitch pulls through. The room is inside-out now — for a moment, to heal is to hurt.",
+	"🧵 Everything turns wrong-way-round. Mending and wounding have swapped ends of the needle.",
+}
+
+// narrativeHealInverted fires each time a heal lands during an active pulse: the
+// cure runs backward and stings instead. Teaches the mechanic on the spot.
+var narrativeHealInverted = []string{
+	"🧵 The heal runs backward through the inverted room — the cure opens the wound it meant to close. (%d damage)",
+	"🧵 Healing turns against its target in the sewn-inside-out air; the mend lands as a sting. (%d damage)",
 }
 
 var narrativeStatDrain = []string{

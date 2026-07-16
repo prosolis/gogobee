@@ -228,6 +228,8 @@ func applyBossInCombatRoundEnd(st *combatState, bossID string, enemyMaxHP int) {
 	switch bossID {
 	case "boss_custodian":
 		applyAmendment(st, enemyMaxHP)
+	case "boss_seamstress":
+		applyInversionStitch(st, enemyMaxHP)
 	}
 }
 
@@ -260,4 +262,73 @@ func applyAmendment(st *combatState, enemyMaxHP int) {
 			Damage: midnightAtkStep, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
 		})
 	}
+}
+
+// ── Inversion Stitch — The Seamstress (The Unplace) ──────────────────────────
+//
+// The Seamstress is sewing the tear shut from the inside, and once she's far
+// enough into the work (phase 2) she starts turning the room inside-out around
+// the party: for a two-round pulse, healing runs the wrong direction — every
+// cure lands as a wound (gated in stepPlayerActionEffect, floored at 1 HP so a
+// player is never killed by their own healer, only softened for the Seamstress's
+// own blows to finish). The catch is that she can't invert the room without a
+// visible tell: each pulse is telegraphed one full round ahead, so a player who
+// reads it holds their heals and waits it out. The autopilot that drives the sim
+// does not read tells — so the headless sweep sees the mechanic at its harshest,
+// the way an undisciplined party would, and a real player who respects the
+// warning fares better. That gap IS the difficulty lever, the same way the Greed
+// Tax and the Phylactery Verses are prod-only player-agency levers.
+//
+// It is the second in-combat Layer-2 mechanic, so it rides the same round-end
+// seam Amendment opened. Its state (inversionActive countdown + inversionTelegraph
+// warning) round-trips through CombatStatuses so a suspend/resume can't drop or
+// double a pulse. A no-op outside the Seamstress's phase 2.
+const (
+	// seamstressPhaseTwoFrac must track The Seamstress's PhaseTwoAt in
+	// postgame_zone_defs.go (0.35): the inversion only starts once she is sewn
+	// deep enough into the tear. Kept local for the same reason as
+	// custodianPhaseTwoFrac — the round-end hook resolves off the session, not the
+	// ZoneDefinition, so the threshold isn't otherwise in reach here.
+	seamstressPhaseTwoFrac = 0.35
+
+	// inversionPulseRounds is how many rounds each inside-out pulse lasts once it
+	// activates (heals sting for this many player-rounds).
+	inversionPulseRounds = 2
+)
+
+// applyInversionStitch drives the Seamstress's phase-2 inversion cadence at round
+// end: telegraph a pulse one round ahead, activate it for inversionPulseRounds,
+// then re-telegraph the next — giving a repeating warn(1) → sting(2) rhythm the
+// player can play around. No-op until the boss is in phase 2.
+func applyInversionStitch(st *combatState, enemyMaxHP int) {
+	// Layer-1 fight until the Seamstress is sewn into her own phase 2.
+	phaseTwo := int(seamstressPhaseTwoFrac * float64(enemyMaxHP))
+	if st.enemyHP > phaseTwo {
+		return
+	}
+	// An active pulse counts down one round per round end. While it stays above
+	// zero the next round's heals still sting; when it lapses this round, fall
+	// through so a fresh telegraph is scheduled immediately.
+	if st.inversionActive > 0 {
+		st.inversionActive--
+		if st.inversionActive > 0 {
+			return
+		}
+	}
+	// A telegraphed pulse activates: the room turns inside-out for the pulse.
+	if st.inversionTelegraph {
+		st.inversionActive = inversionPulseRounds
+		st.inversionTelegraph = false
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: CombatPhaseRoundEnd, Actor: "enemy", Action: "inversion_stitch",
+			PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+		})
+		return
+	}
+	// Otherwise warn: the next round's pulse is one round out.
+	st.inversionTelegraph = true
+	st.events = append(st.events, CombatEvent{
+		Round: st.round, Phase: CombatPhaseRoundEnd, Actor: "enemy", Action: "inversion_telegraph",
+		PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+	})
 }

@@ -452,6 +452,16 @@ type combatState struct {
 	enemyRewindHP   int
 	enemyRewindUsed bool
 
+	// Inversion Stitch (T6 Seamstress) — an in-combat Layer-2 hook resolved at
+	// round end by applyBossInCombatRoundEnd, live only in the boss's phase 2.
+	// inversionActive is the number of rounds the room stays sewn inside-out
+	// (heals sting instead of mend, gated in stepPlayerActionEffect); it counts
+	// down one per round end. inversionTelegraph warns the round before a pulse
+	// activates, so a player who watches the tell can hold their heals. Both
+	// round-trip through CombatStatuses; zero/false for every non-Seamstress fight.
+	inversionActive    int
+	inversionTelegraph bool
+
 	round  int
 	events []CombatEvent
 

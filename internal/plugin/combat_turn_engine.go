@@ -373,7 +373,10 @@ func resumeTurnEngine(sess *CombatSession, players []*Combatant, enemy *Combatan
 		// Amendment (T6 Custodian) — round-3 snapshot + once-only rewind.
 		enemyRewindHP:   sess.Statuses.EnemyRewindHP,
 		enemyRewindUsed: sess.Statuses.EnemyRewindUsed,
-		rng:             rng,
+		// Inversion Stitch (T6 Seamstress) — phase-2 heal-inverting pulses.
+		inversionActive:    sess.Statuses.InversionActive,
+		inversionTelegraph: sess.Statuses.InversionTelegraph,
+		rng:                rng,
 	}
 	order := turnOrder(sess, sess.Round, players, enemy)
 	sess.Statuses.TurnIdx = turnIdxForPhase(order, sess.Statuses.TurnIdx, sess.Phase)
@@ -573,10 +576,22 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 		st.enemyHP = max(0, st.enemyHP-enemyDmg)
 	}
 	if eff.PlayerHeal > 0 {
-		// Respect any max_hp_drain monster ability — a drained player can't be
-		// healed back past the lowered ceiling.
-		hpCap := max(1, st.hpMax-st.maxHPDrain)
-		st.playerHP = min(hpCap, st.playerHP+eff.PlayerHeal)
+		if st.inversionActive > 0 {
+			// Inversion Stitch (T6 Seamstress phase 2): the room is sewn inside-out,
+			// so the cure lands as a wound. Floored at 1 so a player is never killed
+			// by their own heal — the Seamstress's own blows do the finishing; the
+			// sting just denies the sustain and softens the seat for them.
+			st.playerHP = max(1, st.playerHP-eff.PlayerHeal)
+			st.events = append(st.events, CombatEvent{
+				Round: st.round, Phase: turnCombatPhase.Name, Actor: "enemy", Action: "heal_inverted",
+				Damage: eff.PlayerHeal, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			})
+		} else {
+			// Respect any max_hp_drain monster ability — a drained player can't be
+			// healed back past the lowered ceiling.
+			hpCap := max(1, st.hpMax-st.maxHPDrain)
+			st.playerHP = min(hpCap, st.playerHP+eff.PlayerHeal)
+		}
 	}
 	// §1 — heal somebody else. The caster's cursor stays where it is; only the
 	// target's HP moves.
@@ -587,14 +602,27 @@ func (te *turnEngine) stepPlayerActionEffect(eff *turnActionEffect) {
 	// path depends on. Healing keeps people up; it does not bring them back.
 	if eff.AllyHeal > 0 && eff.AllySeat >= 0 && eff.AllySeat < len(st.actors) {
 		if tgt := st.actors[eff.AllySeat]; tgt.playerHP > 0 {
-			cap := max(1, tgt.hpMax-tgt.maxHPDrain)
-			before := tgt.playerHP
-			tgt.playerHP = min(cap, tgt.playerHP+eff.AllyHeal)
-			st.events = append(st.events, CombatEvent{
-				Round: st.round, Phase: turnCombatPhase.Name, Actor: "player", Action: "ally_heal",
-				Damage: tgt.playerHP - before, PlayerHP: tgt.playerHP, EnemyHP: st.enemyHP,
-				Seat: eff.AllySeat, Desc: eff.Label,
-			})
+			if st.inversionActive > 0 {
+				// Inversion Stitch: the ally-heal wounds the friend it was meant to
+				// mend. Floored at 1 like the self-heal sting above — the sting denies
+				// the sustain, it does not kill.
+				before := tgt.playerHP
+				tgt.playerHP = max(1, tgt.playerHP-eff.AllyHeal)
+				st.events = append(st.events, CombatEvent{
+					Round: st.round, Phase: turnCombatPhase.Name, Actor: "enemy", Action: "heal_inverted",
+					Damage: before - tgt.playerHP, PlayerHP: tgt.playerHP, EnemyHP: st.enemyHP,
+					Seat: eff.AllySeat, Desc: eff.Label,
+				})
+			} else {
+				cap := max(1, tgt.hpMax-tgt.maxHPDrain)
+				before := tgt.playerHP
+				tgt.playerHP = min(cap, tgt.playerHP+eff.AllyHeal)
+				st.events = append(st.events, CombatEvent{
+					Round: st.round, Phase: turnCombatPhase.Name, Actor: "player", Action: "ally_heal",
+					Damage: tgt.playerHP - before, PlayerHP: tgt.playerHP, EnemyHP: st.enemyHP,
+					Seat: eff.AllySeat, Desc: eff.Label,
+				})
+			}
 		}
 	}
 	// Arm / replace the concentration aura. A new concentration cast overwrites
@@ -952,6 +980,8 @@ func (te *turnEngine) commit() {
 	s.EnemyAtkBuff = st.enemyAtkBuff
 	s.EnemyRewindHP = st.enemyRewindHP
 	s.EnemyRewindUsed = st.enemyRewindUsed
+	s.InversionActive = st.inversionActive
+	s.InversionTelegraph = st.inversionTelegraph
 
 	te.sess.TurnLog = append(te.sess.TurnLog, st.events...)
 }

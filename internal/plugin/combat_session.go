@@ -243,6 +243,16 @@ type CombatStatuses struct {
 	// existing EnemyAtkBuff, so it needs no field of its own.
 	EnemyRewindHP   int  `json:"enemy_rewind_hp,omitempty"`
 	EnemyRewindUsed bool `json:"enemy_rewind_used,omitempty"`
+
+	// Inversion Stitch (Tier-6 postgame, The Seamstress). An in-combat Layer-2
+	// hook resolved at round end (applyBossInCombatRoundEnd), live only in the
+	// boss's phase 2. InversionActive is the rounds-remaining of the inside-out
+	// pulse during which player heals sting instead of mend (gated in
+	// stepPlayerActionEffect); InversionTelegraph is the one-round warning before
+	// a pulse activates. Both round-trip through combatState so a suspend/resume
+	// can't lose or replay a pulse mid-fight. Zero/false for every other enemy.
+	InversionActive    int  `json:"inversion_active,omitempty"`
+	InversionTelegraph bool `json:"inversion_telegraph,omitempty"`
 }
 
 // applyBuffDelta folds one resolved buff (the result of a !cast / !consume

@@ -167,9 +167,9 @@ var _ = func() bool {
 		},
 		"boss_seamstress": {
 			ID: "boss_seamstress", Name: "The Seamstress",
-			CR: 27, HP: 385, AC: 21, Attack: 39, AttackBonus: 12, Speed: 14,
+			CR: 27, HP: 460, AC: 21, Attack: 45, AttackBonus: 12, Speed: 14,
 			BlockRate: 0.15,
-			Ability:   &MonsterAbility{Name: "Needle Rain", Phase: "decisive", ProcChance: 0.40, Effect: "aoe"},
+			Ability:   &MonsterAbility{Name: "Needle Rain", Phase: "decisive", ProcChance: 0.45, Effect: "aoe"},
 			XPValue:   100000,
 			Notes:     "Unplace boss. A corrupted celestial sewing herself into the tear; half of her is on the other side. Phase 2 below 35% HP. (Layer 2: Inversion Stitch — healing and damage swap direction on her in telegraphed pulses.)",
 		},
