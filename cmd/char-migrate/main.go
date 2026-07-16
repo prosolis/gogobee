@@ -40,16 +40,31 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := db.Init(*dataDir); err != nil {
-		log.Fatalf("db init: %v", err)
+	// Parse every spec before touching the DB, so a malformed spec in the
+	// middle of the batch fails fast instead of leaving the earlier specs
+	// already committed to gogobee.db.
+	type charSpec struct {
+		uid   id.UserID
+		race  plugin.DnDRace
+		class plugin.DnDClass
+		level int
 	}
-
+	specs := make([]charSpec, 0, flag.NArg())
 	for _, spec := range flag.Args() {
 		uid, race, class, level, err := parseSpec(spec)
 		if err != nil {
 			log.Fatalf("bad spec %q: %v", spec, err)
 		}
-		c, err := plugin.AdminBuildConfirmedCharacter(uid, race, class, level)
+		specs = append(specs, charSpec{uid, race, class, level})
+	}
+
+	if err := db.Init(*dataDir); err != nil {
+		log.Fatalf("db init: %v", err)
+	}
+
+	for _, s := range specs {
+		uid := s.uid
+		c, err := plugin.AdminBuildConfirmedCharacter(s.uid, s.race, s.class, s.level)
 		if err != nil {
 			log.Fatalf("build %s: %v", uid, err)
 		}

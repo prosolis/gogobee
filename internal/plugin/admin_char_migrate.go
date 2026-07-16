@@ -31,8 +31,24 @@ import (
 // SaveDnDCharacter upserts on user_id, so an existing pending draft is replaced.
 // initResources / ensureSpellsForCharacter are idempotent.
 func AdminBuildConfirmedCharacter(userID id.UserID, race DnDRace, class DnDClass, level int) (*DnDCharacter, error) {
+	// Validate (and normalize) race/class through the same parsers !setup uses,
+	// so a typo or a non-playable class fails loudly instead of silently minting
+	// a broken sheet — an unknown class falls through classInfo to 1 HP / AC 10
+	// / no spells, which looks "built" but isn't.
+	r, ok := parseRace(string(race))
+	if !ok {
+		return nil, fmt.Errorf("unknown race %q", race)
+	}
+	cl, ok := parseClass(string(class))
+	if !ok {
+		return nil, fmt.Errorf("unknown or non-playable class %q", class)
+	}
+	race, class = r, cl
 	if level < 1 {
 		level = 1
+	}
+	if level > dndMaxLevel {
+		level = dndMaxLevel
 	}
 	scores := applyRaceMods(race, classStatPriority(class))
 	c := &DnDCharacter{
