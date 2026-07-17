@@ -23,7 +23,6 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
-	"math/rand/v2"
 	"strings"
 
 	"gogobee/internal/flavor"
@@ -75,7 +74,7 @@ func resolveCombatInterrupt(
 	rollFn func() int,
 ) (CombatInterruptKind, int) {
 	if rollFn == nil {
-		rollFn = func() int { return rand.IntN(20) + 1 }
+		rollFn = func() int { return simIntN(20) + 1 }
 	}
 	r := rollFn()
 	mod := tier
@@ -249,7 +248,7 @@ func surpriseRoundNickF(m DnDMonsterTemplate, tier, floorOverride int) int {
 	if tier < 1 {
 		tier = 1
 	}
-	dmg := 1 + rand.IntN(4) + m.AttackBonus/2
+	dmg := 1 + simIntN(4) + m.AttackBonus/2
 	floor := tier
 	if floorOverride >= 0 {
 		floor = floorOverride
@@ -484,7 +483,7 @@ func (p *AdventurePlugin) tryPatrolEncounter(
 		return
 	}
 	chance := rollPatrolChance(exp.ThreatLevel)
-	if chance <= 0 || rand.Float64() > chance {
+	if chance <= 0 || simFloat64() > chance {
 		return
 	}
 	monster, ok := pickZoneEnemy(zone, run.RunID, run.CurrentRoom, false)

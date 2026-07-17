@@ -112,6 +112,55 @@ func applyRacePassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharacte
 //     AutoCritFirst is already a one-shot bool.
 //   - A Cleric carrying a healing potion stacks: passive 5 + potion 8 = 13.
 //     The passive heal triggers first since both use the same threshold.
+// cantripDice is the 5e at-will cantrip die progression (Fire Bolt / Eldritch
+// Blast): 1 die L1–4, 2 at L5, 3 at L11, 4 at L17. Drives the per-round arcane
+// blaster damage (CantripPerRound) that models a caster's sustained at-will
+// floor — see CombatModifiers.CantripPerRound.
+func cantripDice(level int) int {
+	switch {
+	case level >= 17:
+		return 4
+	case level >= 11:
+		return 3
+	case level >= 5:
+		return 2
+	default:
+		return 1
+	}
+}
+
+// casterBlasterFloor gives the arcane blasters (Mage/Sorcerer/Warlock) their
+// shared sustained-DPS floor at T5. Two knobs, both LEVEL-SCALED so the L20
+// floor lift stays negligible at low tiers — a flat +40 HP doubled a L1 mage
+// and facerolled T5, which the class-balance guardrail (dnd_class_balance_test)
+// correctly rejected.
+//
+//   - Cantrip: kill-speed is the T5 currency (fights are truncation-bound), so
+//     the primary lever is damage. Multiplicative form — the spell modifier
+//     (INT for Mage, CHA for Sorcerer/Warlock) rides EVERY die, matching 5e
+//     Agonizing Blast. cantripDice scales 1→4 across levels.
+//   - Survival: just enough HP/Def (scaled by level) that the caster lives long
+//     enough for the cantrip to connect the kill — NOT a tank rider. calcDamage
+//     defense has diminishing returns, so this leans on HP.
+//
+// casterCantripBase / casterDefPerLevel are the caster tuning dials; see the
+// rebaseline plan for the sweep that set them. The cantrip floor only becomes a
+// live lever once combat_cmd.go bridges CantripPerRound into the turn engine
+// (the swing engine, combat_engine.go:590, is not the auto-resolve path). Mage
+// and Sorcerer take casterCantripBase; Warlock passes 0 — its bare-dice cantrip
+// plus its structural edge already lands it mid-band, so an added floor would
+// overshoot the 45 ceiling.
+const (
+	casterCantripBase = 3 // per-die base before the ability modifier rides in
+	casterDefPerLevel = 1 // ~+20 Def at L20, +1 at L1
+)
+
+func casterBlasterFloor(stats *CombatStats, mods *CombatModifiers, level, abilityMod, base int, cantrip string) {
+	mods.CantripPerRound = cantripDice(level) * (base + clampNonNeg(abilityMod))
+	mods.CantripDesc = cantrip
+	stats.Defense += casterDefPerLevel * level
+}
+
 func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharacter) {
 	switch c.Class {
 	case ClassFighter:
@@ -127,18 +176,23 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		// re-tune in a follow-up if their win curves drift after this.
 		switch {
 		case c.Level >= 20:
-			mods.ExtraAttacks += 3
+			mods.ExtraAttacks += 2 // rebaseline: ceiling nerf — 3 swings at L20, was 4 (the engine-ceiling faceroll)
 		case c.Level >= 11:
 			mods.ExtraAttacks += 2
 		case c.Level >= 5:
 			mods.ExtraAttacks += 1
 		}
+		stats.AttackBonus -= 2 // rebaseline: sub-swing to-hit trim — 3 swings lands the Fighter in the ~60 band
 	case ClassRogue:
 		mods.AutoCritFirst = true
+		if c.Level >= 5 { // rebaseline: 2nd swing (was 1) fixes the 1-swing action-economy floor at T5
+			mods.ExtraAttacks += 1
+		}
+		stats.AttackBonus -= 3 // rebaseline: to-hit trim so the 2nd swing lands the Rogue in band, not the +75pp nuke
 		// Phase 2 class-balance: rogue's once-per-fight auto-crit goes stale
 		// at high tiers (T5 mean trails leaders by ~10pp pre-tune). Add a
 		// modest steady-DPS rider so post-opener rounds aren't pure attrition.
-		mods.DamageBonus += 0.05
+		mods.DamageBonus += -0.10 // rebaseline: fine-trim the 2-swing Rogue down into the ~60 band
 		// Class-identity audit (2026-05-16) — actual Sneak Attack as Nd6
 		// per hit, scaling with level per 5e (1d6 L1-2 ... 10d6 L19-20).
 		// AutoCritFirst + DamageBonus alone left the rogue's defining
@@ -154,6 +208,8 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		mods.SneakAttackDie += sneakDice
 	case ClassMage:
 		stats.AttackBonus++
+		// At-will Fire Bolt + level-scaled survival — the sustained arcane floor.
+		casterBlasterFloor(stats, mods, c.Level, abilityModifier(c.INT), casterCantripBase, "Fire Bolt")
 		// Phase 2 class-balance: +1 attack alone left Mage mid-pack on damage
 		// per round. A modest damage rider lifts weapon hits (DamageBonus does
 		// not multiply queued SpellPreDamage — that path is its own field).
@@ -194,6 +250,11 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		// subclass DamageReduct riders. DamageReduct is initialized to 1.0
 		// by DerivePlayerStats before passives run.
 		mods.DamageReduct *= 0.95
+		// rebaseline: the Druid wins T5 rooms on the survival tiebreak, immune to
+		// every damage lever. DamageReduct is a defense multiplier (calcDamage) —
+		// <1 = take MORE damage. Combined with a damage trim to pull it to band.
+		mods.DamageReduct *= 0.2
+		mods.DamageBonus += -0.20
 		// Phase 3 class-balance: druid was the only caster chassis with a
 		// purely defensive passive, and the off-tier numbers showed it —
 		// L1/T2 mean 0.04 vs Mage 0.27. Mirror the other caster bursts so
@@ -219,6 +280,7 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		stats.AttackBonus++
 		mods.DamageBonus += 0.05
 		mods.FlatDmgStart += c.Level + clampNonNeg(abilityModifier(c.CHA))
+		mods.DamageReduct *= 0.4 // rebaseline: Bard also wins T5 on the survival tiebreak — take more damage to reach band
 	case ClassSorcerer:
 		// Innate Sorcery — pre-combat burst, CHA-scaled like the Sorcerer's
 		// spellcasting stat. Floors at the flat base for low-CHA builds.
@@ -231,6 +293,9 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		// touching the +0.05 rider that already saturates at high tier.
 		mods.FlatDmgStart += 5 + c.Level + clampNonNeg(abilityModifier(c.CHA))
 		mods.DamageBonus += 0.05
+		stats.AttackBonus++ // rebaseline: Sorcerer lagged the other blasters — match their +1 to-hit
+		// At-will Fire Bolt + level-scaled survival — sustained arcane floor.
+		casterBlasterFloor(stats, mods, c.Level, abilityModifier(c.CHA), casterCantripBase, "Fire Bolt")
 	case ClassWarlock:
 		// Phase 2 class-balance: bumped from 10% to 12% damage + 1 attack —
 		// the Warlock chassis read mid-pack at T5 (0.52) pre-tune. Eldritch
@@ -240,6 +305,8 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		mods.DamageBonus += 0.12
 		stats.AttackBonus++
 		mods.FlatDmgStart += c.Level + clampNonNeg(abilityModifier(c.CHA))
+		// At-will Eldritch Blast + level-scaled survival — sustained arcane floor.
+		casterBlasterFloor(stats, mods, c.Level, abilityModifier(c.CHA), 0, "Eldritch Blast")
 	case ClassPaladin:
 		// Class-identity audit (2026-05-16) — Divine Smite as actual
 		// per-hit radiant bonus + L5 Extra Attack. 5e: smite consumes a
@@ -249,8 +316,9 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 		// down so an extra-attack paladin doesn't trivialize every fight.
 		// Rides DivineStrikePerHit (already in the weapon-hit damage path).
 		// Previous FlatDmgStart opener felt like Lay on Hands, not Smite.
-		smite := 3 + c.Level/3
+		smite := 4 + c.Level/2 // rebaseline: bigger Divine Smite lifts the Paladin from floor into band
 		mods.DivineStrikePerHit += smite
+		mods.DamageReduct *= 0.9 // rebaseline: small survival trim between the two integer smite steps for a ~60 landing
 		if c.Level >= 5 {
 			mods.ExtraAttacks += 1
 		}

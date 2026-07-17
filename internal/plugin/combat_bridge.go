@@ -371,7 +371,7 @@ type DeathTransitionResult struct {
 func transitionDeath(p DeathTransitionParams) DeathTransitionResult {
 	var r DeathTransitionResult
 
-	if p.AllowPardon && p.ChatLevel >= 20 && p.Char.PardonAvailable() && rand.Float64() < 0.33 {
+	if p.AllowPardon && p.ChatLevel >= 20 && p.Char.PardonAvailable() && simFloat64() < 0.33 {
 		r.Pardoned = true
 		now := time.Now().UTC()
 		p.Char.LastPardonUsed = &now

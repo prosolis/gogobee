@@ -224,7 +224,14 @@ func TestApplyClassPassives(t *testing.T) {
 		wantFlatStart   int
 		wantInitBias    float64
 	}{
-		{ClassFighter, 0.05, 0, false, 0, 1.0, 0, 0},
+		// Fighter-ceiling rebaseline (2026-07-16): Fighter picked up a -2 to-hit
+		// sub-swing trim; Rogue's steady rider flipped +0.05→-0.10 and it took a
+		// -3 to-hit trim (both offset a new 2nd swing gated at L5, not seen here);
+		// Druid took a survival trim (DR 0.95→0.19) + -0.20 damage; Bard a DR 0.4
+		// survival trim; Sorcerer a +1 to-hit to match the blasters; Paladin a
+		// 0.9 DR survival trim. Caster CantripPerRound / MaxHP / Defense adds are
+		// not asserted here.
+		{ClassFighter, 0.05, -2, false, 0, 1.0, 0, 0},
 		// Phase 2 class-balance rebalance: rogue picked up +5% damage,
 		// Mage/Bard/Warlock gained a level-scaled FlatDmgStart burst, Sorcerer's
 		// burst now also scales with level, and Warlock picked up +1 attack.
@@ -233,7 +240,7 @@ func TestApplyClassPassives(t *testing.T) {
 		// Phase 3 class-balance: Druid picked up a WIS-scaled FlatDmgStart burst
 		// (lvl 1 + clamp(mod(WIS=0)) = 1), and Sorcerer's burst base went 3→5
 		// (5 + 1 + clamp(mod(CHA=10)=0) = 6).
-		{ClassRogue, 0.05, 0, true, 0, 1.0, 0, 0},
+		{ClassRogue, -0.10, -3, true, 0, 1.0, 0, 0},
 		{ClassMage, 0.05, 1, false, 0, 1.0, 1, 0},
 		{ClassCleric, 0, 0, false, 5, 1.0, 0, 0},
 		// Class-identity audit (2026-05-16): Ranger Hunter's Mark is now
@@ -243,11 +250,11 @@ func TestApplyClassPassives(t *testing.T) {
 		// FlatDmgStart compensation riders are gone; +1 to-hit stays on
 		// Ranger as the "read prey tells" half.
 		{ClassRanger, 0, 1, false, 0, 1.0, 0, 0},
-		{ClassDruid, 0, 0, false, 0, 0.95, 1, 0},
-		{ClassBard, 0.05, 1, false, 0, 1.0, 1, 1},
-		{ClassSorcerer, 0.05, 0, false, 0, 1.0, 6, 0},
+		{ClassDruid, -0.20, 0, false, 0, 0.95 * 0.2, 1, 0},
+		{ClassBard, 0.05, 1, false, 0, 0.4, 1, 1},
+		{ClassSorcerer, 0.05, 1, false, 0, 1.0, 6, 0},
 		{ClassWarlock, 0.12, 1, false, 0, 1.0, 1, 0},
-		{ClassPaladin, 0, 0, false, 0, 1.0, 0, 0},
+		{ClassPaladin, 0, 0, false, 0, 0.9, 0, 0},
 	}
 	for _, tc := range cases {
 		stats := CombatStats{AttackBonus: 5}

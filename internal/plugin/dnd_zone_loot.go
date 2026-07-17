@@ -358,7 +358,10 @@ func pickLootEntry(zone map[LootTier][]ZoneLootDrop, tier LootTier, rng *rand.Ra
 // while production paths use the package-global generator.
 func rngFloat(rng *rand.Rand) float64 {
 	if rng == nil {
-		return rand.Float64()
+		// Auto-resolve rooms pass nil. simFloat64 routes to the seeded combat
+		// stream when the sim is seeding, else the package global — so prod
+		// (never seeded) stays byte-identical while sim room combat pairs.
+		return simFloat64()
 	}
 	return rng.Float64()
 }
@@ -368,7 +371,7 @@ func rngIntN(rng *rand.Rand, n int) int {
 		return 0
 	}
 	if rng == nil {
-		return rand.IntN(n)
+		return simIntN(n)
 	}
 	return rng.IntN(n)
 }

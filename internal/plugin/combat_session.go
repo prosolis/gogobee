@@ -482,6 +482,9 @@ const combatSessionCols = `
 
 // newCombatSessionID — 16-char hex token. Same scheme as zone runs / expeditions.
 func newCombatSessionID() string {
+	if simSeedOn() {
+		return simHexToken()
+	}
 	var b [8]byte
 	if _, err := cryptorand.Read(b[:]); err != nil {
 		// Vanishingly unlikely; fall through with a zeroed prefix.

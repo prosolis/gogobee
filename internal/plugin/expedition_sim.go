@@ -318,8 +318,16 @@ func applyClassBaselineStats(c *DnDCharacter) {
 		c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA = 16, 13, 15, 8, 12, 10
 	case ClassRogue, ClassRanger:
 		c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA = 10, 16, 14, 12, 13, 8
-	case ClassMage, ClassSorcerer:
+	case ClassMage:
 		c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA = 8, 14, 13, 16, 12, 10
+	case ClassSorcerer:
+		// Sorcerer is a CHA caster (spellcastingMod → CHA), so its 16 goes in
+		// CHA, not INT. Previously it shared the Mage's INT-heavy array, which
+		// left the synthetic sorcerer casting at CHA mod 0 — every CHA-scaled
+		// ability (cantrip, Innate Sorcery, spell DCs) ran crippled and sorc
+		// trailed the field in every sweep. Prod players always placed 16 in
+		// CHA; this makes the sim's sorcerer match a real one.
+		c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA = 8, 14, 13, 10, 12, 16
 	case ClassCleric, ClassDruid:
 		c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA = 12, 10, 14, 8, 16, 13
 	case ClassBard, ClassWarlock:

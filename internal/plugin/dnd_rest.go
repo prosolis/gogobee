@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"fmt"
-	"math/rand/v2"
 	"sort"
 	"strings"
 	"time"
@@ -117,7 +116,7 @@ func (p *AdventurePlugin) handleDnDShortRest(ctx MessageContext) error {
 	before := c.HPCurrent
 	if !hpFull {
 		conMod := abilityModifier(c.CON)
-		healDie := 1 + rand.IntN(6) // 1d6
+		healDie := 1 + simIntN(6) // 1d6
 		heal := healDie + conMod
 		if heal < 1 {
 			heal = 1

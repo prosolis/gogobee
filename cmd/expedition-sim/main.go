@@ -65,8 +65,18 @@ func main() {
 		companion    = flag.String("companion", "", "hire Pete into the party: \"auto\" fills the missing role, or name a class (cleric, fighter, …). Empty = no companion. He takes a seat but no loot/XP.")
 
 		jobs = flag.Int("jobs", 0, "matrix mode — concurrent worker count (each worker is a subprocess so it gets its own sqlite). 0 = runtime.NumCPU()")
+
+		seed     = flag.Int64("seed", -1, "single-run mode — deterministic seed for zone layout + run id + combat sessions (peripheral procs stay random). <0 = off (default). Matrix mode passes this to each subprocess automatically; use -base-seed there.")
+		baseSeed = flag.Int64("base-seed", -1, "matrix mode — deterministic base seed. Each cell's subprocess gets seed=mix(base,level,zone,rep) (class-independent, so every class faces identical dungeons + dice). <0 = off (default, time-seeded).")
 	)
 	flag.Parse()
+
+	// Deterministic seeding for reproducible A/B tuning. Off unless -seed >= 0
+	// (the matrix parent sets it per-subprocess from -base-seed). Prod never
+	// calls SeedSim, so this is inert outside the sim.
+	if *seed >= 0 {
+		plugin.SeedSim(*seed)
+	}
 
 	if *petLevel < 0 || *petLevel > 10 {
 		fail("pet-level must be 0-10, got", *petLevel)
@@ -89,7 +99,7 @@ func main() {
 				includeLog = *logFlag
 			}
 		})
-		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, *days, includeLog, *jobs, *trace, *petLevel, *party, *partyClasses, *companion)
+		runMatrix(*classes, *levels, *zones, *runs, *bank, *cap, *days, includeLog, *jobs, *trace, *petLevel, *party, *partyClasses, *companion, *baseSeed)
 		return
 	}
 
@@ -200,7 +210,18 @@ type matrixJob struct {
 	rep   int
 }
 
-func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days int, includeLog bool, jobs int, trace bool, petLevel, party int, partyClasses, companion string) {
+// mixSeed derives a per-cell subprocess seed from the base seed and the cell's
+// (level, zone, rep) — deliberately class-independent, so every class runs the
+// identical dungeon + combat dice at a given cell and A/B class deltas pair.
+func mixSeed(base int64, level int, zone string, rep int) int64 {
+	h := uint64(1469598103934665603) // FNV-1a offset basis
+	for _, c := range fmt.Sprintf("%d|%s|%d", level, zone, rep) {
+		h = (h ^ uint64(c)) * 1099511628211
+	}
+	return int64((uint64(base) ^ h) &^ (uint64(1) << 63)) // non-negative
+}
+
+func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days int, includeLog bool, jobs int, trace bool, petLevel, party int, partyClasses, companion string, baseSeed int64) {
 	cs := splitNonEmpty(classes)
 	ls := parseLevels(levels)
 	zs := splitNonEmpty(zones)
@@ -231,7 +252,7 @@ func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days 
 	var wg sync.WaitGroup
 	for i := 0; i < jobs; i++ {
 		wg.Add(1)
-		go matrixWorker(exe, workCh, resCh, &wg, bank, cap, days, includeLog, trace, petLevel, party, partyClasses, companion)
+		go matrixWorker(exe, workCh, resCh, &wg, bank, cap, days, includeLog, trace, petLevel, party, partyClasses, companion, baseSeed)
 	}
 	go func() {
 		for _, j := range work {
@@ -250,7 +271,7 @@ func runMatrix(classes, levels, zones string, runs int, bank float64, cap, days 
 	}
 }
 
-func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult, wg *sync.WaitGroup, bank float64, cap, days int, includeLog, trace bool, petLevel, party int, partyClasses, companion string) {
+func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult, wg *sync.WaitGroup, bank float64, cap, days int, includeLog, trace bool, petLevel, party int, partyClasses, companion string, baseSeed int64) {
 	defer wg.Done()
 	for j := range in {
 		uid := fmt.Sprintf("@sim:%s-l%d-%s-%d", j.class, j.level, j.zone, j.rep)
@@ -271,6 +292,9 @@ func matrixWorker(exe string, in <-chan matrixJob, out chan<- *plugin.SimResult,
 			fmt.Sprintf("-log=%t", includeLog),
 			fmt.Sprintf("-pet-level=%d", petLevel),
 			fmt.Sprintf("-party=%d", party),
+		}
+		if baseSeed >= 0 {
+			args = append(args, "-seed", strconv.FormatInt(mixSeed(baseSeed, j.level, j.zone, j.rep), 10))
 		}
 		// Left empty, each cell's followers clone that cell's own -class.
 		if partyClasses != "" {

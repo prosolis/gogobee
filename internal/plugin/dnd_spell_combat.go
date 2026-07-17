@@ -3,7 +3,6 @@ package plugin
 import (
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
 
 	"maunium.net/go/mautrix/id"
 )
@@ -128,7 +127,7 @@ func applyMageSubclassSpellHooks(c *DnDCharacter, spell SpellDefinition, slotLev
 // applySpellDamageAttack — Fire Bolt, Inflict Wounds, Chill Touch, etc.
 // Roll d20 + spell attack vs enemy AC; nat 20 doubles dice damage.
 func applySpellDamageAttack(spell SpellDefinition, atk int, mods *CombatModifiers, enemy *CombatStats, slot, charLevel int) {
-	roll := 1 + rand.IntN(20)
+	roll := 1 + simIntN(20)
 	isCrit := roll == 20
 	isFumble := roll == 1
 	if isFumble || (!isCrit && roll+atk < enemy.AC) {
@@ -158,7 +157,7 @@ func applySpellDamageAttack(spell SpellDefinition, atk int, mods *CombatModifier
 // future multi-enemy combat (Phase 11+) but is not consulted here.
 func applySpellDamageSave(spell SpellDefinition, dc int, c *DnDCharacter, mods *CombatModifiers, enemy *CombatStats, slot int) {
 	saveMod := enemySpellSaveMod(enemy)
-	saveRoll := 1 + rand.IntN(20)
+	saveRoll := 1 + simIntN(20)
 	saved := saveRoll+saveMod >= dc
 	dmg := rollSpellDamageDice(spell, slot, c.Level)
 	if saved {
@@ -182,7 +181,7 @@ func applySpellDamageAuto(spell SpellDefinition, mods *CombatModifiers, slot, ch
 		}
 		total := 0
 		for i := 0; i < darts; i++ {
-			total += 1 + rand.IntN(4) + 1
+			total += 1 + simIntN(4) + 1
 		}
 		mods.SpellPreDamage += total
 		mods.SpellPreDamageDesc = fmt.Sprintf("Magic Missile (%d darts, %d dmg)", darts, total)
@@ -223,7 +222,7 @@ func enemySpellSaveMod(enemy *CombatStats) int {
 // double damage (5e: paralyzed creatures auto-crit on melee hits).
 func applySpellControl(spell SpellDefinition, dc int, mods *CombatModifiers, enemy *CombatStats, slot int) {
 	saveMod := enemySpellSaveMod(enemy)
-	saveRoll := 1 + rand.IntN(20)
+	saveRoll := 1 + simIntN(20)
 	if saveRoll+saveMod >= dc {
 		mods.SpellPreDamageDesc = spell.Name + " — resisted"
 		return
@@ -382,7 +381,7 @@ func rollTurnSpellHeal(c *DnDCharacter, spell SpellDefinition, slotLevel int) in
 		if supreme {
 			heal += faces
 		} else {
-			heal += 1 + rand.IntN(faces)
+			heal += 1 + simIntN(faces)
 		}
 	}
 	heal += abilityModifier(c.WIS)
@@ -418,7 +417,7 @@ func rollSpellDamageDice(spell SpellDefinition, slot, charLevel int) int {
 	}
 	total := flat
 	for i := 0; i < dice; i++ {
-		total += 1 + rand.IntN(faces)
+		total += 1 + simIntN(faces)
 	}
 	if total < 1 {
 		total = 1

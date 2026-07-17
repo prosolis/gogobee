@@ -707,6 +707,24 @@ func (p *AdventurePlugin) castActionForSeat(ct *combatTurn, seat int, args strin
 			PlayerHeal:  out.PlayerHeal,
 			EnemySkip:   out.EnemySkip,
 		}
+		// Revive the arcane-blaster sustained cantrip floor in the turn engine.
+		// combat_engine.go:590 deals CantripPerRound flat every round, but that
+		// path is the swing-based engine (SimulateCombat). Auto-resolve — the
+		// live path for every expedition — runs the turn engine, where a caster
+		// autocasts and never weapon-swings, so the floor was dead code: casters
+		// fought at bare cantrip dice (~4d10≈22 at L20). Lift LANDED cantrip
+		// damage to the floor, but only when the cast already connected
+		// (eff.EnemyDamage > 0) — a whiffed Fire Bolt still whiffs, so the ~35%
+		// miss variance survives and the floor doesn't become a guaranteed flat
+		// hammer (that overshot to ~99%). Damage cantrips only; slot spells keep
+		// their rolled damage. Only Mage/Sorcerer/Warlock carry a nonzero
+		// CantripPerRound, so this is self-targeting.
+		if spell.Level == 0 && eff.EnemyDamage > 0 &&
+			(spell.Effect == EffectDamageAttack || spell.Effect == EffectDamageSave || spell.Effect == EffectDamageAuto) {
+			if floor := ct.players[seat].Mods.CantripPerRound; floor > eff.EnemyDamage {
+				eff.EnemyDamage = floor
+			}
+		}
 		// §1 — redirect the heal onto the named ally. The roll is the same; only
 		// the body it lands on changes. This is the line that makes a cleric a
 		// cleric: until it existed, every heal in the engine was a self-heal, and

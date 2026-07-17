@@ -175,6 +175,9 @@ func generateRoomSequence(zone ZoneDefinition, rng *rand.Rand) []RoomType {
 
 // newRunID — 16-char hex token. Crypto-random; collision-resistant.
 func newRunID() string {
+	if simSeedOn() {
+		return simHexToken()
+	}
 	var b [8]byte
 	if _, err := cryptorand.Read(b[:]); err != nil {
 		// Fall back to math/rand if /dev/urandom is unavailable.
@@ -240,7 +243,11 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 	}
 
 	if rng == nil {
-		rng = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixMicro())))
+		if simSeedOn() {
+			rng = simZoneRNG()
+		} else {
+			rng = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixMicro())))
+		}
 	}
 	seq := generateRoomSequence(zone, rng)
 
