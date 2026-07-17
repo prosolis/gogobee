@@ -181,6 +181,20 @@ type CombatModifiers struct {
 	SpellPreDamage      int
 	SpellPreDamageDesc  string
 	SpellEnemySkipFirst bool
+
+	// At-will cantrip channel. Arcane blasters (Mage/Sorcerer/Warlock) throw a
+	// scaling damage cantrip EVERY round — 5e cantrips are the caster's at-will
+	// floor and scale to 4 dice at L17 (Fire Bolt 4d10, Eldritch Blast 4 beams).
+	// The pre-combat one-shot SpellPreDamage modelled a single leveled cast and
+	// left the caster swinging a stick for the rest of the fight; that is the
+	// whole of the caster T5-room wall (one burst can't finish a 65-HP monster
+	// and the quarterstaff floor does nothing). CantripPerRound is dealt as flat
+	// magic damage at the top of resolvePlayerSwings each round — no dice roll,
+	// so the RNG stream is stable and variance stays low. 0 for non-casters, so
+	// martial combat is byte-identical. Halved by enemy spell_resist like any
+	// spell. CantripDesc is the narration hook (spell name).
+	CantripPerRound int
+	CantripDesc     string
 }
 
 type Combatant struct {
@@ -568,6 +582,31 @@ func maybeTriggerOrcRage(st *combatState, player *Combatant, phaseName string) {
 // consumes once-per-fight openers (AutoCritFirst, FirstAttackBonus,
 // AssassinateAdvantage) via st flags — extras roll vanilla.
 func resolvePlayerSwings(st *combatState, player, enemy *Combatant, phase *CombatPhase, result *CombatResult) bool {
+	// At-will cantrip: fires once per round before the weapon swing, independent
+	// of whether the swing connects (a caster who whiffs the stick still throws
+	// its Fire Bolt). Flat magic damage, halved by spell_resist. 0 for
+	// non-casters → skipped entirely, so martial combat draws no extra events
+	// and no RNG. See CantripPerRound in CombatModifiers.
+	if player.Mods.CantripPerRound > 0 && st.enemyHP > 0 {
+		dmg := player.Mods.CantripPerRound
+		if enemyResistsSpells(enemy, st) {
+			dmg = max(1, dmg/2)
+		}
+		st.enemyHP = max(0, st.enemyHP-dmg)
+		st.events = append(st.events, CombatEvent{
+			Round: st.round, Phase: phase.Name, Actor: "player", Action: "cantrip",
+			Damage: dmg, PlayerHP: st.playerHP, EnemyHP: st.enemyHP,
+			Desc: player.Mods.CantripDesc,
+		})
+		// Route the kill through enemyDown, not a raw HP read: a boss that cheats
+		// death (survive_at_1) or holds a phylactery rebirth (T6 Valdris) must get
+		// that chance even when the lethal blow is the at-will cantrip. enemyDown
+		// restores its HP and returns false, so the weapon swing below resolves
+		// against the revived pool. Mirrors resolvePlayerAttack's own kill routing.
+		if enemyDown(st, phase.Name) {
+			return true
+		}
+	}
 	if resolvePlayerAttack(st, player, enemy, phase, result) {
 		return true
 	}

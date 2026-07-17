@@ -242,6 +242,10 @@ func renderEvent(e CombatEvent, playerName, enemyName string, result CombatResul
 	case "concentration_tick":
 		return fmt.Sprintf(pickRand(narrativeConcentrationTick), e.Damage)
 
+	case "cantrip":
+		// e.Desc is the spell name (Fire Bolt / Eldritch Blast); e.Damage the hit.
+		return fmt.Sprintf(pickRand(narrativeCantrip), e.Desc, e.Damage)
+
 	case "pet_deflect":
 		return pickRand(narrativePetDeflect)
 
@@ -556,6 +560,15 @@ var narrativeConcentrationTick = []string{
 	"🌀 Your spell hasn't let go: the spirits sweep through again for %d damage.",
 	"🌀 The radiant field pulses once more — %d damage. Concentration holds.",
 	"🌀 The enemy steps wrong and the standing magic answers, %d damage. It does not move on.",
+}
+
+// narrativeCantrip fires each round an arcane blaster throws its at-will cantrip
+// (Fire Bolt / Eldritch Blast) before the weapon swing. %s is the spell name,
+// %d the damage — a caster's sustained floor, so it lands every round.
+var narrativeCantrip = []string{
+	"✨ %s streaks out and burns home — %d damage. The at-will floor never stops.",
+	"✨ A bolt of %s answers before the staff even moves, scorching for %d.",
+	"✨ %s lances the enemy for %d. No incantation, no wind-up — just the steady arcane drum.",
 }
 
 var narrativePetDeflect = []string{
