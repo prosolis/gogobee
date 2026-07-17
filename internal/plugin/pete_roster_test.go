@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"sort"
 	"testing"
 	"time"
 
@@ -123,5 +124,103 @@ func TestRosterTokenIsNotAnEventToken(t *testing.T) {
 	}
 	if board != eventToken(uid, "roster") {
 		t.Error("board token not stable — the row would churn identity every snapshot")
+	}
+}
+
+// pickMagicItem returns a registry item matching want, so these tests read the
+// real registry rather than pinning an item ID that a later SRD dump could drop.
+func pickMagicItem(t *testing.T, want func(MagicItem) bool) MagicItem {
+	t.Helper()
+	var ids []string
+	for id := range magicItemRegistry {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids) // map order is random; a flaky pick is a flaky test
+	for _, id := range ids {
+		if mi := magicItemRegistry[id]; want(mi) {
+			return mi
+		}
+	}
+	t.Skip("no registry item matches this shape")
+	return MagicItem{}
+}
+
+// TestItemViewsKeepsTheRegistryPointerHome is the leak guard. SkillSource is two
+// different things depending on the row: a player-facing skill name on
+// masterwork gear ("mining"), and the internal "magic_item:<id>" pointer that
+// resolves an inventory row back to the registry. Only the first is a fact about
+// the item. Sending the second would put gogobee's internal IDs on a page, and
+// Pete would have no way to tell them apart to filter them out.
+func TestItemViewsKeepsTheRegistryPointerHome(t *testing.T) {
+	newBoredomTestDB(t)
+	mi := pickMagicItem(t, func(m MagicItem) bool { return m.Desc != "" && m.Slot != "" })
+
+	views := itemViews([]AdvItem{
+		{Name: mi.Name, Type: "magic_item", Tier: 3, Value: 100,
+			SkillSource: "magic_item:" + mi.ID},
+		{Name: "Miner's Pick", Type: "MasterworkGear", Tier: 3, Value: 300,
+			Slot: SlotWeapon, SkillSource: "mining"},
+	})
+
+	if views[0].SkillSource != "" {
+		t.Errorf("the magic_item registry pointer went out on the wire: %q", views[0].SkillSource)
+	}
+	if views[0].Desc != mi.Desc {
+		t.Errorf("desc = %q, want the registry's %q", views[0].Desc, mi.Desc)
+	}
+	if views[0].Effect == "" {
+		t.Error("a magic item should carry the engine's own effect summary")
+	}
+	if views[1].SkillSource != "mining" {
+		t.Errorf("masterwork skill source = %q, want it kept", views[1].SkillSource)
+	}
+}
+
+// TestItemViewsNeverClaimABackpackBond: equipping *moves* the row out of
+// adventure_inventory into magic_item_equipped, so nothing in a backpack can
+// hold a bond. Attuned must stay false here whatever the item wants, or the
+// panel tells a player an unworn item is working for them.
+func TestItemViewsNeverClaimABackpackBond(t *testing.T) {
+	newBoredomTestDB(t)
+	mi := pickMagicItem(t, func(m MagicItem) bool { return m.Attunement && m.Slot != "" })
+
+	v := itemViews([]AdvItem{{Name: mi.Name, Type: "magic_item", Tier: 3,
+		SkillSource: "magic_item:" + mi.ID}})[0]
+
+	if !v.Attunement {
+		t.Error("an attunement item should say it wants a bond")
+	}
+	if v.Attuned {
+		t.Error("a backpack item claimed a bond it cannot hold")
+	}
+}
+
+// TestEquippedViewsCarryBondState: the worn set is the only place Attuned means
+// anything, and the only way the page can show that a worn item is sitting inert
+// against the cap of three.
+func TestEquippedViewsCarryBondState(t *testing.T) {
+	newBoredomTestDB(t)
+	uid := id.UserID("@josie:example.org")
+	mi := pickMagicItem(t, func(m MagicItem) bool { return m.Attunement && m.Slot != "" })
+
+	if err := equipMagicItem(uid, mi.Slot, mi.ID, false, 0); err != nil {
+		t.Fatalf("equip: %v", err)
+	}
+	views := equippedViews(uid)
+	if len(views) != 1 {
+		t.Fatalf("equipped views = %d, want 1", len(views))
+	}
+	if views[0].Attuned {
+		t.Error("an inert worn item was reported as bonded")
+	}
+	if views[0].Slot != string(mi.Slot) {
+		t.Errorf("slot = %q, want %q", views[0].Slot, mi.Slot)
+	}
+
+	if err := equipMagicItem(uid, mi.Slot, mi.ID, true, 0); err != nil {
+		t.Fatalf("re-equip bonded: %v", err)
+	}
+	if !equippedViews(uid)[0].Attuned {
+		t.Error("a bonded worn item was reported as inert")
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
 	"gogobee/internal/db"
@@ -202,25 +204,78 @@ func buildDetailSnapshot(now time.Time) (peteclient.DetailSnapshot, error) {
 		if items, err := loadAdvVault(uid); err == nil {
 			pd.Vault = itemViews(items)
 		}
+		pd.Equipped = equippedViews(uid)
 		snap.Players = append(snap.Players, pd)
 	}
 	return snap, nil
 }
 
+// itemViews renders inventory or vault rows for the private panel, resolving
+// the display facts the row itself doesn't carry.
+//
+// Attuned is always false here and that is not an omission: equipping *moves*
+// the row out of adventure_inventory into magic_item_equipped, so nothing in a
+// backpack can hold a bond. Worn items come from equippedViews instead.
 func itemViews(items []AdvItem) []peteclient.ItemView {
 	if len(items) == 0 {
 		return nil
 	}
 	out := make([]peteclient.ItemView, 0, len(items))
 	for _, it := range items {
-		out = append(out, peteclient.ItemView{
+		v := peteclient.ItemView{
 			Name:   it.Name,
 			Type:   it.Type,
 			Tier:   it.Tier,
 			Value:  it.Value,
 			Temper: it.Temper,
+			Slot:   string(it.Slot),
+		}
+		// SkillSource is dual-use: a real skill name on masterwork gear, an
+		// internal registry pointer on magic-item rows. Only the former is a
+		// fact about the item; the latter is plumbing and stays home.
+		if !strings.HasPrefix(it.SkillSource, "magic_item:") {
+			v.SkillSource = it.SkillSource
+		}
+		if mi, ok := magicItemFromAdvItem(it); ok {
+			eff := temperedItem(mi, it.Temper)
+			v.Slot = string(eff.Slot)
+			v.Desc = eff.Desc
+			v.Effect = magicItemEffectSummary(eff)
+			v.Attunement = eff.Attunement
+		} else if it.Slot != "" {
+			// Shop equipment resolves by (slot, tier) — Name is decorative.
+			v.Desc = equipmentDefByTier(it.Slot, it.Tier).Description
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// equippedViews returns the magic items the player is actually wearing. This is
+// the only place Attuned means anything: the bond lives on the equipped row, and
+// with a cap of dndMagicItemAttuneLimit a worn item can be inert.
+func equippedViews(uid id.UserID) []peteclient.ItemView {
+	equipped, err := loadEquippedMagicItems(uid)
+	if err != nil || len(equipped) == 0 {
+		return nil
+	}
+	out := make([]peteclient.ItemView, 0, len(equipped))
+	for _, e := range equipped {
+		eff := e.Effective()
+		out = append(out, peteclient.ItemView{
+			Name:       eff.Name,
+			Type:       string(eff.Kind),
+			Value:      int64(eff.Value),
+			Temper:     e.Temper,
+			Slot:       string(e.Slot),
+			Desc:       eff.Desc,
+			Effect:     magicItemEffectSummary(eff),
+			Attunement: eff.Attunement,
+			Attuned:    e.Attuned,
 		})
 	}
+	// Map iteration is random; the panel must not reshuffle every 60s poll.
+	sort.Slice(out, func(i, j int) bool { return out[i].Slot < out[j].Slot })
 	return out
 }
 

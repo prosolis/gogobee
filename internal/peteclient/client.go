@@ -348,17 +348,37 @@ type PlayerDetail struct {
 	Token     string     `json:"token"`
 	Inventory []ItemView `json:"inventory,omitempty"`
 	Vault     []ItemView `json:"vault,omitempty"`
+	Equipped  []ItemView `json:"equipped,omitempty"`
 	House     HouseView  `json:"house"`
 	Pets      []PetView  `json:"pets,omitempty"`
 }
 
-// ItemView is one backpack or vault item for the private inventory panel.
+// ItemView is one item in the private panels — backpack, vault, or worn.
+//
+// Slot/SkillSource/Desc/Effect are display resolutions done at the push site,
+// because an adventure_inventory row carries none of them: descriptions live on
+// MagicItem/EquipmentDef, and the combat delta is computed, never stored.
+//
+// SkillSource is only the player-facing skill a masterwork piece draws on
+// ("mining"). Inventory rows smuggle "magic_item:<id>" through the same column
+// as an internal registry pointer; that is not a fact about the item and never
+// goes on the wire.
+//
+// Attunement (does it need a bond) and Attuned (does it have one) are distinct:
+// with a hard cap of 3 bonds, a worn item can sit inert, and a player deciding
+// what to wear needs to see the difference.
 type ItemView struct {
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	Tier   int    `json:"tier"`
-	Value  int64  `json:"value"`
-	Temper int    `json:"temper,omitempty"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Tier        int    `json:"tier"`
+	Value       int64  `json:"value"`
+	Temper      int    `json:"temper,omitempty"`
+	Slot        string `json:"slot,omitempty"`
+	SkillSource string `json:"skill_source,omitempty"`
+	Desc        string `json:"desc,omitempty"`
+	Effect      string `json:"effect,omitempty"`
+	Attunement  bool   `json:"attunement,omitempty"`
+	Attuned     bool   `json:"attuned,omitempty"`
 }
 
 // HouseView is the owner's housing summary.
