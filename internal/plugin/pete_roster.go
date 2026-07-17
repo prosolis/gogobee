@@ -242,6 +242,14 @@ func itemViews(items []AdvItem) []peteclient.ItemView {
 			v.Desc = eff.Desc
 			v.Effect = magicItemEffectSummary(eff)
 			v.Attunement = eff.Attunement
+			// The row id is the equip handle: a slotted magic item is the one thing
+			// the web equip path can wear, so only it carries an id. Mundane gear (the
+			// branch below) and unslotted curios get none, so no Equip button. This
+			// runs for vault rows too — a vault magic item would carry an id — but Pete
+			// offers the button on the backpack panel alone, so that's inert, not a leak.
+			if eff.Slot != "" {
+				v.ID = it.ID
+			}
 		} else if it.Slot != "" {
 			// Shop equipment resolves by (slot, tier) — Name is decorative.
 			v.Desc = equipmentDefByTier(it.Slot, it.Tier).Description

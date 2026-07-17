@@ -398,6 +398,13 @@ type PlayerDetail struct {
 // with a hard cap of 3 bonds, a worn item can sit inert, and a player deciding
 // what to wear needs to see the difference.
 type ItemView struct {
+	// ID is the adventure_inventory row id, sent only for a backpack item the
+	// magic-item equip path will accept — so a non-zero ID is also the signal that
+	// this item can be equipped from the web. Worn and vault rows carry none: a
+	// worn item unequips by slot, and a vault item can't be equipped at all. Pete
+	// round-trips this id in an equip order; the table is AUTOINCREMENT, so a stale
+	// id (item already moved) misses cleanly rather than hitting the wrong row.
+	ID          int64  `json:"id,omitempty"`
 	Name        string `json:"name"`
 	Type        string `json:"type"`
 	Tier        int    `json:"tier"`
@@ -616,6 +623,59 @@ func ClaimMischief(ctx context.Context, guid, status, detail string) error {
 		return err
 	}
 	return std.post(ctx, "/api/mischief/claim", payload)
+}
+
+// ---------------------------------------------------------------------------
+// The equip queue's reverse pipe
+//
+// An owner asks, on their own detail page, to wear or take off an item. Pete
+// records the intent; we poll for it, run the real equip against our own
+// equipment tables, and file a verdict. Same shape as mischief — Pete has no
+// route in — but with one crucial difference: the game action is NOT naturally
+// idempotent (equipping consumes an inventory row and regenerates it on
+// unequip), so re-running a drained order would double-move items. The poller
+// therefore short-circuits on the order guid before it mutates, the way
+// placeWebMischief does on its contract; the guid is still the end-to-end key,
+// but here it guards a non-idempotent action rather than riding a naturally
+// idempotent one.
+// ---------------------------------------------------------------------------
+
+// EquipOrder is one equip/unequip as Pete describes it. owner_localpart is the
+// Matrix localpart of the character to dress; item_id is the adventure_inventory
+// row id for an equip (0 for an unequip, which keys on slot). character_name and
+// item_name are display copy Pete froze at order time; we don't need them.
+type EquipOrder struct {
+	GUID           string `json:"guid"`
+	OwnerLocalpart string `json:"owner_localpart"`
+	ItemID         int64  `json:"item_id"`
+	ItemName       string `json:"item_name"`
+	Slot           string `json:"slot"`
+	Action         string `json:"action"`
+	Status         string `json:"status"`
+	CreatedAt      int64  `json:"created_at"`
+}
+
+// PendingEquip asks Pete for equip orders waiting on us. A Pete predating the
+// queue answers 404, surfaced here as an error the poll loop logs quietly.
+func PendingEquip(ctx context.Context) ([]EquipOrder, error) {
+	if !Enabled() {
+		return nil, nil
+	}
+	var out []EquipOrder
+	if err := std.getJSON(ctx, "/api/equip/pending", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// VerdictEquip files our verdict on an equip order. Idempotent on Pete, so a
+// retried verdict is safe; the verdict rides this call directly.
+func VerdictEquip(ctx context.Context, guid, status, detail string) error {
+	payload, err := json.Marshal(map[string]string{"guid": guid, "status": status, "detail": detail})
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/equip/verdict", payload)
 }
 
 // getJSON does a bearer-authed GET and decodes the body.

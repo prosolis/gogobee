@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -559,6 +560,133 @@ func magicItemEffectSummary(mi MagicItem) string {
 	return strings.Join(parts, ", ")
 }
 
+// The equip mutation, message-free, shared by the DM resolver above and the web
+// equip queue (pete_equip.go). Splitting it out is deliberate: the ordering below
+// — evict occupant, then remove-from-inventory *before* equip, with a rollback if
+// equip fails — is the whole defence against item duplication, and a second copy
+// of it living in the web path is exactly where that defence would silently rot.
+// One implementation, two callers.
+
+// errItemNotEquippable is a *permanent* refusal (not a magic item, or a slotless
+// curio) — the caller should reject the request, not retry it. Every other error
+// from applyMagicEquip is a transient DB fault the caller may retry.
+var errItemNotEquippable = errors.New("magic-item: not equippable")
+
+// errSlotEmpty is applyMagicUnequip's permanent refusal: nothing is in that slot.
+var errSlotEmpty = errors.New("magic-item: slot empty")
+
+// magicEquipOutcome is what an equip did, for the caller to narrate. BondsBefore
+// is the attunement count *after* any swap-eviction and *before* this item, so a
+// caller reporting "bonded (N/3)" adds one.
+type magicEquipOutcome struct {
+	Effective   MagicItem // the item as worn, tempering folded in
+	SwappedBack string    // name of the occupant sent back to inventory, or ""
+	Bonded      bool      // this item took a bond just now
+	AtCap       bool      // worn but inert: it wants a bond and all 3 are used
+	BondsBefore int       // bonds in use before this item was worn
+	Healed      []string  // stragglers a freed slot let bond, post-equip
+}
+
+// applyMagicEquip wears one inventory item, preserving the anti-duplication
+// ordering. It mutates the equipment tables and sends nothing.
+func applyMagicEquip(userID id.UserID, it AdvItem) (magicEquipOutcome, error) {
+	mi, ok := magicItemFromAdvItem(it)
+	if !ok || mi.Slot == "" {
+		return magicEquipOutcome{}, errItemNotEquippable
+	}
+	equipped, err := loadEquippedMagicItems(userID)
+	if err != nil {
+		return magicEquipOutcome{}, err
+	}
+
+	// Return whatever occupies that slot to inventory at full value, and drop it
+	// from the local map so the bond count below reflects the post-swap state.
+	var swappedBack string
+	if prev, exists := equipped[mi.Slot]; exists && prev.Item.ID != "" {
+		back := magicItemSellAt(prev.Item, prev.Temper)
+		back.SkillSource = "magic_item:" + prev.Item.ID
+		if err := addAdvInventoryItem(userID, back); err != nil {
+			return magicEquipOutcome{}, err
+		}
+		swappedBack = prev.Item.Name
+		delete(equipped, mi.Slot)
+	}
+
+	bondsBefore := countAttunedMagicItems(equipped)
+	bonded, atCap := false, false
+	if mi.Attunement {
+		if bondsBefore >= dndMagicItemAttuneLimit {
+			atCap = true
+		} else {
+			bonded = true
+		}
+	}
+
+	// Remove the inventory row FIRST, then equip; if equip fails, restore the row.
+	// The reverse order left a transient failure with the item both worn and in the
+	// pack — a free duplicate.
+	if err := removeAdvInventoryItem(it.ID); err != nil {
+		slog.Error("magic-item: failed to remove from inventory before equip",
+			"user", userID, "item", mi.ID, "err", err)
+		return magicEquipOutcome{}, err
+	}
+	if err := equipMagicItem(userID, mi.Slot, mi.ID, bonded, it.Temper); err != nil {
+		restored := magicItemSellAt(mi, it.Temper)
+		restored.Value = it.Value
+		restored.SkillSource = "magic_item:" + mi.ID
+		if rbErr := addAdvInventoryItem(userID, restored); rbErr != nil {
+			slog.Error("magic-item: equip failed AND inventory rollback failed",
+				"user", userID, "item", mi.ID, "equip_err", err, "rollback_err", rbErr)
+		}
+		return magicEquipOutcome{}, err
+	}
+
+	// Swapping the occupant out may have freed a bond slot — light up any straggler.
+	healed, _ := reconcileMagicAttunements(userID)
+	return magicEquipOutcome{
+		Effective:   temperedItem(mi, it.Temper),
+		SwappedBack: swappedBack,
+		Bonded:      bonded,
+		AtCap:       atCap,
+		BondsBefore: bondsBefore,
+		Healed:      healed,
+	}, nil
+}
+
+// magicUnequipOutcome is what an unequip did, for the caller to narrate.
+type magicUnequipOutcome struct {
+	Item   MagicItem // the item taken off, as it was worn
+	Healed []string  // stragglers the freed bond slot let bond
+}
+
+// applyMagicUnequip takes the item off a slot and returns it to inventory,
+// mirroring the equip ordering (destructive op first, restore on failure). Sends
+// nothing.
+func applyMagicUnequip(userID id.UserID, slot DnDSlot) (magicUnequipOutcome, error) {
+	equipped, err := loadEquippedMagicItems(userID)
+	if err != nil {
+		return magicUnequipOutcome{}, err
+	}
+	e, ok := equipped[slot]
+	if !ok || e.Item.ID == "" {
+		return magicUnequipOutcome{}, errSlotEmpty
+	}
+	if err := unequipMagicItem(userID, slot); err != nil {
+		return magicUnequipOutcome{}, err
+	}
+	back := magicItemSellAt(e.Item, e.Temper)
+	back.SkillSource = "magic_item:" + e.Item.ID
+	if err := addAdvInventoryItem(userID, back); err != nil {
+		if rbErr := equipMagicItem(userID, slot, e.Item.ID, e.Attuned, e.Temper); rbErr != nil {
+			slog.Error("magic-item: unequip failed AND re-equip rollback failed",
+				"user", userID, "item", e.Item.ID, "inv_err", err, "rollback_err", rbErr)
+		}
+		return magicUnequipOutcome{}, err
+	}
+	healed, _ := reconcileMagicAttunements(userID)
+	return magicUnequipOutcome{Item: e.Effective(), Healed: healed}, nil
+}
+
 func (p *AdventurePlugin) handleEquipMagicCmd(ctx MessageContext) error {
 	// Self-heal first: bond any worn item stranded inert while a slot is free
 	// (e.g. equipped at cap, then a bond slot opened). This is the only path a
@@ -639,86 +767,31 @@ func (p *AdventurePlugin) resolveMagicEquipReply(ctx MessageContext, interaction
 	}
 
 	it := data.Items[idx]
-	mi, ok := magicItemFromAdvItem(it)
-	if !ok || mi.Slot == "" {
+	out, err := applyMagicEquip(ctx.Sender, it)
+	if errors.Is(err, errItemNotEquippable) {
 		return p.SendDM(ctx.Sender, "That item can't be equipped anymore.")
 	}
-
-	equipped, err := loadEquippedMagicItems(ctx.Sender)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Failed to load your equipped magic items.")
-	}
-
-	// Return whatever currently occupies that slot to inventory at full
-	// value — swapping a curio shouldn't tax it. Evict from the local map
-	// too, so the attunement count below reflects the post-swap state and
-	// can re-open a slot the prior occupant was holding.
-	var swappedBackName string
-	if prev, exists := equipped[mi.Slot]; exists && prev.Item.ID != "" {
-		back := magicItemSellAt(prev.Item, prev.Temper)
-		back.SkillSource = "magic_item:" + prev.Item.ID
-		if err := addAdvInventoryItem(ctx.Sender, back); err != nil {
-			return p.SendDM(ctx.Sender, "Failed to return your currently-equipped item to inventory.")
-		}
-		swappedBackName = prev.Item.Name
-		delete(equipped, mi.Slot)
-	}
-
-	// Auto-attune when the item needs it and an attunement slot is free.
-	// Otherwise it equips inert until the player frees a slot.
-	attune := false
-	atCap := false
-	if mi.Attunement {
-		if countAttunedMagicItems(equipped) >= dndMagicItemAttuneLimit {
-			atCap = true
-		} else {
-			attune = true
-		}
-	}
-	// Remove the inventory row FIRST, then equip. If equip fails after the
-	// remove succeeded, restore inventory. Doing it in the other order
-	// meant a transient DB error on remove left the item both equipped
-	// *and* still in inventory — a free duplication.
-	if err := removeAdvInventoryItem(it.ID); err != nil {
-		slog.Error("magic-item: failed to remove from inventory before equip",
-			"user", ctx.Sender, "item", mi.ID, "err", err)
-		return p.SendDM(ctx.Sender, "Failed to equip that item.")
-	}
-	if err := equipMagicItem(ctx.Sender, mi.Slot, mi.ID, attune, it.Temper); err != nil {
-		// Roll back: try to put the item back in inventory so the player
-		// doesn't lose it. Best-effort; log if the rollback also fails.
-		restored := magicItemSellAt(mi, it.Temper)
-		restored.Value = it.Value
-		restored.SkillSource = "magic_item:" + mi.ID
-		if rbErr := addAdvInventoryItem(ctx.Sender, restored); rbErr != nil {
-			slog.Error("magic-item: equip failed AND inventory rollback failed",
-				"user", ctx.Sender, "item", mi.ID, "equip_err", err, "rollback_err", rbErr)
-		}
 		return p.SendDM(ctx.Sender, "Failed to equip that item.")
 	}
 
-	eqMI := temperedItem(mi, it.Temper)
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("✨ **%s** equipped in your %s slot — %s.",
-		eqMI.Name, eqMI.Slot, magicItemEffectSummary(eqMI)))
-	if swappedBackName != "" {
-		sb.WriteString(fmt.Sprintf("\n📦 **%s** moved back to inventory.", swappedBackName))
+		out.Effective.Name, out.Effective.Slot, magicItemEffectSummary(out.Effective)))
+	if out.SwappedBack != "" {
+		sb.WriteString(fmt.Sprintf("\n📦 **%s** moved back to inventory.", out.SwappedBack))
 	}
 	switch {
-	case mi.Attunement && attune:
+	case out.Bonded:
 		sb.WriteString(fmt.Sprintf("\nBonded (%d/%d bond slots used).",
-			countAttunedMagicItems(equipped)+1, dndMagicItemAttuneLimit))
-	case mi.Attunement && atCap:
+			out.BondsBefore+1, dndMagicItemAttuneLimit))
+	case out.AtCap:
 		sb.WriteString(fmt.Sprintf("\n⚠️ All %d bond slots are full — it's worn but **inert** until you free one (`!adventure unequip-magic` to take a bonded item off; this one bonds automatically once a slot opens).",
 			dndMagicItemAttuneLimit))
 	}
-
-	// Swapping out the prior occupant may have freed a bond slot — light up any
-	// item that was stranded inert (including a previously-equipped one the
-	// picker could never reach).
-	if healed, _ := reconcileMagicAttunements(ctx.Sender); len(healed) > 0 {
+	if len(out.Healed) > 0 {
 		sb.WriteString(fmt.Sprintf("\n🔗 A freed bond slot also activated **%s**.",
-			strings.Join(healed, "**, **")))
+			strings.Join(out.Healed, "**, **")))
 	}
 	return p.SendDM(ctx.Sender, sb.String())
 }
@@ -783,39 +856,19 @@ func (p *AdventurePlugin) resolveMagicUnequipReply(ctx MessageContext, interacti
 	}
 
 	slot := data.Slots[idx]
-	equipped, err := loadEquippedMagicItems(ctx.Sender)
-	if err != nil {
-		return p.SendDM(ctx.Sender, "Failed to load your equipped magic items.")
-	}
-	e, ok := equipped[slot]
-	if !ok || e.Item.ID == "" {
+	out, err := applyMagicUnequip(ctx.Sender, slot)
+	if errors.Is(err, errSlotEmpty) {
 		return p.SendDM(ctx.Sender, "That slot is already empty.")
 	}
-
-	// Clear the slot FIRST, then return the item to inventory at full value.
-	// This mirrors the equip resolver's ordering (destructive op first, restore
-	// on failure): the other order could leave the item both worn and in
-	// inventory — a free duplicate — on a transient DB error.
-	if err := unequipMagicItem(ctx.Sender, slot); err != nil {
+	if err != nil {
 		return p.SendDM(ctx.Sender, "Failed to take that item off.")
 	}
-	back := magicItemSellAt(e.Item, e.Temper)
-	back.SkillSource = "magic_item:" + e.Item.ID
-	if err := addAdvInventoryItem(ctx.Sender, back); err != nil {
-		// Roll back: re-equip exactly as it was so the item isn't lost.
-		if rbErr := equipMagicItem(ctx.Sender, slot, e.Item.ID, e.Attuned, e.Temper); rbErr != nil {
-			slog.Error("magic-item: unequip failed AND re-equip rollback failed",
-				"user", ctx.Sender, "item", e.Item.ID, "inv_err", err, "rollback_err", rbErr)
-		}
-		return p.SendDM(ctx.Sender, "Failed to return that item to your inventory.")
-	}
 
-	mi := e.Effective()
-	msg := fmt.Sprintf("📦 **%s** taken off your %s slot and returned to inventory.", mi.Name, slot)
+	msg := fmt.Sprintf("📦 **%s** taken off your %s slot and returned to inventory.", out.Item.Name, slot)
 	// Freeing a bonded slot may let a worn-but-inert item finally bond.
-	if healed, _ := reconcileMagicAttunements(ctx.Sender); len(healed) > 0 {
+	if len(out.Healed) > 0 {
 		msg += fmt.Sprintf("\n🔗 That freed a bond slot — **%s** is now active.",
-			strings.Join(healed, "**, **"))
+			strings.Join(out.Healed, "**, **"))
 	}
 	return p.SendDM(ctx.Sender, msg)
 }

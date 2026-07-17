@@ -1807,6 +1807,21 @@ CREATE INDEX IF NOT EXISTS idx_mischief_target ON mischief_contracts(target_id, 
 CREATE INDEX IF NOT EXISTS idx_mischief_buyer ON mischief_contracts(buyer_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_mischief_due ON mischief_contracts(status, window_ends_at);
 
+-- The web equip queue's idempotency ledger. Pete records an owner's equip/unequip
+-- intent and we poll it; the guid stamped here is what makes a re-offered order a
+-- no-op. Mischief can lean on its contract row for the same job, but an equip
+-- opens no durable object of its own — worse, the underlying action is NOT
+-- idempotent (equipping consumes an inventory row, unequip mints a fresh one), so
+-- without this a poll loop whose verdict-ack was lost would re-run the equip and
+-- double-move the item. We record the guid the instant the mutation lands and
+-- short-circuit on it before touching anything on a re-offer.
+CREATE TABLE IF NOT EXISTS equip_applied_orders (
+	guid       TEXT PRIMARY KEY,
+	status     TEXT NOT NULL,           -- the terminal verdict we filed, replayed on re-offer
+	detail     TEXT NOT NULL DEFAULT '',
+	applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Babysitting Service
 CREATE TABLE IF NOT EXISTS adventure_babysit_log (
 	id            INTEGER PRIMARY KEY AUTOINCREMENT,
