@@ -400,6 +400,7 @@ func buildRosterSnapshot(now time.Time, euro *EuroPlugin) (peteclient.RosterSnap
 				if exp.RunID != "" {
 					if run, rerr := getZoneRun(exp.RunID); rerr == nil && run != nil && run.TotalRooms > 0 {
 						e.Detail.Room = fmt.Sprintf("%d / %d", run.CurrentRoom+1, run.TotalRooms)
+						e.Detail.Map = buildRosterMap(run)
 					}
 				}
 			}
@@ -411,6 +412,71 @@ func buildRosterSnapshot(now time.Time, euro *EuroPlugin) (peteclient.RosterSnap
 		snap.Adventurers = append(snap.Adventurers, e)
 	}
 	return snap, nil
+}
+
+// buildRosterMap computes the fog-of-war cut of a run's zone graph for the
+// public roster. It sends every visited node with its true kind, plus the
+// one-hop frontier — the destinations of edges leading out of visited nodes,
+// with their kind withheld as "unknown". Edges are directed and stored by
+// from-node, so "one hop out of a visited node" is exactly g.Edges[visited].
+// A frontier node's edges are NOT walked, so nothing past the first closed
+// door reaches the wire — "view source to find the boss room" is not fog of
+// war. Node Label/Content never leave the game box.
+//
+// Output order is deterministic (visited-path order, then frontier in
+// discovery order) so an unchanged run produces a byte-identical snapshot and
+// the roster push does not churn.
+func buildRosterMap(run *DungeonRun) *peteclient.RosterMap {
+	g, ok := loadZoneGraph(run.ZoneID)
+	if !ok || len(run.VisitedNodes) == 0 {
+		return nil
+	}
+
+	// Unique visited nodes in path order — VisitedNodes repeats on backtrack.
+	orderedVisited := make([]string, 0, len(run.VisitedNodes))
+	seen := make(map[string]bool, len(run.VisitedNodes))
+	for _, id := range run.VisitedNodes {
+		if !seen[id] {
+			seen[id] = true
+			orderedVisited = append(orderedVisited, id)
+		}
+	}
+
+	m := &peteclient.RosterMap{
+		ZoneID:      string(run.ZoneID),
+		CurrentNode: run.CurrentNode,
+		Visited:     orderedVisited,
+	}
+
+	// Visited nodes first, in path order, with their real kind.
+	emitted := make(map[string]bool, len(orderedVisited))
+	for _, id := range orderedVisited {
+		emitted[id] = true
+		if n, ok := g.Nodes[id]; ok {
+			m.Nodes = append(m.Nodes, peteclient.RosterMapNode{ID: id, Kind: string(n.Kind)})
+		}
+	}
+
+	// Frontier: destinations of edges out of visited nodes, kind withheld.
+	// Walk visited in path order so the frontier order is stable.
+	for _, from := range orderedVisited {
+		for _, edge := range g.Edges[from] {
+			lock := edge.Lock
+			if lock == LockNone {
+				lock = "" // an open door needs no mark; omitempty drops it
+			}
+			m.Edges = append(m.Edges, peteclient.RosterMapEdge{
+				From: edge.From,
+				To:   edge.To,
+				Lock: string(lock),
+			})
+			if !seen[edge.To] && !emitted[edge.To] {
+				emitted[edge.To] = true
+				m.Nodes = append(m.Nodes, peteclient.RosterMapNode{ID: edge.To, Kind: "unknown"})
+			}
+		}
+	}
+	return m
 }
 
 // resolveRosterToken maps a board token back to the adventurer it names. The

@@ -266,9 +266,39 @@ type RosterDetail struct {
 	Modifiers  [6]int     `json:"modifiers"` // matching ability modifiers
 	Gear       []GearItem `json:"gear,omitempty"`
 	// Expedition context, present only while on a run.
-	Supplies    int    `json:"supplies,omitempty"`
-	ThreatLevel int    `json:"threat_level,omitempty"`
-	Room        string `json:"room,omitempty"`
+	Supplies    int        `json:"supplies,omitempty"`
+	ThreatLevel int        `json:"threat_level,omitempty"`
+	Room        string     `json:"room,omitempty"`
+	Map         *RosterMap `json:"map,omitempty"`
+}
+
+// RosterMap is the fog-of-war cut of an adventurer's zone graph: every node
+// they have visited, plus the one-hop frontier of doors leading out of visited
+// nodes, with the rooms behind those doors withheld. It is per-adventurer and
+// rides the roster push beside Room. Only ids and kinds cross the wire — a
+// ZoneNode's Label and Content (encounter, loot bias, narration) are spoilers
+// and never leave the game box. Frontier nodes carry kind "unknown".
+type RosterMap struct {
+	ZoneID      string          `json:"zone_id"`
+	CurrentNode string          `json:"current_node"`
+	Visited     []string        `json:"visited"`
+	Nodes       []RosterMapNode `json:"nodes"`
+	Edges       []RosterMapEdge `json:"edges"`
+}
+
+// RosterMapNode is one room reduced to what a public map may show.
+type RosterMapNode struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"` // ZoneNodeKind, or "unknown" for an unreached frontier room
+}
+
+// RosterMapEdge is one directed passage. Lock names the gate kind
+// (perception_check, key_required, ...) so the map can mark a door as barred;
+// LockData and Hint stay behind on the game box.
+type RosterMapEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Lock string `json:"lock,omitempty"`
 }
 
 // GearItem is one equipped piece for the armor/gear panel.
