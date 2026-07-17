@@ -200,6 +200,9 @@ func buildDetailSnapshot(now time.Time) (peteclient.DetailSnapshot, error) {
 		}
 		if items, err := loadAdvInventory(uid); err == nil {
 			pd.Inventory = itemViews(items)
+			if equipped, err := loadEquippedMagicItems(uid); err == nil {
+				attachInventoryCompares(pd.Inventory, items, equipped)
+			}
 		}
 		if items, err := loadAdvVault(uid); err == nil {
 			pd.Vault = itemViews(items)
@@ -258,6 +261,146 @@ func itemViews(items []AdvItem) []peteclient.ItemView {
 	}
 	return out
 }
+
+// attachInventoryCompares fills the Compare card on every backpack magic item —
+// the ones that carry an equip id, which is exactly the set the web Equip button
+// acts on (equippedViews/vault rows are excluded by construction). views and items
+// are index-aligned: itemViews appends one view per item and skips none.
+func attachInventoryCompares(views []peteclient.ItemView, items []AdvItem, equipped map[DnDSlot]EquippedMagicItem) {
+	for i := range views {
+		if views[i].ID == 0 {
+			continue // no equip id → mundane gear or unslotted curio → no button, no compare
+		}
+		mi, ok := magicItemFromAdvItem(items[i])
+		if !ok || mi.Slot == "" {
+			continue
+		}
+		views[i].Compare = magicItemCompare(mi, items[i].Temper, equipped)
+	}
+}
+
+// magicItemCompare pairs a candidate backpack item against whatever is worn in
+// the slot it would equip into (mi.Slot — the same slot applyMagicEquip targets,
+// so the card describes the trade the Equip button actually makes). The diff is
+// over *tempered* effects on both sides; bond availability decides the inert case.
+func magicItemCompare(cand MagicItem, temper int, equipped map[DnDSlot]EquippedMagicItem) *peteclient.ItemCompare {
+	if cand.Slot == "" {
+		return nil
+	}
+	candEff := magicItemEffectFor(temperedItem(cand, temper))
+
+	worn, wornExists := equipped[cand.Slot]
+	if wornExists && worn.Item.ID == "" {
+		wornExists = false // an empty EquippedMagicItem is not a real occupant
+	}
+
+	// An empty slot compares against neutral: DamageReductMult is a multiplier, so
+	// its neutral is 1.0, not the zero value (0 would read as -100% damage taken).
+	wornEff := magicItemEffect{DamageReductMult: 1.0}
+	vsName := ""
+	if wornExists {
+		wornEff = magicItemEffectFor(worn.Effective())
+		vsName = worn.Effective().Name
+	}
+	deltas := magicItemDeltas(candEff, wornEff)
+
+	// Inert: the item wants a bond and none is free. Equipping evicts the slot's
+	// occupant first, so an attuned occupant frees its own bond — count post-swap.
+	inert := false
+	if cand.Attunement {
+		bonds := countAttunedMagicItems(equipped)
+		if wornExists && worn.Attuned {
+			bonds--
+		}
+		inert = bonds >= dndMagicItemAttuneLimit
+	}
+
+	return &peteclient.ItemCompare{
+		Verdict: compareVerdict(deltas, !wornExists, inert),
+		VsName:  vsName,
+		VsSlot:  string(cand.Slot),
+		Deltas:  deltas,
+	}
+}
+
+// compareVerdict classifies a set of deltas by strict dominance. Different stats
+// are not fungible — the engine can't say +3% damage beats -4 HP — so a mixed
+// result is a sidegrade with no winner claimed, which is the whole reason the
+// card exists. inert and new override the stat verdict.
+func compareVerdict(deltas []peteclient.ItemDelta, empty, inert bool) string {
+	if inert {
+		return "inert" // wearing it does nothing until a bond frees; stat diff is moot
+	}
+	if empty {
+		return "new"
+	}
+	if len(deltas) == 0 {
+		return "same"
+	}
+	gains, losses := 0, 0
+	for _, d := range deltas {
+		if d.Better {
+			gains++
+		} else {
+			losses++
+		}
+	}
+	switch {
+	case losses == 0:
+		return "upgrade"
+	case gains == 0:
+		return "downgrade"
+	default:
+		return "sidegrade"
+	}
+}
+
+// magicItemDeltas returns one entry per stat that visibly changes between the
+// candidate and the worn item. It diffs the structured effect fields, never the
+// summary string (which drops zero fields and would lose deltas). A change too
+// small to show at the rendered precision is omitted, so the verdict matches what
+// the player sees.
+func magicItemDeltas(cand, worn magicItemEffect) []peteclient.ItemDelta {
+	var d []peteclient.ItemDelta
+
+	// DamageBonus / DamageReductMult are fractions rendered as whole percents.
+	if pct := (cand.DamageBonus - worn.DamageBonus) * 100; roundedPct(pct) != 0 {
+		d = append(d, peteclient.ItemDelta{Label: "damage", Better: pct > 0, Text: signedPct(pct, "damage")})
+	}
+	// DamageReductMult is a multiplier on damage TAKEN, so lower is better. Express
+	// the change as damage taken: a positive number means you take more (worse).
+	if taken := (cand.DamageReductMult - worn.DamageReductMult) * 100; roundedPct(taken) != 0 {
+		d = append(d, peteclient.ItemDelta{Label: "defense", Better: taken < 0, Text: signedPct(taken, "damage taken")})
+	}
+	if diff := cand.FlatDmgStart - worn.FlatDmgStart; diff != 0 {
+		d = append(d, peteclient.ItemDelta{Label: "opening", Better: diff > 0, Text: signedInt(diff, "opening damage")})
+	}
+	if diff := cand.MaxHP - worn.MaxHP; diff != 0 {
+		d = append(d, peteclient.ItemDelta{Label: "hp", Better: diff > 0, Text: signedInt(diff, "HP")})
+	}
+	if cand.InitiativeBias != worn.InitiativeBias {
+		faster := cand.InitiativeBias > worn.InitiativeBias
+		text := "slower to act"
+		if faster {
+			text = "faster to act"
+		}
+		d = append(d, peteclient.ItemDelta{Label: "speed", Better: faster, Text: text})
+	}
+	return d
+}
+
+// roundedPct is the whole-percent a delta renders as; used to drop sub-percent
+// noise so the verdict never disagrees with the displayed chips.
+func roundedPct(v float64) int {
+	if v < 0 {
+		return int(v - 0.5)
+	}
+	return int(v + 0.5)
+}
+
+func signedPct(v float64, noun string) string { return fmt.Sprintf("%+d%% %s", roundedPct(v), noun) }
+
+func signedInt(v int, noun string) string { return fmt.Sprintf("%+d %s", v, noun) }
 
 // equippedViews returns the magic items the player is actually wearing. This is
 // the only place Attuned means anything: the bond lives on the equipped row, and

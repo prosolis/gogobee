@@ -423,6 +423,41 @@ type ItemView struct {
 	Effect      string `json:"effect,omitempty"`
 	Attunement  bool   `json:"attunement,omitempty"`
 	Attuned     bool   `json:"attuned,omitempty"`
+	// Compare pairs a backpack magic item against whatever is worn in the slot it
+	// would equip into, so the owner can tell an upgrade from a sidegrade without
+	// eyeballing two opaque effect strings. Set only on backpack magic items (the
+	// ones that carry an equip ID); worn and vault rows never have it. Owner-private,
+	// rides detail_json — no migration, no public surface.
+	Compare *ItemCompare `json:"compare,omitempty"`
+}
+
+// ItemCompare is the per-stat verdict for equipping a backpack magic item over
+// what is currently worn in its slot. gogobee computes it (the power math folds
+// in tempering and bond availability, which live in the engine); Pete only
+// renders it and does no arithmetic.
+type ItemCompare struct {
+	// Verdict is one of: upgrade, downgrade, sidegrade, same, new, inert.
+	//   upgrade   every changed stat a gain
+	//   downgrade every changed stat a loss
+	//   sidegrade mixed — some better, some worse; no winner claimed
+	//   same      no stat differs
+	//   new       the target slot is empty; equipping fills it
+	//   inert     needs a bond and none is free — wearing it would do nothing
+	Verdict string `json:"verdict"`
+	// VsName is the worn item being replaced; "" when Verdict is new (empty slot).
+	VsName string `json:"vs_name,omitempty"`
+	// VsSlot is the slot the item would land in (e.g. "ring_1").
+	VsSlot string `json:"vs_slot,omitempty"`
+	// Deltas is one entry per changed stat, each flagged better/worse. Engine-
+	// rendered player-facing text; Pete draws arrows off Better and does no math.
+	Deltas []ItemDelta `json:"deltas,omitempty"`
+}
+
+// ItemDelta is one stat's change between the candidate item and the worn item.
+type ItemDelta struct {
+	Label  string `json:"label"`
+	Better bool   `json:"better"`
+	Text   string `json:"text"`
 }
 
 // HouseView is the owner's housing summary.
