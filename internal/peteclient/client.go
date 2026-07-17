@@ -48,6 +48,13 @@ type Fact struct {
 	Milestone  string   `json:"milestone,omitempty"`
 	OccurredAt int64    `json:"occurred_at"`
 	NoPush     bool     `json:"no_push,omitempty"` // backfill: suppress Pete web-push
+	// Headline/Lede are LLM-authored prose for this fact, both optional. Pete
+	// prefers them over its own template when present and past its prose-guard,
+	// and falls back to the template otherwise — so an empty pair (LLM off, or
+	// authoring failed) is the normal, safe case. Populated by emitFact; see
+	// authorDispatch. Names in the prose must come only from Actors.
+	Headline string `json:"headline,omitempty"`
+	Lede     string `json:"lede,omitempty"`
 }
 
 // Config controls the seam. Enabled=false makes Emit a durable no-op (nothing

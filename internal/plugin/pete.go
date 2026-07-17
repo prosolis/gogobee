@@ -183,6 +183,12 @@ func emitFact(f peteclient.Fact, subjectUser, opponentUser id.UserID) {
 		}
 	}
 	f.Actors = actors
+	// Author the prose in Pete's voice from the FINAL fact, so the names in the
+	// dispatch match the Actors allow-list Pete guards against. Best-effort: an
+	// empty pair (LLM off or authoring failed) just means Pete templates the
+	// fact. Synchronous, like the holdem tip rewrite — news facts are infrequent
+	// and the call is tightly bounded (dispatchLLMTimeout).
+	f.Headline, f.Lede = authorDispatch(f)
 	peteclient.Emit(f)
 }
 
