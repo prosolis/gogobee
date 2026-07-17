@@ -336,3 +336,64 @@ func emitZoneClearNews(userID id.UserID, exp *Expedition) {
 		OccurredAt: ts,
 	}, userID, "")
 }
+
+// treasureRarityWord maps a treasure def's tier to the rarity adjective Pete
+// weaves into a find's dispatch. Story-grade treasures are typically tier 5, so
+// "legendary" is the common case; the lower tiers are here for completeness.
+func treasureRarityWord(tier int) string {
+	switch {
+	case tier >= 5:
+		return "legendary"
+	case tier == 4:
+		return "epic"
+	case tier == 3:
+		return "rare"
+	case tier == 2:
+		return "uncommon"
+	default:
+		return "common"
+	}
+}
+
+// emitTreasureFound files a story-grade treasure find. Only treasures carrying a
+// RoomAnnounce string reach here — the same gate that earns them a public moment
+// — so a copper-piece pickup never becomes news. The realm's first finder of a
+// given treasure is a PRIORITY hoard; a later finder of the same item is a
+// BULLETIN, the first/repeat split zone_first already uses. Character name only;
+// no-op unless the seam is enabled.
+//
+// treasure_found is an event_type Pete's ingest must already know: an unknown
+// type 400s, retries to the cap, then parks the bulletin forever. Deploy Pete
+// first.
+func emitTreasureFound(userID id.UserID, def *AdvTreasureDef, loc *AdvLocation) {
+	if !peteclient.Enabled() || !newsEmissionOn() {
+		return
+	}
+	if def == nil || loc == nil {
+		return
+	}
+	// Claim the realm-first BEFORE the name guard, so an unnamed straggler's
+	// genuine first find still seeds the ledger and the next finder isn't
+	// mis-billed as the first-ever. Mirrors emitZoneClearNews.
+	tier := "bulletin"
+	if claimRealmFirst("treasure", def.Key) {
+		tier = "priority"
+	}
+	name := charName(userID)
+	if name == "" {
+		return
+	}
+	ts := nowUnix()
+	disc := fmt.Sprintf("%s:%d", def.Key, ts)
+	emitFact(peteclient.Fact{
+		GUID:       fmt.Sprintf("treasure_found:%s:%s:%d", eventToken(userID, disc), def.Key, ts),
+		EventType:  "treasure_found",
+		Tier:       tier,
+		Subject:    name,
+		Zone:       loc.Name,
+		Level:      charLevel(userID),
+		Stakes:     def.Name,
+		Outcome:    treasureRarityWord(def.Tier),
+		OccurredAt: ts,
+	}, userID, "")
+}

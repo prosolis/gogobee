@@ -1383,6 +1383,10 @@ func (p *AdventurePlugin) announceTreasureToRoom(char *AdventureCharacter, def *
 	if def == nil || def.RoomAnnounce == "" {
 		return
 	}
+	// The same story-grade gate feeds Pete's trophy case. Emit before the
+	// games-room check so a find is still recorded as news even when no room is
+	// configured to announce it in.
+	emitTreasureFound(char.UserID, def, loc)
 	gr := gamesRoom()
 	if gr == "" {
 		return

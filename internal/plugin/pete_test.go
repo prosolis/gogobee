@@ -3,6 +3,7 @@ package plugin
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"sync"
 	"testing"
@@ -190,6 +191,71 @@ func TestEmitZoneClearTaxonomy(t *testing.T) {
 	}
 	if got := queuedCount(t, "zone_clear:%"); got != 1 {
 		t.Errorf("zone_clear queued = %d, want 1 (the repeat)", got)
+	}
+}
+
+// TestEmitTreasureFound: a story-grade find carries the item name and rarity,
+// and the realm's first finder of a given treasure is billed a PRIORITY hoard
+// while a later finder of the same item is a BULLETIN — the same first/repeat
+// split zone_first uses, but keyed on the treasure across the whole realm.
+func TestEmitTreasureFound(t *testing.T) {
+	dir := t.TempDir()
+	db.Close()
+	if err := db.Init(dir); err != nil {
+		t.Fatalf("db.Init: %v", err)
+	}
+	t.Cleanup(db.Close)
+	enablePeteSeam(t)
+
+	db.Exec("seed finder", `INSERT INTO player_meta (user_id, display_name) VALUES (?, ?)`, "@zapp:x", "Zapp")
+	db.Exec("seed second finder", `INSERT INTO player_meta (user_id, display_name) VALUES (?, ?)`, "@kif:x", "Kif")
+
+	def := &AdvTreasureDef{Key: "thunderfury", Name: "Thunderfury, Blessed Blade of the Windseeker",
+		Tier: 5, RoomAnnounce: "x got Thunderfury."}
+	loc := &AdvLocation{Name: "The Abyssal Maw"}
+
+	emitTreasureFound(id.UserID("@zapp:x"), def, loc) // realm-first
+	emitTreasureFound(id.UserID("@kif:x"), def, loc)  // same item, later finder
+
+	if got := queuedCount(t, "treasure_found:%"); got != 2 {
+		t.Fatalf("treasure_found queued = %d, want 2", got)
+	}
+
+	// Pull both payloads and check the taxonomy split plus the carried fields.
+	rows, err := db.Get().Query(`SELECT payload FROM pete_emit_queue WHERE guid LIKE 'treasure_found:%'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	tiers := map[string]int{}
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			t.Fatal(err)
+		}
+		var f map[string]any
+		if err := json.Unmarshal([]byte(payload), &f); err != nil {
+			t.Fatal(err)
+		}
+		tiers[f["tier"].(string)]++
+		if f["stakes"] != def.Name {
+			t.Errorf("stakes = %v, want the item name", f["stakes"])
+		}
+		if f["zone"] != "The Abyssal Maw" {
+			t.Errorf("zone = %v, want the location", f["zone"])
+		}
+		if f["outcome"] != "legendary" {
+			t.Errorf("outcome = %v, want legendary for a tier-5 find", f["outcome"])
+		}
+	}
+	if tiers["priority"] != 1 || tiers["bulletin"] != 1 {
+		t.Errorf("tier split = %v, want one priority (realm-first) and one bulletin (repeat)", tiers)
+	}
+
+	// The ledger is seeded, so a later live find of the same treasure won't
+	// mis-announce as the first-ever.
+	if claimRealmFirst("treasure", "thunderfury") {
+		t.Error("realm-first ledger not seeded for the treasure")
 	}
 }
 
