@@ -48,10 +48,14 @@ type mwEquipOutcome struct {
 }
 
 // applyMasterworkEquip wears one masterwork/arena backpack piece into its standard
-// slot, mirroring the magic path's anti-duplication ordering: evict any special
-// occupant, then remove the incoming row FIRST, then write the slot, restoring the
-// row on a save fault. One implementation of that ordering per family of gear —
-// the DM confirm handler (adventure_masterwork.go) is the message-carrying twin.
+// slot. Ordering is anti-duplication AND safe under the equip poll's 30s retry:
+// remove the incoming row FIRST (restoring it on a save fault), then write the
+// slot, and only THEN evict any displaced special occupant back to the pack. The
+// eviction comes last, once the slot no longer references the occupant, so it can
+// never mint a duplicate; and it is best-effort — a failure there is logged, not
+// aborted on, the same tolerance the DM confirm handler (adventure_masterwork.go)
+// lives with. Aborting after the slot write would strand a completed equip for a
+// retry that re-evicts the occupant on every tick.
 func applyMasterworkEquip(uid id.UserID, it AdvItem) (mwEquipOutcome, error) {
 	if it.Slot == "" || (it.Type != "MasterworkGear" && it.Type != "ArenaGear") {
 		return mwEquipOutcome{}, errItemNotEquippable
@@ -74,19 +78,18 @@ func applyMasterworkEquip(uid id.UserID, it AdvItem) (mwEquipOutcome, error) {
 		return mwEquipOutcome{}, errEquipDowngrade
 	}
 
-	// Evict a special occupant back to the pack. A plain shop-tier occupant is not
-	// an item — it is just the slot's tier — so it is overwritten, not evicted, the
-	// same as the DM confirm handler and the shop.
-	var swappedBack string
+	// Capture the special occupant to evict, if any, BEFORE the slot write below
+	// mutates cur in place. A plain shop-tier occupant is not an item — it is just
+	// the slot's tier — so it is overwritten, not evicted, the same as the DM confirm
+	// handler and the shop. The actual re-pack happens after the slot write (below),
+	// so it can never duplicate the piece.
+	var evicted *AdvItem
 	if cur != nil && (cur.Masterwork || cur.ArenaTier > 0) {
 		old := AdvItem{Name: cur.Name, Type: "MasterworkGear", Tier: cur.Tier, Slot: slot, SkillSource: cur.SkillSource}
 		if cur.ArenaTier > 0 {
 			old.Type = "ArenaGear"
 		}
-		if err := addAdvInventoryItem(uid, old); err != nil {
-			return mwEquipOutcome{}, err
-		}
-		swappedBack = cur.Name
+		evicted = &old
 	}
 
 	// Destructive op first: pull the incoming row before writing the slot, so a save
@@ -123,6 +126,20 @@ func applyMasterworkEquip(uid id.UserID, it AdvItem) (mwEquipOutcome, error) {
 				"user", uid, "item", it.Name, "save_err", err, "rollback_err", rbErr)
 		}
 		return mwEquipOutcome{}, err
+	}
+
+	// The slot now holds the incoming piece, so the former occupant is referenced
+	// nowhere — re-packing it now cannot duplicate it. Best-effort: a failure is a
+	// bounded, non-compounding loss we log rather than abort on, since the equip has
+	// already succeeded and aborting would re-run (and re-evict) on the next poll.
+	var swappedBack string
+	if evicted != nil {
+		if err := addAdvInventoryItem(uid, *evicted); err != nil {
+			slog.Error("equip: masterwork equipped but evicted piece failed to return to pack",
+				"user", uid, "evicted", evicted.Name, "err", err)
+		} else {
+			swappedBack = evicted.Name
+		}
 	}
 	return mwEquipOutcome{Name: it.Name, Slot: slot, Tier: it.Tier, Arena: it.Type == "ArenaGear", SwappedBack: swappedBack}, nil
 }

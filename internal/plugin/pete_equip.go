@@ -122,6 +122,14 @@ func (p *AdventurePlugin) fulfilEquipOrder(ctx context.Context, order peteclient
 // a human note for Pete, or retry=true for a transient fault that should leave the
 // order pending. It records nothing and pushes nothing — the caller does both.
 func (p *AdventurePlugin) applyEquipOrder(owner id.UserID, order peteclient.EquipOrder) (status, detail string, retry bool) {
+	// Serialize against the owner's own Matrix-side mutations (!give, !equip, !sell,
+	// arena, …), all of which hold this same per-user lock. Without it the poll
+	// goroutine's equip could interleave with a concurrent !give of the very item it
+	// resolved — the duplication the DM equip confirm takes this lock to prevent.
+	userMu := p.advUserLock(owner)
+	userMu.Lock()
+	defer userMu.Unlock()
+
 	switch order.Action {
 	case "equip":
 		inv, err := loadAdvInventory(owner)

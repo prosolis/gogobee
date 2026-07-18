@@ -393,7 +393,9 @@ type PlayerDetail struct {
 	// CanTakeOff), not in Equipped, which stays magic-only (the DnD slots).
 	Slots []EquipSlotView `json:"slots,omitempty"`
 	// Balance is the owner's euro balance, for the web's upgrade/repair confirm.
-	Balance float64 `json:"balance,omitempty"`
+	// No omitempty: a €0 balance is a real, informative fact (a broke player), not
+	// an absent one — dropping it would let the confirm dialog show a stale amount.
+	Balance float64 `json:"balance"`
 }
 
 // EquipSlotView is one of the 5 standard equipment slots, carrying what the web
