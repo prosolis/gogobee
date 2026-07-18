@@ -139,9 +139,10 @@ func cantripDice(level int) int {
 //     the primary lever is damage. Multiplicative form — the spell modifier
 //     (INT for Mage, CHA for Sorcerer/Warlock) rides EVERY die, matching 5e
 //     Agonizing Blast. cantripDice scales 1→4 across levels.
-//   - Survival: just enough HP/Def (scaled by level) that the caster lives long
-//     enough for the cantrip to connect the kill — NOT a tank rider. calcDamage
-//     defense has diminishing returns, so this leans on HP.
+//   - Survival: just enough Defense (scaled by level) that the caster lives long
+//     enough for the cantrip to connect the kill — NOT a tank rider. This adds
+//     Defense only (no HP add); calcDamage's diminishing returns keep the L20
+//     +20 Def from becoming a wall.
 //
 // casterCantripBase / casterDefPerLevel are the caster tuning dials; see the
 // rebaseline plan for the sweep that set them. The cantrip floor only becomes a
@@ -246,9 +247,13 @@ func applyClassPassives(stats *CombatStats, mods *CombatModifiers, c *DnDCharact
 			mods.ExtraAttacks += 1
 		}
 	case ClassDruid:
-		// Wild Resilience — multiplicative, so it stacks cleanly with the
-		// subclass DamageReduct riders. DamageReduct is initialized to 1.0
-		// by DerivePlayerStats before passives run.
+		// Multiplicative, so it stacks cleanly with the subclass DamageReduct
+		// riders (DamageReduct is initialized to 1.0 by DerivePlayerStats before
+		// passives run). NOTE the player-defender direction: DamageReduct feeds
+		// calcDamage as a defense multiplier, so <1 = MORE damage taken. This
+		// line is therefore a mild survival trim in the same direction as the
+		// rebaseline *0.2 below — not the damage cut the "Wild Resilience" name
+		// suggests. Left as-is because the rebaseline sweep is tuned to it.
 		mods.DamageReduct *= 0.95
 		// rebaseline: the Druid wins T5 rooms on the survival tiebreak, immune to
 		// every damage lever. DamageReduct is a defense multiplier (calcDamage) —

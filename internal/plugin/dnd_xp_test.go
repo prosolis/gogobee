@@ -229,7 +229,7 @@ func TestApplyClassPassives(t *testing.T) {
 		// -3 to-hit trim (both offset a new 2nd swing gated at L5, not seen here);
 		// Druid took a survival trim (DR 0.95→0.19) + -0.20 damage; Bard a DR 0.4
 		// survival trim; Sorcerer a +1 to-hit to match the blasters; Paladin a
-		// 0.9 DR survival trim. Caster CantripPerRound / MaxHP / Defense adds are
+		// 0.9 DR survival trim. Caster CantripPerRound / Defense adds are
 		// not asserted here.
 		{ClassFighter, 0.05, -2, false, 0, 1.0, 0, 0},
 		// Phase 2 class-balance rebalance: rogue picked up +5% damage,
