@@ -388,6 +388,31 @@ type PlayerDetail struct {
 	Equipped  []ItemView `json:"equipped,omitempty"`
 	House     HouseView  `json:"house"`
 	Pets      []PetView  `json:"pets,omitempty"`
+	// Slots is the 5 standard equipment slots (weapon/armor/helmet/boots/tool) for
+	// the web management panel. Worn masterwork/arena pieces surface here (via
+	// CanTakeOff), not in Equipped, which stays magic-only (the DnD slots).
+	Slots []EquipSlotView `json:"slots,omitempty"`
+	// Balance is the owner's euro balance, for the web's upgrade/repair confirm.
+	Balance float64 `json:"balance,omitempty"`
+}
+
+// EquipSlotView is one of the 5 standard equipment slots, carrying what the web
+// management panel needs: what's worn now, whether it round-trips to the pack
+// (masterwork/arena), the next tier's name and price for an upgrade offer, and a
+// repair cost when the piece is damaged. Pete renders it and trusts only these
+// facts — a client-forged tier or price is resolved back against this view.
+type EquipSlotView struct {
+	Slot       string  `json:"slot"` // weapon|armor|helmet|boots|tool
+	Name       string  `json:"name"`
+	Tier       int     `json:"tier"`
+	Condition  int     `json:"condition"`
+	Masterwork bool    `json:"masterwork,omitempty"`
+	ArenaTier  int     `json:"arena_tier,omitempty"`
+	CanTakeOff bool    `json:"can_take_off,omitempty"` // masterwork/arena → round-trippable
+	NextTier   int     `json:"next_tier,omitempty"`    // 0 = at max tier (5)
+	NextName   string  `json:"next_name,omitempty"`
+	NextPrice  float64 `json:"next_price,omitempty"`
+	RepairCost int     `json:"repair_cost,omitempty"` // 0 = full condition
 }
 
 // ItemView is one item in the private panels — backpack, vault, or worn.
@@ -692,7 +717,8 @@ type EquipOrder struct {
 	ItemID         int64  `json:"item_id"`
 	ItemName       string `json:"item_name"`
 	Slot           string `json:"slot"`
-	Action         string `json:"action"`
+	Action         string `json:"action"` // equip / unequip / upgrade / repair
+	Tier           int    `json:"tier"`   // upgrade target tier (an EquipmentSlot tier); unused by the others
 	Status         string `json:"status"`
 	CreatedAt      int64  `json:"created_at"`
 }

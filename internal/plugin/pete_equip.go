@@ -142,6 +142,21 @@ func (p *AdventurePlugin) applyEquipOrder(owner id.UserID, order peteclient.Equi
 			// a different item — this is a clean miss, not a wrong hit.
 			return "rejected_not_owned", "That item wasn't in your pack anymore.", false
 		}
+		// Masterwork/arena pieces equip into a standard slot; everything else takes
+		// the magic-item path. Type alone routes it — the id resolved the same row.
+		if it.Type == "MasterworkGear" || it.Type == "ArenaGear" {
+			out, err := applyMasterworkEquip(owner, it)
+			if errors.Is(err, errItemNotEquippable) {
+				return "rejected_not_equippable", "That item can't be worn.", false
+			}
+			if errors.Is(err, errEquipDowngrade) {
+				return "rejected_downgrade", "That isn't an upgrade over what you're wearing.", false
+			}
+			if err != nil {
+				return "", "", true // transient DB fault
+			}
+			return "applied", masterworkEquipDetail(out), false
+		}
 		out, err := applyMagicEquip(owner, it)
 		if errors.Is(err, errItemNotEquippable) {
 			return "rejected_not_equippable", "That item can't be worn.", false
@@ -152,6 +167,19 @@ func (p *AdventurePlugin) applyEquipOrder(owner id.UserID, order peteclient.Equi
 		return "applied", equipAppliedDetail(out), false
 
 	case "unequip":
+		// A standard slot (weapon/armor/…) takes a masterwork/arena piece off; a DnD
+		// slot takes a magic item off. The vocabularies are disjoint, so the slot
+		// string alone tells the two apart.
+		if isEquipmentSlot(order.Slot) {
+			out, err := applyMasterworkUnequip(owner, EquipmentSlot(order.Slot))
+			if errors.Is(err, errSlotEmpty) {
+				return "rejected_not_worn", "There was nothing to take off there.", false
+			}
+			if err != nil {
+				return "", "", true
+			}
+			return "applied", fmt.Sprintf("Took %s off, back in your pack.", out.Name), false
+		}
 		out, err := applyMagicUnequip(owner, DnDSlot(order.Slot))
 		if errors.Is(err, errSlotEmpty) {
 			return "rejected_not_worn", "That slot was already empty.", false
@@ -164,6 +192,12 @@ func (p *AdventurePlugin) applyEquipOrder(owner id.UserID, order peteclient.Equi
 			note += fmt.Sprintf(" That freed a bond, so %s is active now.", strings.Join(out.Healed, ", "))
 		}
 		return "applied", note, false
+
+	case "upgrade":
+		return p.purchaseEquipmentTier(owner, EquipmentSlot(order.Slot), order.Tier, order.GUID)
+
+	case "repair":
+		return p.repairSlot(owner, EquipmentSlot(order.Slot), order.GUID)
 
 	default:
 		// Pete validates the action before it ever queues an order, so this is a

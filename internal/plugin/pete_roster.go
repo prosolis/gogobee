@@ -97,7 +97,7 @@ func (p *AdventurePlugin) pushRoster() {
 var detailPushOK bool
 
 func (p *AdventurePlugin) pushDetails() {
-	snap, err := buildDetailSnapshot(time.Now().UTC())
+	snap, err := p.buildDetailSnapshot(time.Now().UTC())
 	if err != nil {
 		slog.Error("roster: build detail snapshot failed", "err", err)
 		return
@@ -158,7 +158,7 @@ func rosterDetail(uid id.UserID, c *DnDCharacter) *peteclient.RosterDetail {
 // owner it belongs to, so hiding a player from it would only deny them their own
 // sheet. The board token rides along so Pete can match owner↔page without ever
 // reversing the one-way token.
-func buildDetailSnapshot(now time.Time) (peteclient.DetailSnapshot, error) {
+func (p *AdventurePlugin) buildDetailSnapshot(now time.Time) (peteclient.DetailSnapshot, error) {
 	snap := peteclient.DetailSnapshot{SnapshotAt: now.Unix()}
 	rows, err := db.Get().Query(`SELECT user_id FROM player_meta WHERE alive = 1`)
 	if err != nil {
@@ -208,6 +208,13 @@ func buildDetailSnapshot(now time.Time) (peteclient.DetailSnapshot, error) {
 			pd.Vault = itemViews(items)
 		}
 		pd.Equipped = equippedViews(uid)
+		// Ask 7: the 5 standard slots for the web management panel, plus the euro
+		// balance the upgrade/repair confirm dialogs show. Balance is nil-guarded so
+		// the free-standing tests (which build no euro plugin) still run.
+		pd.Slots = buildEquipSlotViews(uid)
+		if p.euro != nil {
+			pd.Balance = p.euro.GetBalance(uid)
+		}
 		snap.Players = append(snap.Players, pd)
 	}
 	return snap, nil
@@ -256,6 +263,12 @@ func itemViews(items []AdvItem) []peteclient.ItemView {
 		} else if it.Slot != "" {
 			// Shop equipment resolves by (slot, tier) — Name is decorative.
 			v.Desc = equipmentDefByTier(it.Slot, it.Tier).Description
+			// A masterwork/arena piece carries a real slot, so it can be worn from the
+			// web (into a standard slot) — give it the equip handle. Plain shop gear in
+			// the pack stays button-less: its slot is just a category, not a wearable.
+			if it.Type == "MasterworkGear" || it.Type == "ArenaGear" {
+				v.ID = it.ID
+			}
 		}
 		out = append(out, v)
 	}

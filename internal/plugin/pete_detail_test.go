@@ -138,7 +138,7 @@ func TestDetailSnapshotKeyedByLocalpart(t *testing.T) {
 		t.Fatalf("saveAdvCharacter: %v", err)
 	}
 
-	snap, err := buildDetailSnapshot(time.Now().UTC())
+	snap, err := (&AdventurePlugin{}).buildDetailSnapshot(time.Now().UTC())
 	if err != nil {
 		t.Fatalf("buildDetailSnapshot: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestDetailSnapshotIgnoresOptOut(t *testing.T) {
 	}
 
 	// ...but the private detail set keeps them both.
-	detail, err := buildDetailSnapshot(time.Now().UTC())
+	detail, err := (&AdventurePlugin{}).buildDetailSnapshot(time.Now().UTC())
 	if err != nil {
 		t.Fatalf("buildDetailSnapshot: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestDetailSnapshotSkipsDeadPlayers(t *testing.T) {
 		t.Fatalf("kill player: %v", err)
 	}
 
-	snap, err := buildDetailSnapshot(time.Now().UTC())
+	snap, err := (&AdventurePlugin{}).buildDetailSnapshot(time.Now().UTC())
 	if err != nil {
 		t.Fatalf("buildDetailSnapshot: %v", err)
 	}
