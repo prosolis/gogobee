@@ -32,6 +32,20 @@ func (p *AdventurePlugin) postCombatBookkeeping(
 	if err := persistDnDPostCombatSubclass(dndChar, raged, result, mods); err != nil {
 		slog.Error("dnd: post-combat subclass persist", "user", userID, "err", err)
 	}
+	// The pet fought too. A win is its only earned XP — see grantPetCombatXP
+	// for why this seam and not the room-clear one: it is the single place all
+	// four close-outs already meet, so a pet cannot level differently depending
+	// on whether the fight auto-resolved or was played a round at a time.
+	if result.PlayerWon {
+		if leveled := grantPetCombatXP(userID); len(leveled) > 0 {
+			for _, line := range leveled {
+				slog.Info("adventure: pet leveled", "user", userID, "pet", line)
+			}
+			if err := p.SendDM(userID, "🐾 "+strings.Join(leveled, "\n🐾 ")); err != nil {
+				slog.Warn("adventure: pet level-up DM", "user", userID, "err", err)
+			}
+		}
+	}
 }
 
 // grantCombatAchievements checks combat results for achievement-worthy moments.

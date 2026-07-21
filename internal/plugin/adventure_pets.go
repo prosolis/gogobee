@@ -41,6 +41,51 @@ func petGrantXP(pet *PetState) bool {
 	return advancePetLevelsFromXP(&pet.XP, &pet.Level, &pet.Level10Date, int(petXPPerAction*100))
 }
 
+// grantPetCombatXP pays both pet slots their per-action XP for a fight the
+// player won, and returns the names of any pet that leveled so the caller can
+// narrate it.
+//
+// This is the pet's only *earned* XP source. It used to ride the legacy daily
+// activity loop, which R1 deleted — and for the whole life of Adventure 2.0
+// nothing replaced it, leaving petGrantXP orphaned and every un-babysat pet
+// frozen at the level it was adopted with. Pet level is not cosmetic
+// (DerivePlayerStats scales PetAttackProc / PetDeflectProc / PetAttackDmg off
+// it), so a frozen pet is a permanently dead combat slot.
+//
+// Both slots earn on the same win, matching the babysit trickle: combat only
+// ever reads the two pets' *averaged* procs, so leveling both is not a spike.
+//
+// Writes go through the narrow per-slot pet upserts rather than
+// saveAdvCharacter: this runs on the combat close-out path, which does not
+// hold the per-user lock, and a full-row write from here could clobber a
+// concurrent character save.
+func grantPetCombatXP(userID id.UserID) []string {
+	var leveled []string
+	slots := []struct {
+		n      int
+		load   func(id.UserID) (PetState, error)
+		upsert func(id.UserID, PetState) error
+	}{
+		{1, loadPetState, upsertPlayerMetaPetState},
+		{2, loadPet2State, upsertPlayerMetaPet2State},
+	}
+	for _, s := range slots {
+		pet, err := s.load(userID)
+		if err != nil || !pet.HasPet() {
+			continue
+		}
+		didLevel := petGrantXP(&pet)
+		if uerr := s.upsert(userID, pet); uerr != nil {
+			slog.Error("adventure: pet xp persist", "user", userID, "slot", s.n, "err", uerr)
+			continue
+		}
+		if didLevel {
+			leveled = append(leveled, fmt.Sprintf("%s reached level %d", pet.Name, pet.Level))
+		}
+	}
+	return leveled
+}
+
 // advancePetLevelsFromXP adds centi-XP to a pet and applies any level-ups, up
 // to the level-10 cap, stamping the level-10 date on first reaching it. Shared
 // by both pet slots (the babysit trickle). Returns true if the pet leveled.
