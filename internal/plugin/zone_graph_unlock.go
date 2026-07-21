@@ -41,35 +41,48 @@ func pickableLock(kind string) bool {
 	return kind == string(LockPerception) || kind == string(LockStatCheck)
 }
 
+// isThievesToolsReply matches a shop reply against the tools.
+//
+// Deliberately not "is the reply a substring of the name": that predicate is
+// true for a bare "s", for "to", and for an empty message body — and this branch
+// sits ahead of the consumable list, so a stray keystroke in the Supplies view
+// would silently bill the player €600. Match on the item's own words instead.
+func isThievesToolsReply(reply string) bool {
+	return containsFold(reply, "thieves") || containsFold(reply, "thief") ||
+		containsFold(reply, "tools")
+}
+
+// thievesToolsHeld returns the inventory row IDs of every set the player is
+// carrying. One read answers both "have they got any" and "how many are left",
+// which the unlock flow would otherwise ask the inventory table three times.
+func thievesToolsHeld(userID id.UserID) []int64 {
+	inv, err := loadAdvInventory(userID)
+	if err != nil {
+		return nil
+	}
+	var ids []int64
+	for _, it := range inv {
+		if strings.EqualFold(it.Name, thievesToolsName) {
+			ids = append(ids, it.ID)
+		}
+	}
+	return ids
+}
+
 // findThievesTools returns the inventory row ID of one set of tools, or ok=false
 // if the player is carrying none.
 func findThievesTools(userID id.UserID) (int64, bool) {
-	inv, err := loadAdvInventory(userID)
-	if err != nil {
+	held := thievesToolsHeld(userID)
+	if len(held) == 0 {
 		return 0, false
 	}
-	for _, it := range inv {
-		if strings.EqualFold(it.Name, thievesToolsName) {
-			return it.ID, true
-		}
-	}
-	return 0, false
+	return held[0], true
 }
 
 // countThievesTools reports how many sets the player carries, for the "N left"
 // line after a use.
 func countThievesTools(userID id.UserID) int {
-	inv, err := loadAdvInventory(userID)
-	if err != nil {
-		return 0
-	}
-	n := 0
-	for _, it := range inv {
-		if strings.EqualFold(it.Name, thievesToolsName) {
-			n++
-		}
-	}
-	return n
+	return len(thievesToolsHeld(userID))
 }
 
 // zoneCmdUnlock handles `!zone unlock <n>`: spend one set of thieves' tools to
@@ -99,12 +112,14 @@ func (p *AdventurePlugin) zoneCmdUnlock(ctx MessageContext, rest string) error {
 		return p.SendDM(ctx.Sender, "No fork pending. Use "+continueHint(ctx.Sender))
 	}
 
+	held := thievesToolsHeld(ctx.Sender)
+
 	rest = strings.TrimSpace(rest)
 	if rest == "" {
 		zone := zoneOrFallback(run.ZoneID)
 		return p.SendDM(ctx.Sender, "**Which one?**\n\n"+renderForkPrompt(zone, *pf)+
 			fmt.Sprintf("\n\n_`!zone unlock <n>` — spends one set of %s. You carry %d._",
-				thievesToolsName, countThievesTools(ctx.Sender)))
+				thievesToolsName, len(held)))
 	}
 	choice := atoiSafe(rest)
 	if choice < 1 || choice > len(pf.Options) {
@@ -121,13 +136,12 @@ func (p *AdventurePlugin) zoneCmdUnlock(ctx MessageContext, rest string) error {
 			"🔒 Tools won't help here. %s\n\n_Thieves' tools answer a failed check, not a locked gate._",
 			lockRefusalFor(chosen)))
 	}
-	toolID, ok := findThievesTools(ctx.Sender)
-	if !ok {
+	if len(held) == 0 {
 		return p.SendDM(ctx.Sender, fmt.Sprintf(
 			"🔒 **%s** needs %s and you're carrying none.\n\nLuigi stocks them under `!shop` → Supplies.",
 			chosen.Label, thievesToolsName))
 	}
-	if rerr := removeAdvInventoryItem(toolID); rerr != nil {
+	if rerr := removeAdvInventoryItem(held[0]); rerr != nil {
 		return p.SendDM(ctx.Sender, "Couldn't spend the tools: "+rerr.Error())
 	}
 
@@ -138,8 +152,8 @@ func (p *AdventurePlugin) zoneCmdUnlock(ctx MessageContext, rest string) error {
 	pf.Options[choice-1].Reason = "opened with " + thievesToolsName
 	_ = writePendingFork(run.RunID, *pf)
 
-	left := countThievesTools(ctx.Sender)
-	header := fmt.Sprintf("🔓 **%s** — picked. _(%s used, %d left)_\n\n", chosen.Label, thievesToolsName, left)
+	header := fmt.Sprintf("🔓 **%s** — picked. _(%s used, %d left)_\n\n",
+		chosen.Label, thievesToolsName, len(held)-1)
 	return p.commitForkChoice(ctx, run, pf.Options[choice-1], header)
 }
 

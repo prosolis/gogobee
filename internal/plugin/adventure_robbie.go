@@ -173,13 +173,9 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 		// frozen legacy CombatLevel — that snapshots at 1–3 once D&D setup
 		// completes, so reading it here would peg every gift at tier 1.
 		tier := robbieGiftTier(arenaDnDLevelOrZero(userID))
-		for range robbieGiftCount(char.RobbieVisitCount, len(takenItems)) {
-			gifts := consumableCache(tier, 1)
-			if len(gifts) == 0 {
-				break
-			}
-			if err := addAdvInventoryItem(userID, gifts[0]); err == nil {
-				leftGifts = append(leftGifts, gifts[0])
+		for _, gift := range consumableCache(tier, robbieGiftCount(char.RobbieVisitCount, len(takenItems))) {
+			if err := addAdvInventoryItem(userID, gift); err == nil {
+				leftGifts = append(leftGifts, gift)
 			}
 		}
 		_ = saveAdvCharacter(char)

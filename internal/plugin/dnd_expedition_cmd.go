@@ -907,12 +907,14 @@ func (p *AdventurePlugin) autoPickStaleFork(exp *Expedition, run *DungeonRun, pf
 
 	ranked := rankForkOptions(g, run, pf)
 	note := "autopilot took the most promising path"
+	var spendTool int64
 	if len(ranked) == 0 {
-		picked, ok := p.autoPickWithTools(run, pf)
+		picked, toolID, ok := p.autoPickWithTools(run, pf)
 		if !ok {
 			return false
 		}
 		ranked = []pendingChoice{picked}
+		spendTool = toolID
 		note = "autopilot spent " + thievesToolsName + " on the only way forward"
 	}
 	chosen := ranked[0]
@@ -922,6 +924,14 @@ func (p *AdventurePlugin) autoPickStaleFork(exp *Expedition, run *DungeonRun, pf
 			"user", run.UserID, "run", run.RunID, "err", err)
 		return false
 	}
+	// The door is behind us, so now the set is actually used up. Billing before
+	// the advance would charge the player for a move that failed — and the
+	// caller's backtrack would then clear the fork the tools just paid for.
+	if spendTool != 0 {
+		if err := removeAdvInventoryItem(spendTool); err != nil {
+			slog.Warn("expedition: autopilot tools spend", "user", run.UserID, "err", err)
+		}
+	}
 	fireGraphRegionTransition(run.UserID, g.Nodes[run.CurrentNode], g.Nodes[chosen.To])
 	if exp != nil {
 		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative",
@@ -930,31 +940,32 @@ func (p *AdventurePlugin) autoPickStaleFork(exp *Expedition, run *DungeonRun, pf
 	return true
 }
 
-// autoPickWithTools spends one set of thieves' tools to open a fork where every
-// route is locked, so a bad Perception roll can't quietly end an expedition the
-// player paid days into. It only ever fires when there is no free route left —
-// the player's tools are their own, and the autopilot does not get to burn them
-// for convenience.
-func (p *AdventurePlugin) autoPickWithTools(run *DungeonRun, pf *pendingFork) (pendingChoice, bool) {
-	owner := id.UserID(run.UserID)
-	toolID, ok := findThievesTools(owner)
+// autoPickWithTools finds a route a set of thieves' tools could open when every
+// option on the fork is locked, so a bad Perception roll can't quietly end an
+// expedition the player paid days into. It only ever fires when there is no free
+// route left — the player's tools are their own, and the autopilot does not get
+// to burn them for convenience.
+//
+// It reports the route and the inventory row to spend, but does not spend it:
+// the caller charges the player only once the move has actually committed.
+func (p *AdventurePlugin) autoPickWithTools(run *DungeonRun, pf *pendingFork) (pendingChoice, int64, bool) {
+	toolID, ok := findThievesTools(id.UserID(run.UserID))
 	if !ok {
-		return pendingChoice{}, false
+		return pendingChoice{}, 0, false
 	}
 	for i := range pf.Options {
 		if pf.Options[i].Unlocked || !pickableLock(pf.Options[i].Lock) {
 			continue
 		}
-		if err := removeAdvInventoryItem(toolID); err != nil {
-			slog.Warn("expedition: autopilot tools spend", "user", run.UserID, "err", err)
-			return pendingChoice{}, false
-		}
-		pf.Options[i].Unlocked = true
-		pf.Options[i].Reason = "opened with " + thievesToolsName
-		_ = writePendingFork(run.RunID, *pf)
-		return pf.Options[i], true
+		// Local copy only — advanceZoneRunNode clears node_choices on success,
+		// and on failure the fork must stay as locked as the player left it
+		// rather than reading "open" for a set nobody paid for.
+		chosen := pf.Options[i]
+		chosen.Unlocked = true
+		chosen.Reason = "opened with " + thievesToolsName
+		return chosen, toolID, true
 	}
-	return pendingChoice{}, false
+	return pendingChoice{}, 0, false
 }
 
 // backtrackFromDeadFork walks the run back one room when a fork has no route
@@ -963,13 +974,17 @@ func (p *AdventurePlugin) autoPickWithTools(run *DungeonRun, pf *pendingFork) (p
 // losing days of progress to a die roll they never saw and could not answer.
 // Backtracking at least returns them to a room with other exits.
 //
-// Returns false at the entry node, where there is nowhere behind to go.
+// Returns false at the entry node, where there is nowhere behind to go, and
+// wherever no fallback room would actually help — see backtrackTarget.
 func (p *AdventurePlugin) backtrackFromDeadFork(exp *Expedition, run *DungeonRun) bool {
-	idx := pathIndexOf(run.VisitedNodes, run.CurrentNode)
-	if idx <= 0 {
+	g, ok := loadZoneGraph(run.ZoneID)
+	if !ok {
 		return false
 	}
-	target := run.VisitedNodes[idx-1]
+	target, ok := backtrackTarget(g, run)
+	if !ok {
+		return false
+	}
 
 	// Clear the fork first: it belongs to the node being left, and both
 	// `!zone advance` and `!zone go` would otherwise resolve a prompt pointing
@@ -987,6 +1002,35 @@ func (p *AdventurePlugin) backtrackFromDeadFork(exp *Expedition, run *DungeonRun
 			"every way on was sealed — the party doubled back", "")
 	}
 	return true
+}
+
+// backtrackTarget picks the room a dead fork falls back to: the most recently
+// entered visited node that is genuinely joined to the current one by an edge
+// and that still offers a way on other than the sealed room.
+//
+// Both halves are load-bearing. VisitedNodes is a first-entry ordered *set*, not
+// a path stack (see appendVisited) — after any earlier backtrack the entry
+// before CurrentNode can sit on a completely different branch, so stepping to it
+// blind teleports the party across the map. `!revisit` refuses exactly that move
+// via adjacentNodes, and the autopilot has no business doing what the player is
+// forbidden from doing. The second half stops the other failure: falling back
+// into a corridor whose only exit is the fork we just fled from just walks
+// straight back in — and the lock rolls are seeded per (run, edge), so the
+// result is identical every time. That is an infinite loop, not a recovery.
+func backtrackTarget(g ZoneGraph, run *DungeonRun) (string, bool) {
+	adj := adjacentNodes(g, run.CurrentNode)
+	for i := pathIndexOf(run.VisitedNodes, run.CurrentNode) - 1; i >= 0; i-- {
+		n := run.VisitedNodes[i]
+		if !adj[n] {
+			continue
+		}
+		for _, e := range g.outgoingEdges(n) {
+			if e.To != run.CurrentNode {
+				return n, true
+			}
+		}
+	}
+	return "", false
 }
 
 func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, compact, inlineBossCombat bool) autopilotWalkResult {

@@ -845,7 +845,13 @@ func (p *AdventurePlugin) advSellAll(userID id.UserID) string {
 	var keptConsumable int
 	var keptMagic int
 	for _, item := range items {
-		if item.Type == "MasterworkGear" || item.Type == "ArenaGear" || item.Type == "card" {
+		// Keys and tools ride along with the special gear here for the same
+		// reason Robbie won't take them: both are bought or found precisely so a
+		// door can be opened *later*, and `sell all` is a bulk-loot verb the
+		// player fires after every haul without reading the list. Turning one
+		// into €300 silently deletes the unlock it was carried for.
+		switch item.Type {
+		case "MasterworkGear", "ArenaGear", "card", "key", thievesToolsItemType:
 			keptSpecial++
 			continue
 		}
@@ -1079,7 +1085,7 @@ func (p *AdventurePlugin) resolveShopSupplyChoice(ctx MessageContext, interactio
 	// Thieves' tools sit on the supplies shelf but are not a ConsumableDef:
 	// the combat engine scans inventory against that table and would happily
 	// spend them mid-fight. They get their own branch and their own item type.
-	if containsFold(thievesToolsName, reply) || containsFold("thieves tools", reply) {
+	if isThievesToolsReply(reply) {
 		return p.buyThievesTools(ctx, interaction)
 	}
 
