@@ -164,20 +164,22 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 		gaveCard = true
 	}
 
-	// Update visit count, and every 10th visit leave a small consumable
-	// "for the trouble" (D2 NPC arc).
-	var leftGift *AdvItem
+	// Update visit count and work out what he leaves behind.
+	var leftGifts []AdvItem
 	char, err := loadAdvCharacter(userID)
 	if err == nil {
 		char.RobbieVisitCount++
-		if char.RobbieVisitCount%robbieGiftEveryNVisits == 0 {
-			// Use the canonical DnD level (like the arena's tier gate), not the
-			// frozen legacy CombatLevel — that snapshots at 1–3 once D&D setup
-			// completes, so reading it here would peg every gift at tier 1.
-			if gifts := consumableCache(robbieGiftTier(arenaDnDLevelOrZero(userID)), 1); len(gifts) > 0 {
-				if err := addAdvInventoryItem(userID, gifts[0]); err == nil {
-					leftGift = &gifts[0]
-				}
+		// Use the canonical DnD level (like the arena's tier gate), not the
+		// frozen legacy CombatLevel — that snapshots at 1–3 once D&D setup
+		// completes, so reading it here would peg every gift at tier 1.
+		tier := robbieGiftTier(arenaDnDLevelOrZero(userID))
+		for range robbieGiftCount(char.RobbieVisitCount, len(takenItems)) {
+			gifts := consumableCache(tier, 1)
+			if len(gifts) == 0 {
+				break
+			}
+			if err := addAdvInventoryItem(userID, gifts[0]); err == nil {
+				leftGifts = append(leftGifts, gifts[0])
 			}
 		}
 		_ = saveAdvCharacter(char)
@@ -185,7 +187,7 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 	}
 
 	// Send DM
-	dm := renderRobbieDM(userID, takenItems, totalPayout, masterworkTaken, gaveCard, leftGift)
+	dm := renderRobbieDM(userID, takenItems, totalPayout, masterworkTaken, gaveCard, leftGifts)
 	if err := p.SendDM(userID, dm); err != nil {
 		slog.Error("adventure: robbie: failed to send DM", "user", userID, "err", err)
 	}
@@ -213,12 +215,17 @@ func (p *AdventurePlugin) robbieVisitPlayer(userID id.UserID, displayName string
 func robbieQualifyingItems(inv []AdvItem, equip map[EquipmentSlot]*AdvEquipment) []AdvItem {
 	var result []AdvItem
 	for _, item := range inv {
-		// Never touch Arena gear, cards, consumables, or keys. Consumables are
-		// a player-curated stockpile (crafted or dropped); selling them is an
-		// explicit decision the player must make themselves. Keys are cross-zone
-		// unlock tokens (N5/D4) that must persist in inventory to open their
-		// vault later — sweeping one permanently breaks that unlock.
-		if item.Type == "ArenaGear" || item.Type == "card" || item.Type == "consumable" || item.Type == "key" {
+		// Never touch Arena gear, cards, consumables, keys, or tools.
+		// Consumables are a player-curated stockpile (crafted or dropped);
+		// selling them is an explicit decision the player must make themselves.
+		// Keys are cross-zone unlock tokens (N5/D4) that must persist in
+		// inventory to open their vault later — sweeping one permanently breaks
+		// that unlock. Tools are the same shape of promise: thieves' tools are
+		// bought precisely so a locked fork can be opened *later*, and a bandit
+		// who pockets them between the purchase and the door has taken the
+		// thing the player paid to still have.
+		switch item.Type {
+		case "ArenaGear", "card", "consumable", "key", thievesToolsItemType:
 			continue
 		}
 
@@ -267,8 +274,48 @@ func robbiePlayerHasCard(userID id.UserID) bool {
 
 // ── DM Rendering ─────────────────────────────────────────────────────────────
 
-// robbieGiftEveryNVisits is how often Robbie leaves a consumable behind.
+// robbieGiftEveryNVisits is how often Robbie leaves a consumable behind on the
+// loyalty track alone, independent of how much he hauled off.
 const robbieGiftEveryNVisits = 10
+
+// robbieHaulPerGift is how many items one visit has to be worth before Robbie
+// leaves something for the trouble, and robbieMaxHaulGifts caps how generous a
+// single monster haul can get.
+//
+// The loyalty track on its own was far too thin to read as a reward: a visit is
+// a 40% daily roll, so every-10-visits works out to one consumable per ~25 real
+// days — and it paid exactly the same for a stockpile of sixty items as it did
+// for one rock. Volume is the thing the player actually controls, so volume is
+// what the haul track pays on.
+const (
+	robbieHaulPerGift  = 15
+	robbieMaxHaulGifts = 3
+)
+
+// robbieGiftCount returns how many consumables Robbie leaves this visit: the
+// every-Nth-visit loyalty gift plus one per robbieHaulPerGift items carried
+// off, capped. Pure so the curve is testable without a DB or a Matrix stub.
+func robbieGiftCount(visitCount, itemsTaken int) int {
+	n := 0
+	if visitCount > 0 && visitCount%robbieGiftEveryNVisits == 0 {
+		n++
+	}
+	if haul := itemsTaken / robbieHaulPerGift; haul > 0 {
+		n += min(haul, robbieMaxHaulGifts)
+	}
+	return n
+}
+
+// joinAnd renders a list as "a", "a and b", or "a, b and c".
+func joinAnd(xs []string) string {
+	switch len(xs) {
+	case 0:
+		return ""
+	case 1:
+		return xs[0]
+	}
+	return strings.Join(xs[:len(xs)-1], ", ") + " and " + xs[len(xs)-1]
+}
 
 // robbieGiftTier maps a player's combat level to a consumable tier, matching
 // the arena tier bands (1–3 / 4–7 / 8–12 / 13–17 / 18+).
@@ -287,7 +334,7 @@ func robbieGiftTier(level int) int {
 	}
 }
 
-func renderRobbieDM(userID id.UserID, items []AdvItem, total int64, mwTaken, gaveCard bool, leftGift *AdvItem) string {
+func renderRobbieDM(userID id.UserID, items []AdvItem, total int64, mwTaken, gaveCard bool, leftGifts []AdvItem) string {
 	var sb strings.Builder
 
 	// Opening
@@ -334,9 +381,19 @@ func renderRobbieDM(userID id.UserID, items []AdvItem, total int64, mwTaken, gav
 	}
 	sb.WriteString("\n\n")
 
-	// Every-10th-visit consumable (D2).
-	if leftGift != nil {
-		sb.WriteString(fmt.Sprintf(robbieLeftConsumable, leftGift.Name))
+	// What he left behind: the every-10th-visit loyalty consumable (D2), the
+	// big-haul thank-you, or both rolled into one line. A single gift keeps the
+	// original loyalty phrasing; anything more is the haul talking.
+	if len(leftGifts) > 0 {
+		names := make([]string, 0, len(leftGifts))
+		for _, g := range leftGifts {
+			names = append(names, g.Name)
+		}
+		if len(names) == 1 {
+			sb.WriteString(fmt.Sprintf(robbieLeftConsumable, names[0]))
+		} else {
+			sb.WriteString(fmt.Sprintf(robbieLeftForTheHaul, joinAnd(names)))
+		}
 		sb.WriteString("\n\n")
 	}
 

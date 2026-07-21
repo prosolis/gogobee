@@ -45,6 +45,12 @@ var robbieAllShopGear = "Nothing fancy today but that's alright. Clean inventory
 var robbieLeftConsumable = "Oh -- one more thing. I tucked a %s into your bag on the way out. " +
 	"You've had me round enough times now that it felt rude not to. For the trouble, eh? _winks_"
 
+// robbieLeftForTheHaul is the big-haul variant: he took enough in one go that
+// walking off with only a handling fee would look bad. Takes the item list.
+var robbieLeftForTheHaul = "Oh -- and I left you something. %s. " +
+	"You had me carting that lot down four flights, and a man who takes that much " +
+	"and gives back nothing isn't a bandit, he's a landlord. _winks_"
+
 // ── Room Announcements ───────────────────────────────────────────────────────
 
 var robbieRoomStandard = "🎩 Robbie paid %s a visit and collected %d item(s) from their inventory. " +
