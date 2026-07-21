@@ -1019,6 +1019,9 @@ func luigiSuppliesView(_ id.UserID, balance float64) string {
 		}
 	}
 
+	sb.WriteString(fmt.Sprintf("**%s** — €%d\n  Opens one dungeon path a failed check closed (`!zone unlock <n>`). Not used in combat.\n\n",
+		thievesToolsName, thievesToolsPrice))
+
 	sb.WriteString("Reply with an item name to buy, or `back` to return.\n")
 	sb.WriteString("Stronger consumables drop from foraging, mining, fishing, and dungeons at T2+.")
 	return sb.String()
@@ -1073,6 +1076,13 @@ func (p *AdventurePlugin) resolveShopSupplyChoice(ctx MessageContext, interactio
 		return p.SendDM(ctx.Sender, "*Luigi nods and gestures toward the main counter.*")
 	}
 
+	// Thieves' tools sit on the supplies shelf but are not a ConsumableDef:
+	// the combat engine scans inventory against that table and would happily
+	// spend them mid-fight. They get their own branch and their own item type.
+	if containsFold(thievesToolsName, reply) || containsFold("thieves tools", reply) {
+		return p.buyThievesTools(ctx, interaction)
+	}
+
 	// Find matching consumable
 	var match *ConsumableDef
 	for i := range consumableDefs {
@@ -1113,6 +1123,34 @@ func (p *AdventurePlugin) resolveShopSupplyChoice(ctx MessageContext, interactio
 	newBalance := p.euro.GetBalance(ctx.Sender)
 	return p.SendDM(ctx.Sender, fmt.Sprintf("Purchased **%s** for €%.0f. Added to inventory.\n💰 Balance: €%.0f\n\nReply with another item name or `back` to return.",
 		match.Name, consumablePrice, newBalance))
+}
+
+// buyThievesTools sells one set off the supplies shelf. Mirrors the consumable
+// purchase beside it — same session price factor, same 5% pot cut — and leaves
+// the player in the supplies view so they can buy a second.
+func (p *AdventurePlugin) buyThievesTools(ctx MessageContext, interaction *advPendingInteraction) error {
+	price := float64(thievesToolsPrice) * p.shopSessionPriceFactor(ctx.Sender)
+	balance := p.euro.GetBalance(ctx.Sender)
+	if balance < price {
+		p.pending.Store(string(ctx.Sender), interaction)
+		return p.SendDM(ctx.Sender, fmt.Sprintf("You need €%.0f for %s but only have €%.0f.",
+			price, thievesToolsName, balance))
+	}
+	p.euro.Debit(ctx.Sender, price, "shop_thieves_tools")
+	if potCut := int(math.Round(price * 0.05)); potCut > 0 {
+		communityPotAdd(potCut)
+		trackTaxPaid(ctx.Sender, potCut)
+	}
+	_ = addAdvInventoryItem(ctx.Sender, AdvItem{
+		Name:  thievesToolsName,
+		Type:  thievesToolsItemType,
+		Tier:  1,
+		Value: thievesToolsPrice / 2,
+	})
+	p.pending.Store(string(ctx.Sender), interaction)
+	return p.SendDM(ctx.Sender, fmt.Sprintf(
+		"Purchased **%s** for €%.0f. You carry %d.\n💰 Balance: €%.0f\n\nReply with another item name or `back` to return.",
+		thievesToolsName, price, countThievesTools(ctx.Sender), p.euro.GetBalance(ctx.Sender)))
 }
 
 // ── Curios (Magic Items) ────────────────────────────────────────────────────

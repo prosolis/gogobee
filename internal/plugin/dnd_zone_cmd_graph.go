@@ -188,6 +188,17 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 	if cerr != nil {
 		return p.SendDM(ctx.Sender, cerr.Error())
 	}
+	return p.commitForkChoice(ctx, run, chosen, "")
+}
+
+// commitForkChoice advances the run onto an already-validated fork option and
+// emits the arrival teaser. Split out of zoneCmdGo so `!zone unlock` — which
+// reaches the same place by paying for it — cannot drift from the plain
+// `!zone go` arrival: same region-transition hook, same camp strike, same
+// boss/elite prompt. header, if set, is printed above the move.
+func (p *AdventurePlugin) commitForkChoice(
+	ctx MessageContext, run *DungeonRun, chosen pendingChoice, header string,
+) error {
 	nextIdx, aerr := advanceZoneRunNode(run.RunID, chosen.To)
 	if aerr != nil {
 		return p.SendDM(ctx.Sender, "Couldn't advance: "+aerr.Error())
@@ -200,6 +211,7 @@ func (p *AdventurePlugin) zoneCmdGo(ctx MessageContext, rest string) error {
 	fireGraphRegionTransition(run.UserID, fromNode, nextNode)
 	nextRoom := nodeKindToRoomType(nextNode.Kind)
 	var b strings.Builder
+	b.WriteString(header)
 	if kind := autoBreakCampOnMove(ctx.Sender); kind != "" {
 		b.WriteString(fmt.Sprintf("⛺ Camp struck (**%s**) — the party moved on.\n\n", kind))
 	}

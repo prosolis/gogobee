@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -843,41 +844,147 @@ func (p *AdventurePlugin) expeditionCmdRun(ctx MessageContext) error {
 // run graph / harvest tally / supplies / threat — same as before, just
 // no streamFlow here. compact==true switches the underlying combat
 // narration into terse mode and auto-resolves elite (not boss) rooms.
-// forkAutoPickTimeout — how long a background fork may sit unanswered
-// before the autopilot picks an available route itself. Short enough that
-// the expedition keeps moving rather than idling out to the 24h stale-run
-// reaper; long enough that a player away for the evening still gets first
-// say on a genuine fork.
-const forkAutoPickTimeout = 8 * time.Hour
+// forkAutoPickTimeout — how long a background fork may sit unanswered before
+// the autopilot picks a route itself.
+//
+// This was 8h, which reads as "the player gets first say" and behaves as "the
+// expedition stops for a third of a day, every fork." A multi-day expedition
+// crosses a lot of forks; at 8h apiece the autopilot spends more of its life
+// parked than walking, and a player who is simply asleep loses a night per
+// branch. 30m keeps a genuine first say for anyone actually at the keyboard and
+// costs an absent player almost nothing.
+const forkAutoPickTimeout = 30 * time.Minute
 
-// autoPickStaleFork commits the first unlocked option of a stale background
-// fork, advancing the run to that node exactly as `!zone go <n>` would
-// (advanceZoneRunNode + region-transition hook). Returns false — no pick —
-// when every option is locked, so the caller re-emits the prompt and the
-// run idles on toward the reaper. The choice is logged as a narrative entry
-// so the end-of-day digest can surface the decision the player missed.
-func (p *AdventurePlugin) autoPickStaleFork(exp *Expedition, run *DungeonRun, pf *pendingFork) bool {
-	var chosen *pendingChoice
-	for i := range pf.Options {
-		if pf.Options[i].Unlocked {
-			chosen = &pf.Options[i]
-			break
+// rankForkOptions orders a fork's options by how much walking them is worth:
+// somewhere new first, then the fatter edge (Weight is the author's own "this
+// is the main line" signal), then menu order as the tiebreak so the pick is
+// deterministic. Only unlocked options are returned.
+//
+// The old rule was "first unlocked option in the menu", which is edge-authoring
+// order — meaningful to whoever wrote the graph, arbitrary to the player. It
+// walked past unvisited branches to loop through cleared ones often enough to
+// look broken.
+func rankForkOptions(g ZoneGraph, run *DungeonRun, pf *pendingFork) []pendingChoice {
+	weights := map[string]int{}
+	for _, e := range g.outgoingEdges(run.CurrentNode) {
+		weights[e.To] = e.Weight
+	}
+	visited := map[string]bool{}
+	for _, n := range run.VisitedNodes {
+		visited[n] = true
+	}
+
+	open := make([]pendingChoice, 0, len(pf.Options))
+	for _, o := range pf.Options {
+		if o.Unlocked {
+			open = append(open, o)
 		}
 	}
-	if chosen == nil {
-		return false // nothing unlocked — leave it for the player / reaper
+	sort.SliceStable(open, func(i, j int) bool {
+		vi, vj := visited[open[i].To], visited[open[j].To]
+		if vi != vj {
+			return !vi // unvisited first
+		}
+		if wi, wj := weights[open[i].To], weights[open[j].To]; wi != wj {
+			return wi > wj
+		}
+		return open[i].Index < open[j].Index
+	})
+	return open
+}
+
+// autoPickStaleFork commits a stale background fork, advancing the run exactly
+// as `!zone go <n>` would (advanceZoneRunNode + region-transition hook). The
+// choice is logged as a narrative entry so the end-of-day digest can surface
+// the decision the player missed.
+//
+// When every route is locked it does not give up: it spends a set of thieves'
+// tools if the party is carrying any and one of the locks is the pickable kind.
+// Returns false only when there is genuinely nothing it can do — the caller
+// then backtracks rather than idling the expedition into the 24h reaper.
+func (p *AdventurePlugin) autoPickStaleFork(exp *Expedition, run *DungeonRun, pf *pendingFork) bool {
+	g, _ := loadZoneGraph(run.ZoneID)
+
+	ranked := rankForkOptions(g, run, pf)
+	note := "autopilot took the most promising path"
+	if len(ranked) == 0 {
+		picked, ok := p.autoPickWithTools(run, pf)
+		if !ok {
+			return false
+		}
+		ranked = []pendingChoice{picked}
+		note = "autopilot spent " + thievesToolsName + " on the only way forward"
 	}
+	chosen := ranked[0]
+
 	if _, err := advanceZoneRunNode(run.RunID, chosen.To); err != nil {
 		slog.Warn("expedition: auto-pick stale fork",
 			"user", run.UserID, "run", run.RunID, "err", err)
 		return false
 	}
-	g, _ := loadZoneGraph(run.ZoneID)
 	fireGraphRegionTransition(run.UserID, g.Nodes[run.CurrentNode], g.Nodes[chosen.To])
 	if exp != nil {
 		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative",
-			fmt.Sprintf("autopilot took an available path after %dh idle at the fork: %s",
-				int(forkAutoPickTimeout.Hours()), chosen.Label), "")
+			fmt.Sprintf("%s: %s", note, chosen.Label), "")
+	}
+	return true
+}
+
+// autoPickWithTools spends one set of thieves' tools to open a fork where every
+// route is locked, so a bad Perception roll can't quietly end an expedition the
+// player paid days into. It only ever fires when there is no free route left —
+// the player's tools are their own, and the autopilot does not get to burn them
+// for convenience.
+func (p *AdventurePlugin) autoPickWithTools(run *DungeonRun, pf *pendingFork) (pendingChoice, bool) {
+	owner := id.UserID(run.UserID)
+	toolID, ok := findThievesTools(owner)
+	if !ok {
+		return pendingChoice{}, false
+	}
+	for i := range pf.Options {
+		if pf.Options[i].Unlocked || !pickableLock(pf.Options[i].Lock) {
+			continue
+		}
+		if err := removeAdvInventoryItem(toolID); err != nil {
+			slog.Warn("expedition: autopilot tools spend", "user", run.UserID, "err", err)
+			return pendingChoice{}, false
+		}
+		pf.Options[i].Unlocked = true
+		pf.Options[i].Reason = "opened with " + thievesToolsName
+		_ = writePendingFork(run.RunID, *pf)
+		return pf.Options[i], true
+	}
+	return pendingChoice{}, false
+}
+
+// backtrackFromDeadFork walks the run back one room when a fork has no route
+// the autopilot can take and no tools to buy one with. Without this the run
+// simply sits there until the 24h stale reaper ends the expedition — a player
+// losing days of progress to a die roll they never saw and could not answer.
+// Backtracking at least returns them to a room with other exits.
+//
+// Returns false at the entry node, where there is nowhere behind to go.
+func (p *AdventurePlugin) backtrackFromDeadFork(exp *Expedition, run *DungeonRun) bool {
+	idx := pathIndexOf(run.VisitedNodes, run.CurrentNode)
+	if idx <= 0 {
+		return false
+	}
+	target := run.VisitedNodes[idx-1]
+
+	// Clear the fork first: it belongs to the node being left, and both
+	// `!zone advance` and `!zone go` would otherwise resolve a prompt pointing
+	// at a room the party is no longer standing in.
+	if err := clearPendingFork(run.RunID); err != nil {
+		slog.Warn("expedition: backtrack clear fork", "run", run.RunID, "err", err)
+		return false
+	}
+	if _, err := revisitZoneRun(run.RunID, target, run.VisitedNodes); err != nil {
+		slog.Warn("expedition: backtrack from dead fork", "run", run.RunID, "err", err)
+		return false
+	}
+	if exp != nil {
+		_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative",
+			"every way on was sealed — the party doubled back", "")
 	}
 	return true
 }
@@ -903,9 +1010,19 @@ func (p *AdventurePlugin) runAutopilotWalk(ctx MessageContext, maxRooms int, com
 	// (unlocked) route and keep walking instead of stalling out.
 	if run, rerr := getActiveZoneRun(ctx.Sender); rerr == nil && run != nil {
 		if pf, derr := decodePendingFork(run.NodeChoices); derr == nil && pf != nil {
-			picked := compact &&
-				time.Since(run.LastActionAt) > forkAutoPickTimeout &&
-				p.autoPickStaleFork(exp, run, pf)
+			stale := compact && time.Since(run.LastActionAt) > forkAutoPickTimeout
+			picked := stale && p.autoPickStaleFork(exp, run, pf)
+			// Stale and nothing takeable: every route locked, no tools. Back out
+			// one room rather than sitting here until the 24h reaper ends an
+			// expedition the player may be days into. The backtrack clears the
+			// fork, so the next tick walks from the previous room normally.
+			if stale && !picked && p.backtrackFromDeadFork(exp, run) {
+				return autopilotWalkResult{
+					finalMsg: "🔒 Every way on was sealed. The party doubled back to look for another line.",
+					rooms:    0,
+					reason:   stopFork,
+				}
+			}
 			if !picked {
 				zone := zoneOrFallback(run.ZoneID)
 				return autopilotWalkResult{

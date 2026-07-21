@@ -53,6 +53,9 @@ func (p *AdventurePlugin) handleDnDZoneCmd(ctx MessageContext, args string) erro
 		// fork pending) the handler short-circuits with a friendly
 		// message — see zoneCmdGo for the full surface.
 		return p.zoneCmdGo(ctx, rest)
+	case "unlock", "pick", "force":
+		// Spend thieves' tools on a fork option a failed check closed.
+		return p.zoneCmdUnlock(ctx, rest)
 	case "status", "info":
 		return p.zoneCmdStatus(ctx)
 	case "map", "m":
@@ -83,6 +86,7 @@ func zoneHelpText() string {
 	b.WriteString("`!zone map` — show the room layout\n")
 	b.WriteString("`!zone advance` — resolve the current room and move on\n")
 	b.WriteString("`!zone go <n>` — at a fork, take path #n\n")
+	b.WriteString("`!zone unlock <n>` — spend thieves' tools to open a path you couldn't\n")
 	b.WriteString("`!revisit <n>` — walk back to a room you've already cleared\n")
 	b.WriteString("`!zone abandon` — end the active run (no rewards)\n")
 	b.WriteString("`!zone taunt` — poke TwinBee (they'll remember)\n")

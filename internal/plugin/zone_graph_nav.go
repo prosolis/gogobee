@@ -19,6 +19,8 @@ import (
 	"strings"
 
 	"gogobee/internal/db"
+
+	"maunium.net/go/mautrix/id"
 )
 
 // pendingFork is the typed shape of dnd_zone_run.node_choices when the
@@ -79,12 +81,40 @@ func decodePendingFork(m map[string]any) (*pendingFork, error) {
 // test them without going through the live DB. Filled in by
 // evaluateForkEdges from the live run + character.
 type edgeUnlockCtx struct {
-	RunID          string
-	FromNode       string
-	CharLevel      int
-	AbilityMods    [6]int // STR, DEX, CON, INT, WIS, CHA — matches DnDCharacter.Modifiers()
+	RunID     string
+	FromNode  string
+	CharLevel int
+	// AbilityMods is the *party's best* modifier per ability — STR, DEX, CON,
+	// INT, WIS, CHA, matching DnDCharacter.Modifiers(). A door doesn't care
+	// which set of eyes spotted the seam, and reading only the leader's sheet
+	// meant a party's rogue and its hired scout were decorative at every lock.
+	// AbilityWho names whoever supplied each best, empty when it's the leader,
+	// so the fork prompt can say who got it open.
+	AbilityMods    [6]int
+	AbilityWho     [6]string
 	InventoryNames map[string]bool
 	Expedition     *Expedition
+}
+
+// creditFor names the party member whose ability carried a check, phrased for
+// the fork prompt. Empty when the acting character managed it alone — there is
+// nobody to credit and the menu stays quiet.
+func (c edgeUnlockCtx) creditFor(ability int) string {
+	if who := c.AbilityWho[ability]; who != "" {
+		return who + " got it open"
+	}
+	return ""
+}
+
+// bestAbility folds one body's modifiers into the running party-best, recording
+// the contributor's name for any ability it improves on.
+func (c *edgeUnlockCtx) bestAbility(mods [6]int, who string) {
+	for i, m := range mods {
+		if m > c.AbilityMods[i] {
+			c.AbilityMods[i] = m
+			c.AbilityWho[i] = who
+		}
+	}
 }
 
 // evaluateEdgeLock returns whether the player can take this edge right
@@ -101,7 +131,7 @@ func evaluateEdgeLock(e ZoneEdge, ctx edgeUnlockCtx) (unlocked bool, reason stri
 		roll := perceptionRollForEdge(ctx.RunID, ctx.FromNode, e.To)
 		total := roll + ctx.AbilityMods[4]
 		if total >= dc {
-			return true, ""
+			return true, ctx.creditFor(4)
 		}
 		return false, fmt.Sprintf("Perception %d vs DC %d", total, dc)
 	case LockKey:
@@ -138,7 +168,7 @@ func evaluateEdgeLock(e ZoneEdge, ctx edgeUnlockCtx) (unlocked bool, reason stri
 		roll := perceptionRollForEdge(ctx.RunID, ctx.FromNode, e.To)
 		total := roll + ctx.AbilityMods[idx]
 		if total >= dc {
-			return true, ""
+			return true, ctx.creditFor(idx)
 		}
 		return false, fmt.Sprintf("%s %d vs DC %d", stat, total, dc)
 	}
@@ -219,8 +249,43 @@ func buildUnlockCtx(c *DnDCharacter, runID, fromNode string) edgeUnlockCtx {
 	}
 	if exp, err := getActiveExpedition(c.UserID); err == nil && exp != nil {
 		ctx.Expedition = exp
+		foldPartyAbilities(&ctx, exp, c.UserID)
 	}
 	return ctx
+}
+
+// foldPartyAbilities raises ctx.AbilityMods to the best any body on the
+// expedition can offer. The companion counts: he is a seat that walks the same
+// corridor, and excluding him would make hiring a scout worth less than the
+// coins it costs.
+//
+// Errors are swallowed rather than propagated — a roster read that fails leaves
+// the leader's own mods standing, which is exactly the pre-party behaviour and
+// never harder than it was.
+func foldPartyAbilities(ctx *edgeUnlockCtx, exp *Expedition, acting id.UserID) {
+	seats, err := expeditionParty(exp.ID, string(exp.UserID))
+	if err != nil {
+		return
+	}
+	for _, s := range seats {
+		if s.Kind == SeatCompanion {
+			class, level := companionLoadout(exp.ID)
+			ctx.bestAbility(companionSheet(class, level).Modifiers(), companionDisplayName)
+			continue
+		}
+		if s.UserID == acting {
+			continue // whoever we built the ctx from is already the baseline
+		}
+		mate, err := LoadDnDCharacter(s.UserID)
+		if err != nil || mate == nil {
+			continue
+		}
+		name, _ := loadDisplayName(s.UserID)
+		if name == "" {
+			name = string(s.UserID)
+		}
+		ctx.bestAbility(mate.Modifiers(), name)
+	}
 }
 
 // evaluateForkEdges walks all outgoing edges of fromNode in the graph
@@ -288,6 +353,10 @@ func renderForkPrompt(zone ZoneDefinition, pf pendingFork) string {
 	b.WriteString(fmt.Sprintf("**%s — Path divides.** Choose with `!zone go <n>`.\n\n", zone.Display))
 	for _, c := range pf.Options {
 		switch {
+		case c.Unlocked && c.Reason != "":
+			// A party-mate's ability beat the check — say so, so the player can
+			// see what the roster bought them.
+			b.WriteString(fmt.Sprintf("**%d.** %s _(%s)_\n", c.Index, c.Label, c.Reason))
 		case c.Unlocked:
 			b.WriteString(fmt.Sprintf("**%d.** %s\n", c.Index, c.Label))
 		case c.Hint != "":
