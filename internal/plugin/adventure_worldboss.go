@@ -398,10 +398,10 @@ func (p *AdventurePlugin) spawnWorldBoss(eventKey string) (*worldBossState, erro
 	return boss, nil
 }
 
-// worldBossTick rides the 1-minute event ticker. It auto-spawns a boss on the
-// first of each UTC month and resolves a live boss whose window has lapsed. The
-// defeat path is not here — a bout crossing the pool to zero resolves inline
-// (W2), because the ticker never sees the pool between two 60s reads.
+// worldBossTick rides the 1-minute event ticker. It auto-spawns the month's
+// boss and resolves a live boss whose window has lapsed. The defeat path is not
+// here — a bout crossing the pool to zero resolves inline (W2), because the
+// ticker never sees the pool between two 60s reads.
 func (p *AdventurePlugin) worldBossTick() {
 	boss, err := loadActiveWorldBoss()
 	if err != nil {
@@ -423,10 +423,17 @@ func (p *AdventurePlugin) worldBossTick() {
 		}
 		return
 	}
-	// No boss camped — auto-spawn on the 1st of the month, once.
-	if now.Day() != 1 {
-		return
-	}
+	// No boss camped — spawn this month's Siege, once.
+	//
+	// The month key below is the whole dedup, so the rule is simply "one Siege
+	// per calendar month, as early as the process is up to run it." It used to
+	// additionally require now.Day() == 1, which deadlocked the entire feature:
+	// the world boss shipped mid-July 2026 and prod never once ran a first-of-
+	// the-month tick with the code in it, so `select count(*) from world_boss`
+	// was still 0 weeks later. The day gate also silently skipped any month
+	// where the bot happened to be down or redeploying across the 1st, with no
+	// catch-up. Dropping it makes a missed 1st self-heal on the next tick
+	// instead of costing the town a month.
 	monthKey := now.Format("2006-01")
 	if db.JobCompleted("worldboss_spawn", monthKey) {
 		return
