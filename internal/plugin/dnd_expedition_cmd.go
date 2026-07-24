@@ -931,6 +931,7 @@ func (p *AdventurePlugin) autoPickStaleFork(exp *Expedition, run *DungeonRun, pf
 		if err := removeAdvInventoryItem(spendTool); err != nil {
 			slog.Warn("expedition: autopilot tools spend", "user", run.UserID, "err", err)
 		}
+		beatLock(run, chosen.Label, "picked")
 	}
 	fireGraphRegionTransition(run.UserID, g.Nodes[run.CurrentNode], g.Nodes[chosen.To])
 	if exp != nil {
@@ -993,6 +994,7 @@ func (p *AdventurePlugin) backtrackFromDeadFork(exp *Expedition, run *DungeonRun
 		slog.Warn("expedition: backtrack clear fork", "run", run.RunID, "err", err)
 		return false
 	}
+	beatLock(run, "", "sealed")
 	if _, err := revisitZoneRun(run.RunID, target, run.VisitedNodes); err != nil {
 		slog.Warn("expedition: backtrack from dead fork", "run", run.RunID, "err", err)
 		return false

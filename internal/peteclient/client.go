@@ -443,6 +443,59 @@ func PushSiege(ctx context.Context, snap SiegeSnapshot) error {
 	return std.post(ctx, "/api/ingest/siege", payload)
 }
 
+// RunBeat is one structured moment inside an expedition run: a room entered, a
+// fight resolved, a trap sprung, a haul taken. Facts, never prose — Pete owns
+// the words, exactly as it does for a Fact. The engine already narrates every
+// one of these to Matrix and then throws the narration away; this carries the
+// shape underneath it so Pete can retell the run to somebody who wasn't there.
+//
+// (RunID, Seq) is the identity. Seq is monotonic per run and assigned at record
+// time, so Pete can order a batch that arrives out of order and drop a duplicate
+// without comparing contents.
+//
+// Nothing here is player-identifying except Token, which rides the `start` beat
+// only and is the same public board token the roster uses. An opted-out player's
+// beats are never pushed at all — see pushRunBeats.
+type RunBeat struct {
+	RunID      string `json:"run_id"`
+	Seq        int64  `json:"seq"`
+	Kind       string `json:"kind"` // start|room|combat|trap|treasure|haul|lock|camp|region|end
+	OccurredAt int64  `json:"occurred_at"`
+
+	Token      string `json:"token,omitempty"` // `start` only: whose run this is
+	Name       string `json:"name,omitempty"`  // `start` only: character name
+	Level      int    `json:"level,omitempty"` // `start` only
+	Zone       string `json:"zone,omitempty"`
+	Region     string `json:"region,omitempty"`
+	Room       int    `json:"room,omitempty"`        // 1-based, as the player sees it
+	TotalRooms int    `json:"total_rooms,omitempty"` // 0 when unknown
+	RoomKind   string `json:"room_kind,omitempty"`   // entry|exploration|trap|elite|boss|secret
+	Target     string `json:"target,omitempty"`      // monster, item, region, lock — the noun
+	Outcome    string `json:"outcome,omitempty"`
+	Amount     int    `json:"amount,omitempty"` // damage taken, or a total quantity
+	Count      int    `json:"count,omitempty"`  // how many distinct things Amount covers
+	HP         int    `json:"hp,omitempty"`
+	HPMax      int    `json:"hp_max,omitempty"`
+	Crits      int    `json:"crits,omitempty"`
+	Fumbles    int    `json:"fumbles,omitempty"`
+}
+
+// PushRunBeats delivers a batch of beats. Unlike the snapshots this is
+// append-only and IS retried — a dropped beat is a hole in a story, not a stale
+// number that the next tick corrects. The caller only marks rows sent on success.
+func PushRunBeats(ctx context.Context, beats []RunBeat) error {
+	if !Enabled() || len(beats) == 0 {
+		return nil
+	}
+	payload, err := json.Marshal(struct {
+		Beats []RunBeat `json:"beats"`
+	}{beats})
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/ingest/run", payload)
+}
+
 // PlayerDetail is the private, owner-only expansion for one player: inventory,
 // vault, house, and pets. Like MischiefBalance it is keyed by localpart (the
 // sign-in name), in its own keyspace on Pete — Pete only ever serves it back to

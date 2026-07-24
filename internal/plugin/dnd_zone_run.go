@@ -295,6 +295,7 @@ func startZoneRun(userID id.UserID, zoneID ZoneID, dndLevel int, rng *rand.Rand)
 	); err != nil {
 		return nil, fmt.Errorf("insert zone run: %w", err)
 	}
+	beatRunStart(userID, run, zone)
 	return run, nil
 }
 
@@ -581,6 +582,7 @@ func abandonZoneRun(userID id.UserID) error {
 	if r == nil {
 		return ErrNoActiveRun
 	}
+	beatRunEnd(r, "abandoned")
 	_, err = db.Get().Exec(`
 		UPDATE dnd_zone_run
 		   SET abandoned = 1,
@@ -598,6 +600,12 @@ func abandonZoneRun(userID id.UserID) error {
 func abandonZoneRunByID(runID string) error {
 	if runID == "" {
 		return nil
+	}
+	// The generic funnel: it fires for an idle reap, a region retirement, and a
+	// completed run being tidied up alike. beatRunEnd is first-writer-wins, so
+	// this only ever supplies the outcome nothing more specific already did.
+	if r, _ := getZoneRun(runID); r != nil {
+		beatRunEnd(r, "abandoned")
 	}
 	_, err := db.Get().Exec(`
 		UPDATE dnd_zone_run

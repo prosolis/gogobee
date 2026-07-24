@@ -436,6 +436,9 @@ func completeRunAtNode(runID string, boss bool) error {
 	if boss {
 		bossI = 1
 	}
+	if run, _ := getZoneRun(runID); run != nil {
+		beatRunEnd(run, "cleared")
+	}
 	_, err := db.Get().Exec(`
 		UPDATE dnd_zone_run
 		   SET boss_defeated = ?,
@@ -474,7 +477,12 @@ func advanceZoneRunNode(runID, nextNode string) (int, error) {
 		nextNode, string(visitedJSON), runID); err != nil {
 		return 0, err
 	}
-	return pathIndexOf(visited, nextNode), nil
+	idx := pathIndexOf(visited, nextNode)
+	// Every forward move in the game funnels through here — auto-advance, a
+	// player's `!zone go`, and the autopilot's stale-fork pick alike — which is
+	// what makes this the one honest place to say "the party is now in room N".
+	beatRoom(r, nextNode, idx, "entered")
+	return idx, nil
 }
 
 // resolveForkChoice takes a 1-based choice index against a pending

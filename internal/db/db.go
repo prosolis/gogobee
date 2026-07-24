@@ -700,6 +700,11 @@ func RunMaintenance() {
 		// weight the drain query already skips — drop it so a durable outage
 		// can't accrete rows forever.
 		{"pete_emit_queue_parked", `DELETE FROM pete_emit_queue WHERE sent_at IS NULL AND created_at < ?`, []interface{}{cutoff30d}},
+		// Run beats — the local copy is a delivery buffer, not an archive. Pete
+		// keeps the run report; once a beat is a week old it has either shipped
+		// or missed its window entirely (the liveblog it feeds is about a run
+		// happening *now*), so both states reap on the same clock.
+		{"pete_run_beat", `DELETE FROM pete_run_beat WHERE occurred_at < ?`, []interface{}{cutoff7d}},
 
 		// Rate limits — purge entries older than today
 		{"rate_limits", `DELETE FROM rate_limits WHERE date < ?`, []interface{}{today}},
@@ -1044,6 +1049,24 @@ CREATE TABLE IF NOT EXISTS pete_emit_queue (
 	next_attempt_at INTEGER NOT NULL DEFAULT 0,
 	sent_at         INTEGER
 );
+
+-- Run beats: the room-by-room texture of an expedition, on its way to Pete's
+-- liveblog. Deliberately NOT pete_emit_queue — these are high-volume and
+-- low-stakes, and a run that generates forty beats must never be able to crowd
+-- a death dispatch out of the retry budget. Ordering is the whole contract:
+-- (run_id, seq) is the primary key and Pete is idempotent on the pair, so a
+-- re-sent batch collapses and a re-ordered one still sorts right on arrival.
+CREATE TABLE IF NOT EXISTS pete_run_beat (
+	run_id      TEXT NOT NULL,
+	seq         INTEGER NOT NULL,
+	kind        TEXT NOT NULL,
+	occurred_at INTEGER NOT NULL DEFAULT (unixepoch()),
+	payload     TEXT NOT NULL DEFAULT '{}',
+	sent_at     INTEGER,
+	PRIMARY KEY (run_id, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_pete_run_beat_unsent
+	ON pete_run_beat(sent_at, run_id, seq);
 
 -- Players who opted out of being named in Pete's adventure news. Enforced at
 -- emit time (anonymize, never delete). Mirrors shade_optout.

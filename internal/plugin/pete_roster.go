@@ -53,6 +53,7 @@ func (p *AdventurePlugin) peteRosterTicker() {
 		p.pushRoster()
 		p.pushDetails()
 		p.pushSiege()
+		p.pushRunBeats()
 	}
 }
 

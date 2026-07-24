@@ -69,7 +69,11 @@ func revisitZoneRun(runID, targetNode string, visited []string) (int, error) {
 		 WHERE run_id = ?`, targetNode, runID); err != nil {
 		return 0, err
 	}
-	return pathIndexOf(visited, targetNode), nil
+	idx := pathIndexOf(visited, targetNode)
+	if run, _ := getZoneRun(runID); run != nil {
+		beatRoom(run, targetNode, idx, "doubled back")
+	}
+	return idx, nil
 }
 
 // handleRevisitCmd implements `!revisit <N>` (also reachable as
