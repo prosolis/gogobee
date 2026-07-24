@@ -394,6 +394,7 @@ func (p *AdventurePlugin) spawnWorldBoss(eventKey string) (*worldBossState, erro
 		return nil, err
 	}
 	p.announceWorldBossSpawn(boss, activeN)
+	emitSiegeStart(boss)
 	slog.Info("worldboss: spawned", "id", bossID, "name", name, "tier", tier, "hp", hpMax, "activeN", activeN)
 	return boss, nil
 }
@@ -496,6 +497,7 @@ func (p *AdventurePlugin) resolveWorldBossDefeated(boss *worldBossState) {
 		}
 	}
 	p.announceWorldBossDefeated(boss, payouts)
+	emitSiegeWin(boss, len(payouts))
 	slog.Info("worldboss: defeated", "id", boss.ID, "contributors", len(payouts))
 }
 
@@ -516,6 +518,7 @@ func (p *AdventurePlugin) resolveWorldBossSurvived(boss *worldBossState) {
 		paid = tribute
 	}
 	p.announceWorldBossSurvived(boss, paid)
+	emitSiegeLoss(boss)
 	slog.Info("worldboss: survived", "id", boss.ID, "tribute", paid)
 }
 

@@ -373,6 +373,76 @@ func PushRoster(ctx context.Context, snap RosterSnapshot) error {
 	return std.post(ctx, "/api/ingest/roster", payload)
 }
 
+// SiegeDefender is one adventurer's standing in the current Siege muster.
+//
+// Token is the same public board token the roster uses, so Pete can link a
+// defender to their page — and it is EMPTY for an opted-out player, with Name
+// carrying anonName instead. That is the whole opt-out story here: their damage
+// still counts and still holds its rank (the town's effort is the town's), but
+// there is no name to click. It differs from the board's rule (omit entirely)
+// on purpose — a defender board that silently dropped contributors would
+// understate what the town actually did to the boss.
+type SiegeDefender struct {
+	Token       string `json:"token,omitempty"`
+	Name        string `json:"name"`
+	Level       int    `json:"level,omitempty"`
+	Fights      int    `json:"fights"`
+	Damage      int    `json:"damage"`
+	FoughtToday bool   `json:"fought_today"`
+}
+
+// SiegePast is one closed-out Siege for the history table.
+type SiegePast struct {
+	BossID      int64  `json:"boss_id"`
+	BossName    string `json:"boss_name"`
+	Tier        int    `json:"tier"`
+	Outcome     string `json:"outcome"` // "defeated" | "survived"
+	HPRemaining int    `json:"hp_remaining"`
+	HPMax       int    `json:"hp_max"`
+	Defenders   int    `json:"defenders"`
+	MVP         string `json:"mvp,omitempty"`
+	MVPFights   int    `json:"mvp_fights,omitempty"`
+	EndedAt     int64  `json:"ended_at"`
+}
+
+// SiegeSnapshot is the complete war room: the live boss (if any), its muster,
+// and every Siege that came before. Same complete-snapshot contract as the
+// roster — Pete replaces its copy — so a defender omitted here leaves the board
+// and a resolved Siege stops showing a live bar.
+//
+// Defenders carries EVERY alive adventurer, not just contributors. The zero-fight
+// rows are the point: one bout per person per day means somebody who hasn't
+// swung today is a hit the town hasn't taken, and the page can only show that gap
+// if the people in it are on the wire.
+type SiegeSnapshot struct {
+	SnapshotAt int64           `json:"snapshot_at"`
+	Active     bool            `json:"active"`
+	BossID     int64           `json:"boss_id,omitempty"`
+	BossName   string          `json:"boss_name,omitempty"`
+	Tier       int             `json:"tier,omitempty"`
+	HPCurrent  int             `json:"hp_current"`
+	HPMax      int             `json:"hp_max"`
+	StartsAt   int64           `json:"starts_at,omitempty"`
+	EndsAt     int64           `json:"ends_at,omitempty"`
+	BoutsToday int             `json:"bouts_today"`
+	Defenders  []SiegeDefender `json:"defenders,omitempty"`
+	History    []SiegePast     `json:"history,omitempty"`
+}
+
+// PushSiege sends the war room to Pete, synchronously, and drops it on failure —
+// the same drop-the-lie semantics as PushRoster. A retried snapshot would claim
+// a pool level that has since moved, and the next tick carries the truth anyway.
+func PushSiege(ctx context.Context, snap SiegeSnapshot) error {
+	if !Enabled() {
+		return nil
+	}
+	payload, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/ingest/siege", payload)
+}
+
 // PlayerDetail is the private, owner-only expansion for one player: inventory,
 // vault, house, and pets. Like MischiefBalance it is keyed by localpart (the
 // sign-in name), in its own keyspace on Pete — Pete only ever serves it back to
