@@ -53,6 +53,9 @@ func (p *AdventurePlugin) peteRosterTicker() {
 		p.pushRoster()
 		p.pushDetails()
 		p.pushSiege()
+		// Self-rate-limited to realmPushInterval: the realm is aggregate scans
+		// over the whole run history and none of it moves at roster speed.
+		p.pushRealm()
 		p.pushRunBeats()
 		// After the beats, not before: the summary is the last beat of a run's
 		// story and has no business overtaking the log it is about. It is also the

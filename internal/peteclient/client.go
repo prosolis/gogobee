@@ -493,6 +493,105 @@ type RunBeat struct {
 	Prose string `json:"prose,omitempty"`
 }
 
+// RealmZone is one zone as the realm map draws it: what it is, who first got
+// through it, how many have since, and who is inside it right now.
+//
+// FirstClearBy is a character name and FirstClearToken the public board token,
+// exactly as the Siege muster pairs them — and the token is EMPTY for a player
+// who has opted out, keeping the name off the page too (see buildRealmSnapshot:
+// an opted-out first-clearer is anonymised, not deleted, because deleting the
+// claim would make the zone read as never-cleared, which is a different and
+// false statement about the realm).
+type RealmZone struct {
+	ID         string `json:"id"`
+	Display    string `json:"display"`
+	Tier       int    `json:"tier"`
+	LevelMin   int    `json:"level_min"`
+	LevelMax   int    `json:"level_max"`
+	Faction    string `json:"faction,omitempty"`
+	Atmosphere string `json:"atmosphere,omitempty"`
+	Postgame   bool   `json:"postgame,omitempty"` // T6 mythic: gated, drawn apart
+
+	FirstClearBy    string `json:"first_clear_by,omitempty"`
+	FirstClearToken string `json:"first_clear_token,omitempty"`
+	FirstClearAt    int64  `json:"first_clear_at,omitempty"`
+
+	Clears   int `json:"clears"`   // boss-defeated runs, all time
+	Clearers int `json:"clearers"` // distinct adventurers who have managed it
+
+	Occupants []RealmOccupant `json:"occupants,omitempty"` // in there right now
+}
+
+// RealmOccupant is somebody currently on an expedition in a zone. Same
+// name+token pair as everywhere else, and an opted-out player is omitted
+// outright rather than anonymised: unlike a first clear, presence is not part of
+// a shared tally that stops adding up without them, and "who is in there right
+// now" is exactly the live-location fact the liveblog is careful about.
+type RealmOccupant struct {
+	Token string `json:"token,omitempty"`
+	Name  string `json:"name"`
+	Level int    `json:"level,omitempty"`
+	Day   int    `json:"day,omitempty"`
+}
+
+// RealmFirst is one row of the hall of firsts: a thing that happened in the
+// realm exactly once ever, and who it happened to. The ledger
+// (news_realm_firsts) records only (kind, target, first_at) — the holder is
+// recovered by gogobee at push time from the run history, which is why this is
+// pushed rather than derived on Pete.
+type RealmFirst struct {
+	Kind    string `json:"kind"`              // "zone" | "treasure"
+	Target  string `json:"target"`            // the zone id or treasure key
+	Display string `json:"display"`           // the human name for it
+	Tier    int    `json:"tier,omitempty"`    // zone tier, when kind is "zone"
+	Holder  string `json:"holder,omitempty"`  // character name, empty when unrecoverable
+	Token   string `json:"token,omitempty"`   // board token; empty when opted out
+	AtUnix  int64  `json:"at_unix"`           // when the realm first saw it
+}
+
+// RealmStanding is one adventurer's line on the board. Every number here is a
+// lifetime total from the game's own run history — nothing is a rate, an
+// average, or anything that would move on its own while nobody played.
+type RealmStanding struct {
+	Token       string `json:"token,omitempty"`
+	Name        string `json:"name"`
+	Level       int    `json:"level"`
+	ClassRace   string `json:"class_race,omitempty"`
+	DeepestTier int    `json:"deepest_tier"` // deepest zone tier actually cleared
+	Clears      int    `json:"clears"`
+	Zones       int    `json:"zones"`  // distinct zones cleared
+	Firsts      int    `json:"firsts"` // realm-firsts held
+	SiegeDamage int    `json:"siege_damage"`
+	SiegeFights int    `json:"siege_fights"`
+}
+
+// RealmSnapshot is the whole realm as one photograph: every zone, the hall of
+// firsts, and the board. Snapshot semantics, like the roster and the Siege —
+// Pete replaces its copy and a failed push is dropped, not retried.
+//
+// It is pushed on the roster ticker but NOT every tick: none of it moves fast
+// enough to be worth the aggregate queries every two minutes, and the page's
+// staleness window is generous for exactly that reason. See realmPushInterval.
+type RealmSnapshot struct {
+	SnapshotAt int64           `json:"snapshot_at"`
+	Zones      []RealmZone     `json:"zones,omitempty"`
+	Firsts     []RealmFirst    `json:"firsts,omitempty"`
+	Standings  []RealmStanding `json:"standings,omitempty"`
+}
+
+// PushRealm sends the realm pages' backing data to Pete. Drop-on-failure, same
+// as the other two snapshots.
+func PushRealm(ctx context.Context, snap RealmSnapshot) error {
+	if !Enabled() {
+		return nil
+	}
+	payload, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/ingest/realm", payload)
+}
+
 // PushRunBeats delivers a batch of beats. Unlike the snapshots this is
 // append-only and IS retried — a dropped beat is a hole in a story, not a stale
 // number that the next tick corrects. The caller only marks rows sent on success.
