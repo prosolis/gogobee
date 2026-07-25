@@ -46,6 +46,16 @@ var advTreasureDropRates = map[int]float64{
 	3: 0.008,
 	4: 0.004,
 	5: 0.0015,
+	// Tier 6 (Mythic post-game) breaks the downward curve on purpose. The rate
+	// per roll falls tier over tier because the lower tiers are ground daily;
+	// a Mythic run is gated behind L18 and both T5 bosses and happens rarely,
+	// so the same declining rate would mean a postgame player effectively never
+	// sees a treasure. Slightly above T5 keeps the per-run odds in the band the
+	// other tiers land in.
+	//
+	// NOTE: this rate is inert until advAllTreasures gains a tier 6 pool — see
+	// the TODO there. A tier with a rate but no pool drops nothing.
+	6: 0.002,
 }
 
 const advMaxTreasures = 3
@@ -221,6 +231,13 @@ var advAllTreasures = map[int][]AdvTreasureDef{
 			InventoryDesc: "The Ocarina (Cracked). Three songs. +10 all skills. Do not play the third one.",
 		},
 	},
+	// TODO(t6-treasures): there is no tier 6 pool yet, so Mythic zones drop no
+	// treasure at all — advTreasureDropRates has a tier 6 rate waiting for it.
+	// What's missing is the content: four Mythic treasures with bonuses above
+	// the T5 line, InventoryDesc + RoomAnnounce strings for each (RoomAnnounce
+	// must use {location_mid}, never a literal zone name), and a TIER 6 register
+	// in TreasureDiscovery. Write them against internal/flavor/VOICE_CANON.md;
+	// the T5 pool below is the tonal floor to clear, not the ceiling.
 	5: {
 		{
 			Key: "shard_of_unnamed", Name: "Shard of the Unnamed", Tier: 5,
@@ -285,7 +302,12 @@ func rollAdvTreasureDropDetailed(tier int, userID id.UserID, chatLevel int, weig
 
 	pool, ok := advAllTreasures[tier]
 	if !ok || len(pool) == 0 {
-		return nil, roll, rate
+		// A tier that has a rate but no pool (tier 6, until the TODO above is
+		// filled) cannot drop anything. Report a zero rate rather than the
+		// configured one: the caller turns a close roll into a "just missed"
+		// DM, and telling a postgame player they nearly won a treasure that
+		// cannot be won is worse than staying quiet.
+		return nil, 0, 0
 	}
 
 	// Pick random treasure

@@ -66,6 +66,36 @@ func TestAdvTreasureDropDetailed_ForcedRollGrantsTreasure(t *testing.T) {
 	}
 }
 
+// TestAdvTreasureTier6_PoolStillMissing pins the known tier 6 gap: Mythic zones
+// carry a drop rate but no treasure pool, so a forced roll yields nothing and
+// the player is told nothing either (a "just missed" DM for an unwinnable
+// treasure would be a lie).
+//
+// This test is the reminder. Writing advAllTreasures[6] — see TODO(t6-treasures)
+// in adventure_treasure.go — turns it red, and the fix is to delete it and
+// assert the tier 6 drop instead, the way ForcedRollGrantsTreasure does for
+// tier 1.
+func TestAdvTreasureTier6_PoolStillMissing(t *testing.T) {
+	if err := db.Init(t.TempDir()); err != nil {
+		t.Fatalf("db.Init: %v", err)
+	}
+	if _, ok := advAllTreasures[6]; ok {
+		t.Fatal("a tier 6 treasure pool now exists — drop this test and assert the drop instead")
+	}
+	// The rate is configured and waiting, so the gap is the pool alone.
+	if advTreasureDropRates[6] == 0 {
+		t.Error("tier 6 drop rate went missing; a Mythic pool would be unreachable")
+	}
+	drop, roll, rate := rollAdvTreasureDropDetailed(6, "@mythic:example.org", 0, 1000)
+	if drop != nil {
+		t.Fatalf("tier 6 produced a drop from an empty pool: %+v", drop.Def)
+	}
+	// Zeroed, not merely no-drop: this is what keeps the near-miss DM quiet.
+	if roll != 0 || rate != 0 {
+		t.Errorf("empty pool reported roll=%v rate=%v, want 0/0 so no near-miss fires", roll, rate)
+	}
+}
+
 // The treasure and masterwork systems predate zones and speak AdvLocation.
 func TestAdvLocForZone(t *testing.T) {
 	loc := advLocForZone(ZoneGoblinWarrens)
