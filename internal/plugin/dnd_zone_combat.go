@@ -238,6 +238,7 @@ func (p *AdventurePlugin) resolveSecretRoom(userID id.UserID, run *DungeonRun, z
 		it := item
 		if line := p.grantZoneItem(userID, &it, "🧪"); line != "" {
 			rewards = append(rewards, line)
+			beatTreasure(run, it.Name, "cache")
 		}
 	}
 
@@ -392,6 +393,11 @@ func (p *AdventurePlugin) rollZoneLoot(userID id.UserID, run *DungeonRun, zone Z
 			slog.Error("zone: addLoot audit", "user", userID, "item", entry.ItemID, "err", err)
 		}
 		granted = append(granted, entry.ItemID)
+		source := "zone"
+		if bossCleared {
+			source = "boss"
+		}
+		beatTreasure(run, item.Name, source)
 	}
 	return granted
 }

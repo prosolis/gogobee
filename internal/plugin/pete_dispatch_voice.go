@@ -54,7 +54,7 @@ func authorDispatch(f peteclient.Fact) (headline, lede string) {
 	}
 
 	prompt := buildDispatchPrompt(f)
-	raw, err := callOllamaDispatch(host, model, prompt)
+	raw, err := callOllamaDispatch(dispatchHTTP, host, model, prompt)
 	if err != nil {
 		slog.Warn("pete dispatch: LLM authoring failed, Pete will template", "guid", f.GUID, "err", err)
 		return "", ""
@@ -129,9 +129,11 @@ The event:
 }
 
 // callOllamaDispatch posts a single non-streaming generation and returns the raw
-// completion (think-tags stripped). Its own bounded client, separate from the
-// interactive callOllama, because the game loop cannot wait 120s on the news.
-func callOllamaDispatch(host, model, prompt string) (string, error) {
+// completion (think-tags stripped). The client is a parameter because the two
+// callers have genuinely different patience: a dispatch is authored on a game
+// chokepoint and must not stall it, while a run summary rides a background
+// ticker and can afford to wait for a bigger model. See runSummaryHTTP.
+func callOllamaDispatch(client *http.Client, host, model, prompt string) (string, error) {
 	payload := map[string]interface{}{
 		"model":  model,
 		"prompt": prompt,
@@ -146,7 +148,7 @@ func callOllamaDispatch(host, model, prompt string) (string, error) {
 		return "", fmt.Errorf("marshal payload: %w", err)
 	}
 	apiURL := strings.TrimRight(host, "/") + "/api/generate"
-	resp, err := dispatchHTTP.Post(apiURL, "application/json", bytes.NewReader(data))
+	resp, err := client.Post(apiURL, "application/json", bytes.NewReader(data))
 	if err != nil {
 		return "", fmt.Errorf("ollama request: %w", err)
 	}

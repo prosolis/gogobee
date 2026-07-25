@@ -52,6 +52,18 @@ func (p *AdventurePlugin) peteRosterTicker() {
 		}
 		p.pushRoster()
 		p.pushDetails()
+		p.pushSiege()
+		// Self-rate-limited to realmPushInterval: the realm is aggregate scans
+		// over the whole run history and none of it moves at roster speed.
+		p.pushRealm()
+		p.pushRunBeats()
+		// After the beats, not before: the summary is the last beat of a run's
+		// story and has no business overtaking the log it is about. It is also the
+		// only step here that can talk to the model, which is why it lives on a
+		// ticker at all rather than at the moment a run ends — and why it starts
+		// beside the ticker rather than on it, since a cold model takes longer to
+		// load than the interval between two pushes.
+		p.sweepRunSummariesAsync()
 	}
 }
 
@@ -215,6 +227,11 @@ func (p *AdventurePlugin) buildDetailSnapshot(now time.Time) (peteclient.DetailS
 		if p.euro != nil {
 			pd.Balance = p.euro.GetBalance(uid)
 		}
+		// W5b: what this owner may ask for from the web, priced. See pete_offers.go
+		// on why a quote is not a permission.
+		pd.Zones = zoneOffersFor(uid)
+		pd.Resume = resumeOfferFor(uid)
+		pd.Babysit = babysitOfferFor(adv)
 		snap.Players = append(snap.Players, pd)
 	}
 	return snap, nil
@@ -445,19 +462,80 @@ func equippedViews(uid id.UserID) []peteclient.ItemView {
 
 // petViews returns the player's live pet slots. A pet that was chased away is
 // omitted — it isn't with them right now, and the self-view shows the present.
+//
+// XPNeeded rides along so the web can draw the progress toward the next level.
+// It is the engine's number, not Pete's: the curve steps by level band and a
+// copy of it on the web side would be a second answer to "how close is my dog"
+// that drifts the first time the band moves.
 func petViews(adv *AdventureCharacter) []peteclient.PetView {
 	var out []peteclient.PetView
 	if adv.PetType != "" && !adv.PetChasedAway {
 		out = append(out, peteclient.PetView{
 			Type: adv.PetType, Name: adv.PetName, Level: adv.PetLevel,
-			XP: adv.PetXP, ArmorTier: adv.PetArmorTier,
+			XP: adv.PetXP, XPNeeded: petXPNeededCenti(adv.PetLevel),
+			ArmorTier: adv.PetArmorTier,
 		})
 	}
 	if adv.Pet2Type != "" && !adv.Pet2ChasedAway {
 		out = append(out, peteclient.PetView{
 			Type: adv.Pet2Type, Name: adv.Pet2Name, Level: adv.Pet2Level,
-			XP: adv.Pet2XP, ArmorTier: adv.Pet2ArmorTier,
+			XP: adv.Pet2XP, XPNeeded: petXPNeededCenti(adv.Pet2Level),
+			ArmorTier: adv.Pet2ArmorTier,
 		})
+	}
+	return out
+}
+
+// partySeatViews describes who is on this expedition for the public detail page.
+// Returns nil for a solo run: expeditionParty always hands back at least the
+// leader, and a "party" of one chair is a worse thing to draw than nothing.
+//
+// The opt-out rule is the Siege contributor's, not the realm occupant's: a seat
+// belonging to an opted-out player is kept and anonymised. Deleting it would
+// make a party of three read as a pair, and the numbers beside it — the supply
+// burn, the threat, the enemy scaling — all felt three bodies. What an unnamed
+// seat discloses is that somebody else is down there, which the zone and day on
+// this same page already say about everyone in the party.
+//
+// Levels come from a per-seat character load. Parties cap at three and the
+// companion needs no load at all, so this is at most two extra reads for a
+// player who is actually in one.
+func partySeatViews(exp *Expedition) []peteclient.PartySeatView {
+	seats, err := expeditionParty(exp.ID, exp.UserID)
+	if err != nil {
+		slog.Debug("pete: party seats unavailable", "expedition", exp.ID, "err", err)
+		return nil
+	}
+	if len(seats) < 2 {
+		return nil // solo, or a roster that only holds its leader
+	}
+	out := make([]peteclient.PartySeatView, 0, len(seats))
+	for _, s := range seats {
+		if s.Kind == SeatCompanion {
+			// The hireling is named unconditionally: he is not a player, has no
+			// board row to link to and no privacy to protect.
+			out = append(out, peteclient.PartySeatView{
+				Kind: "companion", Name: companionDisplayName,
+			})
+			continue
+		}
+		kind := "member"
+		if s.Kind == SeatLeader {
+			kind = "leader"
+		}
+		v := peteclient.PartySeatView{Kind: kind}
+		if !isNewsOptedOut(s.UserID) {
+			v.Name = charName(s.UserID)
+			if v.Name != "" {
+				// Token only alongside a name: a link to a page that says who they are
+				// would undo the anonymising below all by itself.
+				v.Token = eventToken(s.UserID, "roster")
+				if c, cerr := LoadDnDCharacter(s.UserID); cerr == nil && c != nil {
+					v.Level = c.Level
+				}
+			}
+		}
+		out = append(out, v)
 	}
 	return out
 }
@@ -548,7 +626,13 @@ func buildRosterSnapshot(now time.Time, euro *EuroPlugin) (peteclient.RosterSnap
 
 		e.Detail = rosterDetail(pl.uid, c)
 
-		if exp, _ := getActiveExpedition(pl.uid); exp != nil {
+		// activeExpeditionFor, not getActiveExpedition: the latter keys on
+		// dnd_expedition.user_id and is blind to members, so a player seated on
+		// somebody else's run has been reading as "idle in town" on the public board
+		// for the whole life of N3 parties — standing in a tier-4 dungeon. The
+		// expedition it resolves to is the leader's row, which is the right answer:
+		// a party shares one clock, one supply pool and one run.
+		if exp, _, _ := activeExpeditionFor(pl.uid); exp != nil {
 			zone := zoneOrFallback(exp.ZoneID)
 			e.Status = "expedition"
 			e.Zone = zone.Display
@@ -561,6 +645,7 @@ func buildRosterSnapshot(now time.Time, euro *EuroPlugin) (peteclient.RosterSnap
 			if e.Detail != nil {
 				e.Detail.Supplies = int(exp.Supplies.Current)
 				e.Detail.ThreatLevel = exp.ThreatLevel
+				e.Detail.Party = partySeatViews(exp)
 				if exp.RunID != "" {
 					if run, rerr := getZoneRun(exp.RunID); rerr == nil && run != nil && run.TotalRooms > 0 {
 						e.Detail.Room = fmt.Sprintf("%d / %d", run.CurrentRoom+1, run.TotalRooms)

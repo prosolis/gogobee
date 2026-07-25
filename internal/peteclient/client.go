@@ -48,6 +48,13 @@ type Fact struct {
 	Milestone  string   `json:"milestone,omitempty"`
 	OccurredAt int64    `json:"occurred_at"`
 	NoPush     bool     `json:"no_push,omitempty"` // backfill: suppress Pete web-push
+	// RunID names the expedition this fact is the ENDING of, and only the three
+	// facts that are one carry it: a clear, a retreat, a death. It is what lets
+	// Pete's dispatch link back to the run's own report — the log, the numbers,
+	// the moment it turned — instead of leaving a paragraph about an outcome with
+	// no way back to what produced it. Empty everywhere else, and safe to be
+	// empty: Pete renders the dispatch exactly as it did before the report existed.
+	RunID string `json:"run_id,omitempty"`
 	// Headline/Lede are LLM-authored prose for this fact, both optional. Pete
 	// prefers them over its own template when present and past its prose-guard,
 	// and falls back to the template otherwise — so an empty pair (LLM off, or
@@ -277,6 +284,30 @@ type RosterDetail struct {
 	ThreatLevel int        `json:"threat_level,omitempty"`
 	Room        string     `json:"room,omitempty"`
 	Map         *RosterMap `json:"map,omitempty"`
+	// Party is who else is on this expedition, leader first. Absent for a solo
+	// run — a party of one is not a party, and the page should say nothing rather
+	// than draw a roster with a single chair in it.
+	Party []PartySeatView `json:"party,omitempty"`
+}
+
+// PartySeatView is one body on a shared expedition, as the public page may see
+// it. Kind is what the seat *is*, which the game keeps carefully separate:
+// "leader" owns the expedition row everyone else references, "member" is another
+// player, "companion" is the hired NPC (Pete) who fights but has no mailbox and
+// no loot.
+//
+// Name/Token are the same pair the board and the Siege muster use. The opt-out
+// rule here is the Siege *contributor* rule, not the realm-occupant rule: an
+// opted-out player's seat is anonymised (kept, with no name and no token) rather
+// than deleted. A party of three that renders as two is a false statement about
+// the run — the supply burn, the enemy scaling and the loot split all felt three
+// bodies — whereas an unnamed seat says only that somebody else was there, which
+// the zone line on this same page already implies.
+type PartySeatView struct {
+	Kind  string `json:"kind"` // leader|member|companion
+	Name  string `json:"name,omitempty"`
+	Token string `json:"token,omitempty"` // empty: opted out, or a companion (no board row)
+	Level int    `json:"level,omitempty"`
 }
 
 // RosterMap is the fog-of-war cut of an adventurer's zone graph: every node
@@ -373,6 +404,234 @@ func PushRoster(ctx context.Context, snap RosterSnapshot) error {
 	return std.post(ctx, "/api/ingest/roster", payload)
 }
 
+// SiegeDefender is one adventurer's standing in the current Siege muster.
+//
+// Token is the same public board token the roster uses, so Pete can link a
+// defender to their page — and it is EMPTY for an opted-out player, with Name
+// carrying anonName instead. That is the whole opt-out story here: their damage
+// still counts and still holds its rank (the town's effort is the town's), but
+// there is no name to click. It differs from the board's rule (omit entirely)
+// on purpose — a defender board that silently dropped contributors would
+// understate what the town actually did to the boss.
+type SiegeDefender struct {
+	Token       string `json:"token,omitempty"`
+	Name        string `json:"name"`
+	Level       int    `json:"level,omitempty"`
+	Fights      int    `json:"fights"`
+	Damage      int    `json:"damage"`
+	FoughtToday bool   `json:"fought_today"`
+}
+
+// SiegePast is one closed-out Siege for the history table.
+type SiegePast struct {
+	BossID      int64  `json:"boss_id"`
+	BossName    string `json:"boss_name"`
+	Tier        int    `json:"tier"`
+	Outcome     string `json:"outcome"` // "defeated" | "survived"
+	HPRemaining int    `json:"hp_remaining"`
+	HPMax       int    `json:"hp_max"`
+	Defenders   int    `json:"defenders"`
+	MVP         string `json:"mvp,omitempty"`
+	MVPFights   int    `json:"mvp_fights,omitempty"`
+	EndedAt     int64  `json:"ended_at"`
+}
+
+// SiegeSnapshot is the complete war room: the live boss (if any), its muster,
+// and every Siege that came before. Same complete-snapshot contract as the
+// roster — Pete replaces its copy — so a defender omitted here leaves the board
+// and a resolved Siege stops showing a live bar.
+//
+// Defenders carries EVERY alive adventurer, not just contributors. The zero-fight
+// rows are the point: one bout per person per day means somebody who hasn't
+// swung today is a hit the town hasn't taken, and the page can only show that gap
+// if the people in it are on the wire.
+type SiegeSnapshot struct {
+	SnapshotAt int64           `json:"snapshot_at"`
+	Active     bool            `json:"active"`
+	BossID     int64           `json:"boss_id,omitempty"`
+	BossName   string          `json:"boss_name,omitempty"`
+	Tier       int             `json:"tier,omitempty"`
+	HPCurrent  int             `json:"hp_current"`
+	HPMax      int             `json:"hp_max"`
+	StartsAt   int64           `json:"starts_at,omitempty"`
+	EndsAt     int64           `json:"ends_at,omitempty"`
+	BoutsToday int             `json:"bouts_today"`
+	Defenders  []SiegeDefender `json:"defenders,omitempty"`
+	History    []SiegePast     `json:"history,omitempty"`
+}
+
+// PushSiege sends the war room to Pete, synchronously, and drops it on failure —
+// the same drop-the-lie semantics as PushRoster. A retried snapshot would claim
+// a pool level that has since moved, and the next tick carries the truth anyway.
+func PushSiege(ctx context.Context, snap SiegeSnapshot) error {
+	if !Enabled() {
+		return nil
+	}
+	payload, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/ingest/siege", payload)
+}
+
+// RunBeat is one structured moment inside an expedition run: a room entered, a
+// fight resolved, a trap sprung, a haul taken. Facts, never prose — Pete owns
+// the words, exactly as it does for a Fact. The engine already narrates every
+// one of these to Matrix and then throws the narration away; this carries the
+// shape underneath it so Pete can retell the run to somebody who wasn't there.
+//
+// (RunID, Seq) is the identity. Seq is monotonic per run and assigned at record
+// time, so Pete can order a batch that arrives out of order and drop a duplicate
+// without comparing contents.
+//
+// Nothing here is player-identifying except Token, which rides the `start` beat
+// only and is the same public board token the roster uses. An opted-out player's
+// beats are never pushed at all — see pushRunBeats.
+type RunBeat struct {
+	RunID      string `json:"run_id"`
+	Seq        int64  `json:"seq"`
+	Kind       string `json:"kind"` // start|room|combat|trap|treasure|haul|lock|camp|region|end|summary
+	OccurredAt int64  `json:"occurred_at"`
+
+	Token      string `json:"token,omitempty"` // `start` only: whose run this is
+	Name       string `json:"name,omitempty"`  // `start` only: character name
+	Level      int    `json:"level,omitempty"` // `start` only
+	Zone       string `json:"zone,omitempty"`
+	Region     string `json:"region,omitempty"`
+	Room       int    `json:"room,omitempty"`        // 1-based, as the player sees it
+	TotalRooms int    `json:"total_rooms,omitempty"` // 0 when unknown
+	RoomKind   string `json:"room_kind,omitempty"`   // entry|exploration|trap|elite|boss|secret
+	Target     string `json:"target,omitempty"`      // monster, item, region, lock — the noun
+	Outcome    string `json:"outcome,omitempty"`
+	Amount     int    `json:"amount,omitempty"` // damage taken, or a total quantity
+	Count      int    `json:"count,omitempty"`  // how many distinct things Amount covers
+	HP         int    `json:"hp,omitempty"`
+	HPMax      int    `json:"hp_max,omitempty"`
+	Crits      int    `json:"crits,omitempty"`
+	Fumbles    int    `json:"fumbles,omitempty"`
+	// Prose is the single exception to "nouns and numbers only", and it is
+	// confined to the one kind that has any: `summary`, the three sentences the
+	// local model writes over a finished run. Pete guards it exactly as it guards
+	// a dispatch lede and drops the words (not the beat) on a rejection. Every
+	// other kind must leave this empty — Pete scrubs it if they don't.
+	Prose string `json:"prose,omitempty"`
+}
+
+// RealmZone is one zone as the realm map draws it: what it is, who first got
+// through it, how many have since, and who is inside it right now.
+//
+// FirstClearBy is a character name and FirstClearToken the public board token,
+// exactly as the Siege muster pairs them — and the token is EMPTY for a player
+// who has opted out, keeping the name off the page too (see buildRealmSnapshot:
+// an opted-out first-clearer is anonymised, not deleted, because deleting the
+// claim would make the zone read as never-cleared, which is a different and
+// false statement about the realm).
+type RealmZone struct {
+	ID         string `json:"id"`
+	Display    string `json:"display"`
+	Tier       int    `json:"tier"`
+	LevelMin   int    `json:"level_min"`
+	LevelMax   int    `json:"level_max"`
+	Faction    string `json:"faction,omitempty"`
+	Atmosphere string `json:"atmosphere,omitempty"`
+	Postgame   bool   `json:"postgame,omitempty"` // T6 mythic: gated, drawn apart
+
+	FirstClearBy    string `json:"first_clear_by,omitempty"`
+	FirstClearToken string `json:"first_clear_token,omitempty"`
+	FirstClearAt    int64  `json:"first_clear_at,omitempty"`
+
+	Clears   int `json:"clears"`   // boss-defeated runs, all time
+	Clearers int `json:"clearers"` // distinct adventurers who have managed it
+
+	Occupants []RealmOccupant `json:"occupants,omitempty"` // in there right now
+}
+
+// RealmOccupant is somebody currently on an expedition in a zone. Same
+// name+token pair as everywhere else, and an opted-out player is omitted
+// outright rather than anonymised: unlike a first clear, presence is not part of
+// a shared tally that stops adding up without them, and "who is in there right
+// now" is exactly the live-location fact the liveblog is careful about.
+type RealmOccupant struct {
+	Token string `json:"token,omitempty"`
+	Name  string `json:"name"`
+	Level int    `json:"level,omitempty"`
+	Day   int    `json:"day,omitempty"`
+}
+
+// RealmFirst is one row of the hall of firsts: a thing that happened in the
+// realm exactly once ever, and who it happened to. The ledger
+// (news_realm_firsts) records only (kind, target, first_at) — the holder is
+// recovered by gogobee at push time from the run history, which is why this is
+// pushed rather than derived on Pete.
+type RealmFirst struct {
+	Kind    string `json:"kind"`             // "zone" | "treasure"
+	Target  string `json:"target"`           // the zone id or treasure key
+	Display string `json:"display"`          // the human name for it
+	Tier    int    `json:"tier,omitempty"`   // zone tier, when kind is "zone"
+	Holder  string `json:"holder,omitempty"` // character name, empty when unrecoverable
+	Token   string `json:"token,omitempty"`  // board token; empty when opted out
+	AtUnix  int64  `json:"at_unix"`          // when the realm first saw it
+}
+
+// RealmStanding is one adventurer's line on the board. Every number here is a
+// lifetime total from the game's own run history — nothing is a rate, an
+// average, or anything that would move on its own while nobody played.
+type RealmStanding struct {
+	Token       string `json:"token,omitempty"`
+	Name        string `json:"name"`
+	Level       int    `json:"level"`
+	ClassRace   string `json:"class_race,omitempty"`
+	DeepestTier int    `json:"deepest_tier"` // deepest zone tier actually cleared
+	Clears      int    `json:"clears"`
+	Zones       int    `json:"zones"`  // distinct zones cleared
+	Firsts      int    `json:"firsts"` // realm-firsts held
+	SiegeDamage int    `json:"siege_damage"`
+	SiegeFights int    `json:"siege_fights"`
+}
+
+// RealmSnapshot is the whole realm as one photograph: every zone, the hall of
+// firsts, and the board. Snapshot semantics, like the roster and the Siege —
+// Pete replaces its copy and a failed push is dropped, not retried.
+//
+// It is pushed on the roster ticker but NOT every tick: none of it moves fast
+// enough to be worth the aggregate queries every two minutes, and the page's
+// staleness window is generous for exactly that reason. See realmPushInterval.
+type RealmSnapshot struct {
+	SnapshotAt int64           `json:"snapshot_at"`
+	Zones      []RealmZone     `json:"zones,omitempty"`
+	Firsts     []RealmFirst    `json:"firsts,omitempty"`
+	Standings  []RealmStanding `json:"standings,omitempty"`
+}
+
+// PushRealm sends the realm pages' backing data to Pete. Drop-on-failure, same
+// as the other two snapshots.
+func PushRealm(ctx context.Context, snap RealmSnapshot) error {
+	if !Enabled() {
+		return nil
+	}
+	payload, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/ingest/realm", payload)
+}
+
+// PushRunBeats delivers a batch of beats. Unlike the snapshots this is
+// append-only and IS retried — a dropped beat is a hole in a story, not a stale
+// number that the next tick corrects. The caller only marks rows sent on success.
+func PushRunBeats(ctx context.Context, beats []RunBeat) error {
+	if !Enabled() || len(beats) == 0 {
+		return nil
+	}
+	payload, err := json.Marshal(struct {
+		Beats []RunBeat `json:"beats"`
+	}{beats})
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/ingest/run", payload)
+}
+
 // PlayerDetail is the private, owner-only expansion for one player: inventory,
 // vault, house, and pets. Like MischiefBalance it is keyed by localpart (the
 // sign-in name), in its own keyspace on Pete — Pete only ever serves it back to
@@ -396,6 +655,63 @@ type PlayerDetail struct {
 	// No omitempty: a €0 balance is a real, informative fact (a broke player), not
 	// an absent one — dropping it would let the confirm dialog show a stale amount.
 	Balance float64 `json:"balance"`
+	// Zones is where this adventurer may go right now, priced. It is the offer
+	// list behind the web's "send on expedition" picker: level gating and the T6
+	// postgame gate are resolved here, so a zone the player cannot enter is simply
+	// absent rather than shown and then refused. Empty while they are already out.
+	Zones []ZoneOffer `json:"zones,omitempty"`
+	// Resume is the extracted expedition waiting to be walked back into, priced
+	// the same way. Absent when there is nothing to resume.
+	Resume *ResumeOffer `json:"resume,omitempty"`
+	// Babysit is the pet-care subscription's standing and price. Always present
+	// for a live adventurer: "you already have one" is as useful to the page as a
+	// price is.
+	Babysit *BabysitOffer `json:"babysit,omitempty"`
+}
+
+// ZoneOffer is one place the owner may set out for, with what the trip costs.
+// Pete renders these and does no arithmetic — the prices are the game's, quoted
+// at push time, and gogobee re-quotes them for real when the order lands.
+type ZoneOffer struct {
+	ID       string         `json:"id"`
+	Display  string         `json:"display"`
+	Tier     int            `json:"tier"`
+	Hook     string         `json:"hook,omitempty"`
+	Postgame bool           `json:"postgame,omitempty"`
+	Loadouts []LoadoutOffer `json:"loadouts,omitempty"`
+}
+
+// LoadoutOffer is one supply preset for a zone: what it is called, what it
+// costs, and roughly how long it lasts. Key is the token the order carries back.
+type LoadoutOffer struct {
+	Key   string `json:"key"` // lean|balanced|heavy
+	Name  string `json:"name"`
+	Blurb string `json:"blurb,omitempty"`
+	Cost  int    `json:"cost"`
+	Days  int    `json:"days"` // provisions at the zone's daily burn
+}
+
+// ResumeOffer is the extracted expedition the owner can still walk back into,
+// with the same priced loadouts as a fresh departure. ExpiresAt is the end of
+// the seven-day window, so the page can say how long is left rather than just
+// that there is a way back.
+type ResumeOffer struct {
+	ZoneID    string         `json:"zone_id"`
+	Display   string         `json:"display"`
+	Tier      int            `json:"tier"`
+	Day       int            `json:"day"`
+	ExpiresAt int64          `json:"expires_at,omitempty"`
+	Loadouts  []LoadoutOffer `json:"loadouts,omitempty"`
+}
+
+// BabysitOffer is the sitter's standing and price. WeekCost/MonthCost are the
+// two durations the game sells; they scale with level, which is why they are
+// pushed rather than hardcoded on Pete.
+type BabysitOffer struct {
+	Active    bool  `json:"active"`
+	ExpiresAt int64 `json:"expires_at,omitempty"`
+	WeekCost  int   `json:"week_cost"`
+	MonthCost int   `json:"month_cost"`
 }
 
 // EquipSlotView is one of the 5 standard equipment slots, carrying what the web
@@ -496,11 +812,19 @@ type HouseView struct {
 }
 
 // PetView is one pet slot.
+//
+// XP and XPNeeded are both in **centi-XP** — the engine's own unit, a hundredth
+// of a point, because a pet earns 1.5 XP per action and the ledger is an int.
+// Pete divides by 100 to show it and does no other arithmetic on either number:
+// the curve behind XPNeeded is petXPToNextLevel's, per level band, and it is not
+// Pete's business to know it. XPNeeded is 0 at the level cap, which is the only
+// signal that there is nothing left to fill.
 type PetView struct {
 	Type      string `json:"type"`
 	Name      string `json:"name"`
 	Level     int    `json:"level"`
 	XP        int    `json:"xp,omitempty"`
+	XPNeeded  int    `json:"xp_needed,omitempty"` // 0 = at the level cap
 	ArmorTier int    `json:"armor_tier,omitempty"`
 }
 
@@ -746,6 +1070,88 @@ func VerdictEquip(ctx context.Context, guid, status, detail string) error {
 		return err
 	}
 	return std.post(ctx, "/api/equip/verdict", payload)
+}
+
+// ---------------------------------------------------------------------------
+// The action queue
+//
+// The equip queue's sibling, and the first one that plays the game rather than
+// dressing the character. An owner clicks "Pull out" on their own adventurer
+// page or "Take your bout" on the war room; Pete records the intent and we drain
+// it here. Same non-idempotent problem, same answer: the poller guards on the
+// order guid before it runs anything, because an extraction ends a run and a
+// bout spends the day's only swing, and neither converges on a replay.
+//
+// Nothing in an order names a character. Pete resolves that from the session
+// (one account, one localpart, one adventurer) so there is no id on the wire for
+// a client to forge — the contrast with EquipOrder, which has to carry an item
+// id and a slot, is deliberate.
+// ---------------------------------------------------------------------------
+
+// AdvOrder is one requested action as Pete describes it. owner_localpart is the
+// Matrix localpart whose adventurer acts; token and character_name are display
+// copy Pete froze at order time and we ignore both.
+type AdvOrder struct {
+	GUID           string `json:"guid"`
+	OwnerLocalpart string `json:"owner_localpart"`
+	Token          string `json:"token"`
+	CharacterName  string `json:"character_name"`
+	Action         string `json:"action"`
+	Status         string `json:"status"`
+	CreatedAt      int64  `json:"created_at"`
+	// Params is the verb's arguments, and only the verbs that take any carry it:
+	// which zone, which supply loadout, how many days of sitting. It never names
+	// an adventurer — that still comes from the session on Pete's side — and
+	// every field in it is re-resolved against the game's own tables before it
+	// means anything, so a forged zone or a forged price buys nothing.
+	Params *AdvOrderParams `json:"params,omitempty"`
+}
+
+// AdvOrderParams is the union of every verb's arguments, flat rather than
+// per-verb because there are three of them and each reads one or two fields.
+// Anything a verb does not read is ignored rather than rejected.
+type AdvOrderParams struct {
+	Zone    string `json:"zone,omitempty"`    // zone id, for expedition_start
+	Loadout string `json:"loadout,omitempty"` // lean|balanced|heavy, for expedition_start / resume
+	Days    int    `json:"days,omitempty"`    // 7 or 30, for babysit
+}
+
+// Action names, the wire contract's half of storage.AdvAction* on Pete.
+const (
+	AdvOrderExtract    = "extract"
+	AdvOrderSiegeJoin  = "siege_join"
+	AdvOrderExpedition = "expedition_start"
+	AdvOrderResume     = "expedition_resume"
+	AdvOrderBabysit    = "babysit"
+	// The three doors the web verbs' own refusal text used to name without
+	// offering: `!expedition abandon`, `!expedition leave`, `!adventure babysit
+	// cancel`. None of them takes an argument and none of them spends money.
+	AdvOrderAbandon       = "expedition_abandon"
+	AdvOrderLeave         = "expedition_leave"
+	AdvOrderBabysitCancel = "babysit_cancel"
+)
+
+// PendingOrders asks Pete for web actions waiting on us. A Pete predating the
+// queue answers 404, surfaced here as an error the poll loop logs quietly.
+func PendingOrders(ctx context.Context) ([]AdvOrder, error) {
+	if !Enabled() {
+		return nil, nil
+	}
+	var out []AdvOrder
+	if err := std.getJSON(ctx, "/api/adventure/orders/pending", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// VerdictOrder files our verdict on a web action. Idempotent on Pete, so a
+// retried verdict is safe.
+func VerdictOrder(ctx context.Context, guid, status, detail string) error {
+	payload, err := json.Marshal(map[string]string{"guid": guid, "status": status, "detail": detail})
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/adventure/orders/verdict", payload)
 }
 
 // getJSON does a bearer-authed GET and decodes the body.

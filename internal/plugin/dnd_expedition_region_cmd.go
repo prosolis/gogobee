@@ -170,6 +170,13 @@ func (p *AdventurePlugin) advanceToNextRegion(userID id.UserID, exp *Expedition,
 	tc := resolveTransitWanderingCheck(exp, charClass, nil)
 	_ = processTransitWanderingCheck(exp, tc)
 
+	// The liveblog beat goes on the *outgoing* run, and it has to be filed before
+	// the run is retired — a region crossing is the last thing that happens in
+	// the region being left, and it is what explains why that run's log stops.
+	if outgoing, _ := getZoneRun(exp.RunID); outgoing != nil {
+		beatRegion(outgoing, cur.Name, next.Name)
+	}
+
 	// R2 — retire the outgoing region's DungeonRun before mutating
 	// CurrentRegion so retireRegionRun keys the right region.
 	if err := retireRegionRun(exp, cur.ID); err != nil {

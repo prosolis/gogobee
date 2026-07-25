@@ -893,6 +893,7 @@ func (p *AdventurePlugin) runHarvestForAdvance(
 	if herr != nil {
 		return autoHarvestResult{}, ""
 	}
+	beatHaul(fresh, hr.Summary)
 	return hr, renderAutoHarvestFooter(hr.Summary)
 }
 
@@ -1061,7 +1062,8 @@ func (p *AdventurePlugin) resolveRoom(userID id.UserID, run *DungeonRun, zone Zo
 	case RoomEntry:
 		return
 	case RoomTrap:
-		_, narration := p.resolveTrapRoom(userID, run, zone)
+		damage, narration := p.resolveTrapRoom(userID, run, zone)
+		beatTrap(userID, run, damage)
 		outcome = narration
 		return
 	case RoomExploration:
@@ -1125,6 +1127,12 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 	result := pres.Seats[0]
 	postHP, maxHP := dndHPSnapshot(userID)
 	nat20s, nat1s := scanMoodEventsFromEvents(run.RunID, pres.Events)
+	// One beat for the fight, filed here rather than on each of the three
+	// outcome branches below — every one of them passes through this point with
+	// the result already decided, and a single site can't drift out of step with
+	// the others.
+	beatCombat(run, monster.Name, elite, isBoss, result.PlayerWon, result.TimedOut,
+		preHP, postHP, maxHP, nat20s, nat1s)
 
 	// Compact mode: skip TwinBee banter, skip the multi-beat play-by-play.
 	// Render a single outcome line. Still records kills, threat, and drops.
@@ -1226,6 +1234,14 @@ func (p *AdventurePlugin) resolveCombatRoom(userID id.UserID, run *DungeonRun, z
 		// tryPatrolEncounter); see retreatThreatBump in
 		// dnd_expedition_combat.go.
 		_, _ = applyMoodEvent(run.RunID, MoodEventPlayerDeath)
+		// Ahead of abandonZoneRun, which would close the story as "abandoned" —
+		// the difference between being killed and running out of clock is the
+		// most interesting fact in the whole log.
+		if result.TimedOut {
+			beatRunEnd(run, "retreated")
+		} else {
+			beatRunEnd(run, "died")
+		}
 		_ = abandonZoneRun(userID)
 		// Timeout loss = retreat; the fighters took wounds but nobody actually
 		// died. Don't fire markAdventureDead — that would trigger the 6h respawn

@@ -226,3 +226,55 @@ func TestDetailSnapshotSkipsDeadPlayers(t *testing.T) {
 		t.Fatalf("detail set = %+v, want just the living player", snap.Players)
 	}
 }
+
+// TestPetXPRidesTheCurveNotACopyOfIt pins the unit and the cap, which are the two
+// ways this can go quietly wrong on the web. XP is stored in centi-XP — a pet
+// earns 1.5 points an action and the ledger is an int — so a page that read XP
+// against a whole-number threshold would draw a bar 100x too full. And a capped
+// pet must report 0 needed rather than the next band's number, or its bar sits
+// forever short of a level it can never gain.
+func TestPetXPRidesTheCurveNotACopyOfIt(t *testing.T) {
+	newMischiefTestDB(t)
+	uid := id.UserID("@quack:test")
+	seedDetailPlayer(t, uid, "Quack", 7)
+
+	adv, err := loadAdvCharacter(uid)
+	if err != nil {
+		t.Fatalf("loadAdvCharacter: %v", err)
+	}
+	adv.PetType = "cat"
+	adv.PetName = "Mittens"
+	adv.PetLevel = 4
+	adv.PetXP = 750 // 7.5 of the 20 points level 4 wants
+	adv.Pet2Type = "dog"
+	adv.Pet2Name = "Rex"
+	adv.Pet2Level = petMaxLevel
+	adv.Pet2XP = 0
+	if err := saveAdvCharacter(adv); err != nil {
+		t.Fatalf("saveAdvCharacter: %v", err)
+	}
+
+	snap, err := (&AdventurePlugin{}).buildDetailSnapshot(time.Now().UTC())
+	if err != nil {
+		t.Fatalf("buildDetailSnapshot: %v", err)
+	}
+	pets := snap.Players[0].Pets
+	if len(pets) != 2 {
+		t.Fatalf("pets = %+v, want both slots", pets)
+	}
+	byName := map[string]int{}
+	for i, p := range pets {
+		byName[p.Name] = i
+	}
+	mittens := pets[byName["Mittens"]]
+	if mittens.XP != 750 {
+		t.Errorf("Mittens XP = %d, want the stored centi-XP 750", mittens.XP)
+	}
+	if want := petXPToNextLevel(4) * 100; mittens.XPNeeded != want {
+		t.Errorf("Mittens XPNeeded = %d, want %d — the curve is in centi-XP too",
+			mittens.XPNeeded, want)
+	}
+	if rex := pets[byName["Rex"]]; rex.XPNeeded != 0 {
+		t.Errorf("a capped pet needs %d more XP; want 0, meaning nothing left to earn", rex.XPNeeded)
+	}
+}

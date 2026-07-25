@@ -607,6 +607,7 @@ func emitDeathNews(userID id.UserID, location string) {
 		Zone:       location,
 		Level:      lvl,
 		Outcome:    "lost",
+		RunID:      latestRunIDForNews(userID),
 		OccurredAt: ts,
 	}, userID, "")
 }
@@ -655,6 +656,7 @@ func emitRetreatNews(userID id.UserID, reason string, zoneID ZoneID, day int) {
 		Level:      charLevel(userID),
 		Count:      day, // the day they got to before it fell apart
 		Outcome:    "retreated",
+		RunID:      latestRunIDForNews(userID),
 		OccurredAt: ts,
 	}, userID, "")
 }

@@ -280,47 +280,77 @@ func (p *AdventurePlugin) expeditionCmdParty(ctx MessageContext) error {
 	return p.SendDM(ctx.Sender, b.String())
 }
 
-// expeditionCmdLeave walks a member out. The leader cannot leave — their row is
-// the expedition — so they are pointed at `!extract`, which ends it for all.
-func (p *AdventurePlugin) expeditionCmdLeave(ctx MessageContext) error {
+// Sentinels for the two ways walking out can be refused, so the web action queue
+// can pick a verdict without reading prose. errLeaveIsLeader is deliberately not
+// errAbandonNotLeader inverted-and-reused: they are opposite facts about the same
+// person and a verdict that conflated them would tell a leader they weren't one.
+var (
+	errLeaveNothing  = errors.New("expedition leave: no expedition to leave")
+	errLeaveIsLeader = errors.New("expedition leave: the leader's row is the expedition")
+)
+
+// performExpeditionLeave is `!expedition leave` minus the command framing.
+// Shared with the web action queue, so a member walking out from a phone unseats
+// the same way and the leader is told either way.
+//
+// Like performExpeditionAbandon this does NOT take the per-user lock — its
+// Matrix caller holds it across the whole `!expedition` switch, and applyWebLeave
+// takes it instead. See the comment on performExpeditionAbandon for what getting
+// that backwards costs.
+func (p *AdventurePlugin) performExpeditionLeave(uid id.UserID) error {
 	// Resolve the seat the way the guards that trap them do. seatedExpeditionFor
 	// spans `extracting`, which activeExpeditionFor does not: a leader who
 	// extracts and never resumes would otherwise leave their members seated —
 	// refused a new adventure by the guard, and told "no active expedition" by
 	// the very command the guard points them at. The exit has to see every state
 	// the gate sees. It already excludes leaders, so they fall through below.
-	seated, err := seatedExpeditionFor(ctx.Sender)
+	seated, err := seatedExpeditionFor(uid)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+		return err
 	}
 	if seated != nil {
-		return p.leaveSeatedParty(ctx, seated)
+		return p.leaveSeatedParty(uid, seated)
 	}
 
-	exp, isLeader, err := activeExpeditionFor(ctx.Sender)
+	exp, isLeader, err := activeExpeditionFor(uid)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+		return err
 	}
 	if exp == nil {
-		return p.SendDM(ctx.Sender, "No active expedition.")
+		return refuseAdv(errLeaveNothing, "No active expedition.")
 	}
 	if isLeader {
-		return p.SendDM(ctx.Sender,
+		return refuseAdv(errLeaveIsLeader,
 			"You're leading this one — `!extract` ends it for everyone, or `!expedition abandon` to walk away from it.")
 	}
-	return p.leaveSeatedParty(ctx, exp)
+	return p.leaveSeatedParty(uid, exp)
 }
 
-// leaveSeatedParty unseats a member and tells both ends. Shared by the two ways
-// a member's seat resolves: the `extracting` limbo and the plain active party.
-func (p *AdventurePlugin) leaveSeatedParty(ctx MessageContext, exp *Expedition) error {
-	if err := leaveParty(exp.ID, ctx.Sender); err != nil {
+// expeditionCmdLeave walks a member out. The leader cannot leave — their row is
+// the expedition — so they are pointed at `!extract`, which ends it for all.
+func (p *AdventurePlugin) expeditionCmdLeave(ctx MessageContext) error {
+	if err := p.performExpeditionLeave(ctx.Sender); err != nil {
+		var refusal advRefusal
+		if errors.As(err, &refusal) {
+			return p.SendDM(ctx.Sender, refusal.Error())
+		}
 		return p.SendDM(ctx.Sender, "Couldn't leave: "+err.Error())
+	}
+	return p.SendDM(ctx.Sender, "You turn back for town. Your supplies stay with the party.")
+}
+
+// leaveSeatedParty unseats a member and tells the leader. Shared by the two ways
+// a member's seat resolves: the `extracting` limbo and the plain active party.
+// The *member's* own confirmation is the caller's, because that is the one line
+// that differs between a DM and a web verdict.
+func (p *AdventurePlugin) leaveSeatedParty(uid id.UserID, exp *Expedition) error {
+	if err := leaveParty(exp.ID, uid); err != nil {
+		return err
 	}
 	// Supplies stay in the pool. They were spent on the expedition, not lent to
 	// it, and clawing them back would let a member starve the party on their way
 	// out of the door.
 	_ = p.SendDM(id.UserID(exp.UserID), fmt.Sprintf(
-		"**%s** turned back. Their supplies stay with the party.", p.DisplayName(ctx.Sender)))
-	return p.SendDM(ctx.Sender, "You turn back for town. Your supplies stay with the party.")
+		"**%s** turned back. Their supplies stay with the party.", p.DisplayName(uid)))
+	return nil
 }

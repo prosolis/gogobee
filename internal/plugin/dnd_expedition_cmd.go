@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -32,6 +33,23 @@ import (
 // in E1e. !advance / !search / !rest / !extract are out-of-scope for E1.
 
 func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string) error {
+	args = strings.TrimSpace(args)
+	sub, rest := splitFirstWord(args)
+
+	// Two subcommands are aliases for top-level commands that take the per-user
+	// lock themselves. Dispatch them BEFORE we take it: advUserLock is a plain
+	// sync.Mutex, so grabbing it here and again in there does not merely block —
+	// it wedges the lock forever, because the deferred Unlock below never runs.
+	// Every later `!adventure` / `!expedition` / `!zone` command from that player
+	// then hangs too. Both aliases load their own character, so nothing below is
+	// being skipped.
+	switch strings.ToLower(sub) {
+	case "extract":
+		return p.handleExtractCmd(ctx, "")
+	case "resume":
+		return p.handleResumeCmd(ctx, rest)
+	}
+
 	userMu := p.advUserLock(ctx.Sender)
 	userMu.Lock()
 	defer userMu.Unlock()
@@ -45,8 +63,6 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 			"No Adv 2.0 character yet — run `!setup` (or just enter combat and we'll auto-build one).")
 	}
 
-	args = strings.TrimSpace(args)
-	sub, rest := splitFirstWord(args)
 	switch strings.ToLower(sub) {
 	case "":
 		// If active, show status; otherwise help. A party member is on an
@@ -100,10 +116,6 @@ func (p *AdventurePlugin) handleDnDExpeditionCmd(ctx MessageContext, args string
 		return p.expeditionCmdHire(ctx, rest)
 	case "dismiss":
 		return p.expeditionCmdDismiss(ctx)
-	case "extract":
-		return p.handleExtractCmd(ctx, "")
-	case "resume":
-		return p.handleResumeCmd(ctx, rest)
 	case "map", "m":
 		return p.handleExpeditionMapCmd(ctx, "")
 	case "run", "explore", "advance":
@@ -332,83 +344,14 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	if err != nil {
 		return p.SendDM(ctx.Sender, "Couldn't parse supply packs: "+err.Error())
 	}
-	if err := purchase.Validate(zoneForCaps.Tier); err != nil {
-		return p.SendDM(ctx.Sender, "Invalid pack selection: "+err.Error())
-	}
-	// Reject if any expedition or zone run already active. This runs before the
-	// price quote: a player who cannot leave doesn't need to hear what leaving
-	// would have cost.
-	//
-	// The seat check spans `extracting` as well as `active` — a member of an
-	// extracting party is still seated for the seven-day resume window, and
-	// letting them outfit a rival expedition double-books them the moment their
-	// leader types `!resume`.
-	if seated, _ := seatedExpeditionFor(ctx.Sender); seated != nil {
-		zone, _ := getZone(seated.ZoneID)
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"You're riding a party expedition in **%s** (Day %d). `!expedition leave` before starting your own.",
-			zone.Display, seated.CurrentDay))
-	}
-	if existing, _ := getActiveExpedition(ctx.Sender); existing != nil {
-		zone, _ := getZone(existing.ZoneID)
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"You're already on expedition in **%s** (Day %d). Finish it or `!expedition abandon` first.",
-			zone.Display, existing.CurrentDay))
-	}
-	// A leader who extracted still holds their roster for the resume window, and
-	// `!resume` only ever reaches the *newest* extracted row. Starting fresh on
-	// top of one would orphan it: unreachable, un-reapable until the sweeper
-	// catches it, with every member still seated and refused a run of their own.
-	//
-	// Only a row with a roster blocks. A solo extraction strands nobody, so
-	// walking away from it stays a normal thing to do.
-	if pending, _ := getResumableExpedition(ctx.Sender); pending != nil {
-		switch {
-		case extractionLapsed(pending, time.Now().UTC()):
-			// Past the window — reap it here rather than make them wait an hour
-			// for the sweeper, and let the new expedition proceed. Route through
-			// the shared reap so the freed members hear about it, same as the
-			// sweeper and `!expedition abandon` do.
-			if err := p.reapLapsedExtraction(pending); err != nil {
-				slog.Warn("expedition: reap lapsed on start", "expedition", pending.ID, "err", err)
-			}
-		default:
-			// A roster still holds; block. On a roster-read error, assume it is
-			// occupied and refuse — proceeding would orphan a party we could not
-			// confirm was empty, the one outcome this guard exists to prevent. A
-			// solo extraction (n == 1) strands nobody, so walking away is fine.
-			n, err := partySize(pending.ID)
-			if err != nil || n > 1 {
-				zone, _ := getZone(pending.ZoneID)
-				return p.SendDM(ctx.Sender, fmt.Sprintf(
-					"You extracted from **%s** on Day %d and your party is still waiting on you. `!resume` to lead them back in, or `!expedition abandon` to let it go — until you do one or the other, none of them can start a run of their own.",
-					zone.Display, pending.CurrentDay))
-			}
-		}
-	}
 
-	cost := float64(purchase.Cost())
-	if p.euro == nil {
-		return p.SendDM(ctx.Sender, "Coin system unavailable — try again later.")
-	}
-	if balance := p.euro.GetBalance(ctx.Sender); balance < cost {
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"Not enough coins. Outfitting costs **%d** but you have **%.0f**.",
-			int(cost), balance))
-	}
-	if existing, _ := getActiveZoneRun(ctx.Sender); existing != nil {
-		zone, _ := getZone(existing.ZoneID)
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"You have an active single-session zone run in **%s**. Finish or `!zone abandon` before starting an expedition.",
-			zone.Display))
-	}
-
-	zone := zoneForCaps
-	_, supplies, startLine, err := p.beginExpedition(ctx.Sender, c.Level, zone, purchase, "expedition outfitting")
+	out, err := p.performExpeditionStart(ctx.Sender, c, zoneForCaps, purchase, "")
 	if err != nil {
+		// Every refusal below carries its own finished sentence — see the sentinel
+		// block on performExpeditionStart — so the command only has to say it.
 		return p.SendDM(ctx.Sender, err.Error())
 	}
-	markActedToday(ctx.Sender)
+	zone, supplies, startLine := out.Zone, out.Supplies, out.StartLine
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🗺 **Expedition begins — %s** _(T%d)_\n\n", zone.Display, int(zone.Tier)))
@@ -429,6 +372,182 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 	return p.SendDM(ctx.Sender, b.String())
 }
 
+// ── the headless twin of `!expedition start` ────────────────────────────────
+
+// Sentinels for the ways outfitting can be refused, so the web action queue
+// (pete_orders.go) can pick a verdict without parsing prose. Every refusal is
+// returned as an advRefusal, which wraps one of these AND carries the
+// finished player-facing sentence — that is how `!expedition start` keeps the
+// exact copy it always sent while the web gets a machine-readable answer.
+var (
+	errExpStartResting    = errors.New("expedition start: still resting")
+	errExpStartZoneLocked = errors.New("expedition start: zone not available at this level")
+	errExpStartBadPacks   = errors.New("expedition start: invalid pack selection")
+	errExpStartBusy       = errors.New("expedition start: already adventuring")
+	errExpStartBroke      = errors.New("expedition start: cannot cover outfitting")
+	errExpStartFailed     = errors.New("expedition start: could not outfit")
+)
+
+// advRefusal is a refusal that is both classifiable and quotable: errors.Is
+// picks the verdict, Error() is the sentence the command has always sent. Shared
+// by every headless twin in the web action family (start, resume, babysit).
+type advRefusal struct {
+	kind error
+	msg  string
+}
+
+func (e advRefusal) Error() string { return e.msg }
+func (e advRefusal) Unwrap() error { return e.kind }
+
+func refuseAdv(kind error, format string, args ...any) error {
+	return advRefusal{kind: kind, msg: fmt.Sprintf(format, args...)}
+}
+
+// expStartOutcome is what outfitting did, for a caller describing it somewhere
+// other than a DM.
+type expStartOutcome struct {
+	Zone      ZoneDefinition
+	Supplies  ExpeditionSupplies
+	Cost      int
+	Days      int
+	StartLine string
+}
+
+// performExpeditionStart is `!expedition start` minus the command framing: the
+// eligibility guards, the price gate, the debit, and the expedition row. It is
+// shared with the web action queue so that leaving town from a phone is the
+// *same* departure — same guards, same supplies, same opening log line.
+//
+// idemKey, when set, is the web order's guid: the debit then goes through
+// DebitIdem so a re-offered order that already paid cannot pay twice. The Matrix
+// command passes "" and keeps the plain debit, which is right — a Matrix message
+// arrives exactly once.
+//
+// LOCKING, and this is the one asymmetry in the headless-twin family: this
+// function does NOT take the per-user lock. performExtraction, takeSiegeBout and
+// performBabysitPurchase all take it themselves, because their command framings
+// do not hold it — but handleDnDExpeditionCmd holds it across its whole switch,
+// so taking it here would wedge advUserLock permanently (it is a plain
+// sync.Mutex, and the deferred unlock up there would never run). The web caller
+// takes it explicitly instead; see applyAdvOrder.
+func (p *AdventurePlugin) performExpeditionStart(uid id.UserID, c *DnDCharacter, zone ZoneDefinition, purchase SupplyPurchase, idemKey string) (expStartOutcome, error) {
+	if remaining := restingLockoutRemaining(c); remaining > 0 {
+		return expStartOutcome{}, refuseAdv(errExpStartResting,
+			"🛌 You're still resting — %s remaining. Pack up after.",
+			formatRespecDuration(remaining))
+	}
+	// Re-resolve availability against the game's own tables rather than trusting
+	// the caller. The web resolves a zone from an offer list gogobee itself
+	// pushed, but that snapshot can be minutes old and is not a permission.
+	if _, ok := resolveZoneInput(string(zone.ID), availableZonesFor(uid, c.Level)); !ok {
+		if reason := postgameLockReason(string(zone.ID), uid, c.Level); reason != "" {
+			return expStartOutcome{}, refuseAdv(errExpStartZoneLocked, "%s", reason)
+		}
+		return expStartOutcome{}, refuseAdv(errExpStartZoneLocked,
+			"Unknown zone for your level. Try `!expedition list`.")
+	}
+	if err := purchase.Validate(zone.Tier); err != nil {
+		return expStartOutcome{}, refuseAdv(errExpStartBadPacks,
+			"Invalid pack selection: %s", err.Error())
+	}
+	// Reject if any expedition or zone run already active. This runs before the
+	// price quote: a player who cannot leave doesn't need to hear what leaving
+	// would have cost.
+	//
+	// The seat check spans `extracting` as well as `active` — a member of an
+	// extracting party is still seated for the seven-day resume window, and
+	// letting them outfit a rival expedition double-books them the moment their
+	// leader types `!resume`.
+	if seated, _ := seatedExpeditionFor(uid); seated != nil {
+		z, _ := getZone(seated.ZoneID)
+		return expStartOutcome{}, refuseAdv(errExpStartBusy,
+			"You're riding a party expedition in **%s** (Day %d). `!expedition leave` before starting your own.",
+			z.Display, seated.CurrentDay)
+	}
+	if existing, _ := getActiveExpedition(uid); existing != nil {
+		// A web order that already paid and already started this expedition on an
+		// earlier tick lands here on the re-offer. Saying "you're already on
+		// expedition" would be a rejection for the thing the order in fact did, so
+		// the settled debit is what tells the two apart.
+		if idemKey != "" && p.euro != nil && p.euro.HasExternalTx(idemKey) && existing.ZoneID == zone.ID {
+			z, _ := getZone(existing.ZoneID)
+			return expStartOutcome{Zone: z, Supplies: existing.Supplies,
+				Cost: purchase.Cost(),
+				Days: estimateDays(existing.Supplies.Max, existing.Supplies.DailyBurn)}, nil
+		}
+		z, _ := getZone(existing.ZoneID)
+		return expStartOutcome{}, refuseAdv(errExpStartBusy,
+			"You're already on expedition in **%s** (Day %d). Finish it or `!expedition abandon` first.",
+			z.Display, existing.CurrentDay)
+	}
+	// A leader who extracted still holds their roster for the resume window, and
+	// `!resume` only ever reaches the *newest* extracted row. Starting fresh on
+	// top of one would orphan it: unreachable, un-reapable until the sweeper
+	// catches it, with every member still seated and refused a run of their own.
+	//
+	// Only a row with a roster blocks. A solo extraction strands nobody, so
+	// walking away from it stays a normal thing to do.
+	if pending, _ := getResumableExpedition(uid); pending != nil {
+		switch {
+		case extractionLapsed(pending, time.Now().UTC()):
+			// Past the window — reap it here rather than make them wait an hour
+			// for the sweeper, and let the new expedition proceed. Route through
+			// the shared reap so the freed members hear about it, same as the
+			// sweeper and `!expedition abandon` do.
+			if err := p.reapLapsedExtraction(pending); err != nil {
+				slog.Warn("expedition: reap lapsed on start", "expedition", pending.ID, "err", err)
+			}
+		default:
+			// A roster still holds; block. On a roster-read error, assume it is
+			// occupied and refuse — proceeding would orphan a party we could not
+			// confirm was empty, the one outcome this guard exists to prevent. A
+			// solo extraction (n == 1) strands nobody, so walking away is fine.
+			n, err := partySize(pending.ID)
+			if err != nil || n > 1 {
+				z, _ := getZone(pending.ZoneID)
+				return expStartOutcome{}, refuseAdv(errExpStartBusy,
+					"You extracted from **%s** on Day %d and your party is still waiting on you. `!resume` to lead them back in, or `!expedition abandon` to let it go — until you do one or the other, none of them can start a run of their own.",
+					z.Display, pending.CurrentDay)
+			}
+		}
+	}
+
+	cost := float64(purchase.Cost())
+	if p.euro == nil {
+		return expStartOutcome{}, refuseAdv(errExpStartFailed, "Coin system unavailable — try again later.")
+	}
+	// Skip the affordability gate on a re-offer that already paid: the debit is a
+	// settled fact and re-reading the now-lower balance would bounce a departure
+	// the player has bought. Same reasoning as purchaseEquipmentTier's.
+	if !(idemKey != "" && p.euro.HasExternalTx(idemKey)) {
+		if balance := p.euro.GetBalance(uid); balance < cost {
+			return expStartOutcome{}, refuseAdv(errExpStartBroke,
+				"Not enough coins. Outfitting costs **%d** but you have **%.0f**.",
+				int(cost), balance)
+		}
+	}
+	if existing, _ := getActiveZoneRun(uid); existing != nil {
+		z, _ := getZone(existing.ZoneID)
+		return expStartOutcome{}, refuseAdv(errExpStartBusy,
+			"You have an active single-session zone run in **%s**. Finish or `!zone abandon` before starting an expedition.",
+			z.Display)
+	}
+
+	_, supplies, startLine, err := p.beginExpeditionIdem(uid, c.Level, zone, purchase, "expedition outfitting", idemKey)
+	if err != nil {
+		// beginExpedition refunds and tears down on every failure path, so the
+		// player owes nothing and this is permanent rather than retryable — a retry
+		// after a refund would find the guid-keyed debit already settled and hand
+		// them the expedition for free.
+		return expStartOutcome{}, refuseAdv(errExpStartFailed, "%s", err.Error())
+	}
+	markActedToday(uid)
+	return expStartOutcome{
+		Zone: zone, Supplies: supplies, Cost: purchase.Cost(),
+		Days: estimateDays(supplies.Max, supplies.DailyBurn), StartLine: startLine,
+	}, nil
+}
+
 // beginExpedition performs the non-interactive half of starting an expedition:
 // supply freebies, the coin debit, persistence, the starting region's run, and
 // the opening log entry. It refunds and tears down on every failure path, so a
@@ -442,10 +561,38 @@ func (p *AdventurePlugin) expeditionCmdStart(ctx MessageContext, c *DnDCharacter
 // It deliberately does NOT call markActedToday — an expedition the player did
 // not ask for must not spend their daily action or count as them showing up.
 func (p *AdventurePlugin) beginExpedition(uid id.UserID, charLevel int, zone ZoneDefinition, purchase SupplyPurchase, reason string) (*Expedition, ExpeditionSupplies, string, error) {
+	return p.beginExpeditionIdem(uid, charLevel, zone, purchase, reason, "")
+}
+
+// beginExpeditionIdem is beginExpedition with the money keyed to an idempotency
+// id. idemKey empty keeps the plain Debit/Credit pair, which is correct for the
+// two callers that arrive exactly once (a Matrix command, the boredom ticker).
+//
+// A non-empty key comes from the web action queue, whose wire retries: the debit
+// then lands at most once however many times the order is re-offered, and the
+// refunds are keyed too so a torn-down start cannot refund on every tick. Note
+// what this means for the caller — once a refund has happened, retrying is
+// *unsafe*, because the guid-keyed debit will not charge again and the player
+// would get the expedition for free. performExpeditionStart therefore treats
+// every error from here as permanent.
+func (p *AdventurePlugin) beginExpeditionIdem(uid id.UserID, charLevel int, zone ZoneDefinition, purchase SupplyPurchase, reason, idemKey string) (*Expedition, ExpeditionSupplies, string, error) {
 	if p.euro == nil {
 		return nil, ExpeditionSupplies{}, "", fmt.Errorf("Coin system unavailable — try again later.")
 	}
 	cost := float64(purchase.Cost())
+	debit := func(why string) bool { return p.euro.Debit(uid, cost, why) }
+	refund := func(why, suffix string) { p.euro.Credit(uid, cost, why) }
+	if idemKey != "" {
+		debit = func(why string) bool {
+			ok, _, err := p.euro.DebitIdem(uid, cost, why, idemKey)
+			return err == nil && ok
+		}
+		refund = func(why, suffix string) {
+			if _, _, err := p.euro.CreditIdem(uid, cost, why, idemKey+":refund"+suffix); err != nil {
+				slog.Error("expedition: outfitting refund failed", "user", uid, "order", idemKey, "err", err)
+			}
+		}
+	}
 
 	// Holiday perk: a complimentary standard pack is added to the supplies
 	// snapshot without inflating the coin cost. Bypasses the per-tier cap
@@ -460,14 +607,14 @@ func (p *AdventurePlugin) beginExpedition(uid id.UserID, charLevel int, zone Zon
 	supplies := makeSupplies(zone.Tier, suppliesPurchase)
 
 	// Debit coins; bail on debit failure (race / cap).
-	if !p.euro.Debit(uid, cost, reason+": "+string(zone.ID)) {
+	if !debit(reason + ": " + string(zone.ID)) {
 		return nil, ExpeditionSupplies{}, "", fmt.Errorf("Couldn't debit outfitting cost (try again).")
 	}
 
 	exp, err := startExpedition(uid, zone.ID, "", supplies)
 	if err != nil {
 		// Refund on persistence failure.
-		p.euro.Credit(uid, cost, "expedition outfitting refund")
+		refund("expedition outfitting refund", "")
 		return nil, ExpeditionSupplies{}, "", fmt.Errorf("Couldn't start expedition: %s", err)
 	}
 
@@ -478,7 +625,7 @@ func (p *AdventurePlugin) beginExpedition(uid id.UserID, charLevel int, zone Zon
 		// Refund and tear the expedition row back down — without a
 		// linked run, harvest and rooms can't function.
 		_ = abandonExpedition(uid)
-		p.euro.Credit(uid, cost, "expedition outfitting refund (run-spawn failed)")
+		refund("expedition outfitting refund (run-spawn failed)", ":region")
 		return nil, ExpeditionSupplies{}, "", fmt.Errorf("Couldn't outfit the first region: %s", err)
 	}
 
@@ -697,65 +844,102 @@ func formatLogTimestamp(t time.Time) string {
 
 // ── abandon ─────────────────────────────────────────────────────────────────
 
-func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
-	exp, isLeader, err := activeExpeditionFor(ctx.Sender)
+// Sentinels for the two ways abandoning can be refused, so the web action queue
+// can pick a verdict without reading prose. Same contract as the start/resume
+// family above: errors.Is classifies, Error() is the sentence Matrix has always
+// sent.
+var (
+	errAbandonNothing   = errors.New("expedition abandon: nothing to abandon")
+	errAbandonNotLeader = errors.New("expedition abandon: only the leader may call it")
+)
+
+// abandonOutcome is what closing the expedition did, for a caller describing it
+// somewhere other than a DM.
+type abandonOutcome struct {
+	Zone      ZoneDefinition
+	Day       int
+	Extracted bool // it was already out and standing in town: loot and XP are kept
+}
+
+// performExpeditionAbandon is `!expedition abandon` minus the command framing.
+// Shared with the web action queue so closing a run from a phone disbands the
+// same roster, retires the same region runs, writes the same log line and tells
+// the same party — the members hear it from their leader either way, because
+// that is a fact about the expedition and not about which door was used.
+//
+// Like performExpeditionStart this does NOT take the per-user lock: its Matrix
+// caller already holds it across the whole `!expedition` switch. applyWebAbandon
+// takes it instead. Getting that backwards does not fail loudly — it wedges the
+// player's lock forever and every later adventure command from them hangs.
+func (p *AdventurePlugin) performExpeditionAbandon(uid id.UserID) (abandonOutcome, error) {
+	exp, isLeader, err := activeExpeditionFor(uid)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+		return abandonOutcome{}, err
 	}
 	if exp == nil {
 		// An extracted expedition is still the owner's to close — it holds the
 		// roster until the resume window lapses. Without this, a leader who
 		// wanted out had to pay to `!resume` first just to abandon.
-		if exp, err = getResumableExpedition(ctx.Sender); err != nil {
-			return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+		if exp, err = getResumableExpedition(uid); err != nil {
+			return abandonOutcome{}, err
 		}
 		isLeader = exp != nil
 	}
 	if exp == nil {
-		return p.SendDM(ctx.Sender, "No active expedition to abandon.")
+		return abandonOutcome{}, refuseAdv(errAbandonNothing, "No active expedition to abandon.")
 	}
 	if !isLeader {
 		// Abandoning throws away everyone's day. A member leaves alone.
-		return p.SendDM(ctx.Sender,
+		return abandonOutcome{}, refuseAdv(errAbandonNotLeader,
 			"Only your party leader can abandon the expedition. `!expedition leave` to walk out alone.")
 	}
 	zone, _ := getZone(exp.ZoneID)
-	extracted := exp.Status == ExpeditionStatusExtracting
+	out := abandonOutcome{Zone: zone, Day: exp.CurrentDay, Extracted: exp.Status == ExpeditionStatusExtracting}
 	audience := expeditionAudience(exp) // read before abandonExpedition disbands the roster
-	if err := abandonExpedition(ctx.Sender); err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't abandon: "+err.Error())
+	if err := abandonExpedition(uid); err != nil {
+		return abandonOutcome{}, err
 	}
-	markActedToday(ctx.Sender)
+	markActedToday(uid)
 	_ = retireAllRegionRuns(exp)
 	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative", "expedition abandoned", "")
+	// The roster is being disbanded out from under the members; they hear it from
+	// their leader rather than discovering it the next time a command works again.
+	for _, member := range audience {
+		if member == uid {
+			continue
+		}
+		if err := p.SendDM(member, fmt.Sprintf(
+			"Your leader called off the expedition in **%s** on Day %d. You're free to start a run of your own.",
+			zone.Display, exp.CurrentDay)); err != nil {
+			slog.Warn("expedition: abandon DM failed", "user", member, "expedition", exp.ID, "err", err)
+		}
+	}
+	// Emergence seam: see maybeRollPetArrivalOnEmerge. Inside the twin because
+	// walking out of a dungeon is what rolls it, not saying so in a room.
+	p.maybeRollPetArrivalOnEmerge(uid)
+	return out, nil
+}
+
+func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
+	out, err := p.performExpeditionAbandon(ctx.Sender)
+	if err != nil {
+		var refusal advRefusal
+		if errors.As(err, &refusal) {
+			return p.SendDM(ctx.Sender, refusal.Error())
+		}
+		return p.SendDM(ctx.Sender, "Couldn't abandon: "+err.Error())
+	}
 	// An extracted party is standing in town, not in the dungeon: their supplies
 	// are already spent and their loot is already banked. Say the true thing.
 	body := fmt.Sprintf(
 		"Expedition in **%s** abandoned on Day %d. Supplies are forfeit. The dungeon remembers.",
-		zone.Display, exp.CurrentDay)
-	if extracted {
+		out.Zone.Display, out.Day)
+	if out.Extracted {
 		body = fmt.Sprintf(
 			"You let the expedition in **%s** go. Day %d is where it ends — loot, XP, and coins are kept. The dungeon remembers.",
-			zone.Display, exp.CurrentDay)
+			out.Zone.Display, out.Day)
 	}
-	// The roster is being disbanded out from under the members; they hear it from
-	// their leader rather than discovering it the next time a command works again.
-	for _, uid := range audience {
-		if uid == ctx.Sender {
-			continue
-		}
-		if err := p.SendDM(uid, fmt.Sprintf(
-			"Your leader called off the expedition in **%s** on Day %d. You're free to start a run of your own.",
-			zone.Display, exp.CurrentDay)); err != nil {
-			slog.Warn("expedition: abandon DM failed", "user", uid, "expedition", exp.ID, "err", err)
-		}
-	}
-	if err := p.SendDM(ctx.Sender, body); err != nil {
-		return err
-	}
-	// Emergence seam: see maybeRollPetArrivalOnEmerge.
-	p.maybeRollPetArrivalOnEmerge(ctx.Sender)
-	return nil
+	return p.SendDM(ctx.Sender, body)
 }
 
 // helper: ensure we don't shadow id.UserID import in test harness.
@@ -931,6 +1115,7 @@ func (p *AdventurePlugin) autoPickStaleFork(exp *Expedition, run *DungeonRun, pf
 		if err := removeAdvInventoryItem(spendTool); err != nil {
 			slog.Warn("expedition: autopilot tools spend", "user", run.UserID, "err", err)
 		}
+		beatLock(run, chosen.Label, "picked")
 	}
 	fireGraphRegionTransition(run.UserID, g.Nodes[run.CurrentNode], g.Nodes[chosen.To])
 	if exp != nil {
@@ -993,6 +1178,7 @@ func (p *AdventurePlugin) backtrackFromDeadFork(exp *Expedition, run *DungeonRun
 		slog.Warn("expedition: backtrack clear fork", "run", run.RunID, "err", err)
 		return false
 	}
+	beatLock(run, "", "sealed")
 	if _, err := revisitZoneRun(run.RunID, target, run.VisitedNodes); err != nil {
 		slog.Warn("expedition: backtrack from dead fork", "run", run.RunID, "err", err)
 		return false

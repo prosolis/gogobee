@@ -436,6 +436,20 @@ func completeRunAtNode(runID string, boss bool) error {
 	if boss {
 		bossI = 1
 	}
+	// Only a boss kill is a clear. This function also closes a non-boss
+	// dead-end — the party simply ran out of map — and beatRunEnd is
+	// first-writer-wins, so calling that "cleared" would put a lie in the
+	// liveblog and the run summary that nothing downstream could correct.
+	// "ended" is deliberately outside the {cleared,died,retreated,abandoned}
+	// set: the prompt renderer already degrades an unknown outcome to a
+	// neutral "the run ended", which is exactly what happened.
+	if run, _ := getZoneRun(runID); run != nil {
+		outcome := "ended"
+		if boss {
+			outcome = "cleared"
+		}
+		beatRunEnd(run, outcome)
+	}
 	_, err := db.Get().Exec(`
 		UPDATE dnd_zone_run
 		   SET boss_defeated = ?,
@@ -474,7 +488,12 @@ func advanceZoneRunNode(runID, nextNode string) (int, error) {
 		nextNode, string(visitedJSON), runID); err != nil {
 		return 0, err
 	}
-	return pathIndexOf(visited, nextNode), nil
+	idx := pathIndexOf(visited, nextNode)
+	// Every forward move in the game funnels through here — auto-advance, a
+	// player's `!zone go`, and the autopilot's stale-fork pick alike — which is
+	// what makes this the one honest place to say "the party is now in room N".
+	beatRoom(r, nextNode, idx, "entered")
+	return idx, nil
 }
 
 // resolveForkChoice takes a 1-based choice index against a pending

@@ -279,8 +279,12 @@ func claimRealmFirst(kind, target string) bool {
 // *started* — every dispatch was an outcome — which is why the two live boredom
 // runs produced no news at all.
 //
-// The event_type must be one Pete already knows: an unknown type is a 400, which
-// retries and then parks the bulletin forever. Deploy Pete first.
+// The event_type no longer has to be one Pete already knows. It used to: an
+// unknown type was a 400, which retried to the cap and then parked the bulletin
+// forever, so shipping a new event type meant remembering to deploy Pete first.
+// Pete now publishes an untemplated type on a neutral fallback and counts it for
+// the operator, so the ordering rule is a property of the system rather than
+// something a human has to hold.
 func emitBoredomDeparture(userID id.UserID, zone ZoneDefinition, level int) {
 	if !peteclient.Enabled() || !newsEmissionOn() {
 		return
@@ -339,6 +343,7 @@ func emitZoneClearNews(userID id.UserID, exp *Expedition) {
 		Boss:       zone.Boss.Name,
 		Level:      lvl,
 		Outcome:    "cleared",
+		RunID:      latestRunIDForNews(userID),
 		OccurredAt: ts,
 	}, userID, "")
 }
