@@ -33,6 +33,7 @@ var ThomKrookeMortgageRate = []string{
 	"Good morning, friends! The ARM rate this week is {rate}% — and with Thom Krooke's modest service margin, your mortgage rate sits at {effective}%. All payments process Sunday. Thank you for your continued trust!",
 	"Weekly rate update! FRED reports {rate}% this week, so your effective rate with Thom Krooke is {effective}%. Nothing to worry about — Thom Krooke monitors these things so you don't have to. Mostly.",
 	"Rate check! The market says {rate}%, Thom Krooke adds a small, reasonable {margin}%, and your total comes to {effective}%. Thom Krooke appreciates your understanding of the margin. It keeps the lights on. Literally!",
+	"Rate news! The market did something this week that the newspapers describe with an arrow. The result for you is {effective}%. Thom Krooke does not fully understand the arrow either, but the arrow is binding. Budget however you must. The pet's portion is not part of 'however.'",
 }
 
 var ThomKrookeMortgageRateUp = []string{
@@ -127,6 +128,7 @@ var PastelNoteLevel1 = []string{
 	"Good day! The herb garden got some attention, the pets were walked (or equivalent — the fish were observed), and I collected the income. I accidentally shelved three items in the wrong slots but found them eventually. Everything is where it should be. Mostly. The weapons rack might be slightly reorganized.",
 	"Note from Pastel: pets fed, garden tended, income collected. I made one small mistake with the supply manifest — added a column that didn't need to be there — but the numbers are right, the column is just extra. Please ignore the extra column.",
 	"All tasks completed! Well — most tasks. The greenhouse watering got a little delayed because I was making sure the workshop tools were hung correctly and then it was later than I thought. The plants look fine. Probably fine. I'll check again in the morning.",
+	"Fed the pets, watered the garden, and spent forty minutes retrieving the trowel from where the small pet had buried it. It was buried with ceremony, judging by the arrangement of pebbles on top. The trowel is back on its hook. I am watching the small pet.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -204,6 +206,7 @@ var PastelPetEvent = []string{
 	"Your pet found something in the back of the storage room that I couldn't identify. I've put it on the workshop table. It doesn't seem dangerous. It is definitely something.",
 	"One of the pets has been sitting by the expedition outpost since this morning. I think it knows you've been out a long time. Everything is fine. I just thought you'd want to know.",
 	"The pets were restless today — I think they can tell you've been in a Tier 4 zone because they get like this around Day 10. Fed them an extra portion. They settled. They'll be glad to see you.",
+	"One of the pets discovered its own reflection in the vault door today. Negotiations lasted most of the afternoon. Both parties eventually withdrew with dignity, which I thought was big of them.",
 }
 
 var PastelLevelUpNote = []string{

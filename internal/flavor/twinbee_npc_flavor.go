@@ -15,6 +15,7 @@ var MistyGreeting = []string{
 	"'Don't stand in the doorway,' Misty says, before you've even finished arriving.",
 	"Misty is already talking before you're settled. This is how it always goes.",
 	"'I wondered when you'd show up.' She says it like she'd actually been counting the days. She had.",
+	"'Boots.' Misty says the one word and points at the mat. The conversation resumes once the boots comply.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ var MistySkillFail = []string{
 	"'No,' Misty says, and returns to what she was doing.",
 	"Misty looks at you like you've asked a question that doesn't deserve an answer. She's not wrong.",
 	"'Come back when you actually know what you're asking.' Misty's version of helpful feedback.",
+	"Misty lets the silence answer for her. The silence is thorough.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,6 +81,7 @@ var ArinaGreeting = []string{
 	"'Perfect timing,' Arina says, in the tone of someone for whom most timings are perfect because everything is interesting. 'I was just thinking about—' She stops. 'Actually, what do you need?'",
 	"Arina has three things she's in the middle of and immediately sets all of them down to give you her full attention, which is considerable.",
 	"'You came back!' Arina says, as if there was any question. In her experience there sometimes isn't.",
+	"'I was just — okay, two things, no, three things—' Arina holds up a finger for each, and then a fourth finger surprises her. 'Four things. You first, though.'",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,6 +94,7 @@ var ArinaIdentify = []string{
 	"Arina holds the item up to the light, turns it twice, says something under her breath that might be an incantation or just enthusiasm, and then begins a very efficient explanation.",
 	"'Oh I know what this is.' The words land quickly, confidently, correctly. Arina has seen a lot of magic items and she remembers all of them.",
 	"Arina goes still in the specific way she goes still when magic is doing something she finds genuinely surprising. 'That's — huh. Okay. That's new. Let me—' The identification follows, along with three questions she has that you're under no obligation to answer.",
+	"Arina sniffs the item, which is not a recognized identification technique, and then names it correctly anyway. 'The nose knows,' she says, in the voice of someone who will not be defending the methodology.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ var RoomEntryGeneric = []string{
 	"The room is quiet. I appreciate quiet. Quiet means the enemies haven't spotted you yet. Yet.",
 	"Forward. Always forward. I once tried going backward in a dungeon. It looped. This one might too.",
 	"Stock of the situation: ceiling intact, floor suspicious, walls leaning in slightly. Proceed.",
-	"You've cleared the room. I give a small, dignified nod. 'One continues,' I say, in the voice of someone who has seen this before and am choosing optimism anyway.",
+	"You've cleared the room. I give a small, dignified nod. 'One continues,' I say, in the voice of someone who has seen this before and is choosing optimism anyway.",
 	"The corridor ahead is long and straight. I find long straight corridors meditative. Also concerning. Mostly concerning.",
 	"A torch sputters on the wall. I light it mentally. 'It would be a shame,' I say, 'to come all this way and trip over something.'",
 }
@@ -124,7 +124,7 @@ var CombatStart = []string{
 	"They've seen you. The kind of seeing that comes with intent. I suggest acting first.",
 	"FIGHT. I don't need to say more than that but I will absolutely say more than that.",
 	"Roll for initiative. This is the part I've been looking forward to since the Entry Room.",
-	"And we're in combat. I remind you to breathe, track your conditions, and remember that your character's survival is not guaranteed but am definitely preferred.",
+	"And we're in combat. I remind you to breathe, track your conditions, and remember that your character's survival is not guaranteed but is definitely preferred.",
 	"Something about your posture or your smell or your general presence has been found unacceptable. Combat begins.",
 	"I press start. Player one, it's your turn.",
 	"The enemy acts first — or thinks it does. I watch your dice like they're the only thing in the room, which, right now, they are.",
@@ -133,6 +133,7 @@ var CombatStart = []string{
 	"A wild encounter has appeared. I resist the urge to play the Pokémon battle music. Only barely.",
 	"They didn't want a fight. They wanted an easy meal. I'm about to demonstrate the difference. Your dice will do the actual demonstrating.",
 	"The tension peaks. Time slows. This is exactly the energy of the boss door opening in Mega Man. Except you didn't get to pick your loadout.",
+	"A kerfuffle, then. I had this logged as a fracas, but they drew weapons, and weapons upgrade a fracas to a kerfuffle. Anything beyond this point is a melee, which is the technical term.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,7 +142,7 @@ var CombatStart = []string{
 
 var CombatVictory = []string{
 	"The last one drops. I allow a moment of silence for anyone who wanted a longer fight.",
-	"Victory. I would cue the jingle — the little three-note one that plays in every RPG after every fight — but I prefer to let the moment breathe.",
+	"Victory. I would cue the fanfare, the Final Fantasy one that plays even when you won by a single hit point while poisoned and on fire. Especially then. But I prefer to let the moment breathe.",
 	"Well fought. I make note of what you did well. There were things done well. I noticed.",
 	"They are defeated. You are not. In my experience, this is the correct outcome and worth a moment of genuine appreciation.",
 	"PLAYER WIN. I say this in full caps and mean it.",
@@ -166,6 +167,7 @@ var CombatRetreat = []string{
 	"Noted for the record: running is not losing. Running is data collection with legs.",
 	"The dungeon will be there. You will also be there — later, better prepared. I approve of this logic.",
 	"You've retreated to safety. I reset the encounter. Rest. Think. Return with a plan that has more 'survive' in it.",
+	"Skedaddle is the technical term and I will hear no other. Executed cleanly, all limbs accounted for. The ledger records a skedaddle of the highest order.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,6 +208,7 @@ var Nat1 = []string{
 	"The attack misses in a way that will be funny later. I promise it will be funny later. It is not funny right now.",
 	"A natural one is just the universe asking you to try differently. I'm an optimist about natural ones, mostly.",
 	"Your sword finds everything in the room except the enemy. The wall, the ceiling, the floor, your dignity. Not the enemy. I'll mention this once and then never again.",
+	"One. The die rolled off the table, hit a boot, and came back up one, as if it left to think it over and returned with conviction.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -329,7 +332,7 @@ var TrapTriggered = []string{
 var LoreLines = []string{
 	"I settle in and prepare to speak at length, because I've been waiting for this question since you entered and I have a lot of thoughts.",
 	"Ah. A good question. I have context for this. I have more context than will fit comfortably in one telling but I'll try to prioritize.",
-	"The history of this place is long and not entirely flattering to anyone involved. I begin at the beginning, which is not actually the beginning, but am the closest I can find.",
+	"The history of this place is long and not entirely flattering to anyone involved. I begin at the beginning, which is not actually the beginning, but is the closest I can find.",
 	"I consult what I know — which is more than most, less than everything, and presented in order of relevance to your immediate survival.",
 	"Sit with this for a moment. What you're standing in has a story and I believe knowing it will change how you fight in it. Stories are tactical documents if you read them right.",
 	"You want lore? I have lore. I have so much lore that the challenge is not having it but choosing which pieces are useful and which are just fascinating.",
@@ -358,7 +361,7 @@ var ItemFound = []string{
 	"Something catches the light that isn't supposed to be here. I watch you reach for it with the specific alertness of someone who has seen cursed items do cursed things. It appears fine. I relax incrementally.",
 	"Loot. I say this word with genuine reverence. The whole system — the dungeon, the enemies, the traps — exists in part to produce this moment. I think it's worth it.",
 	"A chest. Unlocked. I note the unlocked status and consider what that might mean. Probably nothing. Possibly something. You open it while I consider.",
-	"The item is good. I evaluate it quickly — the stats, the rarity, the class match — and nod with the confidence of someone who has seen a lot of items and know when one is worth finding.",
+	"The item is good. I evaluate it quickly — the stats, the rarity, the class match — and nod with the confidence of someone who has seen a lot of items and knows when one is worth finding.",
 	"That's a rare one. I've seen fewer of those than common ones, by definition, but that doesn't stop me from being specifically pleased each time.",
 	"Like finding the Beam Sword in Kirby, the Boomerang in Zelda, the P Wing in Super Mario 3 — the right item at the right time changes what's possible. I think this might be that item. I hope it is.",
 	"Equipment upgrade. I watch the math update — new AC, new attack bonus, new possibilities — and file this moment under 'things going right.'",
@@ -402,6 +405,7 @@ var TauntResponses = []string{
 	"You taunt me. I smile. The smile does not reach the eyes, because I don't have eyes per se, but the quality of the smile communicates clearly. 'Proceed,' I say.",
 	"In Gradius, you could powerup into overconfidence and lose everything in one hit. I mention this as a purely historical observation.",
 	"I accept the taunt with grace. Also generate a trap for the next room with specific energy. These two events are unrelated. I maintain this position legally.",
+	"Hornswoggled. By you. I write the word in the ledger and it looks ridiculous there, which I suspect was the plan all along.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -430,6 +434,7 @@ var IdleLines = []string{
 	"The enemies are patient. Patience is one of their few virtues. I advise not testing the limits of their patience because those limits are lower than the patience suggests.",
 	"I hum something that sounds like the waiting music from Dr. Mario. It is not ominous. It is mildly ominous. I adjust.",
 	"The dungeon does not rush. The dungeon has time. I, however, am beginning to wonder if you've fallen asleep and am prepared to narrate events accordingly.",
+	"There is a word for this and the word is lollygagging. I don't get many chances to deploy it. Thank you for this one. Now move.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -464,7 +469,7 @@ var ConditionApplied = []string{
 	"You've been afflicted. I note the condition, its duration, and the mechanical consequences, then note the saving throw that might end it early. Details matter here.",
 	"Something is wrong with you now that wasn't wrong before. I catalog it without judgment and suggest addressing it before it addresses you.",
 	"Condition acquired. I process this the way a good DM processes bad news: honestly, quickly, and with an immediate pivot toward solutions.",
-	"Like the status screen turning an unfriendly color in a JRPG — the condition is visible, the effect is real, and I would very much like you to resolve it.",
+	"Like your sprite turning that little poison green in Final Fantasy while the walk animation carries on regardless. The condition is visible, the effect is real, and I would very much like you to resolve it.",
 	"The debuff lands. I name it, explain it, and remind you: conditions end. Keep fighting until this one does.",
 }
 
@@ -485,10 +490,10 @@ var SaveSuccess = []string{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var SaveFailed = []string{
-	"The save fails. I watch the condition take hold with the resignation of someone who has seen this before and know there's a path through it, just not a comfortable one.",
+	"The save fails. I watch the condition take hold with the resignation of someone who has seen this before and knows there's a path through it, just not a comfortable one.",
 	"It lands. Whatever the enemy threw at you, the dice didn't cooperate. I note the condition and its duration and suggest dealing with it before it compounds.",
 	"Failed. The number wasn't enough and I was rooting for the number. The condition applies. Fight through it.",
-	"Like the NES game over screen — inevitable in this moment, fixable in the next. The save failed. The dungeon continues. So do you.",
+	"Like the bird in Ninja Gaiden that exists solely to shove you into the pit. Inevitable in this moment, fixable in the next. The save failed. The dungeon continues. So do you.",
 	"The effect takes hold and I'm already calculating how you get out of it, because that's my job: keep you oriented toward solutions even when the immediate situation is a problem.",
 }
 
@@ -502,7 +507,7 @@ var MoodAsidesHostile = []string{
 	"I'm not narrating this one in detail. You can read the room. Read it.",
 	"The dungeon offers me something to mention. I decline. You're on your own for color commentary.",
 	"I'm here. Watching. Not, currently, helping. There is a difference and you will feel it.",
-	"In the bad ending of every Castlevania, the protagonist gets less guidance than they did at the start. I have reached approximately that part of the playthrough.",
+	"Simon's Quest told you 'the morning sun has vanquished the horrible night' and then never said anything useful again. I have entered my Simon's Quest era.",
 	"I'm keeping several details to myself. The details would have been useful. I don't consider this my problem right now.",
 	"Whatever's in the next part of the room, I saw it and chose not to flag it. The mood is what it is.",
 	"I mutter something. You don't catch it. I do not repeat it.",
@@ -520,7 +525,7 @@ var MoodAsidesEffusive = []string{
 	"I lean in. The mood is good. Good moods, in my experience, lead to slightly more generous descriptions and slightly better odds of catching the small details.",
 	"This is the part of the run I'll tell other GMs about later. I make a small mental note and continue with visible enthusiasm.",
 	"I'm delighted. You can hear it in the pacing. You can hear it in the choice of adjectives. The dungeon is, briefly, on your side.",
-	"In the good ending of every JRPG, the world feels slightly warmer in the late game. I'm at that part of the playthrough and it shows.",
+	"Like the campfire scene in Chrono Trigger, where the game just lets everyone sit down for one night and nobody dies. I'm at that part of the playthrough and it shows.",
 	"I'm not normally given to footnotes, but I'm about to add a footnote. It will probably be useful. I'm in that kind of mood.",
 	"The mood is high. For the next stretch, I'm more likely to mention the loose flagstone, the suspicious tapestry, the thing on the ceiling. Take advantage.",
 	"I hum a victory fanfare softly to myself. It is not earned yet. I'm being optimistic on your behalf.",

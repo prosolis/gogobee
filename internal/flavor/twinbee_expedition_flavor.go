@@ -22,7 +22,7 @@ var ExpeditionStart = []string{
 	"An expedition. Not a run — an expedition. There's a difference. I'll explain the difference over the coming days and the explanation will be mostly experiential.",
 	"Horizon checked, then supplies, then you. In that order. 'Alright,' I say, with the quiet energy of something that has been looking forward to this. 'Let's go.'",
 	"You're not here for a quick visit. I know the difference between someone passing through and someone committing. You're committing. I appreciate the commitment.",
-	"Like the opening screen of a long RPG — the kind that asks for your name and warns you to find a comfortable position because this is going to take a while. I've found a comfortable position. I suggest you do the same.",
+	"Like starting Dragon Quest VII. Two hours of errands before the game permits a single fight, and the people who love it love it for exactly that. This is going to take a while. I have found a comfortable position. I suggest you do the same.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,7 +49,7 @@ var ExpeditionBoredomStart = []string{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var MorningBriefingGeneric = []string{
-	"Another day in the dungeon. Said without resignation. The dungeon is still full of things worth doing and you are still the person to do them.",
+	"Another day in the dungeon. Morning count: you, me, the rations, one sword, and zero regrets logged before breakfast. Regrets logged before breakfast are the only ones that stick. Clean sheet. Out we go.",
 	"Morning. The dungeon has been quiet since you camped. Relative to what a dungeon considers quiet, which is not what you'd consider quiet, but everyone adjusts.",
 	"I've been watching the entrance to the camp since approximately three in the morning. Nothing came. Mentioned casually; no particular reaction expected.",
 	"Day [N]. The numbers are climbing. There's something satisfying about the numbers climbing — it means you're still here, which is always the first thing to confirm.",
@@ -89,7 +89,7 @@ var MorningBriefingDay14 = []string{
 }
 
 var MorningBriefingDay21 = []string{
-	"Three weeks. I've run out of historical comparisons for this. Three weeks is its own category. You have made a category. I report this as a fact and also as something that doesn't entirely have words yet.",
+	"Three weeks. The record book keeps a page for runs past twenty days. The page has three entries. One is you. One is a dwarf named Hensel. The third entry is water-damaged, and I have chosen to believe it also says Hensel.",
 	"Day twenty-one. I tried to write a clever framing for this morning's briefing and gave up halfway through, settling instead on the simplest version: 'You're still here.' That's the briefing. The rest is logistics.",
 	"Three weeks down. The dungeon has stopped being a place you're visiting and become a place you live in for now. I note the shift — the way you check rooms without being asked, the way the supply count is already in your head. The dungeon notices too.",
 }
@@ -100,7 +100,7 @@ var MorningBriefingDay21 = []string{
 
 var EveningRecapGeneric = []string{
 	"End of day [N]. Ledger tallied. The column marked 'survived' has another entry. I consider this column the most important one.",
-	"Day closes. I review what happened and find, on balance, more right than wrong — which in a dungeon is the operating definition of a good day.",
+	"Day closes. The ledger says: three rooms, one fight you picked, one fight that picked you, and a door you had the sense to leave shut. I have audited worse days. I have audited far worse doors.",
 	"Evening. The rooms behind you are cleared. The rooms ahead are not. Always true; never less relevant. Rest now. The math doesn't change overnight.",
 	"I compile the day: what was learned, what was fought, what was found. File it in the mental ledger I've been keeping since you entered. The ledger is favorable.",
 	"Like the experience screen at the end of a dungeon floor in Etrian Odyssey — the numbers settle, the progress registers, and for a moment the whole thing makes sense. I give you that moment.",
@@ -137,7 +137,7 @@ var EveningRecapNothingHappened = []string{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var CampEstablished = []string{
-	"Camp established. I survey the perimeter with the efficiency of someone who has done this many times and learned from every time it went wrong.",
+	"Camp established. I walk the perimeter once for threats and once for acoustics, because a camp that echoes is a camp that advertises. This one holds its sound. Approved.",
 	"The camp goes up. I approve of the location — cleared room, defensible entry, no obvious curse residue. Could be worse. I've seen worse.",
 	"You set camp. I check the sightlines, the doors, the sound-bleed from the next room. Acceptable. Settling in for the night watch.",
 	"A camp in the middle of a dungeon. Either brave or pragmatic; I've stopped trying to distinguish between the two. Either way, the camp is set. Either way, I'm watching.",
@@ -312,7 +312,7 @@ var RegionTransitDeparture = []string{
 
 var RegionTransitArrival = []string{
 	"You arrive in [REGION_NEXT]. I survey, take in the new geometry, and update the working assumptions. 'Different shape,' I say. 'Same general principle. We learn what wants to kill us here, and we get there first.'",
-	"[REGION_NEXT] receives you. I note the temperature, the sound, the things-not-said-by-the-room-but-implied. A region is not just a place. It's a posture. I adopt the new one and suggest you do as well.",
+	"[REGION_NEXT] receives you. I catalogue the differences: colder by about one coat, quieter by exactly one birdsong, and the dust on this side of the boundary shows a single set of tracks. The tracks are leaving. Noted. Adopting the local caution.",
 	"Boundary crossed. The day gets stamped in the log — one full day spent in transit, supplies adjusted, the wandering that happened on the way handled and filed. We are here now. The next stretch is what it is.",
 }
 
@@ -321,7 +321,7 @@ var RegionTransitArrival = []string{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var ExtractionVoluntary = []string{
-	"Extraction. I note the decision and respect it — knowing when to leave is a skill, not a failure, and I've watched enough expeditions end wrong to deeply appreciate the ones that end right.",
+	"Extraction. For the record, the ledger keeps two columns for expeditions that reached the door: 'left' and 'was left of.' You are in the first column. The first column is the good column.",
 	"You call the extraction and I begin the route out immediately. No argument, no editorializing. There will be time for the debrief later. The first priority is the door.",
 	"The dungeon doesn't like this. I can tell by the way the corridors feel as you head back out — a resistance that isn't structural, just atmospheric. The zone wanted more. It doesn't get more today. I lead the way.",
 	"Withdrawing with intent. I catalogue what you have — the loot, the XP, the knowledge of where the rooms are for the return — and convert the exit into preparation. This isn't retreat. This is the start of the next attempt.",
@@ -353,7 +353,7 @@ var ExpeditionResume = []string{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var MilestoneFirstNight = []string{
-	"You survived the first night. I note this milestone specifically because not everyone does, and those who do carry something from it that changes how the rest of the expedition goes. You have that now. Already noticed.",
+	"You survived the first night. Somewhere around the third watch you rolled over, said a word I will not be repeating back to you, and slept on. The dungeon spent that same hour deciding you were not worth waking. Both of you were right.",
 	"Night one survived. I make a small mark in the corner of the manifest — the kind of mark you make for the things that count more than they look. First nights count. I've been in dungeons where they were the last nights too. This wasn't one of those.",
 	"Day two morning. The first night is behind you, which means the first watch is behind me, which means a thing worth confirming has been confirmed: you sleep through the noises that matter and wake for the ones that don't. That's a survival skill. Logged.",
 }

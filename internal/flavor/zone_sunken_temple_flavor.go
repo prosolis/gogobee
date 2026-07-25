@@ -62,7 +62,7 @@ var EliteRoomEntrySunkenTemple = []string{
 var AbolethTentacleMultiattackLines = []string{
 	"Three tentacles, three rolls. Each on-hit risks Diseased — no magical healing for 24 hours until cured. I say: 'Cleric's tools come back online tomorrow. Survive today.'",
 	"The Aboleth's tentacles arrive in sequence, three of them, the hits compounding. The disease isn't the damage — the disease is the design. Magical healing fails until you cleanse. I file this under 'durability problem.'",
-	"Three attacks, one turn. Any landing tentacle leaves a mark that locks out magical healing. I suggest potions, rest, and the kind of patience that pretends to be patience but am mostly grim arithmetic.",
+	"Three attacks, one turn. Any landing tentacle leaves a mark that locks out magical healing. I suggest potions, rest, and the kind of patience that pretends to be patience but is mostly grim arithmetic.",
 }
 
 // Enslave: recharge 6; WIS DC 14 or Charmed; player skips turn, drifts toward Aboleth.

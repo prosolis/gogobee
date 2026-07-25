@@ -34,6 +34,10 @@ var AmbientMonologue = []string{
 	"The map in your pack has folded itself one extra time while you weren't looking. I decline to unfold it for science.",
 	"Your own footsteps echo back to you a half-second late, in slightly the wrong order. Noted. I'm choosing to walk in silence for a bit.",
 	"A long, slow scrape happens two rooms over. Then nothing. I waited for a second scrape. There wasn't one. The first scrape was the whole sentence.",
+	"I organized the ration wrappers by crinkle volume while you slept. There are four tiers. I will not be presenting the findings, but the findings exist.",
+	"A moth has been circling the torch for an hour with total commitment and no plan. I relate to it more than I intend to say out loud.",
+	"I counted your snores and cross-referenced them against the dungeon's ambient groans. Twice they harmonized. I have no notes. It was lovely.",
+	"A snail is crossing the camp. At current pace it reaches your boot by morning. I have elected not to interfere with its schedule and expect you to extend it the same courtesy.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,6 +52,7 @@ var AmbientNoise = []string{
 	"Stones shift overhead in a way that is not settling and not random. Something walked across the ceiling. I'm choosing not to elaborate on what 'across the ceiling' implies.",
 	"A horn sounds, very far away — the kind of horn that's a signal to a thing that signals to more things. I acknowledge the chain.",
 	"You hear someone whistling your name. You don't have that name. The whistler is workshopping options.",
+	"Somewhere below, something counted to four and stopped. The counting has not resumed. I preferred it when it was counting.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -74,6 +79,7 @@ var AmbientLuckyFind = []string{
 	"You step on something flat. It is a coin. It is also two more coins under the first coin. I suspect a coin-laying creature and choose not to share the theory.",
 	"A skeleton you walked past three days ago has, on review, a small purse you missed. I retrieve it with the discretion of a librarian recovering an overdue book.",
 	"You find coins in the lining of your own cloak. They were always there. I gently suggest counting your pockets more often.",
+	"There is a coin at the bottom of the waterskin. I have questions, beginning with how long you have been drinking past it.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

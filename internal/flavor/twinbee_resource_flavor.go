@@ -15,7 +15,7 @@ package flavor
 var HarvestForageSuccess = []string{
 	"The land gives something up. I watch you identify it with the quiet satisfaction of someone watching a skill be used correctly.",
 	"There — growing in a place that suggests it knows exactly what it's good for and has been waiting. You found it. I approve of the finding.",
-	"A Ranger's eye in a non-Ranger would have missed that entirely. I note the distinction.",
+	"You found it by the smell. Bruised stems, faintly peppery, which means something stepped on this patch within the hour and it grows back that fast. A Ranger taught me that trick. I never found out who taught you.",
 	"Like finding the hidden item block in a Mario level — you knew to look, you looked in the right place, and the thing that was always there is now yours.",
 	"The plant comes away cleanly. Good root structure, good potency. Mentally catalogued. Moving on.",
 }
@@ -23,7 +23,7 @@ var HarvestForageSuccess = []string{
 var HarvestMineSuccess = []string{
 	"The stone yields. I listen to the sound of it — the specific tone of rock giving up something it's been holding for a very long time.",
 	"Solid work. The ore comes out in a piece worth taking. I check the vein depth. There's more. There's always more if you're willing to dig.",
-	"Like the mining minigame in Stardew Valley, but with real consequences and no save file. I watch you extract the material with professional appreciation.",
+	"There's a note rock makes when it's ready to give. Duller, rounder, like knocking on a full barrel instead of an empty one. Third swing, you found the note. Some miners go twenty years and never hear it.",
 	"The wall gives up its contents without drama. I appreciate materials that cooperate.",
 	"Good strike. Clean extraction. I note the weight and the quality simultaneously.",
 }
@@ -31,9 +31,9 @@ var HarvestMineSuccess = []string{
 var HarvestScavengeSuccess = []string{
 	"There it is. Among the debris, the decay, the things that were left behind — something worth taking. I knew it was there. You found it. Pleased.",
 	"The room held something after all. I had estimated 60% odds and am updating the estimate to 'correct.'",
-	"Like finding the secret item in a dungeon chest that looked empty — you checked anyway. That's the habit. That's the discipline. I note both.",
+	"The chest looked empty. You knocked on the bottom anyway and it knocked back twice. Once for the bottom, once for the false bottom. I heard it too. I let you have the moment.",
 	"Scavenged. The word has a bad reputation it doesn't deserve. You found value in the discarded. I respect that entirely.",
-	"A Rogue's eye in a non-Rogue would have walked past this. I note the distinction.",
+	"You checked behind the crate that stood one inch too far from the wall. One inch. Ask any Rogue: that inch is the entire profession.",
 }
 
 var HarvestEssenceSuccess = []string{
@@ -41,7 +41,7 @@ var HarvestEssenceSuccess = []string{
 	"Drawn out cleanly. The Arcana check held and the essence responds to the knowledge behind it. I'm appropriately impressed.",
 	"Like tapping into a power source in Metroid — you knew the energy was there, you had the tool to reach it, you reached it. The vial fills.",
 	"The room releases something it didn't know it was holding. I watch the transfer and mark the yield in the ledger.",
-	"Essence harvested. Quality above average for this zone, below average for what you'd need to know to appreciate that distinction. I appreciate it on your behalf.",
+	"Essence harvested. Seventh decile for this zone, which is genuinely exciting to perhaps four people alive. I am one of them. It is a quiet life, but the charts are immaculate.",
 }
 
 var HarvestCommuneSuccess = []string{
@@ -55,8 +55,9 @@ var HarvestFishSuccess = []string{
 	"The line goes taut and I straighten up. Whatever's on the end of it, it came from somewhere deep and dark and it's yours now.",
 	"A catch. I identify it before you finish pulling it in — the coloring, the depth-marks, the specific opacity of its eyes. 'Good one,' I say, meaning it.",
 	"Fishing in a dungeon. I have opinions about fishing in dungeons and all of them are positive. The fish is landed. The opinions remain.",
-	"Like the fishing minigame in every RPG that ever had one — the moment the indicator hits perfect and everything pays off. Quiet delight, on my end.",
+	"Like landing the Hylian Loach. The fish the game never once required, the one you gave forty minutes to while the world stood ending, and the fisherman never asked why. This fish was optional too. That's what makes it yours.",
 	"The water gives up its catch with minimal argument. I respect fish that don't make it personal.",
+	"The fish comes up mid-argument with the hook and loses. I weigh it, log it, and admire it, in that order. The order is the job.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ var HarvestFail = []string{
 	"The attempt fails to produce anything useful. I mark the node and move on. Some rooms are stingier than others.",
 	"Not everything that looks like a resource is one. Filed under 'learned' and considered worth the attempt.",
 	"Empty-handed. I've seen this before and will see it again. The dungeon doesn't owe you anything. You ask anyway. That's the deal.",
+	"Nothing. The mushroom you spent four minutes prying loose is a rock. It was always a rock. I have struck it from the ledger and we will never speak of the rock again.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,6 +84,7 @@ var HarvestInterrupt = []string{
 	"A patrol. Bad timing, or very good timing from their perspective. I set aside the harvest log and open the combat log.",
 	"The forage was going well until it wasn't. I measure the distance between you and the enemy, between the enemy and the door, and start calculating options at speed.",
 	"Interrupted. The node is still there. The enemy is also still there, in a more immediate way. I suggest addressing the more immediate thing first.",
+	"You were elbow-deep in the node when the growling started. Your priorities, observed and logged in order: ore, ore, growling, ore, sword.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,6 +96,7 @@ var NodeDepleted = []string{
 	"Empty. The resource is gone. Something quietly melancholy about a depleted node and something practical about moving to the next one.",
 	"That's all it had. I confirm the node at zero and move on without ceremony.",
 	"Harvested clean. The room is now resource-dry until you rest and the dungeon replenishes. It will replenish. It always does.",
+	"Empty. You tap it twice more anyway, the way people press a lift button that's already lit. The node respects this exactly as much as the lift does.",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,7 +106,7 @@ var NodeDepleted = []string{
 var RichYield = []string{
 	"A rich vein. My assessment upgrades mid-harvest — more than expected, better quality than the zone average. This room was generous. Marked.",
 	"The node gives more than it should have. I note the anomaly with appreciation and decline to question it.",
-	"Like finding the rare item drop that you stopped expecting — the dungeon decided to be kind today, in this specific way, in this specific room. I take it. We take it. We do not look it in the mouth.",
+	"The vein forks behind the wall. Then forks again. I revise my estimate upward twice in one sentence, which I hate doing and am currently doing. We take all of it. We do not look it in the mouth.",
 	"Exceptional yield. I catalog the bonus material with the efficiency of someone who's been waiting for exactly this and prepared for it anyway.",
 	"More than the DC promised. The dungeon overdelivered. Unusual. Also completely welcome.",
 }
@@ -215,25 +219,28 @@ var PatrolEncounter = []string{
 // ─────────────────────────────────────────────────────────────────────────────
 
 var LootDropCommon = []string{
-	"They had something on them. I check it over. Common rarity — useful in the way that common things are useful, which is often.",
-	"Standard loot. Nothing that rewrites the story, but everything that keeps it going.",
-	"A drop. I catalog it efficiently and note: this is the economy of dungeons. Enemies have things. You take them. The loop continues.",
+	"They were carrying a coil of rope, half a candle, and a knife sharpened so many times it's mostly handle. I log all three. Somebody loved that knife once. It's yours now. That's dungeons.",
+	"Standard loot. Six copper, a whetstone, and a note that says REMEMBER THE THING. No further details. They did not, evidently, remember the thing.",
+	"I catalog the pockets. Then I find the second pocket sewn inside the first pocket, because I have been doing this a long time. So, apparently, had they.",
+	"A belt pouch. Inside: three teeth, none of them theirs, and a receipt. I don't read other people's receipts. I read the receipt. It was for soup.",
+	"Common drop. A tin whistle with one hole plugged with wax. Somewhere out there is a song missing a note, and now you own the reason.",
 }
 
 var LootDropUncommon = []string{
 	"Better than expected. I examine the drop with slightly elevated interest. Uncommon rarity — someone made this with intent.",
 	"An uncommon drop from a common enemy. Anomaly noted with satisfaction. The dungeon was generous in this room.",
 	"Uncommon. I turn it over once and nod. 'Keeper,' I say — which in my vocabulary means: this changes your math.",
+	"Uncommon. There's a maker's mark under the grip, two crossed nails. I don't know the smith. I know what their apprentices paid to train, because work this clean does not come out of cheap teachers.",
 }
 
 var LootDropRare = []string{
-	"I stop. Actually stop. 'That's rare,' I say, with the specific register of someone who uses the word correctly and use it seldom.",
+	"I stop. Actually stop. 'That's rare,' I say. I have said that word four times in my career. I keep count, because it is that kind of word.",
 	"A rare drop. I examine it the way you examine something that doesn't appear often — thoroughly, quietly, with appropriate appreciation.",
 	"The loot table gave you something uncommon and then kept going. Rare rarity. Filed in the column I reserve for things worth remembering.",
 }
 
 var LootDropLegendary = []string{
 	"I go very still. The drop sits in the light and I process what I am seeing. 'Legendary,' I say eventually. One word. That's all it needs.",
-	"Legendary rarity. I've seen a few of these in a long career and each time — each time — there is a moment that is separate from everything else. This is that moment. Pick it up carefully.",
+	"Legendary rarity. I have logged three of these in my career. The first one earned its bearer a statue. The second one is why there is a lake where Torbridge used to be. Pick it up carefully.",
 	"The dungeon produced a legendary item. I note the zone, the enemy, the day of the expedition, the Threat Clock value, the precise conditions. Some things deserve to be recorded completely.",
 }
