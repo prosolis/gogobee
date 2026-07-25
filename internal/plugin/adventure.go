@@ -253,6 +253,12 @@ func (p *AdventurePlugin) Init() error {
 	// deaths, single-holder achievements) the first boot the seam is live, so
 	// launch doesn't open onto an empty section. One-shot, kept (see gap #7).
 	p.bootstrapPeteNewsBackfill()
+	// Repair the zone half of news_realm_firsts: the original one-shot filtered
+	// on `abandoned = 0` (which does not mean anybody gave up) and dated every
+	// row to the minute it ran. Seeds only, emits nothing. Runs regardless of the
+	// news switches — a ledger that is right only while emission is on mis-tiers
+	// the first dispatch after somebody flips it. One-shot, kept.
+	bootstrapRealmFirstsReseed()
 	// Phase R1 orphan-archive used to run here on every Init, but it
 	// over-archived: it treats any active dnd_zone_run row not linked to
 	// an active expedition as a legacy `!adventure dungeon` orphan, which

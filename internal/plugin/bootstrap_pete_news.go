@@ -58,34 +58,104 @@ func (p *AdventurePlugin) bootstrapPeteNewsBackfill() {
 		"zone_firsts", firsts, "deaths", deaths, "achievements", achv)
 }
 
-// backfillZoneFirsts seeds news_realm_firsts from history and emits one PRIORITY
-// realm-first dispatch per zone, attributed to its earliest boss-defeating
-// clearer. SQLite returns the user_id from the same row as MIN(completed_at)
-// (bare-column min/max rule), so the (zone, first clearer, time) triple is
-// consistent. Returns the count emitted.
-func (p *AdventurePlugin) backfillZoneFirsts() int {
+// zoneFirstClear is one zone's earliest boss kill: who did it and when.
+type zoneFirstClear struct {
+	zoneID, userID, completedAt string
+}
+
+// zoneFirstClears reads the earliest boss-defeating run of every zone.
+//
+// The filter is `boss_defeated = 1` and NOTHING else, and that is the whole
+// point. `abandoned` does not mean anybody gave up — abandonZoneRunByID exists
+// to retire a run whose boss is ALREADY DEAD when the expedition travels onward
+// (dnd_zone_run.go), so in prod 30 of 32 boss kills carry abandoned = 1. An
+// `AND abandoned = 0` here drew a realm where 2 zones had ever been beaten
+// instead of 9. It is the same filter loadRealmClearStats documents; do not
+// reintroduce it.
+//
+// SQLite returns the user_id from the same row as MIN(completed_at) (bare-column
+// min/max rule), so the (zone, first clearer, time) triple is internally
+// consistent.
+func zoneFirstClears() []zoneFirstClear {
 	rows, err := db.Get().Query(
 		`SELECT zone_id, user_id, MIN(completed_at)
 		   FROM dnd_zone_run
-		  WHERE boss_defeated = 1 AND completed_at IS NOT NULL AND abandoned = 0
+		  WHERE boss_defeated = 1 AND completed_at IS NOT NULL
 		  GROUP BY zone_id`)
 	if err != nil {
 		slog.Error("backfill: zone-firsts query", "err", err)
-		return 0
+		return nil
 	}
-	type first struct {
-		zoneID, userID, completedAt string
-	}
-	var firsts []first
+	defer rows.Close()
+
+	var firsts []zoneFirstClear
 	for rows.Next() {
-		var f first
+		var f zoneFirstClear
 		if err := rows.Scan(&f.zoneID, &f.userID, &f.completedAt); err != nil {
 			slog.Error("backfill: zone-firsts scan", "err", err)
 			continue
 		}
 		firsts = append(firsts, f)
 	}
-	rows.Close()
+	return firsts
+}
+
+// bootstrapRealmFirstsReseed repairs the zone half of news_realm_firsts.
+//
+// The ledger is what claimRealmFirst tiers live dispatches against, so a zone
+// whose first clear the original one-shot missed is a spurious PRIORITY "realm
+// first" waiting to fire the next time somebody clears it, months after the
+// fact. Two things were wrong with what got seeded:
+//
+//  1. The `abandoned = 0` filter above, which is why prod holds 6 zones where
+//     the run history knows 9.
+//  2. first_at is claimRealmFirst's unixepoch() — when the claim was RECORDED,
+//     not when the clear happened. Every backfilled prod row carries the one
+//     minute the job ran.
+//
+// This is a re-SEED, not a re-run: it writes the ledger and emits nothing at
+// all, so no historical realm-first dispatch reaches the room. It has its own
+// job name because the original one-shot's gate is already marked, and per
+// feedback_loader_rewire_needs_bootstrap it stays in place afterwards — a fresh
+// deploy runs it as an ordinary bootstrap.
+//
+// It runs unconditionally on the news seam's switches, unlike the backfill: a
+// ledger that is correct only when emission happens to be on is a ledger that
+// mis-tiers the first dispatch after somebody flips it.
+//
+// A zone claim with no surviving run behind it is left exactly as it is. The run
+// history is the better record of both who and when, but only where it has one.
+func bootstrapRealmFirstsReseed() {
+	const jobName = "pete_realm_firsts_reseed_v1"
+	if db.JobCompleted(jobName, "once") {
+		return
+	}
+
+	seeded := 0
+	for _, f := range zoneFirstClears() {
+		ts, ok := parseSQLiteTime(f.completedAt)
+		if !ok {
+			slog.Warn("reseed: unparseable clear time", "zone", f.zoneID, "at", f.completedAt)
+			continue
+		}
+		// Upsert, not INSERT OR IGNORE: the six rows that already exist carry the
+		// wrong date and correcting them is half of what this job is for.
+		db.Exec("realm-firsts reseed",
+			`INSERT INTO news_realm_firsts (kind, target, first_at) VALUES ('zone', ?, ?)
+			 ON CONFLICT(kind, target) DO UPDATE SET first_at = excluded.first_at`,
+			f.zoneID, ts.Unix())
+		seeded++
+	}
+
+	db.MarkJobCompleted(jobName, "once")
+	slog.Warn("bootstrap: realm-firsts ledger reseeded", "zones", seeded)
+}
+
+// backfillZoneFirsts seeds news_realm_firsts from history and emits one
+// dispatch per zone, attributed to its earliest boss-defeating clearer.
+// Returns the count emitted.
+func (p *AdventurePlugin) backfillZoneFirsts() int {
+	firsts := zoneFirstClears()
 
 	n := 0
 	for _, f := range firsts {
