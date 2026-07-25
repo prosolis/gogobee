@@ -447,76 +447,136 @@ func (p *AdventurePlugin) handleExtractCmd(ctx MessageContext, _ string) error {
 
 // ── !resume command ─────────────────────────────────────────────────────────
 
-func (p *AdventurePlugin) handleResumeCmd(ctx MessageContext, args string) error {
-	userMu := p.advUserLock(ctx.Sender)
+// Sentinels for the ways going back in can be refused. Same contract as
+// performExpeditionStart's: each one comes back inside an advRefusal that also
+// carries the finished sentence, so `!resume` keeps its copy verbatim.
+//
+// errResumeNeedLoadout is the odd one out and deliberately so: it is not a
+// refusal at all but the loadout prompt, returned as one so the whole decision
+// stays inside the lock. The web never triggers it — it always names a loadout.
+var (
+	errResumeNeedLoadout = errors.New("resume: no loadout named")
+	errResumeBusy        = errors.New("resume: already on an expedition")
+	errResumeNothing     = errors.New("resume: no extracted expedition")
+	errResumeLapsed      = errors.New("resume: past the 7-day window")
+	errResumeBadPacks    = errors.New("resume: invalid pack selection")
+	errResumeBroke       = errors.New("resume: cannot cover outfitting")
+	errResumeFailed      = errors.New("resume: could not resume")
+)
+
+// resumeOutcome is what going back in did, for a caller describing it somewhere
+// other than a DM.
+type resumeOutcome struct {
+	Zone     ZoneDefinition
+	Day      int
+	Supplies ExpeditionSupplies
+	Purchase SupplyPurchase
+	Threat   int
+	Stack    int
+	Line     string
+}
+
+// performResume is `!resume` minus the command framing: the leader check, the
+// lapse check, the re-outfitting purchase and the fresh region run. Shared with
+// the web action queue so that walking back in from a phone is the same walk.
+//
+// loadoutTok is the raw `Ns Md` / preset token; empty asks for the prompt.
+// idemKey, when set, is the web order's guid and moves the money onto the
+// idempotent variants — see beginExpeditionIdem for why a refund then makes a
+// retry unsafe, which is why every error here is permanent for the web caller.
+func (p *AdventurePlugin) performResume(uid id.UserID, loadoutTok, idemKey string) (resumeOutcome, error) {
+	userMu := p.advUserLock(uid)
 	userMu.Lock()
 	defer userMu.Unlock()
 
-	c, err := LoadDnDCharacter(ctx.Sender)
+	c, err := LoadDnDCharacter(uid)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't load your character: "+err.Error())
+		return resumeOutcome{}, fmt.Errorf("Couldn't load your character: %s", err)
 	}
 	if c == nil || c.PendingSetup {
-		return p.SendDM(ctx.Sender, "No Adv 2.0 character yet — run `!setup` first.")
+		return resumeOutcome{}, refuseAdv(errResumeNothing, "No Adv 2.0 character yet — run `!setup` first.")
 	}
 
-	if existing, isLeader, _ := activeExpeditionFor(ctx.Sender); existing != nil {
+	if existing, isLeader, _ := activeExpeditionFor(uid); existing != nil {
 		zone, _ := getZone(existing.ZoneID)
 		if !isLeader {
-			return p.SendDM(ctx.Sender, fmt.Sprintf(
+			return resumeOutcome{}, refuseAdv(errResumeBusy,
 				"You're riding a party expedition in **%s** (Day %d). Only its leader can `!resume`.",
-				zone.Display, existing.CurrentDay))
+				zone.Display, existing.CurrentDay)
 		}
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
+		// A web order that already paid and already resumed lands here on the
+		// re-offer; the settled debit is what tells that apart from a player who
+		// really is already out. Same tell as performExpeditionStart's.
+		if idemKey != "" && p.euro != nil && p.euro.HasExternalTx(idemKey) {
+			return resumeOutcome{Zone: zone, Day: existing.CurrentDay,
+				Supplies: existing.Supplies, Threat: existing.ThreatLevel}, nil
+		}
+		return resumeOutcome{}, refuseAdv(errResumeBusy,
 			"You already have an active expedition in **%s** (Day %d). Finish it or `!expedition abandon` first.",
-			zone.Display, existing.CurrentDay))
+			zone.Display, existing.CurrentDay)
 	}
 
-	exp, err := getResumableExpedition(ctx.Sender)
+	exp, err := getResumableExpedition(uid)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+		return resumeOutcome{}, fmt.Errorf("Couldn't read expedition state: %s", err)
 	}
 	if exp == nil {
-		return p.SendDM(ctx.Sender, "No extracted expedition to resume. Use `!expedition start <zone>` to begin a new one.")
+		return resumeOutcome{}, refuseAdv(errResumeNothing,
+			"No extracted expedition to resume. Use `!expedition start <zone>` to begin a new one.")
 	}
 	if extractionLapsed(exp, time.Now().UTC()) {
 		// Expire it so it doesn't keep resurfacing. The hourly sweeper would get
 		// here on its own; this keeps the refusal and the reap in one breath.
 		_ = completeExpedition(exp.ID, ExpeditionStatusFailed)
-		return p.SendDM(ctx.Sender,
+		return resumeOutcome{}, refuseAdv(errResumeLapsed,
 			"That extraction is past its 7-day resume window — the dungeon has reshaped without you. Start a new expedition.")
 	}
 
-	resumeZone, _ := getZone(exp.ZoneID)
+	zone, _ := getZone(exp.ZoneID)
 	// D5-b: prompt for a preset loadout on empty args.
-	if strings.TrimSpace(args) == "" {
-		return p.SendDM(ctx.Sender, renderLoadoutPrompt(resumeZone, "resume"))
+	if strings.TrimSpace(loadoutTok) == "" {
+		return resumeOutcome{}, refuseAdv(errResumeNeedLoadout, "%s", renderLoadoutPrompt(zone, "resume"))
 	}
-	purchase, err := resolveLoadoutOrParse(strings.TrimSpace(args), resumeZone.Tier)
+	purchase, err := resolveLoadoutOrParse(strings.TrimSpace(loadoutTok), zone.Tier)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't parse supply packs: "+err.Error())
+		return resumeOutcome{}, refuseAdv(errResumeBadPacks, "Couldn't parse supply packs: %s", err.Error())
 	}
-	if err := purchase.Validate(resumeZone.Tier); err != nil {
-		return p.SendDM(ctx.Sender, "Invalid pack selection: "+err.Error())
+	if err := purchase.Validate(zone.Tier); err != nil {
+		return resumeOutcome{}, refuseAdv(errResumeBadPacks, "Invalid pack selection: %s", err.Error())
 	}
 	cost := float64(purchase.Cost())
 	if p.euro == nil {
-		return p.SendDM(ctx.Sender, "Coin system unavailable — try again later.")
+		return resumeOutcome{}, refuseAdv(errResumeFailed, "Coin system unavailable — try again later.")
 	}
-	if balance := p.euro.GetBalance(ctx.Sender); balance < cost {
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"Not enough coins. Outfitting costs **%d** but you have **%.0f**.",
-			int(cost), balance))
+	paid := idemKey != "" && p.euro.HasExternalTx(idemKey)
+	if !paid {
+		if balance := p.euro.GetBalance(uid); balance < cost {
+			return resumeOutcome{}, refuseAdv(errResumeBroke,
+				"Not enough coins. Outfitting costs **%d** but you have **%.0f**.",
+				int(cost), balance)
+		}
 	}
-	if !p.euro.Debit(ctx.Sender, cost, "expedition resume outfitting: "+string(exp.ZoneID)) {
-		return p.SendDM(ctx.Sender, "Couldn't debit outfitting cost (try again).")
+	debit := func(why string) bool { return p.euro.Debit(uid, cost, why) }
+	refund := func(why, suffix string) { p.euro.Credit(uid, cost, why) }
+	if idemKey != "" {
+		debit = func(why string) bool {
+			ok, _, err := p.euro.DebitIdem(uid, cost, why, idemKey)
+			return err == nil && ok
+		}
+		refund = func(why, suffix string) {
+			if _, _, err := p.euro.CreditIdem(uid, cost, why, idemKey+":refund"+suffix); err != nil {
+				slog.Error("expedition: resume refund failed", "user", uid, "order", idemKey, "err", err)
+			}
+		}
+	}
+	if !debit("expedition resume outfitting: " + string(exp.ZoneID)) {
+		return resumeOutcome{}, refuseAdv(errResumeFailed, "Couldn't debit outfitting cost (try again).")
 	}
 
-	zone, _ := getZone(exp.ZoneID)
 	supplies := makeSupplies(zone.Tier, purchase)
 	if err := resumeExpedition(exp.ID, supplies); err != nil {
-		p.euro.Credit(ctx.Sender, cost, "expedition resume refund")
-		return p.SendDM(ctx.Sender, "Couldn't resume: "+err.Error())
+		refund("expedition resume refund", "")
+		return resumeOutcome{}, refuseAdv(errResumeFailed, "Couldn't resume: %s", err.Error())
 	}
 	exp.Status = ExpeditionStatusActive
 	exp.Supplies = supplies
@@ -527,25 +587,40 @@ func (p *AdventurePlugin) handleResumeCmd(ctx MessageContext, args string) error
 	exp.RegionState[regionStateRegionRuns] = map[string]string{}
 	_ = persistRegionState(exp)
 	if _, err := ensureRegionRun(exp, c.Level); err != nil {
-		p.euro.Credit(ctx.Sender, cost, "expedition resume refund (run-spawn failed)")
-		return p.SendDM(ctx.Sender, "Couldn't outfit the resumed region: "+err.Error())
+		refund("expedition resume refund (run-spawn failed)", ":region")
+		return resumeOutcome{}, refuseAdv(errResumeFailed, "Couldn't outfit the resumed region: %s", err.Error())
 	}
 	line := flavor.Pick(flavor.ExpeditionResume)
 	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative",
 		"expedition resumed", line)
 
+	return resumeOutcome{
+		Zone: zone, Day: exp.CurrentDay, Supplies: supplies, Purchase: purchase,
+		Threat: exp.ThreatLevel, Stack: exp.TemporalStack, Line: line,
+	}, nil
+}
+
+// handleResumeCmd is `!resume`: the command framing around performResume.
+func (p *AdventurePlugin) handleResumeCmd(ctx MessageContext, args string) error {
+	out, err := p.performResume(ctx.Sender, args, "")
+	if err != nil {
+		// Every refusal — and the loadout prompt, which travels as one — arrives
+		// as a finished sentence, so this only has to say it.
+		return p.SendDM(ctx.Sender, err.Error())
+	}
+
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🚪 **Expedition resumed — %s, Day %d**\n\n",
-		zone.Display, exp.CurrentDay))
-	if line != "" {
-		b.WriteString(line)
+		out.Zone.Display, out.Day))
+	if out.Line != "" {
+		b.WriteString(out.Line)
 		b.WriteString("\n\n")
 	}
 	b.WriteString(fmt.Sprintf("**Re-outfitted:** %.0f SU (%d standard, %d deluxe) — %d coins\n",
-		supplies.Max, purchase.StandardPacks, purchase.DeluxePacks, purchase.Cost()))
-	b.WriteString(fmt.Sprintf("**Threat:** %d / 100 (resumed at extraction value)\n", exp.ThreatLevel))
-	if exp.TemporalStack != 0 {
-		b.WriteString(fmt.Sprintf("**Zone stack:** %d (resumed)\n", exp.TemporalStack))
+		out.Supplies.Max, out.Purchase.StandardPacks, out.Purchase.DeluxePacks, out.Purchase.Cost()))
+	b.WriteString(fmt.Sprintf("**Threat:** %d / 100 (resumed at extraction value)\n", out.Threat))
+	if out.Stack != 0 {
+		b.WriteString(fmt.Sprintf("**Zone stack:** %d (resumed)\n", out.Stack))
 	}
 	b.WriteString("\nUse `!expedition status` for the daily briefing.")
 	return p.SendDM(ctx.Sender, b.String())

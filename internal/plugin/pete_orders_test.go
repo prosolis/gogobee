@@ -172,3 +172,210 @@ func TestAdvOrderPlainText(t *testing.T) {
 		t.Fatalf("plain text lost the facts: %q", got)
 	}
 }
+
+// ── W5b: the three verbs that take arguments and spend coins ───────────────────
+
+// webOrderTestChar builds a character solvent enough to outfit an expedition.
+func webOrderTestChar(t *testing.T, uid id.UserID, level int, coins float64) *AdventurePlugin {
+	t.Helper()
+	if err := createAdvCharacter(uid, "weborder"); err != nil {
+		t.Fatal(err)
+	}
+	c := &DnDCharacter{
+		UserID: uid, Race: RaceHuman, Class: ClassFighter, Level: level,
+		STR: 14, DEX: 12, CON: 14, INT: 10, WIS: 10, CHA: 10,
+		HPMax: 30, HPCurrent: 30, ArmorClass: 14,
+	}
+	if err := SaveDnDCharacter(c); err != nil {
+		t.Fatal(err)
+	}
+	euro := &EuroPlugin{}
+	euro.ensureBalance(uid)
+	if coins > 0 {
+		euro.Credit(uid, coins, "test bankroll")
+	}
+	return &AdventurePlugin{euro: euro}
+}
+
+// A forged zone must buy nothing. Pete only ever offers what gogobee quoted it,
+// but a quote is a stale snapshot and not a permission — so the order path
+// re-resolves against availableZonesFor and refuses anything that isn't there.
+func TestWebExpeditionStartReResolvesTheZone(t *testing.T) {
+	setupEmptyTestDB(t)
+	uid := id.UserID("@web-start-forged:example.org")
+	t.Cleanup(func() { cleanupExpeditions(uid); cleanupZoneRuns(uid) })
+	p := webOrderTestChar(t, uid, 2, 100000)
+
+	before := p.euro.GetBalance(uid)
+	status, _, retry := p.applyAdvOrder(uid, peteclient.AdvOrder{
+		GUID: "forged-zone", Action: peteclient.AdvOrderExpedition,
+		Params: &peteclient.AdvOrderParams{Zone: "dragons_lair", Loadout: "lean"},
+	})
+	if retry {
+		t.Fatal("a locked zone asked for a retry; it must be terminal")
+	}
+	if status != "rejected_zone_locked" {
+		t.Fatalf("status = %q, want rejected_zone_locked", status)
+	}
+	if after := p.euro.GetBalance(uid); after != before {
+		t.Fatalf("a refused departure moved money: %.0f -> %.0f", before, after)
+	}
+	if exp, _ := getActiveExpedition(uid); exp != nil {
+		t.Fatal("a refused departure started an expedition anyway")
+	}
+}
+
+// An unknown loadout is refused, never defaulted. Defaulting would spend coins on
+// a pack size the player never picked.
+func TestWebExpeditionStartRefusesAnUnknownLoadout(t *testing.T) {
+	setupEmptyTestDB(t)
+	uid := id.UserID("@web-start-loadout:example.org")
+	t.Cleanup(func() { cleanupExpeditions(uid); cleanupZoneRuns(uid) })
+	p := webOrderTestChar(t, uid, 2, 100000)
+
+	before := p.euro.GetBalance(uid)
+	status, _, _ := p.applyAdvOrder(uid, peteclient.AdvOrder{
+		GUID: "bad-loadout", Action: peteclient.AdvOrderExpedition,
+		Params: &peteclient.AdvOrderParams{Zone: string(ZoneGoblinWarrens), Loadout: "enormous"},
+	})
+	if status != "rejected_unavailable" {
+		t.Fatalf("status = %q, want rejected_unavailable", status)
+	}
+	if after := p.euro.GetBalance(uid); after != before {
+		t.Fatalf("a refused loadout moved money: %.0f -> %.0f", before, after)
+	}
+}
+
+// The money test that matters: a re-offered order (verdict-ack lost before the
+// ledger stamped it) must not charge twice, and must not answer "you're already
+// on an expedition" for the expedition it just started.
+func TestWebExpeditionStartChargesOnceOnAReoffer(t *testing.T) {
+	setupEmptyTestDB(t)
+	uid := id.UserID("@web-start-idem:example.org")
+	t.Cleanup(func() { cleanupExpeditions(uid); cleanupZoneRuns(uid) })
+	p := webOrderTestChar(t, uid, 2, 100000)
+
+	order := peteclient.AdvOrder{
+		GUID: "start-once", Action: peteclient.AdvOrderExpedition,
+		Params: &peteclient.AdvOrderParams{Zone: string(ZoneGoblinWarrens), Loadout: "lean"},
+	}
+	before := p.euro.GetBalance(uid)
+	status, _, retry := p.applyAdvOrder(uid, order)
+	if retry || status != "applied" {
+		t.Fatalf("first apply = %q retry=%v, want applied", status, retry)
+	}
+	afterFirst := p.euro.GetBalance(uid)
+	if afterFirst >= before {
+		t.Fatalf("outfitting cost nothing: %.0f -> %.0f", before, afterFirst)
+	}
+
+	// The re-offer. applyAdvOrder is reached directly here on purpose: the
+	// adv_applied_orders ledger would normally short-circuit it, and this asserts
+	// the layer *underneath* that guard is safe too.
+	status, _, retry = p.applyAdvOrder(uid, order)
+	if retry {
+		t.Fatal("the re-offer asked for a retry")
+	}
+	if status != "applied" {
+		t.Fatalf("re-offer = %q, want applied — the settled debit is what tells a "+
+			"replay apart from a player who really is already out", status)
+	}
+	if after := p.euro.GetBalance(uid); after != afterFirst {
+		t.Fatalf("the re-offer charged again: %.0f -> %.0f", afterFirst, after)
+	}
+}
+
+// Babysit: same replay contract, plus the two durations are the only two sold.
+func TestWebBabysitChargesOnceAndSellsTwoDurations(t *testing.T) {
+	setupEmptyTestDB(t)
+	uid := id.UserID("@web-sitter:example.org")
+	p := webOrderTestChar(t, uid, 2, 100000)
+
+	status, _, _ := p.applyAdvOrder(uid, peteclient.AdvOrder{
+		GUID: "sitter-odd", Action: peteclient.AdvOrderBabysit,
+		Params: &peteclient.AdvOrderParams{Days: 3},
+	})
+	if status != "rejected_unavailable" {
+		t.Fatalf("3-day sitter = %q, want rejected_unavailable", status)
+	}
+
+	order := peteclient.AdvOrder{
+		GUID: "sitter-once", Action: peteclient.AdvOrderBabysit,
+		Params: &peteclient.AdvOrderParams{Days: 7},
+	}
+	before := p.euro.GetBalance(uid)
+	if status, _, _ := p.applyAdvOrder(uid, order); status != "applied" {
+		t.Fatalf("hire = %q, want applied", status)
+	}
+	afterFirst := p.euro.GetBalance(uid)
+	if afterFirst >= before {
+		t.Fatalf("the sitter worked for free: %.0f -> %.0f", before, afterFirst)
+	}
+	if status, _, _ := p.applyAdvOrder(uid, order); status != "applied" {
+		t.Fatalf("re-offer = %q, want applied", status)
+	}
+	if after := p.euro.GetBalance(uid); after != afterFirst {
+		t.Fatalf("the re-offer charged again: %.0f -> %.0f", afterFirst, after)
+	}
+}
+
+// A refusal must never come back as retry: a retried refusal never reaches a
+// verdict, so the order parks and the strip says "asked for…" forever.
+func TestWebMoneyVerbRefusalsAreTerminal(t *testing.T) {
+	setupEmptyTestDB(t)
+	uid := id.UserID("@web-broke:example.org")
+	t.Cleanup(func() { cleanupExpeditions(uid); cleanupZoneRuns(uid) })
+	p := webOrderTestChar(t, uid, 2, 0)
+
+	for _, tc := range []struct {
+		name  string
+		order peteclient.AdvOrder
+		want  string
+	}{
+		{"broke departure", peteclient.AdvOrder{
+			GUID: "broke-1", Action: peteclient.AdvOrderExpedition,
+			Params: &peteclient.AdvOrderParams{Zone: string(ZoneGoblinWarrens), Loadout: "heavy"},
+		}, "rejected_insufficient_funds"},
+		{"nothing to resume", peteclient.AdvOrder{
+			GUID: "resume-1", Action: peteclient.AdvOrderResume,
+			Params: &peteclient.AdvOrderParams{Loadout: "lean"},
+		}, "rejected_nothing_to_resume"},
+		{"broke sitter", peteclient.AdvOrder{
+			GUID: "broke-2", Action: peteclient.AdvOrderBabysit,
+			Params: &peteclient.AdvOrderParams{Days: 30},
+		}, "rejected_insufficient_funds"},
+	} {
+		status, detail, retry := p.applyAdvOrder(uid, tc.order)
+		if retry {
+			t.Fatalf("%s asked for a retry; it must be terminal", tc.name)
+		}
+		if status != tc.want {
+			t.Fatalf("%s = %q, want %q (detail %q)", tc.name, status, tc.want, detail)
+		}
+		if strings.ContainsAny(detail, "*`") {
+			t.Fatalf("%s verdict still carries Matrix markdown: %q", tc.name, detail)
+		}
+	}
+}
+
+// An order with no params at all is a contract breach, not a user mistake, and
+// must be refused rather than defaulted into spending money.
+func TestWebMoneyVerbsRefuseMissingParams(t *testing.T) {
+	setupEmptyTestDB(t)
+	uid := id.UserID("@web-noparams:example.org")
+	t.Cleanup(func() { cleanupExpeditions(uid); cleanupZoneRuns(uid) })
+	p := webOrderTestChar(t, uid, 2, 100000)
+
+	before := p.euro.GetBalance(uid)
+	for _, action := range []string{
+		peteclient.AdvOrderExpedition, peteclient.AdvOrderResume, peteclient.AdvOrderBabysit,
+	} {
+		status, _, retry := p.applyAdvOrder(uid, peteclient.AdvOrder{GUID: "np-" + action, Action: action})
+		if retry || status != "rejected_unavailable" {
+			t.Fatalf("%s with no params = %q retry=%v, want rejected_unavailable", action, status, retry)
+		}
+	}
+	if after := p.euro.GetBalance(uid); after != before {
+		t.Fatalf("a paramless order moved money: %.0f -> %.0f", before, after)
+	}
+}

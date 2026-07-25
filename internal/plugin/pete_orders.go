@@ -3,10 +3,12 @@ package plugin
 // The web action queue's game-side loop — the equip queue's sibling, and the
 // first one where the web plays the game rather than dressing the character.
 //
-// An owner, signed in on Pete, asks to pull out of a run or to take today's swing
-// at the Siege. Pete records the intent; we poll for it, run the real command
-// path (the same one `!extract` and `!adventure worldboss fight` run — not a
-// second implementation of it), and file a verdict Pete shows them.
+// An owner, signed in on Pete, asks for something: pull out of a run, take
+// today's swing at the Siege, set out for a zone, walk back into the run they
+// extracted from, hire the pet sitter. Pete records the intent; we poll for it,
+// run the real command path (the same one `!extract`, `!expedition start`,
+// `!resume` and the rest run — not a second implementation of it), and file a
+// verdict Pete shows them.
 //
 // Same non-idempotency problem as equip, with higher stakes: replaying an
 // extraction would end a run the player had already resumed, and replaying a bout
@@ -121,10 +123,17 @@ func (p *AdventurePlugin) fulfilAdvOrder(ctx context.Context, order peteclient.A
 // note for Pete, or retry=true for a transient fault that should leave the order
 // pending. It records nothing and pushes nothing — the caller does both.
 //
-// Note what is NOT here: a per-user lock. Both verbs take it inside their own
-// shared helper (performExtraction, takeSiegeBout), which is what serialises them
-// against the Matrix commands running the very same code. Taking it here too
-// would deadlock on a non-reentrant mutex.
+// Note what is NOT here: a per-user lock. Almost every verb takes it inside its
+// own shared helper (performExtraction, takeSiegeBout, performResume,
+// performBabysitPurchase), which is what serialises them against the Matrix
+// commands running the very same code. Taking it here too would deadlock on a
+// non-reentrant mutex.
+//
+// The one exception is performExpeditionStart, which cannot take it — its Matrix
+// caller already holds it across the whole `!expedition` switch — so
+// applyWebExpeditionStart takes it instead. That asymmetry is written down in
+// both places because getting it wrong does not fail loudly: it wedges the
+// player's lock forever and every later adventure command from them hangs.
 func (p *AdventurePlugin) applyAdvOrder(owner id.UserID, order peteclient.AdvOrder) (status, detail string, retry bool) {
 	switch order.Action {
 	case peteclient.AdvOrderExtract:
@@ -166,6 +175,15 @@ func (p *AdventurePlugin) applyAdvOrder(owner id.UserID, order peteclient.AdvOrd
 		// narration closed with, minus its markdown.
 		return "applied", advOrderPlainText(siegeBoutFooter(bout, boss)), false
 
+	case peteclient.AdvOrderExpedition:
+		return p.applyWebExpeditionStart(owner, order)
+
+	case peteclient.AdvOrderResume:
+		return p.applyWebResume(owner, order)
+
+	case peteclient.AdvOrderBabysit:
+		return p.applyWebBabysit(owner, order)
+
 	default:
 		// Pete validates the action before it ever queues an order, so this is a
 		// contract breach, not a user mistake. Reject permanently rather than spin.
@@ -173,13 +191,151 @@ func (p *AdventurePlugin) applyAdvOrder(owner id.UserID, order peteclient.AdvOrd
 	}
 }
 
+// ---- the three verbs that take arguments and spend coins ------------------------
+//
+// Everything below re-resolves its own arguments against the game's own tables.
+// Pete only ever offers what gogobee quoted it (see pete_offers.go), but a quote
+// is up to two minutes stale and is not a permission — so the zone is looked up
+// again in availableZonesFor, the loadout is priced again at the real tier, and
+// the fee is read again at the real level. A forged param buys nothing.
+//
+// All three are money moves on a retrying wire, so each hands the order guid down
+// as the idempotency key. Nothing here refunds-then-retries: once a refund has
+// happened the guid-keyed debit will not charge again, so a retry would hand over
+// the goods for free. Every failure past the debit is therefore permanent.
+
+// applyWebExpeditionStart sends the owner's adventurer out of town.
+func (p *AdventurePlugin) applyWebExpeditionStart(owner id.UserID, order peteclient.AdvOrder) (status, detail string, retry bool) {
+	if order.Params == nil || order.Params.Zone == "" {
+		return "rejected_unavailable", "That order didn't say where to.", false
+	}
+	// performExpeditionStart is the one headless twin that does NOT take the
+	// per-user lock (its Matrix caller already holds it across the whole
+	// `!expedition` switch), so this is the one order case that has to.
+	userMu := p.advUserLock(owner)
+	userMu.Lock()
+	defer userMu.Unlock()
+
+	c, err := LoadDnDCharacter(owner)
+	if err != nil {
+		return "", "", true // a DB fault; nothing written, so the next tick retries cleanly
+	}
+	if c == nil || c.PendingSetup {
+		return "rejected_unavailable", "You don't have an adventurer yet.", false
+	}
+	zoneID, ok := resolveZoneInput(order.Params.Zone, availableZonesFor(owner, c.Level))
+	if !ok {
+		if reason := postgameLockReason(order.Params.Zone, owner, c.Level); reason != "" {
+			return "rejected_zone_locked", advOrderPlainText(reason), false
+		}
+		return "rejected_zone_locked", "That zone isn't open to you right now.", false
+	}
+	zone, _ := getZone(zoneID)
+	// An unknown loadout is refused rather than defaulted. A default here would
+	// spend coins on a pack size the player never picked.
+	loadout, ok := parseLoadoutToken(order.Params.Loadout)
+	if !ok {
+		return "rejected_unavailable", "That isn't a loadout I sell.", false
+	}
+	out, err := p.performExpeditionStart(owner, c, zone, loadoutPurchase(zone.Tier, loadout), order.GUID)
+	if err != nil {
+		status := "rejected_unavailable"
+		switch {
+		case errors.Is(err, errExpStartZoneLocked):
+			status = "rejected_zone_locked"
+		case errors.Is(err, errExpStartBusy):
+			status = "rejected_busy"
+		case errors.Is(err, errExpStartBroke):
+			status = "rejected_insufficient_funds"
+		}
+		// Everything else — still resting, a bad pack count, a start that tore
+		// itself down and refunded — is rejected_unavailable, and the detail line
+		// carries the specifics.
+		return status, advOrderPlainText(err.Error()), false
+	}
+	return "applied", fmt.Sprintf(
+		"Out of town, bound for %s, with the %s loadout: %d coins, about %d days of provisions.",
+		out.Zone.Display, loadoutName(loadout), out.Cost, out.Days), false
+}
+
+// applyWebResume walks the owner back into the run they extracted from.
+func (p *AdventurePlugin) applyWebResume(owner id.UserID, order peteclient.AdvOrder) (status, detail string, retry bool) {
+	// The loadout is required here, unlike in Matrix: an empty one asks
+	// performResume for the pick-a-loadout prompt, which is a DM, not a verdict.
+	if order.Params == nil || order.Params.Loadout == "" {
+		return "rejected_unavailable", "That order didn't say what to pack.", false
+	}
+	if _, ok := parseLoadoutToken(order.Params.Loadout); !ok {
+		return "rejected_unavailable", "That isn't a loadout I sell.", false
+	}
+	out, err := p.performResume(owner, order.Params.Loadout, order.GUID)
+	if err != nil {
+		var refusal advRefusal
+		if !errors.As(err, &refusal) {
+			// Not a refusal at all — a DB fault reading expedition state. Nothing
+			// has been written, so leave it pending.
+			slog.Warn("orders: resume failed", "order", order.GUID, "user", owner, "err", err)
+			return "", "", true
+		}
+		status := "rejected_unavailable"
+		switch {
+		case errors.Is(err, errResumeBusy):
+			status = "rejected_busy"
+		case errors.Is(err, errResumeNothing), errors.Is(err, errResumeLapsed):
+			status = "rejected_nothing_to_resume"
+		case errors.Is(err, errResumeBroke):
+			status = "rejected_insufficient_funds"
+		}
+		return status, advOrderPlainText(err.Error()), false
+	}
+	return "applied", fmt.Sprintf(
+		"Back into %s on day %d, re-outfitted for %d coins.",
+		out.Zone.Display, out.Day, out.Purchase.Cost()), false
+}
+
+// applyWebBabysit engages the pet sitter for a week or a month.
+func (p *AdventurePlugin) applyWebBabysit(owner id.UserID, order peteclient.AdvOrder) (status, detail string, retry bool) {
+	// The two durations the game sells. Anything else is a contract breach rather
+	// than a user mistake, since Pete offers exactly these two.
+	days := 0
+	if order.Params != nil {
+		days = order.Params.Days
+	}
+	if days != 7 && days != 30 {
+		return "rejected_unavailable", "The sitter works by the week or by the month.", false
+	}
+	out, err := p.performBabysitPurchase(owner, days, order.GUID)
+	if err != nil {
+		status := "rejected_unavailable"
+		switch {
+		case errors.Is(err, errBabysitActive):
+			status = "rejected_busy"
+		case errors.Is(err, errBabysitBroke):
+			status = "rejected_insufficient_funds"
+		}
+		return status, advOrderPlainText(err.Error()), false
+	}
+	label := "a week"
+	if out.Days == 30 {
+		label = "a month"
+	}
+	note := fmt.Sprintf("Sitter engaged for %s, %d coins.", label, out.Cost)
+	if out.PetName != "" {
+		note += fmt.Sprintf(" %s is in good hands.", out.PetName)
+	}
+	return "applied", note, false
+}
+
 // advOrderPlainText strips the Matrix markdown out of a line reused as a web
-// verdict. Pete renders the detail as text, so asterisks would show up literally.
+// verdict. Pete renders the detail as text, so asterisks and backticks would show
+// up literally. The command hints inside those backticks stay — a verdict that
+// says to type `!expedition abandon` is telling the truth about where the other
+// door is, and the web has no button for it yet.
 func advOrderPlainText(s string) string {
 	out := make([]rune, 0, len(s))
 	for _, r := range s {
 		switch r {
-		case '*':
+		case '*', '`':
 			continue
 		case '\n':
 			out = append(out, ' ')

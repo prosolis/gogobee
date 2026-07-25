@@ -175,3 +175,28 @@ func TestResume_WindowExpired(t *testing.T) {
 			time.Since(*got.CompletedAt), extractResumeWindow)
 	}
 }
+
+// `!expedition extract` and `!expedition resume` are aliases for two top-level
+// commands that take the per-user lock themselves. If the alias dispatcher takes
+// that lock first the handler blocks on it forever and, because the deferred
+// unlock never runs, every later adventure command from that player wedges too.
+// This does not fail on regression — it hangs — so the timeout is the assertion.
+func TestExpeditionAliasesDoNotWedgeTheUserLock(t *testing.T) {
+	setupEmptyTestDB(t)
+	uid := id.UserID("@exp-alias-lock:example")
+	t.Cleanup(func() { cleanupExpeditions(uid) })
+
+	for _, sub := range []string{"extract", "resume"} {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			p := &AdventurePlugin{euro: &EuroPlugin{}}
+			_ = p.handleDnDExpeditionCmd(MessageContext{Sender: uid}, sub)
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("!expedition %s never returned: the alias re-took advUserLock", sub)
+		}
+	}
+}

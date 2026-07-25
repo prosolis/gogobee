@@ -540,13 +540,13 @@ type RealmOccupant struct {
 // recovered by gogobee at push time from the run history, which is why this is
 // pushed rather than derived on Pete.
 type RealmFirst struct {
-	Kind    string `json:"kind"`              // "zone" | "treasure"
-	Target  string `json:"target"`            // the zone id or treasure key
-	Display string `json:"display"`           // the human name for it
-	Tier    int    `json:"tier,omitempty"`    // zone tier, when kind is "zone"
-	Holder  string `json:"holder,omitempty"`  // character name, empty when unrecoverable
-	Token   string `json:"token,omitempty"`   // board token; empty when opted out
-	AtUnix  int64  `json:"at_unix"`           // when the realm first saw it
+	Kind    string `json:"kind"`             // "zone" | "treasure"
+	Target  string `json:"target"`           // the zone id or treasure key
+	Display string `json:"display"`          // the human name for it
+	Tier    int    `json:"tier,omitempty"`   // zone tier, when kind is "zone"
+	Holder  string `json:"holder,omitempty"` // character name, empty when unrecoverable
+	Token   string `json:"token,omitempty"`  // board token; empty when opted out
+	AtUnix  int64  `json:"at_unix"`          // when the realm first saw it
 }
 
 // RealmStanding is one adventurer's line on the board. Every number here is a
@@ -631,6 +631,63 @@ type PlayerDetail struct {
 	// No omitempty: a €0 balance is a real, informative fact (a broke player), not
 	// an absent one — dropping it would let the confirm dialog show a stale amount.
 	Balance float64 `json:"balance"`
+	// Zones is where this adventurer may go right now, priced. It is the offer
+	// list behind the web's "send on expedition" picker: level gating and the T6
+	// postgame gate are resolved here, so a zone the player cannot enter is simply
+	// absent rather than shown and then refused. Empty while they are already out.
+	Zones []ZoneOffer `json:"zones,omitempty"`
+	// Resume is the extracted expedition waiting to be walked back into, priced
+	// the same way. Absent when there is nothing to resume.
+	Resume *ResumeOffer `json:"resume,omitempty"`
+	// Babysit is the pet-care subscription's standing and price. Always present
+	// for a live adventurer: "you already have one" is as useful to the page as a
+	// price is.
+	Babysit *BabysitOffer `json:"babysit,omitempty"`
+}
+
+// ZoneOffer is one place the owner may set out for, with what the trip costs.
+// Pete renders these and does no arithmetic — the prices are the game's, quoted
+// at push time, and gogobee re-quotes them for real when the order lands.
+type ZoneOffer struct {
+	ID       string         `json:"id"`
+	Display  string         `json:"display"`
+	Tier     int            `json:"tier"`
+	Hook     string         `json:"hook,omitempty"`
+	Postgame bool           `json:"postgame,omitempty"`
+	Loadouts []LoadoutOffer `json:"loadouts,omitempty"`
+}
+
+// LoadoutOffer is one supply preset for a zone: what it is called, what it
+// costs, and roughly how long it lasts. Key is the token the order carries back.
+type LoadoutOffer struct {
+	Key   string `json:"key"` // lean|balanced|heavy
+	Name  string `json:"name"`
+	Blurb string `json:"blurb,omitempty"`
+	Cost  int    `json:"cost"`
+	Days  int    `json:"days"` // provisions at the zone's daily burn
+}
+
+// ResumeOffer is the extracted expedition the owner can still walk back into,
+// with the same priced loadouts as a fresh departure. ExpiresAt is the end of
+// the seven-day window, so the page can say how long is left rather than just
+// that there is a way back.
+type ResumeOffer struct {
+	ZoneID    string         `json:"zone_id"`
+	Display   string         `json:"display"`
+	Tier      int            `json:"tier"`
+	Day       int            `json:"day"`
+	ExpiresAt int64          `json:"expires_at,omitempty"`
+	Loadouts  []LoadoutOffer `json:"loadouts,omitempty"`
+}
+
+// BabysitOffer is the sitter's standing and price. WeekCost/MonthCost are the
+// two durations the game sells; they scale with level, which is why they are
+// pushed rather than hardcoded on Pete.
+type BabysitOffer struct {
+	Active    bool  `json:"active"`
+	ExpiresAt int64 `json:"expires_at,omitempty"`
+	WeekCost  int   `json:"week_cost"`
+	MonthCost int   `json:"month_cost"`
 }
 
 // EquipSlotView is one of the 5 standard equipment slots, carrying what the web
@@ -1007,15 +1064,33 @@ type AdvOrder struct {
 	OwnerLocalpart string `json:"owner_localpart"`
 	Token          string `json:"token"`
 	CharacterName  string `json:"character_name"`
-	Action         string `json:"action"` // extract / siege_join
+	Action         string `json:"action"`
 	Status         string `json:"status"`
 	CreatedAt      int64  `json:"created_at"`
+	// Params is the verb's arguments, and only the verbs that take any carry it:
+	// which zone, which supply loadout, how many days of sitting. It never names
+	// an adventurer — that still comes from the session on Pete's side — and
+	// every field in it is re-resolved against the game's own tables before it
+	// means anything, so a forged zone or a forged price buys nothing.
+	Params *AdvOrderParams `json:"params,omitempty"`
+}
+
+// AdvOrderParams is the union of every verb's arguments, flat rather than
+// per-verb because there are three of them and each reads one or two fields.
+// Anything a verb does not read is ignored rather than rejected.
+type AdvOrderParams struct {
+	Zone    string `json:"zone,omitempty"`    // zone id, for expedition_start
+	Loadout string `json:"loadout,omitempty"` // lean|balanced|heavy, for expedition_start / resume
+	Days    int    `json:"days,omitempty"`    // 7 or 30, for babysit
 }
 
 // Action names, the wire contract's half of storage.AdvAction* on Pete.
 const (
-	AdvOrderExtract   = "extract"
-	AdvOrderSiegeJoin = "siege_join"
+	AdvOrderExtract    = "extract"
+	AdvOrderSiegeJoin  = "siege_join"
+	AdvOrderExpedition = "expedition_start"
+	AdvOrderResume     = "expedition_resume"
+	AdvOrderBabysit    = "babysit"
 )
 
 // PendingOrders asks Pete for web actions waiting on us. A Pete predating the

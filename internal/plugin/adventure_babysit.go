@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -100,33 +101,84 @@ func (p *AdventurePlugin) handleBabysitCmd(ctx MessageContext, args string) erro
 	}
 }
 
-func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) error {
-	userMu := p.advUserLock(ctx.Sender)
+// Sentinels for the ways hiring a sitter can be refused, so the web action queue
+// (pete_orders.go) can pick a verdict without parsing prose. Each is returned
+// inside an advRefusal carrying the finished sentence, so `!adventure babysit`
+// keeps the copy it always sent.
+var (
+	errBabysitNoCharacter = errors.New("babysit: no adventurer")
+	errBabysitActive      = errors.New("babysit: a sitter is already engaged")
+	errBabysitDead        = errors.New("babysit: adventurer is dead")
+	errBabysitBroke       = errors.New("babysit: cannot cover the fee")
+	errBabysitFailed      = errors.New("babysit: could not engage a sitter")
+)
+
+// babysitOutcome is what hiring did, for a caller describing it somewhere other
+// than a DM.
+type babysitOutcome struct {
+	Days    int
+	Cost    int
+	PetName string
+	PetLine string
+	Confirm string
+}
+
+// performBabysitPurchase is `!adventure babysit week|month` minus the command
+// framing. Shared with the web action queue so hiring a sitter from a phone
+// engages the same one, on the same clock, with the same log reset.
+//
+// idemKey, when set, is the web order's guid and moves the fee onto DebitIdem so
+// a re-offered order cannot charge twice.
+func (p *AdventurePlugin) performBabysitPurchase(uid id.UserID, days int, idemKey string) (babysitOutcome, error) {
+	userMu := p.advUserLock(uid)
 	userMu.Lock()
 	defer userMu.Unlock()
 
-	char, err := loadAdvCharacter(ctx.Sender)
+	char, err := loadAdvCharacter(uid)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "No adventurer found. Type `!adventure` to create one.")
+		return babysitOutcome{}, refuseAdv(errBabysitNoCharacter, "No adventurer found. Type `!adventure` to create one.")
 	}
 
 	if char.BabysitActive {
-		return p.SendDM(ctx.Sender, "🍼 The babysitter is already here. They're not leaving until the job is done.")
+		// A web order that already paid and already engaged the sitter lands here
+		// on the re-offer. The settled fee is what tells that apart from somebody
+		// who really does already have one.
+		if idemKey != "" && p.euro != nil && p.euro.HasExternalTx(idemKey) {
+			return babysitOutcome{Days: days, PetName: char.PetName}, nil
+		}
+		return babysitOutcome{}, refuseAdv(errBabysitActive, "🍼 The babysitter is already here. They're not leaving until the job is done.")
 	}
 
 	if !char.Alive {
-		return p.SendDM(ctx.Sender, "Your adventurer is dead. The babysitter does not work with corpses.")
+		return babysitOutcome{}, refuseAdv(errBabysitDead, "Your adventurer is dead. The babysitter does not work with corpses.")
 	}
 
 	daily := babysitDailyCost(dndLevelForUser(char.UserID))
 	totalCost := daily * days
-	balance := p.euro.GetBalance(char.UserID)
-	if balance < float64(totalCost) {
-		return p.SendDM(ctx.Sender, fmt.Sprintf("🍼 The babysitting service costs %s for %d days. You have %s. The service has standards. Not many, but some.", fmtEuro(totalCost), days, fmtEuro(balance)))
+	if p.euro == nil {
+		return babysitOutcome{}, refuseAdv(errBabysitFailed, "Coin system unavailable — try again later.")
+	}
+	// Skip the affordability gate on a re-offer that already paid: the fee is a
+	// settled fact, and re-reading the now-lower balance would bounce a sitter the
+	// player has bought.
+	if !(idemKey != "" && p.euro.HasExternalTx(idemKey)) {
+		balance := p.euro.GetBalance(char.UserID)
+		if balance < float64(totalCost) {
+			return babysitOutcome{}, refuseAdv(errBabysitBroke,
+				"🍼 The babysitting service costs %s for %d days. You have %s. The service has standards. Not many, but some.",
+				fmtEuro(totalCost), days, fmtEuro(balance))
+		}
 	}
 
-	if !p.euro.Debit(char.UserID, float64(totalCost), "babysit_purchase") {
-		return p.SendDM(ctx.Sender, "Payment failed. The babysitter looked at your wallet and walked away.")
+	debited := false
+	if idemKey != "" {
+		ok, _, err := p.euro.DebitIdem(char.UserID, float64(totalCost), "babysit_purchase", idemKey)
+		debited = err == nil && ok
+	} else {
+		debited = p.euro.Debit(char.UserID, float64(totalCost), "babysit_purchase")
+	}
+	if !debited {
+		return babysitOutcome{}, refuseAdv(errBabysitFailed, "Payment failed. The babysitter looked at your wallet and walked away.")
 	}
 
 	clearBabysitLogs(char.UserID)
@@ -138,22 +190,39 @@ func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) er
 
 	if err := saveAdvCharacter(char); err != nil {
 		slog.Error("babysit: failed to save character", "user", char.UserID, "err", err)
-		p.euro.Credit(char.UserID, float64(totalCost), "babysit_refund")
-		return p.SendDM(ctx.Sender, "Something went wrong activating the service. Your gold has been refunded.")
+		if idemKey != "" {
+			if _, _, err := p.euro.CreditIdem(char.UserID, float64(totalCost), "babysit_refund", idemKey+":refund"); err != nil {
+				slog.Error("babysit: refund failed", "user", char.UserID, "order", idemKey, "err", err)
+			}
+		} else {
+			p.euro.Credit(char.UserID, float64(totalCost), "babysit_refund")
+		}
+		return babysitOutcome{}, refuseAdv(errBabysitFailed, "Something went wrong activating the service. Your gold has been refunded.")
 	}
 	if err := upsertPlayerMetaBabysitState(char.UserID, babysitStateFromAdvChar(char)); err != nil {
 		slog.Error("player_meta: babysit start dual-write failed", "user", char.UserID, "err", err)
 	}
 
-	confirm := pickBabysitFlavor(babysitConfirmLines)
-	durLabel := "1 week"
-	if days == 30 {
-		durLabel = "1 month"
-	}
-
 	petLine := "No pet to tend yet — the babysitter will keep that in mind."
 	if char.HasPet() {
 		petLine = fmt.Sprintf("Pet: %s (L%d) — daily care included", char.PetName, char.PetLevel)
+	}
+	return babysitOutcome{
+		Days: days, Cost: totalCost, PetName: char.PetName, PetLine: petLine,
+		Confirm: pickBabysitFlavor(babysitConfirmLines),
+	}, nil
+}
+
+// handleBabysitPurchase is the command framing around performBabysitPurchase.
+func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) error {
+	out, err := p.performBabysitPurchase(ctx.Sender, days, "")
+	if err != nil {
+		return p.SendDM(ctx.Sender, err.Error())
+	}
+
+	durLabel := "1 week"
+	if days == 30 {
+		durLabel = "1 month"
 	}
 
 	text := fmt.Sprintf("🍼 **Adventurer Babysitting Service — Activated**\n\n"+
@@ -162,7 +231,7 @@ func (p *AdventurePlugin) handleBabysitPurchase(ctx MessageContext, days int) er
 		"%s\n"+
 		"Camp safety: standard camps now rest like fortified ones\n"+
 		"Rival duels: declined on your behalf\n\n"+
-		"_%s_", durLabel, days, totalCost, petLine, confirm)
+		"_%s_", durLabel, days, out.Cost, out.PetLine, out.Confirm)
 
 	return p.SendDM(ctx.Sender, text)
 }

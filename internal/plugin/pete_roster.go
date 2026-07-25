@@ -225,6 +225,11 @@ func (p *AdventurePlugin) buildDetailSnapshot(now time.Time) (peteclient.DetailS
 		if p.euro != nil {
 			pd.Balance = p.euro.GetBalance(uid)
 		}
+		// W5b: what this owner may ask for from the web, priced. See pete_offers.go
+		// on why a quote is not a permission.
+		pd.Zones = zoneOffersFor(uid)
+		pd.Resume = resumeOfferFor(uid)
+		pd.Babysit = babysitOfferFor(adv)
 		snap.Players = append(snap.Players, pd)
 	}
 	return snap, nil
