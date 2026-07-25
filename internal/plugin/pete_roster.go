@@ -144,6 +144,10 @@ func rosterDetail(uid id.UserID, c *DnDCharacter) *peteclient.RosterDetail {
 		ArmorClass: c.ArmorClass,
 		Abilities:  [6]int{c.STR, c.DEX, c.CON, c.INT, c.WIS, c.CHA},
 		Modifiers:  c.Modifiers(),
+		// Unconditional, and this is the whole point of the field: it says this
+		// build knows about party seats, not that this character has any. Making
+		// it conditional would put it straight back in the hole it closes.
+		PartyKnown: true,
 	}
 	if equip, err := loadAdvEquipment(uid); err == nil {
 		for _, slot := range allSlots {

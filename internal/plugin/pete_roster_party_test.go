@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,6 +177,71 @@ func TestOptedOutSeatIsAnonymisedNotDropped(t *testing.T) {
 	}
 	if blank != 1 {
 		t.Errorf("%d anonymous seats, want exactly 1", blank)
+	}
+}
+
+// TestPartyKnownIsSetOnEverySheet pins the capability flag Pete's abandon button
+// hangs off. Party is omitempty, so a solo run and a game box too old to know what
+// a seat is both reach Pete as an empty slice; the flag is what tells them apart.
+// It is a fact about this build, so it must be true on a sheet with no party on it
+// at all — a conditional party_known reads as "this player is solo" and puts the
+// flag back in the hole it was added to close.
+func TestPartyKnownIsSetOnEverySheet(t *testing.T) {
+	newBoredomTestDB(t)
+	now := time.Now().UTC()
+	old := now.Add(-30 * time.Hour)
+
+	intown := id.UserID("@intown:test")
+	solo := id.UserID("@solo:test")
+	leader := id.UserID("@leader:test")
+	member := id.UserID("@member:test")
+	seedRosterPlayer(t, intown, "Nonk", &old, &old)
+	seedRosterPlayer(t, solo, "Quack", &old, &old)
+	seedRosterPlayer(t, leader, "Josie", &old, &old)
+	seedRosterPlayer(t, member, "Camcast", &old, &old)
+
+	seedExpedition(t, "exp-solo", solo, "active")
+	seedExpedition(t, "exp-shared", leader, "active")
+	seatLeaderFixture(t, "exp-shared")
+	if err := joinParty("exp-shared", member); err != nil {
+		t.Fatalf("joinParty: %v", err)
+	}
+
+	snap, err := buildRosterSnapshot(now, nil)
+	if err != nil {
+		t.Fatalf("buildRosterSnapshot: %v", err)
+	}
+	var seen int
+	for _, a := range snap.Adventurers {
+		if a.Detail == nil {
+			t.Fatalf("%s has no detail sheet to carry the flag", a.Name)
+		}
+		seen++
+		if !a.Detail.PartyKnown {
+			t.Errorf("%s (%s, %d seats) published party_known=false; this build knows what a seat is",
+				a.Name, a.Status, len(a.Detail.Party))
+		}
+	}
+	if seen != 4 {
+		t.Fatalf("checked %d sheets, want 4 — a case went missing", seen)
+	}
+
+	// The wire name is the contract: Pete decodes party_known and withholds the
+	// abandon button when it is absent, so a rename here fails silently and only
+	// on the far side.
+	blob, err := json.Marshal(&peteclient.RosterDetail{PartyKnown: true})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(blob), `"party_known":true`) {
+		t.Errorf("detail sheet serialised without party_known: %s", blob)
+	}
+	// And it must not be omitempty: an absent key is Pete's fail-closed answer,
+	// which a false flag has to keep meaning.
+	if blob, err = json.Marshal(&peteclient.RosterDetail{}); err != nil {
+		t.Fatalf("marshal: %v", err)
+	} else if !strings.Contains(string(blob), `"party_known":false`) {
+		t.Errorf("party_known is omitempty; false must stay on the wire: %s", blob)
 	}
 }
 
