@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gogobee/internal/db"
@@ -51,18 +52,50 @@ const runSummaryMaxBeats = 120
 // length alone. Byte count, matching Pete's len() check.
 const maxRunSummary = 1200
 
-// runSummaryTimeout is deliberately four times the dispatch budget.
+// runSummaryTimeout has to cover a COLD model, not just a generation.
 //
 // dispatchLLMTimeout is tight because authoring runs on a game chokepoint and a
 // template dispatch now beats a voiced one late. Nothing here is waiting on this:
-// it is a background ticker, the run ended minutes ago, and the page it feeds is
+// it is a background sweep, the run ended minutes ago, and the page it feeds is
 // already serving without it. The cost of being impatient is the opposite of
 // there — a timeout files an empty summary beat, and that run never gets another
-// chance at one. So this waits long enough that a timeout means the box is down
-// rather than that the model was thinking.
-const runSummaryTimeout = 60 * time.Second
+// chance at one.
+//
+// And impatience is the live risk, because this call is almost always the one
+// that pays the load. Ollama evicts an idle model after about five minutes, and
+// runs end far further apart than that, so the steady state is: model on disk,
+// nothing resident, weights to page in before the first token. A budget sized
+// for generation alone would expire during the load on every single run and file
+// an empty beat that says the box is down when the box is fine. So this is sized
+// for load-then-generate, and a timeout here really does mean the box is down.
+const runSummaryTimeout = 5 * time.Minute
 
 var runSummaryHTTP = &http.Client{Timeout: runSummaryTimeout}
+
+// runSummaryBusy is the whole concurrency story: at most one sweep in flight,
+// ever. The ticker starts one and moves on, so a cold model loading for minutes
+// costs the board nothing, and the ticks that fire meanwhile find the flag set
+// and skip rather than queue.
+var runSummaryBusy atomic.Bool
+
+// sweepRunSummariesAsync starts a sweep off the caller's goroutine if one isn't
+// already running.
+//
+// It has to be off the ticker: runSummaryTimeout is minutes and the tick is two,
+// so a synchronous call would hold the roster, details, siege and beat pushes
+// behind a model load and put the live board permanently a tick or more behind
+// the game. Ordering against those pushes is not lost by going async — the beat
+// this files is written to the local buffer with the next seq, and the pusher
+// ships it by seq on whichever tick comes after, still behind the run's own log.
+func (p *AdventurePlugin) sweepRunSummariesAsync() {
+	if !runSummaryBusy.CompareAndSwap(false, true) {
+		return // one still working; the next tick will find it done or still busy
+	}
+	go func() {
+		defer runSummaryBusy.Store(false)
+		p.sweepRunSummaries()
+	}()
+}
 
 // sweepRunSummaries authors the summary for at most one finished run per call.
 // Called from the roster ticker, after the beats themselves have been pushed —
