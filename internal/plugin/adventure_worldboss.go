@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -607,42 +608,58 @@ func (p *AdventurePlugin) worldBossOperatorSpawn(ctx MessageContext) error {
 		boss.Name, boss.Tier, groupInt(boss.HPMax)))
 }
 
-// fightWorldBoss runs one player's daily bout against the Siege: an arena-style
+// Sentinels for the four ways a bout can be refused, so a headless caller (the
+// web action queue, pete_orders.go) can turn each into its own verdict instead of
+// parsing a DM. `!adventure worldboss fight` maps them back to the prose it
+// always sent.
+var (
+	errSiegeNoBoss        = errors.New("siege: nothing camped outside town")
+	errSiegeNoCharacter   = errors.New("siege: no adventurer")
+	errSiegeDead          = errors.New("siege: adventurer is dead")
+	errSiegeAlreadyFought = errors.New("siege: today's bout already spent")
+)
+
+// takeSiegeBout runs one player's daily bout against the Siege: an arena-style
 // solo fight whose damage is subtracted from the shared pool win or lose. Real
 // HP cost, no death — a loss leaves the fighter battered (floored at 1 HP) but
 // standing. The per-user lock serialises a player's own repeat submits, so the
-// once-per-day gate can't be raced by a double-tap.
-func (p *AdventurePlugin) fightWorldBoss(ctx MessageContext) error {
-	userMu := p.advUserLock(ctx.Sender)
+// once-per-day gate can't be raced by a double-tap — and that same lock is what
+// makes it safe for the web queue and a Matrix command to reach for the bout at
+// the same moment.
+//
+// The combat narration is DM'd from here whichever door the bout came through: a
+// fight is thirty lines of blow-by-blow and belongs in Matrix, not in a one-line
+// verdict on a web page. The caller gets the boss and the result to describe.
+func (p *AdventurePlugin) takeSiegeBout(uid id.UserID) (worldBossBoutResult, *worldBossState, error) {
+	userMu := p.advUserLock(uid)
 	userMu.Lock()
 	defer userMu.Unlock()
 
 	boss, err := loadActiveWorldBoss()
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Something went wrong reaching the Siege. Try again in a moment.")
+		return worldBossBoutResult{}, nil, fmt.Errorf("reaching the Siege: %w", err)
 	}
 	if boss == nil {
-		return p.SendDM(ctx.Sender, "No Siege is camped outside town right now.")
+		return worldBossBoutResult{}, nil, errSiegeNoBoss
 	}
 
-	char, err := loadAdvCharacter(ctx.Sender)
+	char, err := loadAdvCharacter(uid)
 	if err != nil || char == nil {
-		return p.SendDM(ctx.Sender, "You need an adventurer first — type `!adventure` to begin.")
+		return worldBossBoutResult{}, boss, errSiegeNoCharacter
 	}
 	if !char.Alive {
-		return p.SendDM(ctx.Sender, "You're dead. The Siege will have to wait until you're back on your feet.")
+		return worldBossBoutResult{}, boss, errSiegeDead
 	}
 
 	today := time.Now().UTC().Format("2006-01-02")
-	if worldBossBoutUsedToday(boss.ID, ctx.Sender, today) {
-		return p.SendDM(ctx.Sender, fmt.Sprintf(
-			"You've already taken your bout against **%s** today. Come back tomorrow — one fight per day.", boss.Name))
+	if worldBossBoutUsedToday(boss.ID, uid, today) {
+		return worldBossBoutResult{}, boss, errSiegeAlreadyFought
 	}
 
-	bout, err := p.resolveWorldBossBout(ctx.Sender, boss, today)
+	bout, err := p.resolveWorldBossBout(uid, boss, today)
 	if err != nil {
-		slog.Error("worldboss: bout failed", "user", ctx.Sender, "err", err)
-		return p.SendDM(ctx.Sender, "The Siege combat hit an error. Try again in a moment.")
+		slog.Error("worldboss: bout failed", "user", uid, "err", err)
+		return worldBossBoutResult{}, boss, fmt.Errorf("running the bout: %w", err)
 	}
 
 	// Resolve a defeat BEFORE streaming the (multi-second) narration. The pool is
@@ -653,7 +670,7 @@ func (p *AdventurePlugin) fightWorldBoss(ctx MessageContext) error {
 		p.resolveWorldBossDefeated(boss)
 	}
 
-	playerName, _ := loadDisplayName(ctx.Sender)
+	playerName, _ := loadDisplayName(uid)
 	if playerName == "" {
 		playerName = "You"
 	}
@@ -661,18 +678,45 @@ func (p *AdventurePlugin) fightWorldBoss(ctx MessageContext) error {
 		fmt.Sprintf("⚔️ **The Siege — %s** (Tier %d)", boss.Name, boss.Tier),
 	}, RenderCombatLog(bout.Combat, playerName, boss.Name)...)
 
+	<-p.sendZoneCombatMessages(uid, phaseMessages, siegeBoutFooter(bout, boss))
+	return bout, boss, nil
+}
+
+// siegeBoutFooter is the one-line result of a bout — the damage dealt and what
+// the pool looks like now. It closes the Matrix narration and doubles as the web
+// verdict, so the two doors can't drift into describing the same fight
+// differently.
+func siegeBoutFooter(bout worldBossBoutResult, boss *worldBossState) string {
 	var footer string
 	if bout.Killed {
-		footer = fmt.Sprintf("💥 You deal **%d** damage — the killing blow! **%s** falls!", bout.Damage, boss.Name)
+		footer = fmt.Sprintf("💥 You deal **%d** damage: the killing blow! **%s** falls!", bout.Damage, boss.Name)
 	} else {
 		footer = fmt.Sprintf("💥 You deal **%d** damage. **%s** has **%s / %s HP** left.",
 			bout.Damage, boss.Name, groupInt(bout.Remaining), groupInt(boss.HPMax))
 	}
 	if bout.Battered {
-		footer += "\nYou stagger out of the fight at 1 HP — rest up before your next outing."
+		footer += "\nYou stagger out of the fight at 1 HP. Rest up before your next outing."
 	}
+	return footer
+}
 
-	<-p.sendZoneCombatMessages(ctx.Sender, phaseMessages, footer)
+// fightWorldBoss is `!adventure worldboss fight`: the command framing around
+// takeSiegeBout, which does the fight and the narration.
+func (p *AdventurePlugin) fightWorldBoss(ctx MessageContext) error {
+	_, boss, err := p.takeSiegeBout(ctx.Sender)
+	switch {
+	case errors.Is(err, errSiegeNoBoss):
+		return p.SendDM(ctx.Sender, "No Siege is camped outside town right now.")
+	case errors.Is(err, errSiegeNoCharacter):
+		return p.SendDM(ctx.Sender, "You need an adventurer first — type `!adventure` to begin.")
+	case errors.Is(err, errSiegeDead):
+		return p.SendDM(ctx.Sender, "You're dead. The Siege will have to wait until you're back on your feet.")
+	case errors.Is(err, errSiegeAlreadyFought):
+		return p.SendDM(ctx.Sender, fmt.Sprintf(
+			"You've already taken your bout against **%s** today. Come back tomorrow — one fight per day.", boss.Name))
+	case err != nil:
+		return p.SendDM(ctx.Sender, "Something went wrong reaching the Siege. Try again in a moment.")
+	}
 	return nil
 }
 

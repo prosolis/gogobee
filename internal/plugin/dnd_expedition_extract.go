@@ -352,32 +352,54 @@ func resumeExpedition(expID string, supplies ExpeditionSupplies) error {
 
 // ── !extract command ────────────────────────────────────────────────────────
 
-func (p *AdventurePlugin) handleExtractCmd(ctx MessageContext, _ string) error {
-	userMu := p.advUserLock(ctx.Sender)
+// Sentinels for the two ways an extraction can be refused. They exist so the
+// headless caller (the web action queue, pete_orders.go) can turn a refusal into
+// its own verdict without parsing a DM. `!extract` maps them straight back to the
+// prose it always sent.
+var (
+	errExtractNoRun     = errors.New("extract: no active expedition")
+	errExtractNotLeader = errors.New("extract: not the party leader")
+)
+
+// extractOutcome is what an extraction did, for a caller that has to describe it
+// somewhere other than a DM.
+type extractOutcome struct {
+	Zone string // display name
+	Day  int
+}
+
+// performExtraction is the whole of `!extract` minus the command framing: the
+// per-user lock, the leader check, the state flip, the log line, the party
+// fan-out and the emergence pet roll. It is shared with the web action queue so
+// that pulling out from a phone is the *same* extraction, not a second
+// implementation of one — the party still gets DM'd, the log still gets its
+// line, and the resume window is the same window.
+func (p *AdventurePlugin) performExtraction(uid id.UserID) (extractOutcome, error) {
+	userMu := p.advUserLock(uid)
 	userMu.Lock()
 	defer userMu.Unlock()
 
-	exp, isLeader, err := activeExpeditionFor(ctx.Sender)
+	exp, isLeader, err := activeExpeditionFor(uid)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+		return extractOutcome{}, fmt.Errorf("reading expedition state: %w", err)
 	}
 	if exp == nil {
-		return p.SendDM(ctx.Sender, "No active expedition to extract from.")
+		return extractOutcome{}, errExtractNoRun
 	}
 	if !isLeader {
 		// Extraction ends the expedition for the whole roster, so it is the
 		// leader's call — the same reasoning that makes `!flee` leader-only.
-		return p.SendDM(ctx.Sender, "Only your party leader can call the extraction. Ask them to `!extract`, or `!expedition leave` to walk out alone.")
+		return extractOutcome{}, errExtractNotLeader
 	}
 	zone, _ := getZone(exp.ZoneID)
-	updated, err := voluntaryExtractExpedition(ctx.Sender)
+	updated, err := voluntaryExtractExpedition(uid)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't extract: "+err.Error())
+		return extractOutcome{}, err
 	}
 	line := flavor.Pick(flavor.ExtractionVoluntary)
 	_ = appendExpeditionLog(updated.ID, updated.CurrentDay, "narrative",
 		"voluntary extraction", line)
-	markActedToday(ctx.Sender)
+	markActedToday(uid)
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("🚪 **Extraction — %s, Day %d**\n\n",
@@ -401,8 +423,24 @@ func (p *AdventurePlugin) handleExtractCmd(ctx MessageContext, _ string) error {
 
 	// Emergence seam: surfacing from a run is when an animal may have moved
 	// into the empty house. Every member surfaced, so every member rolls.
-	for _, uid := range expeditionAudience(updated) {
-		p.maybeRollPetArrivalOnEmerge(uid)
+	for _, member := range expeditionAudience(updated) {
+		p.maybeRollPetArrivalOnEmerge(member)
+	}
+	return extractOutcome{Zone: zone.Display, Day: updated.CurrentDay}, nil
+}
+
+// handleExtractCmd is `!extract`: the command framing around performExtraction.
+// The extraction itself, including the DM everyone in the party gets, happens in
+// there — so this only has to turn a refusal back into the prose it always sent.
+func (p *AdventurePlugin) handleExtractCmd(ctx MessageContext, _ string) error {
+	_, err := p.performExtraction(ctx.Sender)
+	switch {
+	case errors.Is(err, errExtractNoRun):
+		return p.SendDM(ctx.Sender, "No active expedition to extract from.")
+	case errors.Is(err, errExtractNotLeader):
+		return p.SendDM(ctx.Sender, "Only your party leader can call the extraction. Ask them to `!extract`, or `!expedition leave` to walk out alone.")
+	case err != nil:
+		return p.SendDM(ctx.Sender, "Couldn't extract: "+err.Error())
 	}
 	return nil
 }

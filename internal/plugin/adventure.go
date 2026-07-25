@@ -292,6 +292,7 @@ func (p *AdventurePlugin) Init() error {
 	go p.mischiefTicker()
 	go p.peteMischiefTicker()
 	go p.peteEquipTicker()
+	go p.peteAdvOrderTicker()
 
 	// Auto-cashout any arena runs left in 'awaiting' from a prior restart
 	p.arenaCleanupStaleRuns()

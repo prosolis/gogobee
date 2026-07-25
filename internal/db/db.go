@@ -1845,6 +1845,20 @@ CREATE TABLE IF NOT EXISTS equip_applied_orders (
 	applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- The web ACTION queue's idempotency ledger — the same job as the table above,
+-- for the verbs that play the game rather than dress the character (extract, a
+-- Siege bout). Its own table because the two queues have their own guid spaces
+-- and their own poll loops, and a shared ledger would make a bug in one able to
+-- silence the other. The stakes are higher here than for equip: a replayed
+-- extraction ends a run the player resumed, and a replayed bout spends a day the
+-- player has not been given back.
+CREATE TABLE IF NOT EXISTS adv_applied_orders (
+	guid       TEXT PRIMARY KEY,
+	status     TEXT NOT NULL,           -- the terminal verdict we filed, replayed on re-offer
+	detail     TEXT NOT NULL DEFAULT '',
+	applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Babysitting Service
 CREATE TABLE IF NOT EXISTS adventure_babysit_log (
 	id            INTEGER PRIMARY KEY AUTOINCREMENT,

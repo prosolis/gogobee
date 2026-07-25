@@ -983,6 +983,64 @@ func VerdictEquip(ctx context.Context, guid, status, detail string) error {
 	return std.post(ctx, "/api/equip/verdict", payload)
 }
 
+// ---------------------------------------------------------------------------
+// The action queue
+//
+// The equip queue's sibling, and the first one that plays the game rather than
+// dressing the character. An owner clicks "Pull out" on their own adventurer
+// page or "Take your bout" on the war room; Pete records the intent and we drain
+// it here. Same non-idempotent problem, same answer: the poller guards on the
+// order guid before it runs anything, because an extraction ends a run and a
+// bout spends the day's only swing, and neither converges on a replay.
+//
+// Nothing in an order names a character. Pete resolves that from the session
+// (one account, one localpart, one adventurer) so there is no id on the wire for
+// a client to forge — the contrast with EquipOrder, which has to carry an item
+// id and a slot, is deliberate.
+// ---------------------------------------------------------------------------
+
+// AdvOrder is one requested action as Pete describes it. owner_localpart is the
+// Matrix localpart whose adventurer acts; token and character_name are display
+// copy Pete froze at order time and we ignore both.
+type AdvOrder struct {
+	GUID           string `json:"guid"`
+	OwnerLocalpart string `json:"owner_localpart"`
+	Token          string `json:"token"`
+	CharacterName  string `json:"character_name"`
+	Action         string `json:"action"` // extract / siege_join
+	Status         string `json:"status"`
+	CreatedAt      int64  `json:"created_at"`
+}
+
+// Action names, the wire contract's half of storage.AdvAction* on Pete.
+const (
+	AdvOrderExtract   = "extract"
+	AdvOrderSiegeJoin = "siege_join"
+)
+
+// PendingOrders asks Pete for web actions waiting on us. A Pete predating the
+// queue answers 404, surfaced here as an error the poll loop logs quietly.
+func PendingOrders(ctx context.Context) ([]AdvOrder, error) {
+	if !Enabled() {
+		return nil, nil
+	}
+	var out []AdvOrder
+	if err := std.getJSON(ctx, "/api/adventure/orders/pending", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// VerdictOrder files our verdict on a web action. Idempotent on Pete, so a
+// retried verdict is safe.
+func VerdictOrder(ctx context.Context, guid, status, detail string) error {
+	payload, err := json.Marshal(map[string]string{"guid": guid, "status": status, "detail": detail})
+	if err != nil {
+		return err
+	}
+	return std.post(ctx, "/api/adventure/orders/verdict", payload)
+}
+
 // getJSON does a bearer-authed GET and decodes the body.
 func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.IngestURL+path, nil)
