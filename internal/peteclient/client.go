@@ -288,6 +288,18 @@ type RosterDetail struct {
 	// run — a party of one is not a party, and the page should say nothing rather
 	// than draw a roster with a single chair in it.
 	Party []PartySeatView `json:"party,omitempty"`
+	// PartyKnown says this sender knows what a party seat is. It is a fact about
+	// the build, never about the character, so it is set unconditionally on every
+	// sheet — in town, solo, or seated with three others — and must never be
+	// computed from whether Party has anything in it.
+	//
+	// Party being omitempty is why it exists: a solo run and a game box too old to
+	// push seats both arrive at Pete as an empty slice, and Pete's page has to
+	// decide from that whether the viewer may throw away everybody else's day. An
+	// old build sends no key, which lands as false, and Pete withholds the button.
+	// No omitempty here for the same reason — an absent field is the fail-closed
+	// answer and this one is never absent on purpose.
+	PartyKnown bool `json:"party_known"`
 }
 
 // PartySeatView is one body on a shared expedition, as the public page may see
