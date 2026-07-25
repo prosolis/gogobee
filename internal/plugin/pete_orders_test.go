@@ -47,7 +47,11 @@ func TestAdvOrderLedgerShortCircuitsAReoffer(t *testing.T) {
 // A retried refusal never reaches a verdict, so the order sits pending forever
 // and Pete's strip never stops saying "asked for…".
 func TestExtractOrderRefusalsAreTerminal(t *testing.T) {
-	setupZoneRunTestDB(t)
+	// W9: was setupZoneRunTestDB, which copies data/gogobee.db and t.Skip()s when
+	// it is missing — and that file is deleted after every local run, so this and
+	// the extraction test below have been green-by-skipping since W5a. Neither
+	// needs a prod row; startExpedition builds everything they touch.
+	setupEmptyTestDB(t)
 	uid := id.UserID("@web-extract-none:example.org")
 	defer cleanupExpeditions(uid)
 	p := &AdventurePlugin{}
@@ -68,7 +72,7 @@ func TestExtractOrderRefusalsAreTerminal(t *testing.T) {
 // 'extracting' (a resumable limbo) rather than 'abandoned' — plus the day burn
 // and the log line the DM path writes.
 func TestExtractOrderIsTheSameExtraction(t *testing.T) {
-	setupZoneRunTestDB(t)
+	setupEmptyTestDB(t)
 	uid := id.UserID("@web-extract-live:example.org")
 	defer cleanupExpeditions(uid)
 	p := &AdventurePlugin{}

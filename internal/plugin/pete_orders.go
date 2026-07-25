@@ -129,11 +129,14 @@ func (p *AdventurePlugin) fulfilAdvOrder(ctx context.Context, order peteclient.A
 // commands running the very same code. Taking it here too would deadlock on a
 // non-reentrant mutex.
 //
-// The one exception is performExpeditionStart, which cannot take it — its Matrix
-// caller already holds it across the whole `!expedition` switch — so
-// applyWebExpeditionStart takes it instead. That asymmetry is written down in
+// The exceptions are the three twins whose Matrix caller already holds the lock
+// across the whole `!expedition` switch and so cannot take it themselves —
+// performExpeditionStart, performExpeditionAbandon and performExpeditionLeave.
+// Their apply wrappers below take it instead. That asymmetry is written down in
 // both places because getting it wrong does not fail loudly: it wedges the
-// player's lock forever and every later adventure command from them hangs.
+// player's lock forever and every later adventure command from them hangs. The
+// rule for a new verb is not "web wrappers take the lock" — it is "look at what
+// the Matrix caller does", and the two babysit verbs go the other way.
 func (p *AdventurePlugin) applyAdvOrder(owner id.UserID, order peteclient.AdvOrder) (status, detail string, retry bool) {
 	switch order.Action {
 	case peteclient.AdvOrderExtract:
@@ -183,6 +186,15 @@ func (p *AdventurePlugin) applyAdvOrder(owner id.UserID, order peteclient.AdvOrd
 
 	case peteclient.AdvOrderBabysit:
 		return p.applyWebBabysit(owner, order)
+
+	case peteclient.AdvOrderAbandon:
+		return p.applyWebAbandon(owner)
+
+	case peteclient.AdvOrderLeave:
+		return p.applyWebLeave(owner)
+
+	case peteclient.AdvOrderBabysitCancel:
+		return p.applyWebBabysitCancel(owner)
 
 	default:
 		// Pete validates the action before it ever queues an order, so this is a
@@ -322,6 +334,102 @@ func (p *AdventurePlugin) applyWebBabysit(owner id.UserID, order peteclient.AdvO
 	note := fmt.Sprintf("Sitter engaged for %s, %d coins.", label, out.Cost)
 	if out.PetName != "" {
 		note += fmt.Sprintf(" %s is in good hands.", out.PetName)
+	}
+	return "applied", note, false
+}
+
+// ---- the three verbs that take no arguments and spend nothing -------------------
+//
+// Each of these was already named inside a verdict the web shows: "!expedition
+// abandon first", "!expedition leave to walk out alone", "cancel early (no
+// refund)". A page that tells somebody to go and type a command it could have
+// offered them is a page with a hole in it, and these three close it.
+//
+// None of them touches money, so none of them needs an idempotency key — the
+// guid ledger in fulfilAdvOrder is the whole guard, and a replay it somehow got
+// past would be refused honestly ("nothing to abandon") rather than charging
+// anybody twice.
+
+// applyWebAbandon closes the owner's expedition down for good.
+func (p *AdventurePlugin) applyWebAbandon(owner id.UserID) (status, detail string, retry bool) {
+	// performExpeditionAbandon does NOT take the per-user lock (its Matrix caller
+	// holds it across the whole `!expedition` switch), so this has to. See the
+	// note on applyAdvOrder.
+	userMu := p.advUserLock(owner)
+	userMu.Lock()
+	defer userMu.Unlock()
+
+	out, err := p.performExpeditionAbandon(owner)
+	if err != nil {
+		var refusal advRefusal
+		if !errors.As(err, &refusal) {
+			// A DB fault reading or writing expedition state. Nothing partial is
+			// left behind that a retry would double up, so leave it pending.
+			slog.Warn("orders: abandon failed", "user", owner, "err", err)
+			return "", "", true
+		}
+		status := "rejected_unavailable"
+		switch {
+		case errors.Is(err, errAbandonNothing):
+			status = "rejected_not_running"
+		case errors.Is(err, errAbandonNotLeader):
+			status = "rejected_not_leader"
+		}
+		return status, advOrderPlainText(err.Error()), false
+	}
+	// The extracted case keeps loot and XP, so saying "supplies are forfeit" there
+	// would be a straight lie. Same split the DM makes.
+	if out.Extracted {
+		return "applied", fmt.Sprintf(
+			"You let %s go on day %d. Loot, XP and coins are kept.", out.Zone.Display, out.Day), false
+	}
+	return "applied", fmt.Sprintf(
+		"Expedition in %s abandoned on day %d. Supplies are forfeit.", out.Zone.Display, out.Day), false
+}
+
+// applyWebLeave walks a party member out of somebody else's expedition.
+func (p *AdventurePlugin) applyWebLeave(owner id.UserID) (status, detail string, retry bool) {
+	// Same lock asymmetry as applyWebAbandon.
+	userMu := p.advUserLock(owner)
+	userMu.Lock()
+	defer userMu.Unlock()
+
+	if err := p.performExpeditionLeave(owner); err != nil {
+		var refusal advRefusal
+		if !errors.As(err, &refusal) {
+			slog.Warn("orders: leave failed", "user", owner, "err", err)
+			return "", "", true
+		}
+		status := "rejected_unavailable"
+		switch {
+		case errors.Is(err, errLeaveNothing):
+			status = "rejected_not_running"
+		case errors.Is(err, errLeaveIsLeader):
+			status = "rejected_is_leader"
+		}
+		return status, advOrderPlainText(err.Error()), false
+	}
+	return "applied", "You turn back for town. Your supplies stay with the party.", false
+}
+
+// applyWebBabysitCancel dismisses the pet sitter early.
+func (p *AdventurePlugin) applyWebBabysitCancel(owner id.UserID) (status, detail string, retry bool) {
+	// No lock here, and that is not an oversight: performBabysitCancel takes it
+	// itself, because ITS Matrix caller does not. The opposite of the two above.
+	out, err := p.performBabysitCancel(owner)
+	if err != nil {
+		status := "rejected_unavailable"
+		switch {
+		case errors.Is(err, errBabysitNoSitter):
+			status = "rejected_nothing_to_cancel"
+		}
+		return status, advOrderPlainText(err.Error()), false
+	}
+	// The DM prints the sitter's whole record of the stay; a verdict is one line
+	// under a button, so the web gets the fact and the page keeps its shape.
+	note := "Sitter dismissed. No refund — they were already here."
+	if out.PetName != "" {
+		note = fmt.Sprintf("Sitter dismissed. No refund. %s is back in your care.", out.PetName)
 	}
 	return "applied", note, false
 }

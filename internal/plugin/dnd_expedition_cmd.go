@@ -844,65 +844,102 @@ func formatLogTimestamp(t time.Time) string {
 
 // ── abandon ─────────────────────────────────────────────────────────────────
 
-func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
-	exp, isLeader, err := activeExpeditionFor(ctx.Sender)
+// Sentinels for the two ways abandoning can be refused, so the web action queue
+// can pick a verdict without reading prose. Same contract as the start/resume
+// family above: errors.Is classifies, Error() is the sentence Matrix has always
+// sent.
+var (
+	errAbandonNothing   = errors.New("expedition abandon: nothing to abandon")
+	errAbandonNotLeader = errors.New("expedition abandon: only the leader may call it")
+)
+
+// abandonOutcome is what closing the expedition did, for a caller describing it
+// somewhere other than a DM.
+type abandonOutcome struct {
+	Zone      ZoneDefinition
+	Day       int
+	Extracted bool // it was already out and standing in town: loot and XP are kept
+}
+
+// performExpeditionAbandon is `!expedition abandon` minus the command framing.
+// Shared with the web action queue so closing a run from a phone disbands the
+// same roster, retires the same region runs, writes the same log line and tells
+// the same party — the members hear it from their leader either way, because
+// that is a fact about the expedition and not about which door was used.
+//
+// Like performExpeditionStart this does NOT take the per-user lock: its Matrix
+// caller already holds it across the whole `!expedition` switch. applyWebAbandon
+// takes it instead. Getting that backwards does not fail loudly — it wedges the
+// player's lock forever and every later adventure command from them hangs.
+func (p *AdventurePlugin) performExpeditionAbandon(uid id.UserID) (abandonOutcome, error) {
+	exp, isLeader, err := activeExpeditionFor(uid)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+		return abandonOutcome{}, err
 	}
 	if exp == nil {
 		// An extracted expedition is still the owner's to close — it holds the
 		// roster until the resume window lapses. Without this, a leader who
 		// wanted out had to pay to `!resume` first just to abandon.
-		if exp, err = getResumableExpedition(ctx.Sender); err != nil {
-			return p.SendDM(ctx.Sender, "Couldn't read expedition state: "+err.Error())
+		if exp, err = getResumableExpedition(uid); err != nil {
+			return abandonOutcome{}, err
 		}
 		isLeader = exp != nil
 	}
 	if exp == nil {
-		return p.SendDM(ctx.Sender, "No active expedition to abandon.")
+		return abandonOutcome{}, refuseAdv(errAbandonNothing, "No active expedition to abandon.")
 	}
 	if !isLeader {
 		// Abandoning throws away everyone's day. A member leaves alone.
-		return p.SendDM(ctx.Sender,
+		return abandonOutcome{}, refuseAdv(errAbandonNotLeader,
 			"Only your party leader can abandon the expedition. `!expedition leave` to walk out alone.")
 	}
 	zone, _ := getZone(exp.ZoneID)
-	extracted := exp.Status == ExpeditionStatusExtracting
+	out := abandonOutcome{Zone: zone, Day: exp.CurrentDay, Extracted: exp.Status == ExpeditionStatusExtracting}
 	audience := expeditionAudience(exp) // read before abandonExpedition disbands the roster
-	if err := abandonExpedition(ctx.Sender); err != nil {
-		return p.SendDM(ctx.Sender, "Couldn't abandon: "+err.Error())
+	if err := abandonExpedition(uid); err != nil {
+		return abandonOutcome{}, err
 	}
-	markActedToday(ctx.Sender)
+	markActedToday(uid)
 	_ = retireAllRegionRuns(exp)
 	_ = appendExpeditionLog(exp.ID, exp.CurrentDay, "narrative", "expedition abandoned", "")
+	// The roster is being disbanded out from under the members; they hear it from
+	// their leader rather than discovering it the next time a command works again.
+	for _, member := range audience {
+		if member == uid {
+			continue
+		}
+		if err := p.SendDM(member, fmt.Sprintf(
+			"Your leader called off the expedition in **%s** on Day %d. You're free to start a run of your own.",
+			zone.Display, exp.CurrentDay)); err != nil {
+			slog.Warn("expedition: abandon DM failed", "user", member, "expedition", exp.ID, "err", err)
+		}
+	}
+	// Emergence seam: see maybeRollPetArrivalOnEmerge. Inside the twin because
+	// walking out of a dungeon is what rolls it, not saying so in a room.
+	p.maybeRollPetArrivalOnEmerge(uid)
+	return out, nil
+}
+
+func (p *AdventurePlugin) expeditionCmdAbandon(ctx MessageContext) error {
+	out, err := p.performExpeditionAbandon(ctx.Sender)
+	if err != nil {
+		var refusal advRefusal
+		if errors.As(err, &refusal) {
+			return p.SendDM(ctx.Sender, refusal.Error())
+		}
+		return p.SendDM(ctx.Sender, "Couldn't abandon: "+err.Error())
+	}
 	// An extracted party is standing in town, not in the dungeon: their supplies
 	// are already spent and their loot is already banked. Say the true thing.
 	body := fmt.Sprintf(
 		"Expedition in **%s** abandoned on Day %d. Supplies are forfeit. The dungeon remembers.",
-		zone.Display, exp.CurrentDay)
-	if extracted {
+		out.Zone.Display, out.Day)
+	if out.Extracted {
 		body = fmt.Sprintf(
 			"You let the expedition in **%s** go. Day %d is where it ends — loot, XP, and coins are kept. The dungeon remembers.",
-			zone.Display, exp.CurrentDay)
+			out.Zone.Display, out.Day)
 	}
-	// The roster is being disbanded out from under the members; they hear it from
-	// their leader rather than discovering it the next time a command works again.
-	for _, uid := range audience {
-		if uid == ctx.Sender {
-			continue
-		}
-		if err := p.SendDM(uid, fmt.Sprintf(
-			"Your leader called off the expedition in **%s** on Day %d. You're free to start a run of your own.",
-			zone.Display, exp.CurrentDay)); err != nil {
-			slog.Warn("expedition: abandon DM failed", "user", uid, "expedition", exp.ID, "err", err)
-		}
-	}
-	if err := p.SendDM(ctx.Sender, body); err != nil {
-		return err
-	}
-	// Emergence seam: see maybeRollPetArrivalOnEmerge.
-	p.maybeRollPetArrivalOnEmerge(ctx.Sender)
-	return nil
+	return p.SendDM(ctx.Sender, body)
 }
 
 // helper: ensure we don't shadow id.UserID import in test harness.

@@ -278,25 +278,49 @@ func (p *AdventurePlugin) handleBabysitStatus(ctx MessageContext) error {
 	return p.SendDM(ctx.Sender, text)
 }
 
-func (p *AdventurePlugin) handleBabysitCancel(ctx MessageContext) error {
-	userMu := p.advUserLock(ctx.Sender)
+// babysitCancelOutcome is what dismissing the sitter did. Summary is the Matrix
+// block of what they got through while they were here — a paragraph of counts,
+// which is right under a DM and too much for a one-line web verdict, so the
+// caller decides whether to print it.
+type babysitCancelOutcome struct {
+	Summary string
+	PetName string
+}
+
+// errBabysitNoSitter is the one way cancelling can be refused. There is no
+// "already cancelled" race to worry about: the check and the write are both under
+// the per-user lock this takes.
+var errBabysitNoSitter = errors.New("babysit: no sitter to dismiss")
+
+// performBabysitCancel is `!adventure babysit cancel` minus the command framing.
+// Shared with the web action queue.
+//
+// This one TAKES the per-user lock, unlike the abandon/leave twins beside it in
+// the order path — because its Matrix caller does not hold it (handleBabysitCmd
+// dispatches straight here, where `!expedition` holds the lock across its whole
+// switch). Its web wrapper must therefore NOT take it. The asymmetry is per verb
+// and is worth checking against the Matrix caller every time one is added.
+//
+// No refund, by design: the sitter was already here.
+func (p *AdventurePlugin) performBabysitCancel(uid id.UserID) (babysitCancelOutcome, error) {
+	userMu := p.advUserLock(uid)
 	userMu.Lock()
 	defer userMu.Unlock()
 
-	char, err := loadAdvCharacter(ctx.Sender)
+	char, err := loadAdvCharacter(uid)
 	if err != nil {
-		return p.SendDM(ctx.Sender, "No adventurer found.")
+		return babysitCancelOutcome{}, refuseAdv(errBabysitNoCharacter, "No adventurer found.")
 	}
 
 	if !char.BabysitActive {
-		return p.SendDM(ctx.Sender, "🍼 There's nothing to cancel. The babysitter isn't here.")
+		return babysitCancelOutcome{}, refuseAdv(errBabysitNoSitter, "🍼 There's nothing to cancel. The babysitter isn't here.")
 	}
 
 	logs, err := loadBabysitLogs(char.UserID)
 	if err != nil {
 		slog.Error("babysit: failed to load logs", "user", char.UserID, "err", err)
 	}
-	summary := renderBabysitSummary(char, logs)
+	out := babysitCancelOutcome{Summary: renderBabysitSummary(char, logs), PetName: char.PetName}
 
 	char.BabysitActive = false
 	char.BabysitExpiresAt = nil
@@ -308,7 +332,15 @@ func (p *AdventurePlugin) handleBabysitCancel(ctx MessageContext) error {
 		slog.Error("player_meta: babysit cancel dual-write failed", "user", char.UserID, "err", err)
 	}
 
-	return p.SendDM(ctx.Sender, "🍼 Service cancelled. No refund. The babysitter was already there.\n\n"+summary)
+	return out, nil
+}
+
+func (p *AdventurePlugin) handleBabysitCancel(ctx MessageContext) error {
+	out, err := p.performBabysitCancel(ctx.Sender)
+	if err != nil {
+		return p.SendDM(ctx.Sender, err.Error())
+	}
+	return p.SendDM(ctx.Sender, "🍼 Service cancelled. No refund. The babysitter was already there.\n\n"+out.Summary)
 }
 
 // ── Expiry Check ────────────────────────────────────────────────────────────

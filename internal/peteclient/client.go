@@ -1123,6 +1123,12 @@ const (
 	AdvOrderExpedition = "expedition_start"
 	AdvOrderResume     = "expedition_resume"
 	AdvOrderBabysit    = "babysit"
+	// The three doors the web verbs' own refusal text used to name without
+	// offering: `!expedition abandon`, `!expedition leave`, `!adventure babysit
+	// cancel`. None of them takes an argument and none of them spends money.
+	AdvOrderAbandon       = "expedition_abandon"
+	AdvOrderLeave         = "expedition_leave"
+	AdvOrderBabysitCancel = "babysit_cancel"
 )
 
 // PendingOrders asks Pete for web actions waiting on us. A Pete predating the
