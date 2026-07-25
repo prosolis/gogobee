@@ -343,6 +343,7 @@ func emitZoneClearNews(userID id.UserID, exp *Expedition) {
 		Boss:       zone.Boss.Name,
 		Level:      lvl,
 		Outcome:    "cleared",
+		RunID:      latestRunIDForNews(userID),
 		OccurredAt: ts,
 	}, userID, "")
 }

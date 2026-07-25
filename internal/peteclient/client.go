@@ -48,6 +48,13 @@ type Fact struct {
 	Milestone  string   `json:"milestone,omitempty"`
 	OccurredAt int64    `json:"occurred_at"`
 	NoPush     bool     `json:"no_push,omitempty"` // backfill: suppress Pete web-push
+	// RunID names the expedition this fact is the ENDING of, and only the three
+	// facts that are one carry it: a clear, a retreat, a death. It is what lets
+	// Pete's dispatch link back to the run's own report — the log, the numbers,
+	// the moment it turned — instead of leaving a paragraph about an outcome with
+	// no way back to what produced it. Empty everywhere else, and safe to be
+	// empty: Pete renders the dispatch exactly as it did before the report existed.
+	RunID string `json:"run_id,omitempty"`
 	// Headline/Lede are LLM-authored prose for this fact, both optional. Pete
 	// prefers them over its own template when present and past its prose-guard,
 	// and falls back to the template otherwise — so an empty pair (LLM off, or
@@ -459,7 +466,7 @@ func PushSiege(ctx context.Context, snap SiegeSnapshot) error {
 type RunBeat struct {
 	RunID      string `json:"run_id"`
 	Seq        int64  `json:"seq"`
-	Kind       string `json:"kind"` // start|room|combat|trap|treasure|haul|lock|camp|region|end
+	Kind       string `json:"kind"` // start|room|combat|trap|treasure|haul|lock|camp|region|end|summary
 	OccurredAt int64  `json:"occurred_at"`
 
 	Token      string `json:"token,omitempty"` // `start` only: whose run this is
@@ -478,6 +485,12 @@ type RunBeat struct {
 	HPMax      int    `json:"hp_max,omitempty"`
 	Crits      int    `json:"crits,omitempty"`
 	Fumbles    int    `json:"fumbles,omitempty"`
+	// Prose is the single exception to "nouns and numbers only", and it is
+	// confined to the one kind that has any: `summary`, the three sentences the
+	// local model writes over a finished run. Pete guards it exactly as it guards
+	// a dispatch lede and drops the words (not the beat) on a rejection. Every
+	// other kind must leave this empty — Pete scrubs it if they don't.
+	Prose string `json:"prose,omitempty"`
 }
 
 // PushRunBeats delivers a batch of beats. Unlike the snapshots this is

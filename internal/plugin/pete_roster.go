@@ -54,6 +54,11 @@ func (p *AdventurePlugin) peteRosterTicker() {
 		p.pushDetails()
 		p.pushSiege()
 		p.pushRunBeats()
+		// After the beats, not before: the summary is the last beat of a run's
+		// story and has no business overtaking the log it is about. It is also the
+		// only step here that can talk to the model, which is why it lives on a
+		// ticker at all rather than at the moment a run ends.
+		p.sweepRunSummaries()
 	}
 }
 

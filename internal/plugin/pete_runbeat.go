@@ -85,6 +85,49 @@ func runHasEndBeat(runID string) bool {
 	return err == nil && n > 0
 }
 
+// latestRunIDForNews is the run a just-filed dispatch is about, or "" when there
+// isn't one to point at.
+//
+// The three dispatches that end an expedition — a clear, a retreat, a death —
+// are all emitted *after* the run they concluded has been closed, and two of
+// them from call sites several frames away from the run row. So rather than
+// thread a run id through five signatures and hope the lifetimes line up, this
+// asks the question that is actually true at that moment: what is the last run
+// this player started. A player has one run at a time and a dispatch about their
+// expedition ending is about that one. Multi-region is the case worth stating:
+// each region gets its own run, and the last one started is the one they were
+// standing in when it ended, which is the log the dispatch should open.
+//
+// Two clauses do the real work and neither is optional:
+//
+//   - The `pete_run_beat` check. Runs exist with no beats behind them — from
+//     before the liveblog shipped, or with the seam off — and handing Pete a run
+//     id it has nothing for would mint a dispatch link to a 404.
+//   - The recency window. Not every death happens in a dungeon: the campaign
+//     path kills people at the Empty Throne, and without this a death that had
+//     nothing to do with any expedition would link to whatever run that player
+//     last walked, possibly days ago. An expedition-ending dispatch is filed
+//     seconds after its run closes, so "still open, or closed just now" is the
+//     honest test for "this dispatch is about that run".
+func latestRunIDForNews(userID id.UserID) string {
+	if userID == "" || !peteclient.Enabled() {
+		return ""
+	}
+	var runID string
+	err := db.Get().QueryRow(`
+		SELECT r.run_id
+		  FROM dnd_zone_run r
+		 WHERE r.user_id = ?
+		   AND (r.completed_at IS NULL OR r.completed_at >= datetime('now', '-10 minutes'))
+		   AND EXISTS (SELECT 1 FROM pete_run_beat b WHERE b.run_id = r.run_id)
+		 ORDER BY r.started_at DESC, r.rowid DESC
+		 LIMIT 1`, string(userID)).Scan(&runID)
+	if err != nil {
+		return ""
+	}
+	return runID
+}
+
 // runBeatPushOK mirrors rosterPushOK: log the transitions, stay quiet otherwise.
 var runBeatPushOK bool
 
