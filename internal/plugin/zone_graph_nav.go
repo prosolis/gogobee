@@ -436,8 +436,19 @@ func completeRunAtNode(runID string, boss bool) error {
 	if boss {
 		bossI = 1
 	}
+	// Only a boss kill is a clear. This function also closes a non-boss
+	// dead-end — the party simply ran out of map — and beatRunEnd is
+	// first-writer-wins, so calling that "cleared" would put a lie in the
+	// liveblog and the run summary that nothing downstream could correct.
+	// "ended" is deliberately outside the {cleared,died,retreated,abandoned}
+	// set: the prompt renderer already degrades an unknown outcome to a
+	// neutral "the run ended", which is exactly what happened.
 	if run, _ := getZoneRun(runID); run != nil {
-		beatRunEnd(run, "cleared")
+		outcome := "ended"
+		if boss {
+			outcome = "cleared"
+		}
+		beatRunEnd(run, outcome)
 	}
 	_, err := db.Get().Exec(`
 		UPDATE dnd_zone_run

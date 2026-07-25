@@ -140,8 +140,12 @@ func TestZoneFirstClearsCountsRetiredKills(t *testing.T) {
 		(run_id, user_id, zone_id, total_rooms, boss_defeated, abandoned, completed_at)
 		VALUES ('r7', '@josie:x', 'forest_shadows', 6, 1, 1, '2026-02-14 09:00:00')`)
 
+	clears, ok := zoneFirstClears()
+	if !ok {
+		t.Fatal("zoneFirstClears reported a read failure")
+	}
 	byZone := map[string]zoneFirstClear{}
-	for _, f := range zoneFirstClears() {
+	for _, f := range clears {
 		byZone[f.zoneID] = f
 	}
 	if len(byZone) != 3 {

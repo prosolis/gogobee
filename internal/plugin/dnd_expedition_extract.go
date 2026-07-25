@@ -508,8 +508,15 @@ func (p *AdventurePlugin) performResume(uid id.UserID, loadoutTok, idemKey strin
 		// re-offer; the settled debit is what tells that apart from a player who
 		// really is already out. Same tell as performExpeditionStart's.
 		if idemKey != "" && p.euro != nil && p.euro.HasExternalTx(idemKey) {
-			return resumeOutcome{Zone: zone, Day: existing.CurrentDay,
-				Supplies: existing.Supplies, Threat: existing.ThreatLevel}, nil
+			out := resumeOutcome{Zone: zone, Day: existing.CurrentDay,
+				Supplies: existing.Supplies, Threat: existing.ThreatLevel}
+			// Re-price the same loadout at the same tier so the verdict this feeds
+			// can still say what it cost. Leaving Purchase zero would file a
+			// "re-outfitted for 0 coins" receipt for a trip that was paid for.
+			if pp, perr := resolveLoadoutOrParse(strings.TrimSpace(loadoutTok), zone.Tier); perr == nil {
+				out.Purchase = pp
+			}
+			return out, nil
 		}
 		return resumeOutcome{}, refuseAdv(errResumeBusy,
 			"You already have an active expedition in **%s** (Day %d). Finish it or `!expedition abandon` first.",

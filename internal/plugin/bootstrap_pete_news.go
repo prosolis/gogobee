@@ -76,7 +76,11 @@ type zoneFirstClear struct {
 // SQLite returns the user_id from the same row as MIN(completed_at) (bare-column
 // min/max rule), so the (zone, first clearer, time) triple is internally
 // consistent.
-func zoneFirstClears() []zoneFirstClear {
+// ok is false only when the read itself failed. A caller that is about to mark
+// a one-shot job complete has to be able to tell "no zone has ever been cleared"
+// from "the query fell over", or a transient DB fault at boot retires the repair
+// permanently.
+func zoneFirstClears() (firsts []zoneFirstClear, ok bool) {
 	rows, err := db.Get().Query(
 		`SELECT zone_id, user_id, MIN(completed_at)
 		   FROM dnd_zone_run
@@ -84,11 +88,10 @@ func zoneFirstClears() []zoneFirstClear {
 		  GROUP BY zone_id`)
 	if err != nil {
 		slog.Error("backfill: zone-firsts query", "err", err)
-		return nil
+		return nil, false
 	}
 	defer rows.Close()
 
-	var firsts []zoneFirstClear
 	for rows.Next() {
 		var f zoneFirstClear
 		if err := rows.Scan(&f.zoneID, &f.userID, &f.completedAt); err != nil {
@@ -97,7 +100,11 @@ func zoneFirstClears() []zoneFirstClear {
 		}
 		firsts = append(firsts, f)
 	}
-	return firsts
+	if err := rows.Err(); err != nil {
+		slog.Error("backfill: zone-firsts rows", "err", err)
+		return nil, false
+	}
+	return firsts, true
 }
 
 // bootstrapRealmFirstsReseed repairs the zone half of news_realm_firsts.
@@ -131,8 +138,16 @@ func bootstrapRealmFirstsReseed() {
 		return
 	}
 
+	clears, ok := zoneFirstClears()
+	if !ok {
+		// The read failed. Leave the job unmarked so the next boot tries again —
+		// marking it here would retire the repair on the strength of a transient
+		// DB fault and leave the ledger wrong forever.
+		return
+	}
+
 	seeded := 0
-	for _, f := range zoneFirstClears() {
+	for _, f := range clears {
 		ts, ok := parseSQLiteTime(f.completedAt)
 		if !ok {
 			slog.Warn("reseed: unparseable clear time", "zone", f.zoneID, "at", f.completedAt)
@@ -155,7 +170,7 @@ func bootstrapRealmFirstsReseed() {
 // dispatch per zone, attributed to its earliest boss-defeating clearer.
 // Returns the count emitted.
 func (p *AdventurePlugin) backfillZoneFirsts() int {
-	firsts := zoneFirstClears()
+	firsts, _ := zoneFirstClears()
 
 	n := 0
 	for _, f := range firsts {

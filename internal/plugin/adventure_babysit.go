@@ -144,7 +144,14 @@ func (p *AdventurePlugin) performBabysitPurchase(uid id.UserID, days int, idemKe
 		// on the re-offer. The settled fee is what tells that apart from somebody
 		// who really does already have one.
 		if idemKey != "" && p.euro != nil && p.euro.HasExternalTx(idemKey) {
-			return babysitOutcome{Days: days, PetName: char.PetName}, nil
+			// Re-quote the fee rather than leaving it zero: the verdict this
+			// feeds prints the coin figure, and "0 coins" would be a false
+			// receipt for a hire the player did pay for.
+			return babysitOutcome{
+				Days:    days,
+				Cost:    babysitDailyCost(dndLevelForUser(char.UserID)) * days,
+				PetName: char.PetName,
+			}, nil
 		}
 		return babysitOutcome{}, refuseAdv(errBabysitActive, "🍼 The babysitter is already here. They're not leaving until the job is done.")
 	}
