@@ -284,6 +284,30 @@ type RosterDetail struct {
 	ThreatLevel int        `json:"threat_level,omitempty"`
 	Room        string     `json:"room,omitempty"`
 	Map         *RosterMap `json:"map,omitempty"`
+	// Party is who else is on this expedition, leader first. Absent for a solo
+	// run — a party of one is not a party, and the page should say nothing rather
+	// than draw a roster with a single chair in it.
+	Party []PartySeatView `json:"party,omitempty"`
+}
+
+// PartySeatView is one body on a shared expedition, as the public page may see
+// it. Kind is what the seat *is*, which the game keeps carefully separate:
+// "leader" owns the expedition row everyone else references, "member" is another
+// player, "companion" is the hired NPC (Pete) who fights but has no mailbox and
+// no loot.
+//
+// Name/Token are the same pair the board and the Siege muster use. The opt-out
+// rule here is the Siege *contributor* rule, not the realm-occupant rule: an
+// opted-out player's seat is anonymised (kept, with no name and no token) rather
+// than deleted. A party of three that renders as two is a false statement about
+// the run — the supply burn, the enemy scaling and the loot split all felt three
+// bodies — whereas an unnamed seat says only that somebody else was there, which
+// the zone line on this same page already implies.
+type PartySeatView struct {
+	Kind  string `json:"kind"` // leader|member|companion
+	Name  string `json:"name,omitempty"`
+	Token string `json:"token,omitempty"` // empty: opted out, or a companion (no board row)
+	Level int    `json:"level,omitempty"`
 }
 
 // RosterMap is the fog-of-war cut of an adventurer's zone graph: every node
@@ -788,11 +812,19 @@ type HouseView struct {
 }
 
 // PetView is one pet slot.
+//
+// XP and XPNeeded are both in **centi-XP** — the engine's own unit, a hundredth
+// of a point, because a pet earns 1.5 XP per action and the ledger is an int.
+// Pete divides by 100 to show it and does no other arithmetic on either number:
+// the curve behind XPNeeded is petXPToNextLevel's, per level band, and it is not
+// Pete's business to know it. XPNeeded is 0 at the level cap, which is the only
+// signal that there is nothing left to fill.
 type PetView struct {
 	Type      string `json:"type"`
 	Name      string `json:"name"`
 	Level     int    `json:"level"`
 	XP        int    `json:"xp,omitempty"`
+	XPNeeded  int    `json:"xp_needed,omitempty"` // 0 = at the level cap
 	ArmorTier int    `json:"armor_tier,omitempty"`
 }
 

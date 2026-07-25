@@ -15,6 +15,11 @@ import (
 
 const petXPPerAction = 1.5
 
+// petMaxLevel is where the curve stops. Named because two things read it for
+// different reasons: the level-up loop stops here, and the web push reports "no
+// more to earn" from it.
+const petMaxLevel = 10
+
 var petNameValid = regexp.MustCompile(`^[a-zA-Z0-9 '\-]+$`)
 
 // petXPToNextLevel returns XP needed for a given pet level.
@@ -29,6 +34,19 @@ func petXPToNextLevel(level int) int {
 	default:
 		return 50
 	}
+}
+
+// petXPNeededCenti is petXPToNextLevel in the unit the stored ledger actually
+// uses — centi-XP — and 0 once the pet is capped, so a caller can tell "nothing
+// left to earn" from "needs another 10 points". Every comparison against a
+// stored PetXP multiplies by 100 (see advancePetLevelsFromXP); anything reading
+// the curve for display has to do the same, and doing it in one place is how the
+// web push avoids getting it wrong.
+func petXPNeededCenti(level int) int {
+	if level >= petMaxLevel {
+		return 0
+	}
+	return petXPToNextLevel(level) * 100
 }
 
 // petGrantXP adds a per-action XP grant to the pet and handles level-ups.
@@ -90,13 +108,13 @@ func grantPetCombatXP(userID id.UserID) []string {
 // to the level-10 cap, stamping the level-10 date on first reaching it. Shared
 // by both pet slots (the babysit trickle). Returns true if the pet leveled.
 func advancePetLevelsFromXP(xp, level *int, level10Date *string, addCentiXP int) bool {
-	if *level >= 10 {
+	if *level >= petMaxLevel {
 		return false
 	}
 	*xp += addCentiXP
 	leveled := false
-	for *level < 10 {
-		needed := petXPToNextLevel(*level) * 100
+	for *level < petMaxLevel {
+		needed := petXPNeededCenti(*level)
 		if *xp < needed {
 			break
 		}
@@ -104,7 +122,7 @@ func advancePetLevelsFromXP(xp, level *int, level10Date *string, addCentiXP int)
 		*level++
 		leveled = true
 	}
-	if *level >= 10 && *level10Date == "" {
+	if *level >= petMaxLevel && *level10Date == "" {
 		*level10Date = time.Now().UTC().Format("2006-01-02")
 	}
 	return leveled
