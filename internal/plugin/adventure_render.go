@@ -70,6 +70,18 @@ func advClearFlavorHistory() {
 	})
 }
 
+// advLocationMidSentence renders a location display name for use after a
+// preposition: "The Abyssal Maw" becomes "the Abyssal Maw" so a line reads
+// "found in the Abyssal Maw" rather than "found in The Abyssal Maw".
+// Templates opt in with {location_mid}; {location} keeps the display form for
+// sentence-initial and "The {location}" positions.
+func advLocationMidSentence(name string) string {
+	if strings.HasPrefix(name, "The ") {
+		return "the " + strings.TrimPrefix(name, "The ")
+	}
+	return name
+}
+
 // advSubstituteFlavor replaces {var} placeholders in a flavor text string.
 func advSubstituteFlavor(template string, vars map[string]string) string {
 	pairs := make([]string, 0, len(vars)*2)

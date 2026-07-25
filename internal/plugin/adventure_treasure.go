@@ -213,7 +213,7 @@ var advAllTreasures = map[int][]AdvTreasureDef{
 				{Type: "success_chance", Value: 10},
 			},
 			InventoryDesc: "[THUNDERFURY, BLESSED BLADE OF THE WINDSEEKER]. Yes you got it. +12 Combat.",
-			RoomAnnounce:  "⚡ Did {name} get Thunderfury? {name} got Thunderfury. [THUNDERFURY, BLESSED BLADE OF THE WINDSEEKER] has been found in {location}.",
+			RoomAnnounce:  "⚡ Did {name} get Thunderfury? {name} got Thunderfury. [THUNDERFURY, BLESSED BLADE OF THE WINDSEEKER] has been found in {location_mid}.",
 		},
 		{
 			Key: "ocarina", Name: "The Ocarina (Cracked, Still Plays)", Tier: 4,
@@ -230,13 +230,13 @@ var advAllTreasures = map[int][]AdvTreasureDef{
 				{Type: "death_chance", Value: -5},
 			},
 			InventoryDesc: "Shard of the Unnamed. +15 Combat, +10% XP, -5% death.",
-			RoomAnnounce:  "🔴 {name} has recovered the Shard of the Unnamed from the Abyssal Maw. The server feels different.",
+			RoomAnnounce:  "🔴 {name} has recovered the Shard of the Unnamed from {location_mid}. The server feels different.",
 		},
 		{
 			Key: "cartographers_final_map", Name: "The Cartographer's Final Map", Tier: 5,
 			Bonuses:       []advTreasureBonusDef{{Type: "all_skills", Value: 12}},
 			InventoryDesc: "The Cartographer's Final Map. Updates on its own. +12 all skills, full map.",
-			RoomAnnounce:  "🔴 {name} has found the Cartographer's Final Map in the Abyssal Maw. It has their name on it. It always did.",
+			RoomAnnounce:  "🔴 {name} has found the Cartographer's Final Map in {location_mid}. It has their name on it. It always did.",
 		},
 		{
 			Key: "triforce_shard", Name: "The Triforce Shard (One Third of Something Larger)", Tier: 5,
@@ -246,7 +246,7 @@ var advAllTreasures = map[int][]AdvTreasureDef{
 				// Note: +15 to chosen skill is v2 interactive
 			},
 			InventoryDesc: "Triforce Shard (×1/3). Warm. Waiting. +5 all skills, -8% death.",
-			RoomAnnounce:  "🔺 {name} has recovered a Triforce Shard from the Abyssal Maw. One third of something. The other two thirds are somewhere. Probably.",
+			RoomAnnounce:  "🔺 {name} has recovered a Triforce Shard from {location_mid}. One third of something. The other two thirds are somewhere. Probably.",
 		},
 		{
 			Key: "the_corridor", Name: "The Corridor (You Know the One)", Tier: 5,
@@ -255,7 +255,7 @@ var advAllTreasures = map[int][]AdvTreasureDef{
 				{Type: "special_monthly_death_bypass", Value: 1}, // v2
 			},
 			InventoryDesc: "The Corridor. Folded. Don't look back. +12 all skills, monthly death bypass.",
-			RoomAnnounce:  "🔴 {name} found The Corridor in the Abyssal Maw. They know the one. So does it.",
+			RoomAnnounce:  "🔴 {name} found The Corridor in {location_mid}. They know the one. So does it.",
 		},
 	},
 }

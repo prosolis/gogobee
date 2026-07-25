@@ -232,7 +232,7 @@ var TreasureDiscovery = map[int][]string{
 	// No exclamation marks. No enthusiasm. Just weight.
 	5: {
 		"The {treasure_name}.\n\n" +
-			"You found it in the Abyssal Maw. It found you in the Abyssal Maw. " +
+			"You found it in {location_mid}. It found you in {location_mid}. " +
 			"The distinction matters less at depth.\n" +
 			"BONUS: {bonus_desc}.\n\n" +
 			"It came with you. Some things don't come with you. This one did. " +
@@ -240,15 +240,15 @@ var TreasureDiscovery = map[int][]string{
 
 		"The {treasure_name} is in your inventory.\n\n" +
 			"BONUS: {bonus_desc}.\n\n" +
-			"This is a Tier 5 rare. The Abyssal Maw doesn't give these up. " +
-			"The Abyssal Maw gave this one up. " +
+			"This is a Tier 5 rare. Nothing in {location_mid} gives these up. " +
+			"Something in {location_mid} gave this one up. " +
 			"That's a sentence worth sitting with.",
 
 		"You have the {treasure_name}.\n\n" +
 			"BONUS: {bonus_desc}.\n\n" +
-			"It was in the Abyssal Maw. The things that were between you and it " +
+			"It was in {location_mid}. The things that were between you and it " +
 			"are not between anything and anything anymore. " +
-			"The Maw is noting this. So is the item.",
+			"The place is noting this. So is the item.",
 
 		"The {treasure_name}.\n\n" +
 			"It's warm. It was warm when you found it, which it shouldn't be, " +
@@ -262,14 +262,14 @@ var TreasureDiscovery = map[int][]string{
 			"The {treasure_name}. {bonus_desc}.\n\n" +
 			"You have it. " +
 			"Keep it somewhere it won't be lost. " +
-			"The Abyssal Maw does not give second chances.",
+			"There are no second chances in {location_mid}.",
 
 		"The {treasure_name} is yours.\n\n" +
 			"BONUS: {bonus_desc}.\n\n" +
-			"The Abyssal Maw had it. You have it now. " +
-			"The Maw is aware of the transfer. " +
-			"The Maw is considering its position. " +
-			"You should not be in the Maw when it finishes considering.",
+			"It sat in {location_mid} until you took it. You have it now. " +
+			"The place is aware of the transfer. " +
+			"The place is considering its position. " +
+			"You should not be in {location_mid} when it finishes considering.",
 	},
 }
 

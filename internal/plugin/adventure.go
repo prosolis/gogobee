@@ -1374,6 +1374,7 @@ func (p *AdventurePlugin) sendTreasureDiscoveryDM(userID id.UserID, char *Advent
 		"{treasure_name}": def.Name,
 		"{bonus_desc}":    def.InventoryDesc,
 		"{location}":      loc.Name,
+		"{location_mid}":  advLocationMidSentence(loc.Name),
 	})
 
 	p.SendDM(userID, text)
@@ -1400,8 +1401,9 @@ func (p *AdventurePlugin) announceTreasureToRoom(char *AdventureCharacter, def *
 	}
 	displayName, _ := loadDisplayName(char.UserID)
 	announce := advSubstituteFlavor(def.RoomAnnounce, map[string]string{
-		"{name}":     displayName,
-		"{location}": loc.Name,
+		"{name}":         displayName,
+		"{location}":     loc.Name,
+		"{location_mid}": advLocationMidSentence(loc.Name),
 	})
 	p.SendMessage(id.RoomID(gr), announce)
 }
