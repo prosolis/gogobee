@@ -1255,6 +1255,16 @@ CREATE TABLE IF NOT EXISTS presence (
 	updated_at INTEGER DEFAULT (unixepoch())
 );
 
+-- DM rooms. The bot's m.direct account data is not a reliable store for an
+-- appservice user (no /sync, and nothing writes it back), so the mapping lives
+-- here. Without it every restart lost the cache and the bot created a fresh DM
+-- room per user.
+CREATE TABLE IF NOT EXISTS dm_rooms (
+	user_id TEXT PRIMARY KEY,
+	room_id TEXT NOT NULL,
+	updated_at INTEGER DEFAULT (unixepoch())
+);
+
 -- Markov
 CREATE TABLE IF NOT EXISTS markov_corpus (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,

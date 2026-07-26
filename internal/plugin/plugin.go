@@ -83,9 +83,17 @@ func PluginVersion(p Plugin) string {
 }
 
 // dmCache maps user IDs to their DM room IDs to avoid creating duplicate rooms.
+// It fronts the dm_rooms table; notDMCache is the negative half, marking rooms
+// LearnDMRoom has already ruled out so group rooms cost one member lookup ever.
 var (
-	dmCache   = make(map[id.UserID]id.RoomID)
-	dmCacheMu sync.Mutex
+	dmCache    = make(map[id.UserID]id.RoomID)
+	dmMapped   = make(map[id.UserID]bool)
+	notDMCache = make(map[id.RoomID]bool)
+	dmCacheMu  sync.Mutex
+
+	// One-shot index of two-person rooms, built by findExistingDMRoom.
+	dmSweepOnce  sync.Once
+	dmSweepIndex = make(map[id.UserID]id.RoomID)
 )
 
 // Base provides common helpers for plugin implementations.
@@ -686,6 +694,180 @@ func (b *Base) SendReact(roomID id.RoomID, eventID id.EventID, emoji string) err
 	return err
 }
 
+// rememberDMRoom pins a user's DM room in both the in-process cache and the
+// database, so a restart doesn't send the bot off creating a duplicate room.
+func rememberDMRoom(userID id.UserID, roomID id.RoomID) {
+	dmCacheMu.Lock()
+	dmCache[userID] = roomID
+	dmMapped[userID] = true
+	dmCacheMu.Unlock()
+
+	if d := db.Get(); d != nil {
+		_, err := d.Exec(`INSERT INTO dm_rooms (user_id, room_id, updated_at)
+			VALUES (?, ?, unixepoch())
+			ON CONFLICT(user_id) DO UPDATE SET room_id = excluded.room_id, updated_at = excluded.updated_at`,
+			string(userID), string(roomID))
+		if err != nil {
+			slog.Error("persist dm room", "user", userID, "room", roomID, "err", err)
+		}
+	}
+}
+
+// forgetDMRoom drops a mapping that no longer resolves to a live shared room.
+func forgetDMRoom(userID id.UserID) {
+	dmCacheMu.Lock()
+	delete(dmCache, userID)
+	delete(dmMapped, userID)
+	dmCacheMu.Unlock()
+
+	if d := db.Get(); d != nil {
+		if _, err := d.Exec(`DELETE FROM dm_rooms WHERE user_id = ?`, string(userID)); err != nil {
+			slog.Error("forget dm room", "user", userID, "err", err)
+		}
+	}
+}
+
+// storedDMRoom reads the persisted DM room for a user, if any.
+func storedDMRoom(userID id.UserID) (id.RoomID, bool) {
+	d := db.Get()
+	if d == nil {
+		return "", false
+	}
+	var roomID string
+	err := d.QueryRow(`SELECT room_id FROM dm_rooms WHERE user_id = ?`, string(userID)).Scan(&roomID)
+	if err != nil || roomID == "" {
+		return "", false
+	}
+	return id.RoomID(roomID), true
+}
+
+// dmRoomUsable reports whether the bot and the user still share the room. The
+// user counts as present while merely invited — they often never accept, and
+// treating that as "gone" is what would recreate the room on every send.
+func (b *Base) dmRoomUsable(roomID id.RoomID, userID id.UserID) bool {
+	ctx := context.Background()
+
+	var self event.MemberEventContent
+	if err := b.Client.StateEvent(ctx, roomID, event.StateMember, string(b.Client.UserID), &self); err != nil {
+		return false
+	}
+	if self.Membership != event.MembershipJoin {
+		return false
+	}
+
+	var other event.MemberEventContent
+	if err := b.Client.StateEvent(ctx, roomID, event.StateMember, string(userID), &other); err != nil {
+		return false
+	}
+	return other.Membership == event.MembershipJoin || other.Membership == event.MembershipInvite
+}
+
+// publishDirect appends the room to the bot's m.direct account data, so the
+// room is labelled as a DM rather than a nameless private room.
+func (b *Base) publishDirect(userID id.UserID, roomID id.RoomID) {
+	ctx := context.Background()
+
+	dmRooms := map[id.UserID][]id.RoomID{}
+	// A missing m.direct is a 404 — start from empty rather than bailing.
+	_ = b.Client.GetAccountData(ctx, "m.direct", &dmRooms)
+
+	for _, existing := range dmRooms[userID] {
+		if existing == roomID {
+			return
+		}
+	}
+	dmRooms[userID] = append(dmRooms[userID], roomID)
+
+	if err := b.Client.SetAccountData(ctx, "m.direct", dmRooms); err != nil {
+		slog.Warn("publish m.direct", "user", userID, "room", roomID, "err", err)
+	}
+}
+
+// RecordDMRoom claims a room as the user's DM room. Used for user-initiated
+// DM invites, where the invite itself is the intent — it overwrites any older
+// mapping, since the user just told us which room they want to talk in.
+func (b *Base) RecordDMRoom(userID id.UserID, roomID id.RoomID) {
+	slog.Info("recorded user-initiated DM room", "user", userID, "room", roomID)
+	rememberDMRoom(userID, roomID)
+	b.publishDirect(userID, roomID)
+}
+
+// LearnDMRoom records a room the user messaged the bot in as their DM room,
+// when it really is a two-person room. This adopts DM rooms that predate the
+// database mapping instead of leaving them orphaned beside a freshly created one.
+func (b *Base) LearnDMRoom(userID id.UserID, roomID id.RoomID) {
+	if b == nil || b.Client == nil {
+		return
+	}
+
+	dmCacheMu.Lock()
+	_, known := dmCache[userID]
+	mapped := dmMapped[userID]
+	notDM := notDMCache[roomID]
+	dmCacheMu.Unlock()
+	if known || mapped || notDM {
+		return
+	}
+	if _, ok := storedDMRoom(userID); ok {
+		// Note it as mapped, not as resolved: caching the room here would let
+		// GetDMRoom skip its liveness check on a possibly-stale room.
+		dmCacheMu.Lock()
+		dmMapped[userID] = true
+		dmCacheMu.Unlock()
+		return
+	}
+
+	members, err := b.Client.JoinedMembers(context.Background(), roomID)
+	if err != nil {
+		return
+	}
+	_, botIn := members.Joined[b.Client.UserID]
+	_, userIn := members.Joined[userID]
+	if len(members.Joined) != 2 || !botIn || !userIn {
+		// Group room — remember that so every later message here is free.
+		dmCacheMu.Lock()
+		notDMCache[roomID] = true
+		dmCacheMu.Unlock()
+		return
+	}
+
+	slog.Info("adopted existing DM room", "user", userID, "room", roomID)
+	rememberDMRoom(userID, roomID)
+}
+
+// findExistingDMRoom scans the bot's joined rooms for a two-person room shared
+// with userID. The scan is expensive (one member lookup per room), so it runs
+// at most once per process and only on the path that would otherwise create a
+// duplicate room.
+func (b *Base) findExistingDMRoom(userID id.UserID) (id.RoomID, bool) {
+	dmSweepOnce.Do(func() {
+		ctx := context.Background()
+		joined, err := b.Client.JoinedRooms(ctx)
+		if err != nil {
+			slog.Warn("DM sweep: list joined rooms", "err", err)
+			return
+		}
+		for _, roomID := range joined.JoinedRooms {
+			members, err := b.Client.JoinedMembers(ctx, roomID)
+			if err != nil || len(members.Joined) != 2 {
+				continue
+			}
+			if _, ok := members.Joined[b.Client.UserID]; !ok {
+				continue
+			}
+			for member := range members.Joined {
+				if member != b.Client.UserID {
+					dmSweepIndex[member] = roomID
+				}
+			}
+		}
+		slog.Info("DM sweep complete", "rooms", len(joined.JoinedRooms), "dms", len(dmSweepIndex))
+	})
+
+	roomID, ok := dmSweepIndex[userID]
+	return roomID, ok
+}
+
 // GetDMRoom returns the DM room for a user, creating one if needed.
 func (b *Base) GetDMRoom(userID id.UserID) (id.RoomID, error) {
 	dmCacheMu.Lock()
@@ -695,17 +877,42 @@ func (b *Base) GetDMRoom(userID id.UserID) (id.RoomID, error) {
 	}
 	dmCacheMu.Unlock()
 
-	// Check account data for existing DM rooms
-	var dmRooms map[id.UserID][]id.RoomID
-	err := b.Client.GetAccountData(context.Background(), "m.direct", &dmRooms)
-	if err == nil {
-		if rooms, ok := dmRooms[userID]; ok && len(rooms) > 0 {
-			roomID := rooms[len(rooms)-1] // use most recent
+	// Persisted mapping — the authoritative store across restarts.
+	if roomID, ok := storedDMRoom(userID); ok {
+		if b.dmRoomUsable(roomID, userID) {
 			dmCacheMu.Lock()
 			dmCache[userID] = roomID
 			dmCacheMu.Unlock()
 			return roomID, nil
 		}
+		slog.Info("stored DM room no longer usable, recreating", "user", userID, "room", roomID)
+		forgetDMRoom(userID)
+	}
+
+	// Check account data for existing DM rooms
+	var dmRooms map[id.UserID][]id.RoomID
+	err := b.Client.GetAccountData(context.Background(), "m.direct", &dmRooms)
+	if err == nil {
+		for i := len(dmRooms[userID]) - 1; i >= 0; i-- {
+			roomID := dmRooms[userID][i] // most recent first
+			if b.dmRoomUsable(roomID, userID) {
+				rememberDMRoom(userID, roomID)
+				return roomID, nil
+			}
+		}
+	}
+
+	// Last resort before creating: sweep the rooms the bot is already in for a
+	// two-person room shared with this user. Users who predate the dm_rooms
+	// table have such a room and nothing pointing at it — without this sweep
+	// their first post-upgrade DM would open yet another duplicate. If several
+	// duplicates exist we cannot tell which is liveliest (no /sync, so no
+	// timestamps), so the newest by room-list order wins.
+	if roomID, ok := b.findExistingDMRoom(userID); ok {
+		slog.Info("recovered pre-existing DM room by member sweep", "user", userID, "room", roomID)
+		rememberDMRoom(userID, roomID)
+		b.publishDirect(userID, roomID)
+		return roomID, nil
 	}
 
 	// No existing DM room — create one
@@ -728,9 +935,8 @@ func (b *Base) GetDMRoom(userID id.UserID) (id.RoomID, error) {
 		return "", fmt.Errorf("create DM room: %w", err)
 	}
 
-	dmCacheMu.Lock()
-	dmCache[userID] = resp.RoomID
-	dmCacheMu.Unlock()
+	rememberDMRoom(userID, resp.RoomID)
+	b.publishDirect(userID, resp.RoomID)
 	return resp.RoomID, nil
 }
 

@@ -255,6 +255,9 @@ func main() {
 
 	// ---- Set up event handlers ----
 
+	// Minimal Base used only for DM-room bookkeeping from the event handlers.
+	dmLearner := &plugin.Base{Client: client}
+
 	// Auto-join on invite + moderation member tracking
 	sess.OnEventType(event.StateMember, func(ctx context.Context, evt *event.Event) {
 		defer func() {
@@ -277,6 +280,11 @@ func main() {
 					slog.Error("failed to join room", "room", evt.RoomID, "err", err)
 				} else {
 					slog.Info("joined room", "room", evt.RoomID)
+					// A user-initiated DM invite: claim it now, before any
+					// outbound DM has a chance to create a rival room.
+					if mem.IsDirect {
+						dmLearner.RecordDMRoom(evt.Sender, evt.RoomID)
+					}
 				}
 			}
 			return
@@ -325,6 +333,10 @@ func main() {
 				body = strings.TrimSpace(body[idx+2:])
 			}
 		}
+		// Adopt the room the user is talking in if it's their DM room, so the
+		// bot replies there instead of opening a second one.
+		dmLearner.LearnDMRoom(evt.Sender, evt.RoomID)
+
 		msgCtx := plugin.MessageContext{
 			RoomID:    evt.RoomID,
 			EventID:   evt.ID,
