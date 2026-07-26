@@ -13,6 +13,7 @@ import (
 	"gogobee/internal/bot"
 	"gogobee/internal/db"
 	"gogobee/internal/dreamclient"
+	"gogobee/internal/llm"
 	"gogobee/internal/peteclient"
 	"gogobee/internal/plugin"
 	"gogobee/internal/util"
@@ -37,9 +38,11 @@ func main() {
 		logLevel = "info"
 	}
 	util.InitLogger(logLevel)
+	llmCfg := llm.ConfigFromEnv()
 	slog.Info(version.Full(), "level", logLevel,
-		"ollama_host", os.Getenv("OLLAMA_HOST"),
-		"ollama_model", os.Getenv("OLLAMA_MODEL"))
+		"llm_backend", llmCfg.Backend,
+		"llm_endpoint", llmCfg.Endpoint,
+		"llm_model", llmCfg.Model)
 
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {

@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -70,8 +68,6 @@ const maxRunSummary = 1200
 // for load-then-generate, and a timeout here really does mean the box is down.
 const runSummaryTimeout = 5 * time.Minute
 
-var runSummaryHTTP = &http.Client{Timeout: runSummaryTimeout}
-
 // runSummaryBusy is the whole concurrency story: at most one sweep in flight,
 // ever. The ticker starts one and moves on, so a cold model loading for minutes
 // costs the board nothing, and the ticks that fire meanwhile find the flag set
@@ -105,7 +101,7 @@ func (p *AdventurePlugin) sweepRunSummaries() {
 	if !peteclient.Enabled() || !newsEmissionOn() {
 		return
 	}
-	if os.Getenv("OLLAMA_HOST") == "" || os.Getenv("OLLAMA_MODEL") == "" {
+	if !llmConfigured() {
 		return // no model, no summary, no wasted queries asking which run needs one
 	}
 	runID := nextRunNeedingSummary()
@@ -174,8 +170,7 @@ func authorRunSummary(runID string) (summary, name string) {
 		return "", ""
 	}
 
-	raw, err := callOllamaDispatch(runSummaryHTTP, os.Getenv("OLLAMA_HOST"), os.Getenv("OLLAMA_MODEL"),
-		buildRunSummaryPrompt(name, beats))
+	raw, err := callLLMDispatch(runSummaryTimeout, buildRunSummaryPrompt(name, beats))
 	if err != nil {
 		slog.Warn("run summary: LLM authoring failed", "run", runID, "err", err)
 		return "", name

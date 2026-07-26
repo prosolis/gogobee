@@ -1,19 +1,17 @@
 package plugin
 
 import (
-	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"gogobee/internal/db"
 	"gogobee/internal/dreamclient"
+	"gogobee/internal/llm"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
@@ -533,9 +531,7 @@ func (p *WOTDPlugin) trackUsage(ctx MessageContext) {
 // verifyUsage asks the LLM whether the word was used correctly in context.
 // Returns false if LLM is not configured or on any error.
 func (p *WOTDPlugin) verifyUsage(word, message string) bool {
-	host := os.Getenv("OLLAMA_HOST")
-	model := os.Getenv("OLLAMA_MODEL")
-	if host == "" || model == "" {
+	if !llmConfigured() {
 		return false
 	}
 
@@ -545,58 +541,30 @@ The Word of the Day is "%s". Was this word used correctly and meaningfully in th
 
 Respond with ONLY "yes" or "no".`, message, word)
 
-	payload := map[string]interface{}{
-		"model":  model,
-		"prompt": prompt,
-		"stream": false,
-		"think":  false,
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return false
-	}
-
-	apiURL := strings.TrimRight(host, "/") + "/api/generate"
-	slog.Debug("wotd: sending LLM verification request", "url", apiURL, "word", word)
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(apiURL, "application/json", bytes.NewReader(data))
+	response, err := llmGenerate(context.Background(), llm.Request{
+		Prompt:  prompt,
+		Timeout: wotdLLMTimeout,
+	})
 	if err != nil {
 		slog.Error("wotd: LLM verify request failed", "err", err)
 		return false
 	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
-	}
-
-	var result struct {
-		Response string `json:"response"`
-	}
-	if json.Unmarshal(body, &result) != nil {
-		return false
-	}
-
-	response := result.Response
-	// Strip <think>...</think> blocks (Qwen 3.5 reasoning)
-	if i := strings.Index(response, "<think>"); i != -1 {
-		if j := strings.Index(response, "</think>"); j != -1 {
-			response = response[:i] + response[j+len("</think>"):]
-		}
-	}
 	answer := strings.ToLower(strings.TrimSpace(response))
 	accepted := strings.HasPrefix(answer, "yes")
 	slog.Debug("wotd: LLM verification", "word", word, "answer", answer, "accepted", accepted)
 	return accepted
 }
 
+// wotdLLMTimeout preserves the 30s cap both WOTD paths enforced with their own
+// http.Client. These run on message traffic, so they stay well under the
+// interactive default.
+const wotdLLMTimeout = 30 * time.Second
+
 // llmTranslate asks the LLM for a brief English translation of a foreign word.
 // Returns empty string on failure.
 func (p *WOTDPlugin) llmTranslate(word, lang string) string {
-	host := os.Getenv("OLLAMA_HOST")
-	model := os.Getenv("OLLAMA_MODEL")
-	if host == "" || model == "" {
+	if !llmConfigured() {
 		return ""
 	}
 
@@ -612,44 +580,15 @@ func (p *WOTDPlugin) llmTranslate(word, lang string) string {
 		`Translate the %s word "%s" into English. Reply with ONLY the English translation — one or two words, no explanation, no punctuation.`,
 		langName, word)
 
-	payload := map[string]interface{}{
-		"model":  model,
-		"prompt": prompt,
-		"stream": false,
-		"think":  false,
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-
-	apiURL := strings.TrimRight(host, "/") + "/api/generate"
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Post(apiURL, "application/json", bytes.NewReader(data))
+	response, err := llmGenerate(context.Background(), llm.Request{
+		Prompt:  prompt,
+		Timeout: wotdLLMTimeout,
+	})
 	if err != nil {
 		slog.Error("wotd: LLM translate request failed", "err", err)
 		return ""
 	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return ""
-	}
-
-	var result struct {
-		Response string `json:"response"`
-	}
-	if json.Unmarshal(body, &result) != nil {
-		return ""
-	}
-
-	response := result.Response
-	if i := strings.Index(response, "<think>"); i != -1 {
-		if j := strings.Index(response, "</think>"); j != -1 {
-			response = response[:i] + response[j+len("</think>"):]
-		}
-	}
 	translation := strings.TrimSpace(response)
 	if translation == "" || len(translation) > 50 {
 		return ""

@@ -1,24 +1,24 @@
 package plugin
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/llm"
 
 	"github.com/chehsunliu/poker"
 	"maunium.net/go/mautrix/id"
 )
 
-var holdemTipsClient = &http.Client{Timeout: 60 * time.Second}
+// holdemTipTimeout preserves the 60s budget the tip rewriter's own http.Client
+// enforced. Tips are delivered as private messages during a hand, so this sits
+// between the passive 30s paths and the interactive 120s default.
+const holdemTipTimeout = 60 * time.Second
 
 // loadTipsPref loads a user's tip preference from the database.
 func loadTipsPref(userID id.UserID) bool {
@@ -491,11 +491,8 @@ func cardSuitIndex(c poker.Card) int {
 func generateTip(ctx holdemTipContext) string {
 	base := generateRulesTip(ctx)
 
-	host := os.Getenv("OLLAMA_HOST")
-	model := os.Getenv("OLLAMA_MODEL")
-
-	if host != "" && model != "" {
-		rewritten, err := rewriteTipWithLLM(host, model, ctx, base)
+	if llmConfigured() {
+		rewritten, err := rewriteTipWithLLM(ctx, base)
 		if err != nil {
 			slog.Warn("holdem: LLM tip rewrite failed, using rules tip", "err", err)
 		} else if rewritten != "" {
@@ -626,40 +623,19 @@ func buildTipUserPrompt(ctx holdemTipContext) string {
 // variety. The rules tip is the source of truth — if the rewrite diverges
 // (empty, action vocabulary changed, etc.) we reject it and the caller falls
 // back to the original.
-func rewriteTipWithLLM(host, model string, ctx holdemTipContext, base string) (string, error) {
+func rewriteTipWithLLM(ctx holdemTipContext, base string) (string, error) {
 	userMsg := buildTipUserPrompt(ctx) + "\nTIP:\n" + base + "\n"
-	req := ollamaChatRequest{
-		Model: model,
-		Messages: []chatMessage{
-			{Role: "system", Content: buildTipSystemPrompt()},
-			{Role: "user", Content: userMsg},
-		},
-		Stream: false,
-	}
 
-	body, err := json.Marshal(req)
+	raw, err := llmGenerate(context.Background(), llm.Request{
+		System:  buildTipSystemPrompt(),
+		Prompt:  userMsg,
+		Timeout: holdemTipTimeout,
+	})
 	if err != nil {
-		return "", fmt.Errorf("marshal: %w", err)
+		return "", err
 	}
 
-	url := strings.TrimRight(host, "/") + "/api/chat"
-	resp, err := holdemTipsClient.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var ollamaResp ollamaChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
-		return "", fmt.Errorf("decode: %w", err)
-	}
-
-	tip := extractTipFromResponse(ollamaResp.Message.Content)
+	tip := extractTipFromResponse(raw)
 	if tip == "" {
 		return "", fmt.Errorf("empty response")
 	}

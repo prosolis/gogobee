@@ -1,12 +1,9 @@
 package plugin
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
-	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -121,10 +118,8 @@ func (p *BotInfoPlugin) handleBotInfo(ctx MessageContext) error {
 	sb.WriteString(fmt.Sprintf("Active reminders: %d\n", activeReminders))
 
 	// LLM status
-	ollamaHost := os.Getenv("OLLAMA_HOST")
-	if ollamaHost != "" {
-		llmStatus := p.checkLLMStatus(ollamaHost)
-		sb.WriteString(fmt.Sprintf("LLM status: %s\n", llmStatus))
+	if llmConfigured() {
+		sb.WriteString(fmt.Sprintf("LLM status: %s\n", p.checkLLMStatus()))
 	} else {
 		sb.WriteString("LLM status: not configured\n")
 	}
@@ -159,42 +154,16 @@ func (p *BotInfoPlugin) handleBotInfo(ctx MessageContext) error {
 	return p.SendReply(ctx.RoomID, ctx.EventID, sb.String())
 }
 
-func (p *BotInfoPlugin) checkLLMStatus(ollamaHost string) string {
-	client := &http.Client{Timeout: 5 * time.Second}
-	apiURL := strings.TrimRight(ollamaHost, "/") + "/api/tags"
-
-	resp, err := client.Get(apiURL)
+// checkLLMStatus reports backend liveness for /botinfo. The endpoint it probes
+// differs per backend, which the llm package hides behind Ping.
+func (p *BotInfoPlugin) checkLLMStatus() string {
+	c := llmClient()
+	models, err := c.Ping(context.Background())
 	if err != nil {
-		return fmt.Sprintf("offline (%s)", err.Error())
+		return fmt.Sprintf("offline (%s: %s)", c.Backend(), err.Error())
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Sprintf("error (HTTP %d)", resp.StatusCode)
+	if len(models) == 0 {
+		return fmt.Sprintf("online (%s, no models loaded)", c.Backend())
 	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "online (could not read response)"
-	}
-
-	var result struct {
-		Models []struct {
-			Name string `json:"name"`
-		} `json:"models"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "online (could not parse response)"
-	}
-
-	modelNames := make([]string, 0, len(result.Models))
-	for _, m := range result.Models {
-		modelNames = append(modelNames, m.Name)
-	}
-
-	if len(modelNames) == 0 {
-		return "online (no models loaded)"
-	}
-
-	return fmt.Sprintf("online (%d models: %s)", len(modelNames), strings.Join(modelNames, ", "))
+	return fmt.Sprintf("online (%s, %d models: %s)", c.Backend(), len(models), strings.Join(models, ", "))
 }

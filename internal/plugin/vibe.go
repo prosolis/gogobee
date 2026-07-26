@@ -120,9 +120,7 @@ func (p *VibePlugin) resetCooldown(roomID id.RoomID) {
 }
 
 func (p *VibePlugin) handleVibe(ctx MessageContext) error {
-	ollamaHost := os.Getenv("OLLAMA_HOST")
-	ollamaModel := os.Getenv("OLLAMA_MODEL")
-	if ollamaHost == "" || ollamaModel == "" {
+	if !llmConfigured() {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "LLM is not configured.")
 	}
 
@@ -154,7 +152,7 @@ Describe the room's current vibe:`, botName, transcript)
 		slog.Error("vibe: send thinking", "err", err)
 	}
 
-	response, err := callOllama(ollamaHost, ollamaModel, prompt)
+	response, err := callLLM(prompt)
 	if err != nil {
 		slog.Error("vibe: ollama call", "err", err)
 		p.resetCooldown(ctx.RoomID) // Don't consume cooldown on failure
@@ -165,9 +163,7 @@ Describe the room's current vibe:`, botName, transcript)
 }
 
 func (p *VibePlugin) handleTLDR(ctx MessageContext) error {
-	ollamaHost := os.Getenv("OLLAMA_HOST")
-	ollamaModel := os.Getenv("OLLAMA_MODEL")
-	if ollamaHost == "" || ollamaModel == "" {
+	if !llmConfigured() {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "LLM is not configured.")
 	}
 
@@ -199,7 +195,7 @@ Summary:`, tldrBotName, transcript)
 		slog.Error("vibe: send thinking", "err", err)
 	}
 
-	response, err := callOllama(ollamaHost, ollamaModel, prompt)
+	response, err := callLLM(prompt)
 	if err != nil {
 		slog.Error("vibe: ollama call", "err", err)
 		p.resetCooldown(ctx.RoomID) // Don't consume cooldown on failure

@@ -1,13 +1,11 @@
 package plugin
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"math/rand"
-	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -18,6 +16,7 @@ import (
 
 	"gogobee/internal/db"
 	"gogobee/internal/dreamclient"
+	"gogobee/internal/llm"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
@@ -54,29 +53,31 @@ type queueItem struct {
 	FormattedBody string
 }
 
-// LLMPassivePlugin classifies messages using Ollama and reacts accordingly.
+// classifyTimeout is the per-message budget for passive classification. It
+// preserves the 30s cap the plugin's own http.Client used to enforce, which is
+// deliberately tighter than the interactive default: classification runs on
+// sampled traffic and must never back up the queue.
+const classifyTimeout = 30 * time.Second
+
+// LLMPassivePlugin classifies messages using the configured LLM backend and
+// reacts accordingly.
 type LLMPassivePlugin struct {
 	Base
-	xp          *XPPlugin
-	dict        *dreamclient.Client
-	ollamaHost  string
-	ollamaModel string
-	sampleRate  float64
-	enabled     bool
+	xp         *XPPlugin
+	dict       *dreamclient.Client
+	sampleRate float64
+	enabled    bool
 
 	mu      sync.Mutex
 	queue   []queueItem
 	backoff time.Duration
 
-	httpClient *http.Client
-	stopCh     chan struct{}
+	stopCh chan struct{}
 }
 
 // NewLLMPassivePlugin creates a new LLM passive classification plugin.
 func NewLLMPassivePlugin(client *mautrix.Client, xp *XPPlugin, dict *dreamclient.Client) *LLMPassivePlugin {
-	host := os.Getenv("OLLAMA_HOST")
-	model := os.Getenv("OLLAMA_MODEL")
-	enabled := host != "" && model != ""
+	enabled := llmConfigured()
 
 	sampleRate := 0.15
 	if v := os.Getenv("LLM_SAMPLE_RATE"); v != "" {
@@ -86,16 +87,13 @@ func NewLLMPassivePlugin(client *mautrix.Client, xp *XPPlugin, dict *dreamclient
 	}
 
 	p := &LLMPassivePlugin{
-		Base:        NewBase(client),
-		xp:          xp,
-		dict:        dict,
-		ollamaHost:  host,
-		ollamaModel: model,
-		sampleRate:  sampleRate,
-		enabled:     enabled,
-		backoff:     5 * time.Second,
-		httpClient:  &http.Client{Timeout: 30 * time.Second},
-		stopCh:      make(chan struct{}),
+		Base:       NewBase(client),
+		xp:         xp,
+		dict:       dict,
+		sampleRate: sampleRate,
+		enabled:    enabled,
+		backoff:    5 * time.Second,
+		stopCh:     make(chan struct{}),
 	}
 
 	return p
@@ -116,11 +114,11 @@ func (p *LLMPassivePlugin) Commands() []CommandDef {
 
 func (p *LLMPassivePlugin) Init() error {
 	if p.enabled {
-		slog.Info("llm_passive: enabled", "host", p.ollamaHost, "model", p.ollamaModel, "sample_rate", p.sampleRate)
+		slog.Info("llm_passive: enabled", "backend", llmClient().Backend(),
+			"model", llmClient().Model(), "sample_rate", p.sampleRate)
 		go p.processQueue()
 	} else {
-		slog.Warn("llm_passive: disabled (OLLAMA_HOST or OLLAMA_MODEL not set)",
-			"host", p.ollamaHost, "model", p.ollamaModel)
+		slog.Warn("llm_passive: disabled (LLM endpoint or model not set)")
 	}
 	return nil
 }
@@ -329,9 +327,9 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 	var todayWOTD string
 	db.Get().QueryRow(`SELECT word FROM wotd_log WHERE date = ?`, today).Scan(&todayWOTD)
 
-	result, err := p.callOllama(item.Body+mentionHint, todayWOTD)
+	result, err := p.classify(item.Body+mentionHint, todayWOTD)
 	if err != nil {
-		return fmt.Errorf("ollama call: %w", err)
+		return fmt.Errorf("llm call: %w", err)
 	}
 
 	// Resolve any display names in LLM targets back to MXIDs
@@ -464,21 +462,9 @@ func (p *LLMPassivePlugin) classifyAndProcess(item queueItem) error {
 	return nil
 }
 
-// ollamaRequest is the request body for the Ollama API.
-type ollamaRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
-	Think  bool   `json:"think"`
-}
-
-// ollamaResponse is the response from the Ollama API.
-type ollamaResponse struct {
-	Response string `json:"response"`
-}
-
-// callOllama sends a classification prompt to Ollama and parses the JSON result.
-func (p *LLMPassivePlugin) callOllama(messageText, wotd string) (*classificationResult, error) {
+// classify sends a classification prompt to the configured backend and parses
+// the JSON result.
+func (p *LLMPassivePlugin) classify(messageText, wotd string) (*classificationResult, error) {
 	wotdInstruction := `"wotd_used": false`
 	if wotd != "" {
 		wotdInstruction = fmt.Sprintf(`"wotd_used": true | false (whether the message uses the word "%s" correctly and meaningfully — not just mentioning or quoting it)`, wotd)
@@ -500,36 +486,18 @@ JSON schema:
 
 Message: %s`, wotdInstruction, messageText)
 
-	reqBody := ollamaRequest{
-		Model:  p.ollamaModel,
-		Prompt: prompt,
-		Stream: false,
-	}
-
-	body, err := json.Marshal(reqBody)
+	slog.Debug("llm_passive: calling backend", "backend", llmClient().Backend(), "model", llmClient().Model())
+	// Classification rides the passive path on every sampled message, so it keeps
+	// the tighter budget it always had rather than the interactive default.
+	raw, err := llmGenerate(context.Background(), llm.Request{
+		Prompt:  prompt,
+		Timeout: classifyTimeout,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, err
 	}
 
-	url := strings.TrimRight(p.ollamaHost, "/") + "/api/generate"
-	slog.Debug("llm_passive: calling ollama", "url", url, "model", p.ollamaModel)
-	resp, err := p.httpClient.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("ollama request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ollama status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var ollamaResp ollamaResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
-		return nil, fmt.Errorf("decode ollama response: %w", err)
-	}
-
-	result, err := parseClassification(ollamaResp.Response)
+	result, err := parseClassification(raw)
 	if err != nil {
 		return nil, fmt.Errorf("parse classification: %w", err)
 	}

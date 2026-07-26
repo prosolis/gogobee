@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"os"
 	"strings"
 
 	"gogobee/internal/db"
@@ -116,9 +115,7 @@ func (p *TarotPlugin) handleTarot(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "You've used up your readings for today. The cards need rest, even if you don't.")
 	}
 
-	ollamaHost := os.Getenv("OLLAMA_HOST")
-	ollamaModel := os.Getenv("OLLAMA_MODEL")
-	if ollamaHost == "" || ollamaModel == "" {
+	if !llmConfigured() {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Tarot reader is on a union-mandated vacation and will return when morale improves.")
 	}
 
@@ -151,7 +148,7 @@ func (p *TarotPlugin) handleTarot(ctx MessageContext) error {
 	}
 	prompt := fmt.Sprintf("%s\n%s\n\n%s\n\nCard drawn: %s%s\nGive the reading.", tarotBasePrompt, tarotSingleSuffix, tarotFewShot, card, extraLines)
 
-	response, err := callOllama(ollamaHost, ollamaModel, prompt)
+	response, err := callLLM(prompt)
 	if err != nil {
 		slog.Error("tarot: ollama call", "err", err)
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Tarot reader is on a union-mandated vacation and will return when morale improves.")
@@ -166,9 +163,7 @@ func (p *TarotPlugin) handleSpread(ctx MessageContext) error {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "You've used up your readings for today. The cards need rest, even if you don't.")
 	}
 
-	ollamaHost := os.Getenv("OLLAMA_HOST")
-	ollamaModel := os.Getenv("OLLAMA_MODEL")
-	if ollamaHost == "" || ollamaModel == "" {
+	if !llmConfigured() {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Tarot reader is on a union-mandated vacation and will return when morale improves.")
 	}
 
@@ -202,7 +197,7 @@ func (p *TarotPlugin) handleSpread(ctx MessageContext) error {
 	prompt := fmt.Sprintf("%s\n%s\n\n%s\n\nCards drawn:\n- Past: %s\n- Present: %s\n- Future: %s%s\nGive the reading.",
 		tarotBasePrompt, tarotSpreadSuffix, tarotFewShot, cards[0], cards[1], cards[2], extraLines)
 
-	response, err := callOllama(ollamaHost, ollamaModel, prompt)
+	response, err := callLLM(prompt)
 	if err != nil {
 		slog.Error("tarot: ollama call", "err", err)
 		return p.SendReply(ctx.RoomID, ctx.EventID, "Tarot reader is on a union-mandated vacation and will return when morale improves.")

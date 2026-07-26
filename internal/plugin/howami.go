@@ -1,18 +1,15 @@
 package plugin
 
 import (
-	"bytes"
+	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/llm"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
@@ -47,9 +44,7 @@ func (p *HowAmIPlugin) OnMessage(ctx MessageContext) error {
 		return nil
 	}
 
-	ollamaHost := os.Getenv("OLLAMA_HOST")
-	ollamaModel := os.Getenv("OLLAMA_MODEL")
-	if ollamaHost == "" || ollamaModel == "" {
+	if !llmConfigured() {
 		return p.SendReply(ctx.RoomID, ctx.EventID, "LLM is not configured.")
 	}
 
@@ -84,9 +79,9 @@ Write the roast now. Do not include any preamble or explanation, just the roast 
 			botName, string(target), profile,
 		)
 
-		response, err := callOllama(ollamaHost, ollamaModel, prompt)
+		response, err := callLLM(prompt)
 		if err != nil {
-			slog.Error("howami: ollama call", "err", err)
+			slog.Error("howami: llm call", "err", err)
 			p.SendReply(ctx.RoomID, ctx.EventID, "Couldn't generate the profile. Thanks, Ollama.")
 			return
 		}
@@ -181,55 +176,13 @@ func (p *HowAmIPlugin) gatherProfile(userID id.UserID) string {
 	return sb.String()
 }
 
-// callOllama sends a prompt to the Ollama generate endpoint and returns the response.
-func callOllama(host, model, prompt string) (string, error) {
-	apiURL := strings.TrimRight(host, "/") + "/api/generate"
-
-	payload := map[string]interface{}{
-		"model":  model,
-		"prompt": prompt,
-		"stream": false,
-		"think":  false,
-		"options": map[string]interface{}{
-			"num_ctx": 8192,
-		},
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
-
-	client := &http.Client{Timeout: 120 * time.Second}
-	resp, err := client.Post(apiURL, "application/json", bytes.NewReader(data))
-	if err != nil {
-		return "", fmt.Errorf("ollama request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read response: %w", err)
-	}
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("ollama HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result struct {
-		Response string `json:"response"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("parse response: %w", err)
-	}
-
-	response := result.Response
-	// Strip <think>...</think> blocks (Qwen 3.5 reasoning)
-	if i := strings.Index(response, "<think>"); i != -1 {
-		if j := strings.Index(response, "</think>"); j != -1 {
-			response = response[:i] + response[j+len("</think>"):]
-		}
-	}
-
-	return strings.TrimSpace(response), nil
+// callLLM sends a prompt to whichever backend is configured and returns the
+// completion. Reasoning blocks are stripped by the client. The 8192 context
+// hint is what this path has always asked Ollama for; vLLM ignores it and uses
+// the window fixed at server launch.
+func callLLM(prompt string) (string, error) {
+	return llmGenerate(context.Background(), llm.Request{
+		Prompt: prompt,
+		NumCtx: 8192,
+	})
 }

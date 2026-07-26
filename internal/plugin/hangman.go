@@ -856,9 +856,7 @@ func (p *HangmanPlugin) handleSubmit(ctx MessageContext, phrase string) error {
 	}
 
 	// LLM screening
-	ollamaHost := os.Getenv("OLLAMA_HOST")
-	ollamaModel := os.Getenv("OLLAMA_MODEL")
-	if ollamaHost == "" || ollamaModel == "" {
+	if !llmConfigured() {
 		// No LLM available — add directly
 		if err := p.addPhrase(phrase); err != nil {
 			if err.Error() == "duplicate phrase" {
@@ -879,7 +877,7 @@ or
 
 Phrase: %s`, phrase)
 
-	result, err := callOllama(ollamaHost, ollamaModel, prompt)
+	result, err := callLLM(prompt)
 	if err != nil {
 		slog.Error("hangman: LLM screening failed", "err", err)
 		// Fail open — add it

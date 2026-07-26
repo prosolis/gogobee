@@ -1,10 +1,9 @@
 package plugin
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
 	"net/http"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"gogobee/internal/db"
+	"gogobee/internal/llm"
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/id"
@@ -311,9 +311,7 @@ Do not use em dashes. Do not use exclamation marks. Do not offer financial advic
 If markets are closed or data is stale, note it briefly and move on.`
 
 func (p *MarketPlugin) generateDailySummary(date string) string {
-	host := os.Getenv("OLLAMA_HOST")
-	model := os.Getenv("OLLAMA_MODEL")
-	if host == "" || model == "" {
+	if !llmConfigured() {
 		return ""
 	}
 
@@ -349,7 +347,7 @@ func (p *MarketPlugin) generateDailySummary(date string) string {
 	}
 	prompt.WriteString("\nWrite a 2-3 sentence summary.")
 
-	result, err := p.callOllamaChat(host, model, marketSystemPrompt, prompt.String())
+	result, err := p.chatLLM(marketSystemPrompt, prompt.String())
 	if err != nil {
 		slog.Error("market: ollama summary failed", "err", err)
 		return ""
@@ -358,9 +356,7 @@ func (p *MarketPlugin) generateDailySummary(date string) string {
 }
 
 func (p *MarketPlugin) generateReportSummary(snapsByDate map[string][]marketSnapshot, dateRange string) string {
-	host := os.Getenv("OLLAMA_HOST")
-	model := os.Getenv("OLLAMA_MODEL")
-	if host == "" || model == "" {
+	if !llmConfigured() {
 		return ""
 	}
 
@@ -395,7 +391,7 @@ func (p *MarketPlugin) generateReportSummary(snapsByDate map[string][]marketSnap
 	}
 	prompt.WriteString("\nDescribe the trend in 2-3 sentences. Note any significant moves or divergences between indices.\nBe sardonic but accurate. Reference the VIX trajectory when relevant.")
 
-	result, err := p.callOllamaChat(host, model, marketSystemPrompt, prompt.String())
+	result, err := p.chatLLM(marketSystemPrompt, prompt.String())
 	if err != nil {
 		slog.Warn("market: ollama report summary failed", "err", err)
 		return ""
@@ -403,49 +399,14 @@ func (p *MarketPlugin) generateReportSummary(snapsByDate map[string][]marketSnap
 	return result
 }
 
-// callOllamaChat calls the Ollama /api/chat endpoint with a system and user message.
-// Uses the types already defined in holdem_tips.go (same package).
-func (p *MarketPlugin) callOllamaChat(host, model, systemPrompt, userPrompt string) (string, error) {
-	req := ollamaChatRequest{
-		Model: model,
-		Messages: []chatMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
-		Stream: false,
-	}
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return "", fmt.Errorf("marshal: %w", err)
-	}
-
-	url := strings.TrimRight(host, "/") + "/api/chat"
-	resp, err := p.httpClient.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var ollamaResp ollamaChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
-		return "", fmt.Errorf("decode: %w", err)
-	}
-
-	text := ollamaResp.Message.Content
-	// Strip <think>...</think> blocks (reasoning models)
-	if i := strings.Index(text, "<think>"); i != -1 {
-		if j := strings.Index(text, "</think>"); j != -1 {
-			text = text[:i] + text[j+len("</think>"):]
-		}
-	}
-
-	return strings.TrimSpace(text), nil
+// chatLLM sends a system+user pair to the configured backend. Both backends
+// map this onto their own chat shape, so the market summaries read the same
+// whichever one is serving.
+func (p *MarketPlugin) chatLLM(systemPrompt, userPrompt string) (string, error) {
+	return llmGenerate(context.Background(), llm.Request{
+		System: systemPrompt,
+		Prompt: userPrompt,
+	})
 }
 
 // ── DB Helpers ───────────────────────────────────────────────────────────────
@@ -916,12 +877,10 @@ func (p *MarketPlugin) handleVixReport(ctx MessageContext) error {
 	}
 
 	var summary string
-	host := os.Getenv("OLLAMA_HOST")
-	model := os.Getenv("OLLAMA_MODEL")
-	if host != "" && model != "" {
+	if llmConfigured() {
 		prompt := fmt.Sprintf("VIX (fear index) data over %d days (%s to %s):\n%s\n\nDescribe the fear/greed trajectory in 2-3 sentences. Be sardonic but accurate.",
 			len(entries), entries[0].Date, entries[len(entries)-1].Date, strings.Join(prices, ", "))
-		summary, _ = p.callOllamaChat(host, model, marketSystemPrompt, prompt)
+		summary, _ = p.chatLLM(marketSystemPrompt, prompt)
 	}
 
 	var sb strings.Builder
@@ -1020,12 +979,10 @@ func (p *MarketPlugin) handleCompare(ctx MessageContext, args []string) error {
 	for _, e := range entries {
 		prices = append(prices, fmt.Sprintf("%.2f", e.Price))
 	}
-	host := os.Getenv("OLLAMA_HOST")
-	model := os.Getenv("OLLAMA_MODEL")
-	if host != "" && model != "" {
+	if llmConfigured() {
 		prompt := fmt.Sprintf("%s over %d days (%s to %s):\n%s\n\nDescribe the trend in 2-3 sentences. Be sardonic but accurate.",
 			idx.DisplayName, len(entries), entries[0].Date, entries[len(entries)-1].Date, strings.Join(prices, ", "))
-		if summary, err := p.callOllamaChat(host, model, marketSystemPrompt, prompt); err == nil && summary != "" {
+		if summary, err := p.chatLLM(marketSystemPrompt, prompt); err == nil && summary != "" {
 			sb.WriteString(summary)
 			sb.WriteString("\n\n")
 		}

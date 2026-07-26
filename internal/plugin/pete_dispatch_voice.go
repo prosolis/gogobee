@@ -1,16 +1,14 @@
 package plugin
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
-	"os"
 	"strings"
 	"time"
 
+	"gogobee/internal/llm"
 	"gogobee/internal/peteclient"
 )
 
@@ -39,22 +37,18 @@ const (
 	maxDispatchLede     = 800
 )
 
-var dispatchHTTP = &http.Client{Timeout: dispatchLLMTimeout}
-
 // authorDispatch turns a fact into a headline+lede in Pete's voice, or returns
 // two empty strings if the model is unconfigured, errors, times out, or produces
 // anything malformed. The fact must already have its FINAL Actors set (post
 // opt-out anonymisation) — that list is the only set of names the prose may use,
 // and it is what Pete's guard checks the output against.
 func authorDispatch(f peteclient.Fact) (headline, lede string) {
-	host := os.Getenv("OLLAMA_HOST")
-	model := os.Getenv("OLLAMA_MODEL")
-	if host == "" || model == "" {
+	if !llmConfigured() {
 		return "", ""
 	}
 
 	prompt := buildDispatchPrompt(f)
-	raw, err := callOllamaDispatch(dispatchHTTP, host, model, prompt)
+	raw, err := callLLMDispatch(dispatchLLMTimeout, prompt)
 	if err != nil {
 		slog.Warn("pete dispatch: LLM authoring failed, Pete will template", "guid", f.GUID, "err", err)
 		return "", ""
@@ -128,45 +122,17 @@ The event:
 %s`, names, facts.String())
 }
 
-// callOllamaDispatch posts a single non-streaming generation and returns the raw
-// completion (think-tags stripped). The client is a parameter because the two
-// callers have genuinely different patience: a dispatch is authored on a game
-// chokepoint and must not stall it, while a run summary rides a background
-// ticker and can afford to wait for a bigger model. See runSummaryHTTP.
-func callOllamaDispatch(client *http.Client, host, model, prompt string) (string, error) {
-	payload := map[string]interface{}{
-		"model":  model,
-		"prompt": prompt,
-		"stream": false,
-		"think":  false,
-		"options": map[string]interface{}{
-			"num_ctx": 4096,
-		},
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal payload: %w", err)
-	}
-	apiURL := strings.TrimRight(host, "/") + "/api/generate"
-	resp, err := client.Post(apiURL, "application/json", bytes.NewReader(data))
-	if err != nil {
-		return "", fmt.Errorf("ollama request: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("ollama HTTP %d: %s", resp.StatusCode, string(body))
-	}
-	var result struct {
-		Response string `json:"response"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("parse response: %w", err)
-	}
-	return result.Response, nil
+// callLLMDispatch posts a single non-streaming generation and returns the raw
+// completion. The timeout is a parameter because the two callers have genuinely
+// different patience: a dispatch is authored on a game chokepoint and must not
+// stall it, while a run summary rides a background ticker and can afford to wait
+// for a bigger model. See runSummaryTimeout.
+func callLLMDispatch(timeout time.Duration, prompt string) (string, error) {
+	return llmGenerate(context.Background(), llm.Request{
+		Prompt:  prompt,
+		NumCtx:  4096,
+		Timeout: timeout,
+	})
 }
 
 // parseDispatch pulls {headline, lede} out of the model's completion, tolerating
