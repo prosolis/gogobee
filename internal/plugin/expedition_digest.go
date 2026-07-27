@@ -26,6 +26,9 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
+
+	"gogobee/internal/peteclient"
 
 	"maunium.net/go/mautrix/id"
 )
@@ -40,6 +43,12 @@ const (
 	// carries before it defers to the site. The cap is the whole point of
 	// the change: the digest is a teaser for the feed, not a transcript.
 	digestMaxLines = 8
+
+	// digestScanLimit — how far back the digest reads before it gives up on
+	// finding the window's oldest entry. A day of autopilot ticks, ambient
+	// beats and room events runs to a few dozen rows; this is slack, not a
+	// budget.
+	digestScanLimit = 500
 )
 
 // peteSiteURL returns the public base URL for Pete's site, without a
@@ -71,7 +80,15 @@ func adventureWhoURL(uid id.UserID) string {
 // digestSiteFooter appends the reader's own site link. Per-reader rather
 // than per-expedition: a party shares a briefing body but each member's
 // link goes to their own sheet.
+//
+// Gated on the Pete seam: peteclient.Enabled() is what starts the roster
+// ticker, and the roster push is what creates the page this link points at.
+// With the seam off (a dev instance, or a deploy without an ingest token)
+// every daily DM would otherwise carry a guaranteed 404.
 func digestSiteFooter(uid id.UserID, body string) string {
+	if !peteclient.Enabled() {
+		return body
+	}
 	return body + "\n\n🔗 _Watch it live: " + adventureWhoURL(uid) + "_"
 }
 
@@ -96,11 +113,18 @@ func (p *AdventurePlugin) fireDigestEventAnchor(e *Expedition) {
 	}
 }
 
-// appendOvernightDigest folds the day that just ended into a briefing body.
-// A log read failure is non-fatal: the briefing is the player's only daily
-// message now, so a missing digest block must never cost them the whole DM.
-func appendOvernightDigest(body, expID string, priorDay int) string {
-	entries, err := dayLogEntries(expID, priorDay)
+// appendOvernightDigest folds everything that happened since the previous
+// briefing into a briefing body. A log read failure is non-fatal: the briefing
+// is the player's only daily message now, so a missing digest block must never
+// cost them the whole DM.
+//
+// The window is a timestamp, not a day number, because the two disagree on
+// every event-anchored expedition: the autopilot's night camp rolls
+// current_day at camp time, so by 06:00 the day that just ended is already
+// current_day-1 — and on a night the autopilot never camped, it isn't. A
+// since-last-briefing window reports each entry exactly once either way.
+func appendOvernightDigest(body, expID string, since time.Time) string {
+	entries, err := logEntriesSince(expID, since)
 	if err != nil {
 		slog.Warn("expedition: digest entries", "expedition", expID, "err", err)
 		return body
@@ -110,6 +134,35 @@ func appendOvernightDigest(body, expID string, priorDay int) string {
 		return body
 	}
 	return body + "\n" + digest
+}
+
+// logEntriesSince returns an expedition's log entries stamped at or after
+// `since`, oldest first.
+//
+// The cutoff is applied in Go rather than in the WHERE clause on purpose:
+// dnd_expedition_log.timestamp is a DATETIME column filled by SQLite's own
+// CURRENT_TIMESTAMP, and comparing it against a bound parameter goes through
+// numeric affinity and does not reliably answer the question. Scanning the
+// column into a time.Time does.
+func logEntriesSince(expID string, since time.Time) ([]ExpeditionEntry, error) {
+	recent, err := recentExpeditionLog(expID, digestScanLimit)
+	if err != nil {
+		return nil, err
+	}
+	// CURRENT_TIMESTAMP has one-second resolution while the cutoff we are
+	// handed (a briefing stamp, or the start date on day 1) carries
+	// sub-second precision. Floor it, or an entry written in the same second
+	// as the previous briefing falls out of both windows and is never
+	// reported. Re-reporting inside that one second is the safe direction.
+	since = since.Truncate(time.Second)
+	out := make([]ExpeditionEntry, 0, len(recent))
+	for i := len(recent) - 1; i >= 0; i-- { // recent is newest-first
+		if recent[i].Timestamp.Before(since) {
+			continue
+		}
+		out = append(out, recent[i])
+	}
+	return out, nil
 }
 
 // digestSkipTypes — log entry types the morning digest never echoes.
@@ -133,11 +186,11 @@ var digestSkipTypes = map[string]bool{
 // Returns "" when there is nothing worth reporting — a day with only walks
 // and narration gets no block at all rather than an empty header.
 func renderOvernightDigest(entries []ExpeditionEntry) string {
-	var walks int
+	var rooms int
 	var lines []string
 	for _, en := range entries {
 		if en.Type == "walk" {
-			walks++
+			rooms += walkEntryRooms(en.Summary)
 			continue
 		}
 		if digestSkipTypes[en.Type] {
@@ -149,14 +202,14 @@ func renderOvernightDigest(entries []ExpeditionEntry) string {
 		}
 		lines = append(lines, s)
 	}
-	if walks == 0 && len(lines) == 0 {
+	if rooms == 0 && len(lines) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("📜 **Since yesterday**\n")
-	if walks > 0 {
-		b.WriteString(fmt.Sprintf("• walked %s\n", pluralRooms(walks)))
+	if rooms > 0 {
+		b.WriteString(fmt.Sprintf("• walked %s\n", pluralRooms(rooms)))
 	}
 	shown := lines
 	overflow := 0
@@ -171,6 +224,19 @@ func renderOvernightDigest(entries []ExpeditionEntry) string {
 		b.WriteString(fmt.Sprintf("• _...and %d more, on the site._\n", overflow))
 	}
 	return b.String()
+}
+
+// walkEntryRooms reads the room count back out of an auto-walk log summary
+// ("auto-walk: 3 room(s)"). One `walk` entry is one background tick, and a
+// tick covers as many rooms as the autopilot got through — counting entries
+// would report a 12-room day as a 3-room one. Unparseable summaries count as
+// a single room rather than vanishing.
+func walkEntryRooms(summary string) int {
+	var n int
+	if _, err := fmt.Sscanf(strings.TrimSpace(summary), "auto-walk: %d room", &n); err == nil && n > 0 {
+		return n
+	}
+	return 1
 }
 
 // pluralRooms renders a room count with the right noun.

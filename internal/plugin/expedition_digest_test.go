@@ -17,9 +17,10 @@ import (
 
 func TestRenderOvernightDigest_CollapsesWalksAndSkipsFrameTypes(t *testing.T) {
 	entries := []ExpeditionEntry{
-		{Type: "walk", Summary: "walked into the sump"},
-		{Type: "walk", Summary: "walked into the gallery"},
-		{Type: "walk", Summary: "walked into the stair"},
+		// One `walk` entry is one autopilot tick, and a tick can cover
+		// several rooms — the digest reports rooms, not ticks.
+		{Type: "walk", Summary: "auto-walk: 2 room(s)"},
+		{Type: "walk", Summary: "auto-walk: 3 room(s)"},
 		{Type: "briefing", Summary: "morning briefing — 1.0 SU consumed overnight"},
 		{Type: "narrative", Summary: "the corridor bends left"},
 		{Type: "ambient", Summary: "ambient: pack_rat — Supplies -0.5"},
@@ -28,7 +29,7 @@ func TestRenderOvernightDigest_CollapsesWalksAndSkipsFrameTypes(t *testing.T) {
 	}
 	got := renderOvernightDigest(entries)
 
-	if !strings.Contains(got, "walked 3 rooms") {
+	if !strings.Contains(got, "walked 5 rooms") {
 		t.Errorf("walks not collapsed to a count:\n%s", got)
 	}
 	if !strings.Contains(got, "ambient: pack_rat") {
@@ -213,6 +214,7 @@ func TestDeliverBriefing_CarriesDigestAndSiteLink(t *testing.T) {
 	uid := id.UserID("@digest-briefing:example")
 	defer cleanupExpeditions(uid)
 
+	enablePeteSeam(t)
 	p := &AdventurePlugin{}
 	sink := installSink(p)
 
@@ -221,8 +223,11 @@ func TestDeliverBriefing_CarriesDigestAndSiteLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Stand in for the day that just went by silently.
-	if err := appendExpeditionLog(exp.ID, exp.CurrentDay, "ambient",
+	// Stand in for the day that just went by silently. The day number is
+	// deliberately not CurrentDay: on an event-anchored run the night camp
+	// rolls current_day when it pitches, so entries either side of the
+	// rollover carry different day numbers. The digest windows on time.
+	if err := appendExpeditionLog(exp.ID, exp.CurrentDay+1, "ambient",
 		"ambient: pack_rat — Supplies -0.5", "Something nibbled the stores."); err != nil {
 		t.Fatal(err)
 	}

@@ -350,10 +350,12 @@ func scanExpeditionRows(rows *sql.Rows) ([]*Expedition, error) {
 // A double-fire on the same expedition is a no-op.
 func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	priorBriefing := e.LastBriefingAt
-	// Capture the day number before any rollover below bumps it: the
-	// overnight digest reports the day that just ended, not the one
-	// starting now.
-	priorDay := e.CurrentDay
+	// Everything logged since the previous briefing is what the overnight
+	// digest reports. Captured before the CAS below clobbers the column.
+	digestSince := e.StartDate
+	if priorBriefing != nil {
+		digestSince = *priorBriefing
+	}
 	threshold := time.Date(now.Year(), now.Month(), now.Day(),
 		expeditionBriefingHour, 0, 0, 0, time.UTC)
 	res, err := db.Get().Exec(`
@@ -377,7 +379,7 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	// DM (rollover happened recently) or force-fires processNightCamp
 	// itself (safety net for stalled autopilots).
 	if isEventAnchored(e) {
-		return p.deliverBriefingEventAnchored(e, priorBriefing, priorDay)
+		return p.deliverBriefingEventAnchored(e, priorBriefing, digestSince)
 	}
 
 	burn, err := p.nightRolloverBurn(e)
@@ -405,8 +407,8 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)
 	// The single daily message: fold in what the now-silent recap, night
-	// check and ambient events recorded against the day that just ended.
-	body = appendOvernightDigest(body, e.ID, priorDay)
+	// check and ambient events recorded since the last briefing.
+	body = appendOvernightDigest(body, e.ID, digestSince)
 	if sl := p.shadowBriefingLine(e); sl != "" {
 		body += "\n" + sl + "\n"
 	}
@@ -502,7 +504,9 @@ func (p *AdventurePlugin) maybeDeliverDeferredBriefing(uid id.UserID, now time.T
 //
 // priorBriefing is the last_briefing_at value as of entry into deliverBriefing
 // (before the CAS clobbered it). nil means day-1 or genuinely never rolled.
-func (p *AdventurePlugin) deliverBriefingEventAnchored(e *Expedition, priorBriefing *time.Time, priorDay int) error {
+// digestSince is the same instant collapsed to a non-nil cutoff (start date on
+// day 1) — the window the overnight digest reports.
+func (p *AdventurePlugin) deliverBriefingEventAnchored(e *Expedition, priorBriefing *time.Time, digestSince time.Time) error {
 	now := time.Now().UTC()
 	var since time.Duration
 	if priorBriefing != nil {
@@ -529,7 +533,7 @@ func (p *AdventurePlugin) deliverBriefingEventAnchored(e *Expedition, priorBrief
 
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)
-	body = appendOvernightDigest(body, e.ID, priorDay)
+	body = appendOvernightDigest(body, e.ID, digestSince)
 	if sl := p.shadowBriefingLine(e); sl != "" {
 		body += "\n" + sl + "\n"
 	}
