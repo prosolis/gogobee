@@ -304,15 +304,11 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 	// every other quiet path stays silent until something interactive fires.
 	if body, ok := buildAutoRunDM(e.ID, r, campBlock, campDecision); ok {
 		p.fanOutExpeditionDM(e, body, nil)
-		// N1/A6 — the end-of-day digest is the primary mid-day event anchor.
-		// The anchor is a per-player roll against a per-player daily slot, so
-		// each member rolls their own; a party does not share one event.
-		if campDecision.Night {
-			for _, member := range expeditionAudience(e) {
-				p.maybeFireAnchoredEvent(member, advEventChanceDigest)
-			}
-		}
 	}
+	// N1/A6's digest event anchor has moved to the 06:00 briefing along with
+	// the digest itself — see deliverBriefing. The anchor's whole premise is
+	// firing at a moment the player is demonstrably reading a DM, and the
+	// night camp no longer sends one.
 
 	// Emergence seam: a run-complete reached by the background ticker is
 	// still a live emergence — roll pet arrival. See maybeRollPetArrivalOnEmerge.
@@ -336,8 +332,10 @@ func (p *AdventurePlugin) tryAutoRun(e *Expedition, now time.Time) error {
 // Surface rules:
 //   - stopFork / stopEnded / stopComplete  → render the walk DM. These
 //     are the interactive / climax beats and stay their own messages.
-//   - Night camp pitched                  → render the EoD digest +
-//     camp block. Walk stream is dropped (the digest summarizes the day).
+//   - Night camp pitched                  → silent. The once-a-day cadence
+//     (2026-07-26) retired the EoD digest DM: the camp writes its own
+//     `rest` log entry and the day it summarised is already in the log,
+//     so the 06:00 briefing reads the whole thing back the next morning.
 //   - Boss-safety camp pitched            → short hold notice + camp
 //     block; walk stream dropped (compact bail was deliberate).
 //   - Anything else                       → silent.
@@ -354,24 +352,9 @@ func buildAutoRunDM(expID string, r autopilotWalkResult, camp string, dec autoCa
 		return "", false
 	}
 	if dec.Night {
-		// EoD digest. The camp pitch already bumped current_day in
-		// nightRolloverBurn, so the day-that-just-ended is CurrentDay-1.
-		// digest is the day rollup, then the camp block lays out the rest.
-		fresh, ferr := getExpedition(expID)
-		prevDay := 0
-		if ferr == nil && fresh != nil {
-			prevDay = fresh.CurrentDay - 1
-		}
-		digest := ""
-		if prevDay > 0 {
-			digest = renderEndOfDayDigest(expID, prevDay)
-		}
-		if digest == "" {
-			// No structured day yet — fall back to a thin header so the
-			// camp block isn't dropped on the player without context.
-			digest = "🌙 *The day winds down.*\n\n"
-		}
-		return digest + camp, true
+		// Silent: the morning briefing is the one daily message now, and it
+		// renders this same day out of the expedition log.
+		return "", false
 	}
 	if dec.Reason == "boss-safety hold — resting before re-engaging" {
 		return "⏸ *Holding before the boss — pitching a rest camp.*\n" + camp, true

@@ -350,6 +350,10 @@ func scanExpeditionRows(rows *sql.Rows) ([]*Expedition, error) {
 // A double-fire on the same expedition is a no-op.
 func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	priorBriefing := e.LastBriefingAt
+	// Capture the day number before any rollover below bumps it: the
+	// overnight digest reports the day that just ended, not the one
+	// starting now.
+	priorDay := e.CurrentDay
 	threshold := time.Date(now.Year(), now.Month(), now.Day(),
 		expeditionBriefingHour, 0, 0, 0, time.UTC)
 	res, err := db.Get().Exec(`
@@ -373,7 +377,7 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 	// DM (rollover happened recently) or force-fires processNightCamp
 	// itself (safety net for stalled autopilots).
 	if isEventAnchored(e) {
-		return p.deliverBriefingEventAnchored(e, priorBriefing)
+		return p.deliverBriefingEventAnchored(e, priorBriefing, priorDay)
 	}
 
 	burn, err := p.nightRolloverBurn(e)
@@ -400,6 +404,9 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)
+	// The single daily message: fold in what the now-silent recap, night
+	// check and ambient events recorded against the day that just ended.
+	body = appendOvernightDigest(body, e.ID, priorDay)
 	if sl := p.shadowBriefingLine(e); sl != "" {
 		body += "\n" + sl + "\n"
 	}
@@ -413,7 +420,13 @@ func (p *AdventurePlugin) deliverBriefing(e *Expedition, now time.Time) error {
 		body += "\n" + ml
 	}
 
-	p.fanOutExpeditionDM(e, body, p.briefingPetPrefix)
+	p.fanOutExpeditionDM(e, body, p.briefingPerReader)
+	// N1/A6 anchor, relocated here from the retired night-camp digest DM.
+	// Only on a run still under way: an expedition that just ended does not
+	// want a mid-day event landing on top of the emergence.
+	if e.Status == ExpeditionStatusActive {
+		p.fireDigestEventAnchor(e)
+	}
 	// Emergence seam: a briefing-time forced extraction (starvation / abyss
 	// collapse) surfaces the players alive — roll pet arrival. Combat/patrol
 	// deaths never reach deliverBriefing (the row is already abandoned), so an
@@ -489,7 +502,7 @@ func (p *AdventurePlugin) maybeDeliverDeferredBriefing(uid id.UserID, now time.T
 //
 // priorBriefing is the last_briefing_at value as of entry into deliverBriefing
 // (before the CAS clobbered it). nil means day-1 or genuinely never rolled.
-func (p *AdventurePlugin) deliverBriefingEventAnchored(e *Expedition, priorBriefing *time.Time) error {
+func (p *AdventurePlugin) deliverBriefingEventAnchored(e *Expedition, priorBriefing *time.Time, priorDay int) error {
 	now := time.Now().UTC()
 	var since time.Duration
 	if priorBriefing != nil {
@@ -516,6 +529,7 @@ func (p *AdventurePlugin) deliverBriefingEventAnchored(e *Expedition, priorBrief
 
 	line := pickMorningBriefing(e.CurrentDay)
 	body := renderMorningBriefing(e, line, burn)
+	body = appendOvernightDigest(body, e.ID, priorDay)
 	if sl := p.shadowBriefingLine(e); sl != "" {
 		body += "\n" + sl + "\n"
 	}
@@ -529,7 +543,13 @@ func (p *AdventurePlugin) deliverBriefingEventAnchored(e *Expedition, priorBrief
 		body += "\n" + ml
 	}
 
-	p.fanOutExpeditionDM(e, body, p.briefingPetPrefix)
+	p.fanOutExpeditionDM(e, body, p.briefingPerReader)
+	// N1/A6 anchor, relocated here from the retired night-camp digest DM.
+	// Only on a run still under way: an expedition that just ended does not
+	// want a mid-day event landing on top of the emergence.
+	if e.Status == ExpeditionStatusActive {
+		p.fireDigestEventAnchor(e)
+	}
 	if forced && e.Status == ExpeditionStatusAbandoned {
 		for _, uid := range expeditionAudience(e) {
 			p.maybeRollPetArrivalOnEmerge(uid)
@@ -566,9 +586,10 @@ func (p *AdventurePlugin) deliverRecap(e *Expedition, now time.Time) error {
 		return nil
 	}
 
-	// E2b: night phase wandering check fires before the recap so its
-	// outcome is part of today's log when the recap renders.
-	var night *NightCheck
+	// E2b: night phase wandering check. Still fires on the 21:00 clock and
+	// still writes its own "night" log entry — processNightCheck owns that —
+	// which is how the outcome reaches the next morning's digest now that
+	// the recap itself no longer sends anything.
 	if e.Camp != nil && e.Camp.Active {
 		c, _ := LoadDnDCharacter(id.UserID(e.UserID))
 		var charClass DnDClass
@@ -579,7 +600,6 @@ func (p *AdventurePlugin) deliverRecap(e *Expedition, now time.Time) error {
 		if err := processNightCheck(e, nc); err != nil {
 			slog.Warn("expedition: night check", "expedition", e.ID, "err", err)
 		}
-		night = &nc
 		// §7.4: Feywild double-day fires an extra wandering check.
 		if e.ZoneID == ZoneFeywildCrossing {
 			if today, _ := e.RegionState["feywild_today"].(string); today == string(FeywildDistortionDouble) {
@@ -601,12 +621,11 @@ func (p *AdventurePlugin) deliverRecap(e *Expedition, now time.Time) error {
 		return err
 	}
 	line := pickEveningRecap(e, dayEntries)
-	body := renderEveningRecap(e, line, dayEntries)
-	if night != nil {
-		body += "\n" + renderNightCheck(*night)
-	}
 
-	p.fanOutExpeditionDM(e, body, nil)
+	// Once-a-day cadence: the night check above has already run and already
+	// written its own "night" log entry, so the morning digest reports the
+	// outcome. Nothing is sent here. The recap entry below still lands so
+	// the site keeps a day boundary to render against.
 	if err := appendExpeditionLog(e.ID, e.CurrentDay, "recap",
 		fmt.Sprintf("evening recap — %d log entries today", len(dayEntries)), line); err != nil {
 		return err

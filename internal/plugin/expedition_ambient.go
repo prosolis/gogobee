@@ -186,13 +186,10 @@ func (p *AdventurePlugin) deliverAmbient(e *Expedition, now time.Time) error {
 	}
 
 	footer := p.applyAmbientEffect(e, ev)
-	body := renderAmbientDM(e, ev, line, footer)
 
-	if uid := id.UserID(e.UserID); uid != "" {
-		if err := p.SendDM(uid, body); err != nil {
-			slog.Warn("expedition: ambient DM", "user", uid, "err", err)
-		}
-	}
+	// Once-a-day cadence: the effect above still lands on schedule, but the
+	// DM does not. The log entry below is what the next morning's briefing
+	// digest reads back, and the site renders it as it happens.
 	summary := fmt.Sprintf("ambient: %s", ev.Kind)
 	if footer != "" {
 		summary += " — " + footer
